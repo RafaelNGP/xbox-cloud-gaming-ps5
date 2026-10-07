@@ -7,6 +7,7 @@
 #include "ui/app_ui.h"
 #include "ui/strings.h"
 #include "util/json.h"
+#include "xcloud/prices.h"
 #include "xcloud/regions.h"
 
 #include <cstdio>
@@ -152,9 +153,19 @@ static void testRegions() {
     CHECK(km > 2500 && km < 3000);
 }
 
+static void testPrices() {
+    using xc::xcloud::formatPrice;
+    CHECK(formatPrice(78.82, "BRL") == "R$ 78,82");
+    CHECK(formatPrice(1299.9, "BRL") == "R$ 1.299,90");
+    CHECK(formatPrice(59.99, "USD") == "$59.99");
+    CHECK(formatPrice(69.99, "EUR") == "69,99 \xE2\x82\xAC");
+    CHECK(formatPrice(4, "XYZ") == "XYZ 4.00");
+}
+
 int main() {
     testStrings();
     testRegions();
+    testPrices();
     testJson();
     testUrl();
     testInputPacket();

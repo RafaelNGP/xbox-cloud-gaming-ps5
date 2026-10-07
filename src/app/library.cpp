@@ -65,6 +65,10 @@ json::Value itemsToJson(const std::vector<std::pair<std::string, std::string>>& 
     return a;
 }
 
+bool namesSeries(const std::string& title) {
+    return title.find("Series X|S") != std::string::npos || title.find("Series X/S") != std::string::npos;
+}
+
 // Editions of one game ("Forza Horizon 5", "... Standard Edition") are
 // separate products that start the same cloud title: keep one, the shortest
 // name, where the first one was.
@@ -100,10 +104,23 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
     t.categories = p.categories;
     if (ownershipKnown_) t.playable = ownedTitles_.count(t.titleId) || ownedProducts_.count(t.productId);
     t.purchasable = !t.playable && purchasableSet_.count(productId);
+    if (siblingsFor_ != products_.size()) {
+        seriesSiblings_.clear();
+        for (const auto& [id, prod] : products_) {
+            if (!namesSeries(prod.title)) continue;
+            auto xs = xboxTitleOf_.find(id);
+            seriesSiblings_.insert(xs != xboxTitleOf_.end() ? xs->second : prod.xboxTitleId);
+        }
+        siblingsFor_ = products_.size();
+    }
     auto x = xboxTitleOf_.find(productId);
     std::string xbox = x != xboxTitleOf_.end() ? x->second : p.xboxTitleId;
     auto pl = platform_.find(xbox);
     if (pl != platform_.end()) t.platform = pl->second;
+    // Cross-gen pairs ("Call of Duty: Vanguard" and "... - Xbox Series X|S")
+    // are two cloud titles sharing one Xbox title id: the name tells them apart.
+    if (namesSeries(p.title)) t.platform = xcloud::kPlatformSeries;
+    else if (t.platform == xcloud::kPlatformSeries && seriesSiblings_.count(xbox)) t.platform = xcloud::kPlatformOne;
     return t;
 }
 
@@ -205,13 +222,17 @@ void Library::saveCache() const {
     root.set("ownedProducts", prods);
     root.set("owned", itemsToJson(owned_));
     root.set("purchasable", itemsToJson(purchasable_));
-    // Details of what "Your games" shows; the catalog rows are fetched anyway.
+    // Details of everything on the home screen and in "Your games": the next
+    // launch shows them, hero art and all, before the network answers.
     json::Value details = json::Value::object();
+    auto keep = [&](const std::string& pid) {
+        auto it = products_.find(pid);
+        if (it != products_.end()) details.set(pid, productToJson(it->second));
+    };
+    for (const auto& r : layout_)
+        for (const auto& item : r.items) keep(item.first);
     for (const auto* list : {&owned_, &purchasable_})
-        for (const auto& [pid, tid] : *list) {
-            auto it = products_.find(pid);
-            if (it != products_.end()) details.set(pid, productToJson(it->second));
-        }
+        for (const auto& [pid, tid] : *list) keep(pid);
     root.set("products", details);
     json::Value platforms = json::Value::object(), xboxTitles = json::Value::object();
     for (const auto& [id, code] : platform_) platforms.set(id, code);
@@ -268,7 +289,19 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
             if (!products_.count(t.productId)) ids.push_back(t.productId);
         }
         sortOwned();
-        if (xcloud::fetchProducts(ids, market_, language_, products_, lastErr, false)) {
+        // The first cards are the first thing seen: full details (hero art,
+        // description) for them in this same round trip.
+        constexpr size_t kFirst = 8;
+        std::vector<std::string> first, rest;
+        for (const auto& item : r.items) {
+            auto it = products_.find(item.first);
+            bool complete = it != products_.end() && !it->second.heroUrl.empty();
+            if (complete) continue;
+            (first.size() < kFirst ? first : rest).push_back(item.first);
+        }
+        bool ok = xcloud::fetchProducts(first, market_, language_, products_, lastErr, true) &&
+                  xcloud::fetchProducts(rest, market_, language_, products_, lastErr, false);
+        if (ok) {
             layout_.push_back(std::move(r));
             changed();
         }
@@ -397,10 +430,36 @@ void Library::loadCatalogNames(const Changed& changed, const std::atomic<bool>* 
     changed();
 }
 
-void Library::loadPlatforms(const std::string& xblAuth, const Changed& changed, const std::atomic<bool>* stop) {
+bool Library::fetchFull(const std::vector<std::string>& ids, const Changed& changed, const std::atomic<bool>* stop,
+                        size_t firstBatch) {
+    std::vector<std::string> order;
+    std::set<std::string> queued;
+    for (const auto& id : ids) {
+        auto it = products_.find(id);
+        if ((it == products_.end() || it->second.heroUrl.empty() || it->second.description.empty()) &&
+            queued.insert(id).second)
+            order.push_back(id);
+    }
+    for (size_t i = 0, n = firstBatch; i < order.size(); i += n, n = 20) {
+        if (stop && *stop) return true;
+        std::vector<std::string> batch(order.begin() + static_cast<long>(i),
+                                       order.begin() + static_cast<long>(std::min(order.size(), i + n)));
+        std::map<std::string, xcloud::Product> full;
+        std::string e;
+        if (!xcloud::fetchProducts(batch, market_, language_, full, e, true)) {
+            XC_LOGW("%s", e.c_str());
+            return false;
+        }
+        for (auto& [id, p] : full) products_[id] = std::move(p);
+        changed();
+    }
+    return true;
+}
+
+void Library::fetchPlatformsFor(const std::vector<std::string>& ids, const std::string& xblAuth) {
     if (xblAuth.empty()) return;
     std::set<std::string> want;
-    auto add = [&](const std::string& pid) {
+    for (const auto& pid : ids) {
         auto x = xboxTitleOf_.find(pid);
         std::string xbox = x != xboxTitleOf_.end() ? x->second : std::string();
         if (xbox.empty()) {
@@ -408,18 +467,47 @@ void Library::loadPlatforms(const std::string& xblAuth, const Changed& changed, 
             if (p != products_.end()) xbox = p->second.xboxTitleId;
         }
         if (!xbox.empty() && !platform_.count(xbox)) want.insert(xbox);
-    };
-    for (const auto& r : layout_)
-        for (const auto& item : r.items) add(item.first);
-    for (const auto& item : owned_) add(item.first);
-    for (const auto& item : purchasable_) add(item.first);
-    for (const auto& id : allGames_) add(id);
-    if (want.empty() || (stop && *stop)) return;
-    std::vector<std::string> ids(want.begin(), want.end());
+    }
+    if (want.empty()) return;
+    std::vector<std::string> list(want.begin(), want.end());
     std::string err;
     size_t before = platform_.size();
-    if (!xcloud::fetchPlatforms(xblAuth, ids, platform_, err)) XC_LOGW("%s", err.c_str());
+    if (!xcloud::fetchPlatforms(xblAuth, list, platform_, err)) XC_LOGW("%s", err.c_str());
     XC_LOGI("library: consoles of %zu more games", platform_.size() - before);
+}
+
+void Library::loadFirstScreen(const std::string& xblAuth, const Changed& changed, const std::atomic<bool>* stop) {
+    uint64_t t0 = platform::nowMs();
+    // What is on screen at once: the first cards of each row (the focused
+    // first row first), then the start of "Your games".
+    constexpr size_t kPerRow = 8, kOwned = 12;
+    std::vector<std::string> ids;
+    for (const auto& r : layout_)
+        for (size_t i = 0; i < r.items.size() && i < kPerRow; ++i) ids.push_back(r.items[i].first);
+    for (size_t i = 0; i < owned_.size() && i < kOwned; ++i) ids.push_back(owned_[i].first);
+    for (size_t i = 0; i < purchasable_.size() && i < kOwned; ++i) ids.push_back(purchasable_[i].first);
+    // Badges for every card of the rows (one titlehub call), then the art.
+    std::vector<std::string> badges = ids;
+    for (const auto& r : layout_)
+        for (const auto& item : r.items) badges.push_back(item.first);
+    std::vector<std::string> firstRows(ids.begin(), ids.begin() + static_cast<long>(std::min<size_t>(ids.size(), 20)));
+    fetchFull(firstRows, changed, stop);
+    fetchPlatformsFor(badges, xblAuth);
+    changed();
+    fetchFull(ids, changed, stop);
+    saveCache();
+    XC_LOGI("library: first screen ready in %llu ms", static_cast<unsigned long long>(platform::nowMs() - t0));
+}
+
+void Library::loadPlatforms(const std::string& xblAuth, const Changed& changed, const std::atomic<bool>* stop) {
+    if (stop && *stop) return;
+    std::vector<std::string> ids;
+    for (const auto& r : layout_)
+        for (const auto& item : r.items) ids.push_back(item.first);
+    for (const auto* list : {&owned_, &purchasable_})
+        for (const auto& item : *list) ids.push_back(item.first);
+    ids.insert(ids.end(), allGames_.begin(), allGames_.end());
+    fetchPlatformsFor(ids, xblAuth);
     saveCache();
     changed();
 }
@@ -427,35 +515,11 @@ void Library::loadPlatforms(const std::string& xblAuth, const Changed& changed, 
 void Library::hydrate(const Changed& changed, const std::atomic<bool>* stop) {
     // On-screen order, so what is shown first gets its art first: the rows,
     // then the account's games.
-    std::vector<std::string> order;
-    std::set<std::string> queued;
-    auto want = [&](const std::string& id) {
-        auto it = products_.find(id);
-        if (it != products_.end() && it->second.heroUrl.empty() && queued.insert(id).second) order.push_back(id);
-    };
+    std::vector<std::string> ids;
     for (const auto& r : layout_)
-        for (const auto& item : r.items) want(item.first);
-    for (const auto& item : owned_) want(item.first);
-    // A small first batch: the cards on screen get their hero art quickly.
-    bool ownedChanged = false;
-    for (size_t i = 0, n = 6; i < order.size(); i += n, n = 20) {
-        if (stop && *stop) return;
-        std::vector<std::string> batch(order.begin() + static_cast<long>(i),
-                                       order.begin() + static_cast<long>(std::min(order.size(), i + n)));
-        std::map<std::string, xcloud::Product> full;
-        std::string e;
-        if (!xcloud::fetchProducts(batch, market_, language_, full, e, true)) {
-            XC_LOGW("%s", e.c_str());
-            return;
-        }
-        for (auto& [id, p] : full) {
-            if (ownedProducts_.count(id)) ownedChanged = true;
-            products_[id] = std::move(p);
-        }
-        if (stop && *stop) return;
-        changed();
-    }
-    if (ownedChanged) saveCache();  // descriptions and hero art for next time
+        for (const auto& item : r.items) ids.push_back(item.first);
+    for (const auto& item : owned_) ids.push_back(item.first);
+    if (fetchFull(ids, changed, stop)) saveCache();  // descriptions and hero art for next time
     XC_LOGI("library: %zu rows, %zu products with details", layout_.size(), products_.size());
 }
 

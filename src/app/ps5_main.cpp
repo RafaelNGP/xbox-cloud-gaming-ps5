@@ -16,12 +16,15 @@
 #include "platform/platform.h"
 #include "ui/app_ui.h"
 #include "ui/strings.h"
+#include "util/json.h"
 #include "util/log.h"
 #include "xcloud/catalog.h"
 #include "xcloud/gssv.h"
+#include "xcloud/prices.h"
 #include "xcloud/regions.h"
 
 #include <atomic>
+#include <ctime>
 #include <map>
 #include <strings.h>
 #include <cstdio>
@@ -325,6 +328,75 @@ void loadLibrary(xcloud::GssvClient& gssv);
 
 // Profile token for titlehub (memory only).
 std::string g_xblAuth;
+
+// --- Store prices ---------------------------------------------------------------
+// Asked for the games to buy as they come on screen; kept a day in
+// <dataDir>/prices.json.
+std::mutex g_priceMutex;
+std::string g_priceMarket, g_priceLanguage;  // set by loadLibrary()
+platform::Thread g_priceThread;
+std::atomic<bool> g_stopPrices{false};
+constexpr int64_t kPriceTtlSeconds = 24 * 3600;
+
+std::string pricesPath() { return platform::dataDir() + "/prices.json"; }
+
+std::pair<std::string, std::string> priceTexts(const xcloud::Price& p) {
+    std::string now = p.list < 0.005 ? ui::tr(ui::Str::Free) : xcloud::formatPrice(p.list, p.currency);
+    std::string was = p.msrp > p.list + 0.005 ? xcloud::formatPrice(p.msrp, p.currency) : std::string();
+    return {now, was};
+}
+
+void priceLoop() {
+    json::Value cache = json::Value::object();
+    {
+        std::string text;
+        if (platform::readFile(pricesPath(), text))
+            if (auto j = json::parse(text)) cache = *j;
+    }
+    // Fresh cached prices to the UI right away.
+    int64_t now = static_cast<int64_t>(std::time(nullptr));
+    std::map<std::string, std::pair<std::string, std::string>> shown;
+    json::Value kept = json::Value::object();
+    for (const auto& [id, v] : cache.members()) {
+        if (now - v["t"].asInt() > kPriceTtlSeconds) continue;
+        kept.set(id, v);
+        xcloud::Price p{v["list"].asNumber(), v["msrp"].asNumber(), v["cur"].str()};
+        shown[id] = priceTexts(p);
+    }
+    cache = kept;
+    if (!shown.empty()) g_ui->setPrices(shown);
+    while (!g_stopPrices) {
+        std::string market, language;
+        {
+            std::lock_guard<std::mutex> lock(g_priceMutex);
+            market = g_priceMarket;
+            language = g_priceLanguage;
+        }
+        std::vector<std::string> ids = market.empty() ? std::vector<std::string>() : g_ui->pricesWanted(20);
+        if (ids.empty()) {
+            platform::sleepMs(300);
+            continue;
+        }
+        std::map<std::string, xcloud::Price> got;
+        std::string err;
+        if (!xcloud::fetchPrices(ids, market, language, got, err)) XC_LOGW("%s", err.c_str());
+        std::map<std::string, std::pair<std::string, std::string>> texts;
+        now = static_cast<int64_t>(std::time(nullptr));
+        for (const auto& [id, p] : got) {
+            texts[id] = priceTexts(p);
+            json::Value v = json::Value::object();
+            v.set("list", p.list);
+            v.set("msrp", p.msrp);
+            v.set("cur", p.currency);
+            v.set("t", now);
+            cache.set(id, v);
+        }
+        if (!texts.empty()) {
+            g_ui->setPrices(texts);
+            platform::writeFileAtomic(pricesPath(), cache.dump());
+        }
+    }
+}
 void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
     std::string err;
@@ -354,6 +426,11 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     stopHydration();
     auto library = std::make_shared<app::Library>();
     library->setCachePath(platform::dataDir() + "/library.json");
+    {
+        std::lock_guard<std::mutex> lock(g_priceMutex);
+        g_priceMarket = gssv.session().market.empty() ? "US" : gssv.session().market;
+        g_priceLanguage = ui::catalogLanguage();
+    }
     bool shown = false;
     // Hands the library's current state to the UI (copies).
     auto publish = [](const app::Library& lib) {
@@ -386,6 +463,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     }
     platform::startThread(g_hydrationThread, [library, publish, owned = gssv, xblAuth] {
         auto changed = [&] { publish(*library); };
+        library->loadFirstScreen(xblAuth, changed, &g_stopHydration);
         library->loadOwned(owned, changed, &g_stopHydration);
         library->loadCatalogNames(changed, &g_stopHydration);
         library->loadPlatforms(xblAuth, changed, &g_stopHydration);
@@ -531,6 +609,7 @@ int main(int argc, char** argv) {
         },
         160u << 20, platform::dataDir() + "/imgcache");
     g_ui = std::make_unique<ui::AppUi>(fonts, *g_images);
+    platform::startThread(g_priceThread, priceLoop);
     {
         ui::SettingsChoice choice;
         choice.language = static_cast<int>(ui::language());

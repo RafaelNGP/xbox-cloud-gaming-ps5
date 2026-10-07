@@ -95,6 +95,7 @@ constexpr Column kEnglish = {
     "Buy it on xbox.com or in the Xbox app; it then shows up in Your games.", // BuyHint
     "Scan to open the store page",                   // ScanToBuy
     "Search in %s",                                  // SearchIn
+    "FREE",                                          // Free
 };
 
 constexpr Column kPortugueseBR = {
@@ -160,6 +161,7 @@ constexpr Column kPortugueseBR = {
     "Compre em xbox.com ou no app Xbox; depois ele aparece em Seus jogos.",
     "Escaneie para abrir a página da loja",
     "Pesquisar em %s",
+    "GRÁTIS",
 };
 
 constexpr Column kSpanish = {
@@ -225,6 +227,7 @@ constexpr Column kSpanish = {
     "Cómpralo en xbox.com o en la app de Xbox; luego aparecerá en Tus juegos.",
     "Escanea para abrir la página de la tienda",
     "Buscar en %s",
+    "GRATIS",
 };
 
 constexpr Column kFrench = {
@@ -290,6 +293,7 @@ constexpr Column kFrench = {
     "Achetez-le sur xbox.com ou dans l'app Xbox ; il apparaîtra ensuite dans Vos jeux.",
     "Scannez pour ouvrir la page du magasin",
     "Rechercher dans %s",
+    "GRATUIT",
 };
 
 constexpr Column kGerman = {
@@ -355,6 +359,7 @@ constexpr Column kGerman = {
     "Kaufe es auf xbox.com oder in der Xbox-App; danach erscheint es unter Deine Spiele.",
     "Scannen, um die Store-Seite zu öffnen",
     "Suchen in %s",
+    "KOSTENLOS",
 };
 
 constexpr Column kItalian = {
@@ -420,6 +425,7 @@ constexpr Column kItalian = {
     "Acquistalo su xbox.com o nell'app Xbox; poi apparirà in I tuoi giochi.",
     "Scansiona per aprire la pagina dello store",
     "Cerca in %s",
+    "GRATIS",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

@@ -40,11 +40,12 @@ bool fetchPlatforms(const std::string& auth, const std::vector<std::string>& xbo
                 hasSeries |= d.str() == "XboxSeries";
             }
             for (const auto& a : t["detail"]["attributes"].items()) optimized |= a["name"].str() == "ConsoleGen9Optimized";
-            const char* code = has360                          ? kPlatform360
+            // No console in "devices": the id is the PC / Play Anywhere entry
+            // (ARK, #IDARB). Every cloud title is a console game, and one that
+            // isn't marked for Series X|S is the Xbox One version.
+            const char* code = has360                                ? kPlatform360
                                : optimized || (hasSeries && !hasOne) ? kPlatformSeries
-                               : hasOne || hasSeries                 ? kPlatformOne
-                                                                     : nullptr;  // PC-only entries
-            if (!code) continue;
+                                                                     : kPlatformOne;
             // The id asked for may be an older one titlehub maps to its
             // current id: record both.
             out[t["titleId"].str()] = code;

@@ -72,6 +72,7 @@ enum class Str {
     BuyHint,
     ScanToBuy,
     SearchIn,         // "%s" = tab name
+    Free,             // price 0 (free-to-play games still "bought" in the store)
     Count
 };
 

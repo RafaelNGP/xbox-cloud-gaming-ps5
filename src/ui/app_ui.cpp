@@ -238,6 +238,35 @@ void AppUi::setRegionLatency(std::map<std::string, int> ms) {
     dirty_ = true;
 }
 
+void AppUi::setPrices(const std::map<std::string, std::pair<std::string, std::string>>& prices) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& [id, p] : prices) prices_[id] = p;
+    dirty_ = true;
+}
+
+std::vector<std::string> AppUi::pricesWanted(size_t max) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> out;
+    auto want = [&](const GameTile& t) {
+        if (out.size() < max && t.purchasable && !prices_.count(t.productId) && pricesAsked_.insert(t.productId).second)
+            out.push_back(t.productId);
+    };
+    if (screen_ == Screen::Details) want(detail_);
+    if (screen_ != Screen::Home && screen_ != Screen::Details) return out;
+    if (searching_) {
+        for (const auto& t : results_) want(t);
+    } else if (tab_ == Tab::Library && !purchasable_.empty()) {
+        // The rows on screen and the two below.
+        LibraryLayout L = libraryLayout();
+        float top = gridScroll_.target - kGridPitchY, bottom = gridScroll_.target + kH + 2 * kGridPitchY;
+        for (size_t i = owned_.size(); i < L.rowOf.size(); ++i) {
+            int y = L.rowY[static_cast<size_t>(L.rowOf[i])];
+            if (y >= top && y <= bottom) want(purchasable_[i - owned_.size()]);
+        }
+    }
+    return out;
+}
+
 const GameTile* AppUi::libraryTile(int index) const {
     if (index < 0) return nullptr;
     size_t i = static_cast<size_t>(index);
@@ -884,7 +913,8 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
     // it can't be played or bought.
     if (t.purchasable) {
         c.fillRect({x, y, kCard, kCard}, rgba(0, 0, 0, 70), 10);
-        std::string label = tr(Str::BuyBadge);
+        auto price = prices_.find(t.productId);
+        std::string label = price != prices_.end() ? price->second.first : tr(Str::BuyBadge);
         int w = fonts_.bold.measure(label, 13) + 46;
         Rect badge{x + 10, y + kCard - 34, w, 24};
         c.fillRect(badge, rgba(16, 124, 16, 235), 4);
@@ -895,15 +925,16 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
         drawLock(c, x + kCard - 34, y + 30);
     } else if (gamePassBadge) {
         Rect badge{x + 10, y + kCard - 34, 96, 24};
-        c.fillRect(badge, rgba(0, 0, 0, 210), 4);
-        fonts_.bold.draw(c, "GAME PASS", badge.x + 9, badge.y + 4, 13, kWhite);
+        c.fillRect(badge, rgba(0, 0, 0, 220), 4);
+        fonts_.bold.draw(c, "GAME PASS", badge.x + (96 - fonts_.bold.measure("GAME PASS", 13)) / 2, badge.y + 4, 13,
+                         kWhite);
     }
-    // Bottom-right: the console it was made for.
+    // Bottom-right: the console it was made for; one style and width for all.
     if (const char* p = platformLabel(t.platform)) {
-        int w = fonts_.bold.measure(p, 13) + 18;
-        Rect badge{x + kCard - 10 - w, y + kCard - 34, w, 24};
-        c.fillRect(badge, t.platform == "360" ? rgba(60, 60, 60, 225) : rgba(0, 0, 0, 210), 4);
-        fonts_.bold.draw(c, p, badge.x + 9, badge.y + 4, 13, t.platform == "XS" ? rgba(120, 230, 120) : kWhite);
+        constexpr int kBadgeW = 96;
+        Rect badge{x + kCard - 10 - kBadgeW, y + kCard - 34, kBadgeW, 24};
+        c.fillRect(badge, rgba(0, 0, 0, 220), 4);
+        fonts_.bold.draw(c, p, badge.x + (kBadgeW - fonts_.bold.measure(p, 13)) / 2, badge.y + 4, 13, kWhite);
     }
     if (focused) c.strokeRect({x - 7, y - 7, kCard + 14, kCard + 14}, kWhite, 4, 16);
 }
@@ -1137,7 +1168,20 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     if (g->purchasable) {
         // Streams once bought: say where to buy it, with a QR code of the
         // store page for the phone.
-        int ny = std::max(y + 40, 600);
+        auto price = prices_.find(g->productId);
+        int ny = std::max(y + (price != prices_.end() ? 120 : 40), 600);
+        if (price != prices_.end()) {
+            // The price, and the regular one crossed out while on sale.
+            int px = kMargin;
+            fonts_.bold.draw(c, price->second.first, px, ny - 70, 44, kWhite);
+            px += fonts_.bold.measure(price->second.first, 44) + 20;
+            if (!price->second.second.empty()) {
+                int w = fonts_.semibold.measure(price->second.second, 28);
+                fonts_.semibold.draw(c, price->second.second, px, ny - 58, 28, kDim);
+                c.line(static_cast<float>(px), static_cast<float>(ny - 42), static_cast<float>(px + w),
+                       static_cast<float>(ny - 42), 2, kDim);
+            }
+        }
         Rect note{kMargin, ny, 620, 76};
         c.fillRect(note, rgba(16, 124, 16, 235), 38);
         drawBag(c, note.x + 50, note.y + note.h / 2, kWhite);

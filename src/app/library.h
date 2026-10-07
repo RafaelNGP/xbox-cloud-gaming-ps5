@@ -45,6 +45,9 @@ public:
 
     // Calls `changed` after each row arrives; false only when nothing loaded.
     bool load(xcloud::GssvClient& gssv, const std::string& language, const Changed& changed, std::string& err);
+    // The first screen, before anything else: hero art, descriptions and
+    // console badges of the first cards of every row and of "Your games".
+    void loadFirstScreen(const std::string& xblAuth, const Changed& changed, const std::atomic<bool>* stop = nullptr);
     // The account's titles: what it can play, what it could buy. Takes its own
     // GssvClient (a copy) so it can run on another thread.
     void loadOwned(xcloud::GssvClient gssv, const Changed& changed, const std::atomic<bool>* stop = nullptr);
@@ -74,6 +77,12 @@ private:
     };
     ui::GameTile tile(const std::string& productId, const std::string& titleId) const;
     std::vector<ui::GameTile> tiles(const std::vector<Item>& items) const;
+    // Full details (hero art, description) for `ids` lacking them, in batches,
+    // `changed` after each; false on a network error.
+    bool fetchFull(const std::vector<std::string>& ids, const Changed& changed, const std::atomic<bool>* stop,
+                   size_t firstBatch = 20);
+    // titlehub for the products in `ids` whose console isn't known yet.
+    void fetchPlatformsFor(const std::vector<std::string>& ids, const std::string& xblAuth);
     void sortOwned();
     bool loadCache();
     void saveCache() const;
@@ -94,6 +103,10 @@ private:
     std::set<std::string> purchasableSet_;
     std::map<std::string, std::string> xboxTitleOf_;  // productId -> Xbox title id
     std::map<std::string, std::string> platform_;     // Xbox title id -> platform code
+    // Xbox title ids that have a "... - Xbox Series X|S" product, rebuilt
+    // when products_ grows.
+    mutable std::set<std::string> seriesSiblings_;
+    mutable size_t siblingsFor_ = 0;
 };
 
 }  // namespace xc::app

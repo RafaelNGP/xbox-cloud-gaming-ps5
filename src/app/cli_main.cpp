@@ -28,6 +28,7 @@
 #include "ui/brand.h"
 #include "ui/strings.h"
 #include "xcloud/gssv.h"
+#include "xcloud/prices.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_STATIC
@@ -345,6 +346,18 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
         save("library", 3000);
         int ownedRows = static_cast<int>((library.owned().size() + 5) / 6);
         press([](ui::NavInput& n) { n.down = true; }, ownedRows);  // into "Available to buy"
+        {
+            // What the app's price thread does: ask for the cards on screen.
+            std::map<std::string, xcloud::Price> got;
+            std::string e;
+            xcloud::fetchPrices(app.pricesWanted(40), gssv.session().market.empty() ? "US" : gssv.session().market,
+                                ui::catalogLanguage(), got, e);
+            std::map<std::string, std::pair<std::string, std::string>> texts;
+            for (const auto& [id, p] : got)
+                texts[id] = {p.list < 0.005 ? ui::tr(ui::Str::Free) : xcloud::formatPrice(p.list, p.currency),
+                             p.msrp > p.list + 0.005 ? xcloud::formatPrice(p.msrp, p.currency) : std::string()};
+            app.setPrices(texts);
+        }
         save("library_buy", 3000);
         press([](ui::NavInput& n) { n.accept = true; }, 1);
         save("details_buy", 2000);

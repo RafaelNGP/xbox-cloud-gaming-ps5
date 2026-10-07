@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <map>
+#include <set>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -93,6 +94,11 @@ public:
     void setSearchPools(std::vector<GameTile> gamePass, std::vector<GameTile> library);
     // Measured round trip to each region, ms (shown in Settings).
     void setRegionLatency(std::map<std::string, int> ms);
+    // Store prices, formatted: productId -> {now, regular (empty unless on sale)}.
+    void setPrices(const std::map<std::string, std::pair<std::string, std::string>>& prices);
+    // Games to buy on screen (or about to be) whose price hasn't been asked
+    // for yet; marks them asked.
+    std::vector<std::string> pricesWanted(size_t max);
     void showHome(const std::string& toast = {});
     void showLaunching(const GameTile& game, const std::string& status);
     void setLaunchStatus(const std::string& status);
@@ -192,6 +198,8 @@ private:
     std::vector<std::string> regions_;
     std::string defaultRegion_;
     std::map<std::string, int> regionMs_;
+    std::map<std::string, std::pair<std::string, std::string>> prices_;
+    std::set<std::string> pricesAsked_;
     int settingsRow_ = 0;
     uint64_t signOutHoldStart_ = 0;  // TOUCHPAD hold in progress
     bool signOutLatched_ = false;    // fired; wait for release
