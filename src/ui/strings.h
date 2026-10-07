@@ -52,6 +52,7 @@ enum class Str {
     SignInFailed,     // "%s" = technical detail
     LibraryFailed,    // "%s" = technical detail
     StreamFailed,     // "%s" = technical detail
+    IdleWarning,      // "%s" = seconds until the server disconnects
     Count
 };
 

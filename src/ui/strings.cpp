@@ -75,6 +75,7 @@ constexpr Column kEnglish = {
     "Sign-in failed: %s",                             // SignInFailed
     "Could not load the game list: %s",               // LibraryFailed
     "Could not start the stream: %s",                 // StreamFailed
+    "No input for a while: you will be disconnected in %s seconds",  // IdleWarning
 };
 
 constexpr Column kPortugueseBR = {
@@ -120,6 +121,7 @@ constexpr Column kPortugueseBR = {
     "Falha ao entrar: %s",
     "Não foi possível carregar a lista de jogos: %s",
     "Não foi possível iniciar o streaming: %s",
+    "Sem atividade: você será desconectado em %s segundos",
 };
 
 constexpr Column kSpanish = {
@@ -165,6 +167,7 @@ constexpr Column kSpanish = {
     "Error al iniciar sesión: %s",
     "No se pudo cargar la lista de juegos: %s",
     "No se pudo iniciar el streaming: %s",
+    "Sin actividad: se te desconectará en %s segundos",
 };
 
 constexpr Column kFrench = {
@@ -210,6 +213,7 @@ constexpr Column kFrench = {
     "Échec de la connexion : %s",
     "Impossible de charger la liste des jeux : %s",
     "Impossible de démarrer le streaming : %s",
+    "Aucune activité : vous serez déconnecté dans %s secondes",
 };
 
 constexpr Column kGerman = {
@@ -255,6 +259,7 @@ constexpr Column kGerman = {
     "Anmeldung fehlgeschlagen: %s",
     "Die Spieleliste konnte nicht geladen werden: %s",
     "Das Streaming konnte nicht gestartet werden: %s",
+    "Keine Aktivität: Die Verbindung wird in %s Sekunden getrennt",
 };
 
 constexpr Column kItalian = {
@@ -300,6 +305,7 @@ constexpr Column kItalian = {
     "Accesso non riuscito: %s",
     "Impossibile caricare l'elenco dei giochi: %s",
     "Impossibile avviare lo streaming: %s",
+    "Nessuna attività: verrai disconnesso tra %s secondi",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

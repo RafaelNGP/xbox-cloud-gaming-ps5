@@ -8,6 +8,7 @@
 #include "media/decoder.h"
 #include "platform/platform.h"
 #include "stream/stream_session.h"
+#include "ui/strings.h"
 #include "util/log.h"
 
 #include <algorithm>
@@ -219,6 +220,9 @@ struct StreamPlayer::Impl {
                         v.durationMs);
             auto scale = [](uint8_t pct) { return static_cast<uint8_t>(std::min<int>(pct, 100) * 255 / 100); };
             input::setRumble(scale(v.leftMotor), scale(v.rightMotor), v.durationMs);
+        };
+        cb.idleWarning = [](int seconds) {
+            platform::notify(ui::trf(ui::Str::IdleWarning, std::to_string(seconds)));
         };
         cb.closed = [this](const std::string& reason) { end(reason); };
 
