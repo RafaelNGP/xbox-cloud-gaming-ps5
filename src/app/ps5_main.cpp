@@ -85,6 +85,7 @@ bool g_autoplayDump = false;
 int g_autoplayRuns = 1;
 bool g_autoplayIdle = false;
 bool g_autoplayDetailTest = false;  // open a game to buy far down the list, save its page
+bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25 s
 int g_decodeThreads = 1;
 std::atomic<bool> g_syntheticA{false};
 
@@ -107,6 +108,7 @@ void loadAutoplay() {
         if (opt == "idle") g_autoplayIdle = true;
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
         if (opt == "detailtest") g_autoplayDetailTest = true;
+        if (opt == "librarytest") g_autoplayLibraryTest = true;
         if (opt.rfind("threads=", 0) == 0) g_decodeThreads = std::atoi(opt.c_str() + 8);
     }
     g_autoplayTitle = title;
@@ -456,6 +458,8 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         g_ui->setRows(lib.rows());
         g_ui->setOwned(lib.owned(), lib.purchasable(), lib.ownedKnown());
         g_ui->setSearchPools(lib.gamePassSearchPool(), lib.librarySearchPool());
+        auto p = lib.progress();
+        g_ui->setLoading(p.active, p.done, p.total);
     };
     bool ok = library->load(gssv, ui::catalogLanguage(),
                             [&] {
@@ -488,7 +492,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         library->loadPlatforms(xblAuth, changed, &g_stopHydration);
         library->hydrate(changed, &g_stopHydration);
     });
-    if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH" && !g_autoplayDetailTest) {
+    if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH" && !g_autoplayDetailTest && !g_autoplayLibraryTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
         tile.titleId = g_autoplayTitle;
@@ -766,6 +770,23 @@ int main(int argc, char** argv) {
             if (now - launchSince > 8000) {
                 launchSaved = true;
                 saveCanvas("launch.ppm");
+            }
+        }
+        if (g_autoplayLibraryTest && uiSaved) {
+            static uint64_t openedAt = 0;
+            static int saved = 0;
+            if (!openedAt) {
+                ui::NavInput r1;
+                r1.r1 = true;
+                g_ui->handle(r1);
+                openedAt = now;
+            } else if (saved == 0 && now - openedAt > 4000) {
+                saveCanvas("library.ppm");
+                saved = 1;
+            } else if (saved == 1 && now - openedAt > 25000) {
+                saveCanvas("library2.ppm");
+                g_autoplayLibraryTest = false;
+                XC_LOGI("AUTOPLAY END: library test");
             }
         }
         if (g_autoplayDetailTest && uiSaved) {

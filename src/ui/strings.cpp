@@ -113,6 +113,7 @@ constexpr Column kEnglish = {
     "All consoles",                                  // FilterAllConsoles
     "1 game",                                        // OneGame
     "Sections",                                      // Sections
+    "Updating the game list...",                     // UpdatingList
 };
 
 constexpr Column kPortugueseBR = {
@@ -196,6 +197,7 @@ constexpr Column kPortugueseBR = {
     "Todos os consoles",
     "1 jogo",
     "Seções",
+    "Atualizando a lista de jogos...",
 };
 
 constexpr Column kSpanish = {
@@ -279,6 +281,7 @@ constexpr Column kSpanish = {
     "Todas las consolas",
     "1 juego",
     "Secciones",
+    "Actualizando la lista de juegos...",
 };
 
 constexpr Column kFrench = {
@@ -362,6 +365,7 @@ constexpr Column kFrench = {
     "Toutes les consoles",
     "1 jeu",
     "Sections",
+    "Mise \xC3\xA0 jour de la liste des jeux...",
 };
 
 constexpr Column kGerman = {
@@ -445,6 +449,7 @@ constexpr Column kGerman = {
     "Alle Konsolen",
     "1 Spiel",
     "Abschnitte",
+    "Spieleliste wird aktualisiert...",
 };
 
 constexpr Column kItalian = {
@@ -528,6 +533,7 @@ constexpr Column kItalian = {
     "Tutte le console",
     "1 gioco",
     "Sezioni",
+    "Aggiornamento dell'elenco dei giochi...",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

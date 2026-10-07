@@ -188,10 +188,14 @@ bool Library::loadCache() {
     if (cachePath_.empty() || !platform::readFile(cachePath_, text)) return false;
     auto j = json::parse(text);
     if (!j || (*j)["version"].asInt() != kCacheVersion || (*j)["market"].str() != market_) return false;
-    // Names and descriptions are in the cache's language: only reused in it.
-    if ((*j)["language"].str() == language_)
-        for (const auto& [id, v] : (*j)["products"].members())
-            if (!products_.count(id)) products_[id] = productFromJson(id, v);
+    // Names and descriptions in another language (the language changed):
+    // still shown, so the lists stay whole, and fetched again in this one.
+    bool sameLanguage = (*j)["language"].str() == language_;
+    for (const auto& [id, v] : (*j)["products"].members())
+        if (!products_.count(id)) {
+            products_[id] = productFromJson(id, v);
+            if (!sameLanguage) otherLanguage_.insert(id);
+        }
     for (const auto& [id, code] : (*j)["platforms"].members()) platform_[id] = code.str();
     for (const auto& [pid, xbox] : (*j)["xboxTitles"].members()) xboxTitleOf_[pid] = xbox.str();
     for (const auto& id : (*j)["freeInStore"].items()) freeInStore_.insert(id.str());
@@ -263,6 +267,8 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
     purchasable_.clear();
     purchasableSet_.clear();
     freeInStore_.clear();
+    otherLanguage_.clear();
+    progress_ = {};
     xboxTitleOf_.clear();
     platform_.clear();
     std::string lastErr;
@@ -360,6 +366,8 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
 }
 
 void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const std::atomic<bool>* stop) {
+    progress_ = {true, 0, 0};  // the account's list: no measure until the names
+    changed();
     std::vector<xcloud::Title> titles;
     std::string err;
     if (!gssv.listTitles(titles, err, false)) {
@@ -413,24 +421,45 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
 }
 
 void Library::loadCatalogNames(const Changed& changed, const std::atomic<bool>* stop) {
-    // The Game Pass catalog (for its search), then the games to buy.
+    // Names and art: the account's games and the games to buy first (their
+    // lists are on screen), then the Game Pass catalog for its search. Also
+    // anything still in another language.
     std::vector<std::string> missing;
-    for (const auto& id : allGames_)
-        if (!products_.count(id)) missing.push_back(id);
-    for (const auto& [id, tid] : purchasable_)
-        if (!products_.count(id)) missing.push_back(id);
+    std::set<std::string> queued;
+    auto want = [&](const std::string& id) {
+        if ((!products_.count(id) || otherLanguage_.count(id)) && queued.insert(id).second) missing.push_back(id);
+    };
+    for (const auto* list : {&owned_, &purchasable_})
+        for (const auto& item : *list) want(item.first);
+    for (const auto& id : allGames_) want(id);
+    progress_ = {true, 0, missing.size()};
+    changed();
     constexpr size_t kBatch = 100;
     for (size_t i = 0; i < missing.size(); i += kBatch) {
-        if (stop && *stop) return;
+        if (stop && *stop) break;
         std::vector<std::string> batch(missing.begin() + static_cast<long>(i),
                                        missing.begin() + static_cast<long>(std::min(missing.size(), i + kBatch)));
+        std::map<std::string, xcloud::Product> fetched;
         std::string e;
-        if (!xcloud::fetchProducts(batch, market_, language_, products_, e, false)) {
+        if (!xcloud::fetchProducts(batch, market_, language_, fetched, e, false)) {
             XC_LOGW("%s", e.c_str());
-            return;
+            break;
         }
-        if (i == 0 || i + kBatch >= missing.size()) changed();
+        for (auto& [id, p] : fetched) {
+            // Keep the hero art and description already known, until they
+            // come in the new language (hydrate()).
+            auto old = products_.find(id);
+            if (old != products_.end()) {
+                if (p.heroUrl.empty()) p.heroUrl = old->second.heroUrl;
+                if (p.description.empty() && !otherLanguage_.count(id)) p.description = old->second.description;
+            }
+            products_[id] = std::move(p);
+            otherLanguage_.erase(id);
+        }
+        progress_.done = std::min(missing.size(), i + kBatch);
+        changed();  // each batch: the lists fill in as names arrive
     }
+    progress_ = {};
     saveCache();
     XC_LOGI("library: search covers %zu Game Pass games and %zu of yours or to buy", gamePassSearchPool().size(),
             librarySearchPool().size());

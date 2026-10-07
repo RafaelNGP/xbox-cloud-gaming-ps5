@@ -67,6 +67,13 @@ public:
     std::vector<ui::GameTile> librarySearchPool() const;
     // True once the account's games are known (from the cache or the service).
     bool ownedKnown() const { return ownershipKnown_; }
+    // The background refresh of the lists: whether it runs, and (while
+    // names come in) how far it is; total 0 = no measure yet.
+    struct Progress {
+        bool active = false;
+        size_t done = 0, total = 0;
+    };
+    Progress progress() const { return progress_; }
 
 private:
     using Item = std::pair<std::string, std::string>;  // productId, titleId
@@ -102,6 +109,9 @@ private:
     std::vector<Item> purchasable_;  // streamable once bought
     std::set<std::string> purchasableSet_;
     std::set<std::string> freeInStore_;  // product ids free in the store
+    // Details from a cache in another language: shown until replaced.
+    std::set<std::string> otherLanguage_;
+    Progress progress_;
     std::map<std::string, std::string> xboxTitleOf_;  // productId -> Xbox title id
     std::map<std::string, std::string> platform_;     // Xbox title id -> platform code
     // Xbox title ids that have a "... - Xbox Series X|S" product, rebuilt

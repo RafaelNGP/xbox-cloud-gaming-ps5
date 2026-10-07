@@ -328,6 +328,36 @@ void AppUi::rebuild(bool keepPosition) {
     dirty_ = true;
 }
 
+void AppUi::setLoading(bool active, size_t done, size_t total) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (active == loading_ && done == loadingDone_ && total == loadingTotal_) return;
+    loading_ = active;
+    loadingDone_ = done;
+    loadingTotal_ = total;
+    dirty_ = true;
+}
+
+void AppUi::drawLoadingBar(Canvas& c, int x, int y, int w, uint64_t nowMs) {
+    // "Updating the game list..." over a thin bar: the share done, or a
+    // sliding segment while there's no measure yet.
+    if (!loading_) return;
+    std::string text = tr(Str::UpdatingList);
+    if (loadingTotal_) text += "  " + std::to_string(loadingDone_ * 100 / loadingTotal_) + "%";
+    fonts_.semibold.draw(c, text, x, y, 20, kGray);
+    Rect track{x, y + 32, w, 6};
+    c.fillRect(track, rgba(255, 255, 255, 40), 3);
+    if (loadingTotal_) {
+        int fill = static_cast<int>(static_cast<double>(w) * loadingDone_ / loadingTotal_);
+        if (fill > 0) c.fillRect({x, track.y, fill, track.h}, kGreen, 3);
+    } else {
+        int seg = w / 4;
+        int pos = static_cast<int>((nowMs % 1400) * static_cast<uint64_t>(w + seg) / 1400) - seg;
+        int a = std::max(x, x + pos), b = std::min(x + w, x + pos + seg);
+        if (b > a) c.fillRect({a, track.y, b - a, track.h}, kGreen, 3);
+    }
+    animating_ = true;
+}
+
 void AppUi::setPrefs(const std::vector<std::string>& hidden, LibrarySort sort) {
     std::lock_guard<std::mutex> lock(mutex_);
     hidden_ = std::set<std::string>(hidden.begin(), hidden.end());
@@ -1371,6 +1401,7 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
         }
     }
     {
+        drawLoadingBar(c, left, 112, 420, nowMs);
         // The order (the whole tab's), right-aligned under the tabs, with its button.
         Str sortName = librarySort_ == LibrarySort::AZ        ? Str::SortAZ
                        : librarySort_ == LibrarySort::Console ? Str::SortConsole
@@ -1413,6 +1444,7 @@ void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
     } else {
         fonts_.semibold.draw(c, trf(Str::ResultsCount, std::to_string(results_.size())), kResultsX, 150, 26, kGray);
     }
+    drawLoadingBar(c, kResultsX + 420, 150, 420, nowMs);
 
     // The query.
     const int kbW = kKeyCols * (kKeyW + kKeyGap) - kKeyGap;

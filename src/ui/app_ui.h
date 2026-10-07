@@ -105,6 +105,9 @@ public:
     // "Your games": the account's games, then those to buy; `known` false
     // while the account's games load.
     void setOwned(std::vector<GameTile> owned, std::vector<GameTile> purchasable, bool known);
+    // The lists' background refresh: shown as a bar in "Your games" and the
+    // search; `total` 0 = running, no measure yet.
+    void setLoading(bool active, size_t done, size_t total);
     // What each tab's search looks through.
     void setSearchPools(std::vector<GameTile> gamePass, std::vector<GameTile> library);
     // Measured round trip to each region, ms (shown in Settings).
@@ -232,6 +235,9 @@ private:
     std::vector<GameRow> allRows_;
     std::vector<GameTile> allOwned_, allPurchasable_;
     std::set<std::string> hidden_;
+    bool loading_ = false;
+    size_t loadingDone_ = 0, loadingTotal_ = 0;
+    void drawLoadingBar(Canvas& c, int x, int y, int w, uint64_t nowMs);
     LibrarySort librarySort_ = LibrarySort::Recent;
     // Search filters (the row of buttons under the keys).
     bool filterFree_ = false, filterCheapest_ = false, filterSale_ = false;

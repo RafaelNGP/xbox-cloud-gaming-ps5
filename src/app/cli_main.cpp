@@ -307,6 +307,8 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
         app.setRows(library.rows());
         app.setOwned(library.owned(), library.purchasable(), library.ownedKnown());
         app.setSearchPools(library.gamePassSearchPool(), library.librarySearchPool());
+        auto p = library.progress();
+        app.setLoading(p.active, p.done, p.total);
     };
     if (!library.load(gssv, ui::catalogLanguage(), onRows, err)) {
         XC_LOGE("%s", err.c_str());

@@ -90,6 +90,7 @@ enum class Str {
     FilterAllConsoles,
     OneGame,          // GamesCount for exactly one
     Sections,         // hint for L2 / R2: jump between sections
+    UpdatingList,     // the lists refresh in the background
     Count
 };
 
