@@ -3,13 +3,16 @@
 #include "app/stream_player.h"
 
 #include "display/display.h"
+#include "input/controller.h"
 #include "media/audio_out.h"
 #include "media/decoder.h"
 #include "platform/platform.h"
 #include "stream/stream_session.h"
 #include "util/log.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <cstdio>
 #include <condition_variable>
 #include <deque>
@@ -163,9 +166,21 @@ struct StreamPlayer::Impl {
             if (audioPackets_.size() < 50) audioPackets_.emplace_back(d, d + n);
             audioCv.notify_one();
         };
+        // xCloud's motors are 0..100 percent, like the web client's
+        // dual-rumble effect (left = strong, right = weak). The trigger
+        // motors have no plain-rumble counterpart on the DualSense.
+        cb.vibration = [](const stream::Vibration& v) {
+            auto scale = [](uint8_t pct) { return static_cast<uint8_t>(std::min<int>(pct, 100) * 255 / 100); };
+            input::setRumble(scale(v.leftMotor), scale(v.rightMotor), v.durationMs);
+        };
         cb.closed = [this](const std::string& reason) { end(reason); };
 
-        session = std::make_unique<stream::StreamSession>(gssv, cb);
+        stream::StreamOptions opts;
+        // 1440p is asked for like the xbox.com client does; the service only
+        // grants it where Microsoft has enabled it (not every market).
+        if (gssv.resolution() == xcloud::Resolution::P1440) opts.resolutionAlias = "1440";
+        if (const char* loss = std::getenv("XC_SIM_LOSS")) opts.simulatedVideoLoss = std::atoi(loss);
+        session = std::make_unique<stream::StreamSession>(gssv, cb, opts);
         running = true;
         if (!platform::startThread(videoThread, [this] { videoLoop(); }) ||
             !platform::startThread(audioThread, [this] { audioLoop(); }, 1u << 20)) {
@@ -228,6 +243,7 @@ struct StreamPlayer::Impl {
         if (audioThread.joinable()) audioThread.join();
         session.reset();
         media::audioStop();
+        input::setRumble(0, 0, 0);
     }
 };
 
@@ -295,6 +311,15 @@ StreamPlayer::Stats StreamPlayer::stats() const {
     st.decodeFailures = impl_->decodeFailures;
     st.queueResets = impl_->queueResets;
     st.keyframeRequests = impl_->keyframeRequests;
+    if (impl_->session) {  // the caller's thread is the one that stops the player
+        const auto& v = impl_->session->videoStats();
+        st.rtpPackets = v.packets;
+        st.rtpLost = v.lost;
+        st.rtpRecovered = v.recovered;
+        st.rtpNacks = v.nacks;
+        st.rtpDroppedFrames = v.framesDropped;
+        st.keyframeRequests += v.keyframeRequests;
+    }
     {
         std::lock_guard<std::mutex> lock(impl_->mutex);
         st.queued = impl_->frames.size();

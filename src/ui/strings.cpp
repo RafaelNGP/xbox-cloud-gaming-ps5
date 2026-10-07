@@ -67,8 +67,11 @@ constexpr Column kEnglish = {
     "Automatic (%s)",                                 // RegionAuto
     "1080p (Full HD)",                                // Res1080
     "720p (uses less data)",                          // Res720
+    "1440p (experimental, where available)",          // Res1440
     "Resolution and region apply to the next game you start.",  // SettingsNote
     "Change",                                         // Change
+    "Hold to sign out",                               // HoldSignOut
+    "Keep holding to sign out (%s)",                  // SigningOutIn
     "Sign-in failed: %s",                             // SignInFailed
     "Could not load the game list: %s",               // LibraryFailed
     "Could not start the stream: %s",                 // StreamFailed
@@ -109,8 +112,11 @@ constexpr Column kPortugueseBR = {
     "Automática (%s)",
     "1080p (Full HD)",
     "720p (usa menos dados)",
+    "1440p (experimental, onde disponível)",
     "A resolução e a região valem a partir do próximo jogo.",
     "Alterar",
+    "Segure para sair da conta",
+    "Continue segurando para sair da conta (%s)",
     "Falha ao entrar: %s",
     "Não foi possível carregar a lista de jogos: %s",
     "Não foi possível iniciar o streaming: %s",
@@ -151,8 +157,11 @@ constexpr Column kSpanish = {
     "Automática (%s)",
     "1080p (Full HD)",
     "720p (usa menos datos)",
+    "1440p (experimental, donde esté disponible)",
     "La resolución y la región se aplican al próximo juego que inicies.",
     "Cambiar",
+    "Mantén para cerrar sesión",
+    "Sigue manteniendo para cerrar sesión (%s)",
     "Error al iniciar sesión: %s",
     "No se pudo cargar la lista de juegos: %s",
     "No se pudo iniciar el streaming: %s",
@@ -193,8 +202,11 @@ constexpr Column kFrench = {
     "Automatique (%s)",
     "1080p (Full HD)",
     "720p (consomme moins de données)",
+    "1440p (expérimental, si disponible)",
     "La résolution et la région s'appliquent au prochain jeu lancé.",
     "Modifier",
+    "Maintenez pour vous déconnecter",
+    "Continuez à maintenir pour vous déconnecter (%s)",
     "Échec de la connexion : %s",
     "Impossible de charger la liste des jeux : %s",
     "Impossible de démarrer le streaming : %s",
@@ -235,8 +247,11 @@ constexpr Column kGerman = {
     "Automatisch (%s)",
     "1080p (Full HD)",
     "720p (verbraucht weniger Daten)",
+    "1440p (experimentell, wo verfügbar)",
     "Auflösung und Region gelten ab dem nächsten gestarteten Spiel.",
     "Ändern",
+    "Halten zum Abmelden",
+    "Weiter halten zum Abmelden (%s)",
     "Anmeldung fehlgeschlagen: %s",
     "Die Spieleliste konnte nicht geladen werden: %s",
     "Das Streaming konnte nicht gestartet werden: %s",
@@ -277,8 +292,11 @@ constexpr Column kItalian = {
     "Automatica (%s)",
     "1080p (Full HD)",
     "720p (usa meno dati)",
+    "1440p (sperimentale, dove disponibile)",
     "Risoluzione e regione valgono dal prossimo gioco avviato.",
     "Cambia",
+    "Tieni premuto per uscire",
+    "Continua a tenere premuto per uscire (%s)",
     "Accesso non riuscito: %s",
     "Impossibile caricare l'elenco dei giochi: %s",
     "Impossibile avviare lo streaming: %s",

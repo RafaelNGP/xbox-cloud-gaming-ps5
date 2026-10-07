@@ -33,7 +33,9 @@ constexpr Color kGreen = rgba(16, 124, 16);
 constexpr Color kPanel = rgba(36, 36, 36);
 constexpr Color kPlaceholder = rgba(44, 44, 44);
 
-enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle };
+enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad };
+
+constexpr uint64_t kSignOutHoldMs = 5000;
 
 }  // namespace
 
@@ -198,7 +200,7 @@ void AppUi::changeSetting(int delta) {
         settings_.language = (settings_.language + delta + n) % n;
         setLanguage(static_cast<Language>(settings_.language));  // the UI switches right away
     } else if (settingsRow_ == 1) {
-        settings_.hd = !settings_.hd;
+        settings_.resolution = (settings_.resolution + delta + 3) % 3;
     } else {
         // Index 0 is automatic, then the regions in the login's order.
         int n = static_cast<int>(regions_.size()) + 1;
@@ -248,8 +250,7 @@ UiEvent AppUi::handle(const NavInput& in) {
     switch (screen_) {
         case Screen::Home: {
             if (rows_.empty()) {
-                if (in.options) ev.action = Action::SignOut;
-                if (in.triangle) {
+                if (in.options) {
                     screen_ = Screen::Settings;
                     settingsRow_ = 0;
                     dirty_ = true;
@@ -271,8 +272,7 @@ UiEvent AppUi::handle(const NavInput& in) {
                 screen_ = Screen::Details;
                 dirty_ = true;
             }
-            if (in.options) ev.action = Action::SignOut;
-            if (in.triangle) {
+            if (in.options) {
                 screen_ = Screen::Settings;
                 settingsRow_ = 0;
                 dirty_ = true;
@@ -284,7 +284,7 @@ UiEvent AppUi::handle(const NavInput& in) {
             if (in.up && settingsRow_ > 0) --settingsRow_, dirty_ = true;
             if (in.right || in.accept) changeSetting(+1);
             if (in.left) changeSetting(-1);
-            if (in.back || in.triangle) {
+            if (in.back || in.options) {
                 screen_ = Screen::Home;
                 dirty_ = true;
                 ev.action = Action::SettingsChanged;
@@ -306,9 +306,23 @@ UiEvent AppUi::handle(const NavInput& in) {
             break;
         case Screen::Error:
             if (in.accept) ev.action = Action::Retry;
-            if (in.options) ev.action = Action::SignOut;
             break;
         default: break;
+    }
+    // Sign out: hold TOUCHPAD for 5 s on the home or error screen.
+    bool canSignOut = screen_ == Screen::Home || screen_ == Screen::Error;
+    if (canSignOut && in.touchpad && !signOutLatched_) {
+        if (!signOutHoldStart_) signOutHoldStart_ = in.nowMs ? in.nowMs : 1;
+        if (in.nowMs - signOutHoldStart_ >= kSignOutHoldMs) {
+            ev.action = Action::SignOut;
+            signOutHoldStart_ = 0;
+            signOutLatched_ = true;
+        }
+        dirty_ = true;
+    } else if (!in.touchpad || !canSignOut) {
+        if (signOutHoldStart_) dirty_ = true;
+        signOutHoldStart_ = 0;
+        if (!in.touchpad) signOutLatched_ = false;
     }
     return ev;
 }
@@ -363,7 +377,12 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
         fonts_.semibold.draw(c, it->second, x, y, kPx, kGray);
         x -= 10 + 2 * kR;
         float cx = x + kR, cy = y + 13;
-        if (it->first == kIconOptions) {
+        if (it->first == kIconTouchpad) {
+            Rect pad{x - 18, static_cast<int>(cy) - 10, 2 * kR + 12, 20};
+            c.fillRect(pad, rgba(255, 255, 255, 40), 6);
+            c.strokeRect(pad, kGray, 2, 6);
+            x -= 10;
+        } else if (it->first == kIconOptions) {
             c.fillRect({x - 4, static_cast<int>(cy) - 11, 2 * kR + 8, 22}, rgba(255, 255, 255, 40), 11);
             for (int k = -1; k <= 1; ++k) c.line(cx - 8, cy + k * 5, cx + 8, cy + k * 5, 2, kGray);
         } else {
@@ -493,7 +512,7 @@ void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
 
     if (rows_.empty()) {
         drawCentered(c, fonts_.semibold, tr(Str::NoGames), 500, 32, kGray);
-        drawHints(c, {{kIconOptions, tr(Str::SignOut)}});
+        drawHints(c, {{kIconOptions, tr(Str::Settings)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
         return;
     }
 
@@ -544,7 +563,7 @@ void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
     // Fade the rows out under the button hints.
     c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
     c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));
-    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconTriangle, tr(Str::Settings)}, {kIconOptions, tr(Str::SignOut)}});
+    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconOptions, tr(Str::Settings)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
     drawToast(c, nowMs);
 }
 
@@ -611,7 +630,7 @@ void AppUi::drawError(Canvas& c) {
         fonts_.regular.draw(c, line, panel.x + 56, y, 26, kGray);
         y += 38;
     }
-    drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconOptions, tr(Str::SignOut)}});
+    drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
 }
 
 void AppUi::drawSettings(Canvas& c) {
@@ -626,7 +645,9 @@ void AppUi::drawSettings(Canvas& c) {
                              ? trf(Str::RegionAuto, defaultRegion_.empty() ? "-" : prettyRegion(defaultRegion_))
                              : prettyRegion(settings_.region);
     const Row rows[] = {{tr(Str::Language), languageName(static_cast<Language>(settings_.language))},
-                        {tr(Str::Resolution), tr(settings_.hd ? Str::Res1080 : Str::Res720)},
+                        {tr(Str::Resolution), tr(settings_.resolution == 1   ? Str::Res720
+                                                : settings_.resolution == 2 ? Str::Res1440
+                                                                            : Str::Res1080)},
                         {tr(Str::Region), region}};
     constexpr int kRowW = 1200, kRowH = 92;
     int y = 290;
@@ -648,6 +669,26 @@ void AppUi::drawSettings(Canvas& c) {
     drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconCircle, tr(Str::Back)}});
 }
 
+void AppUi::drawSignOutHold(Canvas& c, uint64_t nowMs) {
+    if (!signOutHoldStart_) return;
+    float progress = std::min(1.0f, static_cast<float>(nowMs - signOutHoldStart_) / kSignOutHoldMs);
+    int secondsLeft = static_cast<int>((kSignOutHoldMs - std::min<uint64_t>(kSignOutHoldMs, nowMs - signOutHoldStart_) + 999) / 1000);
+    std::string text = trf(Str::SigningOutIn, std::to_string(secondsLeft));
+    int tw = fonts_.semibold.measure(text, 28);
+    Rect panel{(kW - (tw + 170)) / 2, kH - 250, tw + 170, 110};
+    c.fillRect(panel, rgba(30, 30, 30, 240), 55);
+    c.strokeRect(panel, rgba(255, 255, 255, 60), 2, 55);
+    float cx = panel.x + 62, cy = panel.y + panel.h / 2.0f;
+    c.strokeArc(cx, cy, 30, 6, 0, 6.2832f, rgba(255, 255, 255, 50));
+    // Progress ring from 12 o'clock, clockwise, in red as it nears the end.
+    Color ring = progress < 0.8f ? kWhite : rgba(255, 110, 110);
+    if (progress > 0.01f) c.strokeArc(cx, cy, 30, 6, -1.5708f, 6.2832f * progress, ring);
+    fonts_.bold.draw(c, std::to_string(secondsLeft), static_cast<int>(cx) - fonts_.bold.measure(std::to_string(secondsLeft), 26) / 2,
+                     static_cast<int>(cy) - 16, 26, kWhite);
+    fonts_.semibold.draw(c, text, panel.x + 120, panel.y + 38, 28, kWhite);
+    animating_ = true;
+}
+
 void AppUi::render(Canvas& c, uint64_t nowMs) {
     std::lock_guard<std::mutex> lock(mutex_);
     float dt = lastRender_ ? std::min(0.1f, (nowMs - lastRender_) / 1000.0f) : 0.0f;
@@ -665,6 +706,7 @@ void AppUi::render(Canvas& c, uint64_t nowMs) {
         case Screen::Settings: drawSettings(c); break;
         case Screen::Streaming: break;
     }
+    if (screen_ == Screen::Home || screen_ == Screen::Error) drawSignOutHold(c, nowMs);
     if (!toast_.empty()) animating_ = true;  // to expire it
 }
 

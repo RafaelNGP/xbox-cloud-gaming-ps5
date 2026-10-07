@@ -25,9 +25,12 @@ an Xbox controller.
   added, Most popular on cloud, Leaving soon and All games.
 - WebRTC streaming (libdatachannel on Mbed TLS) with H.264 and Opus decoded by
   FFmpeg on the CPU.
-- Settings (Triangle on the home screen): language (English, Português
-  (Brasil), Español, Français, Deutsch, Italiano), stream resolution (1080p or
-  720p for slower connections) and server region.
+- Settings (OPTIONS on the home screen): language (English, Português
+  (Brasil), Español, Français, Deutsch, Italiano), stream resolution (1080p,
+  720p for slower connections, or 1440p, experimental: only where Microsoft
+  offers it) and server region. Hold TOUCHPAD for 5 seconds to sign out.
+- Lost video packets are re-requested (RTCP NACK) and damaged frames are
+  never shown; DualSense rumble follows the game.
 - Custom PS5 Home art (selection and launch backgrounds), generated from the
   same code as the icon by `tools/ps5/home-art.sh`.
 

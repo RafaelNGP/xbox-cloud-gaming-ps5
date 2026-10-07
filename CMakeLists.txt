@@ -38,6 +38,7 @@ include(cmake/deps/libdatachannel.cmake)
 
 # --- WebRTC streaming: SDP/ICE, data channels, input reports ----------------
 add_library(xcloud_stream STATIC
+    src/stream/h264_receiver.cpp
     src/stream/input_packet.cpp
     src/stream/stream_session.cpp
 )

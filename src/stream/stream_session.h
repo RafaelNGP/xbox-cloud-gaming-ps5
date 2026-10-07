@@ -9,6 +9,7 @@
 #pragma once
 
 #include "stream/input_packet.h"
+#include "stream/video_stats.h"
 #include "xcloud/gssv.h"
 
 #include <cstdint>
@@ -31,6 +32,14 @@ struct StreamOptions {
     // The web client asks for a key frame this often to recover from loss
     // without NACK; 0 disables.
     int keyframeIntervalSec = 5;
+    // Stream tier requested on the control channel after connecting, as the
+    // xbox.com client does ("userRequestedResolutionUpdate"): "720", "720HQ",
+    // "1080", "1080HQ" or "1440" (the HQ tiers and 1440 need Game Pass
+    // Ultimate). Empty: don't send, the service picks.
+    std::string resolutionAlias;
+    // Test hook: drop this percentage of video RTP packets before the jitter
+    // buffer, to exercise NACK / key frame recovery.
+    int simulatedVideoLoss = 0;
 };
 
 // "a=candidate:..." with a Teredo (2001::/32) address -> the IPv4 address and
@@ -54,6 +63,8 @@ public:
     // second from the thread that owns the GssvClient.
     void tick();
     void close();
+    // RTP loss / retransmission counters of the video track.
+    const VideoReceiveStats& videoStats() const;
 
 private:
     struct Impl;

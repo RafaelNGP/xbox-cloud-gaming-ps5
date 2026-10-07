@@ -40,13 +40,15 @@ enum class Screen { Splash, SignIn, Home, Details, Launching, Streaming, Error, 
 
 struct NavInput {
     bool up = false, down = false, left = false, right = false;
-    bool accept = false, back = false, options = false, triangle = false;
+    bool accept = false, back = false, options = false;
+    bool touchpad = false;  // held right now (sign out needs a 5 s hold)
+    uint64_t nowMs = 0;
 };
 
 // What the Settings screen edits.
 struct SettingsChoice {
     int language = 0;      // ui::Language
-    bool hd = true;        // 1080p (else 720p)
+    int resolution = 0;    // 0 = 1080p, 1 = 720p, 2 = 1440p (experimental)
     std::string region;    // gssv region name; empty = automatic
 };
 
@@ -133,6 +135,9 @@ private:
     std::vector<std::string> regions_;
     std::string defaultRegion_;
     int settingsRow_ = 0;
+    uint64_t signOutHoldStart_ = 0;  // TOUCHPAD hold in progress
+    bool signOutLatched_ = false;    // fired; wait for release
+    void drawSignOutHold(Canvas& c, uint64_t nowMs);
     std::string toast_;
     uint64_t toastUntil_ = 0;
     std::string heroUrl_, prevHeroUrl_;

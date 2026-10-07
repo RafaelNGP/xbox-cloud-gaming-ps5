@@ -9,7 +9,7 @@ namespace xc::app {
 
 struct Settings {
     std::string language = "en";     // ui::languageCode()
-    std::string resolution = "1080p";  // "1080p" or "720p"
+    std::string resolution = "1080p";  // "1080p", "720p" or "1440p" (experimental)
     std::string region;                // gssv region name; empty = automatic
 
     bool load(const std::string& path);

@@ -175,11 +175,15 @@ std::string stream(xcloud::GssvClient& gssv) {
             player.tick();
             auto st = player.stats();
             XC_LOGI("stream: %llu frames, %llu decoded, %llu skipped, %llu failed, %llu resets, %llu kf req, "
-                    "%llu queued, %llu audio",
+                    "%llu queued, %llu audio; rtp %llu pkts, %llu lost, %llu recovered, %llu nacks, "
+                    "%llu frames dropped",
                     static_cast<unsigned long long>(st.videoFrames), static_cast<unsigned long long>(st.decodedFrames),
                     static_cast<unsigned long long>(st.droppedFrames), static_cast<unsigned long long>(st.decodeFailures),
                     static_cast<unsigned long long>(st.queueResets), static_cast<unsigned long long>(st.keyframeRequests),
-                    static_cast<unsigned long long>(st.queued), static_cast<unsigned long long>(st.audioPackets));
+                    static_cast<unsigned long long>(st.queued), static_cast<unsigned long long>(st.audioPackets),
+                    static_cast<unsigned long long>(st.rtpPackets), static_cast<unsigned long long>(st.rtpLost),
+                    static_cast<unsigned long long>(st.rtpRecovered), static_cast<unsigned long long>(st.rtpNacks),
+                    static_cast<unsigned long long>(st.rtpDroppedFrames));
         }
         platform::sleepMs(100);
     }
@@ -202,7 +206,9 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     std::string err;
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
-        gssv.setResolution(g_settings.resolution == "720p" ? xcloud::Resolution::P720 : xcloud::Resolution::P1080);
+        gssv.setResolution(g_settings.resolution == "720p"    ? xcloud::Resolution::P720
+                           : g_settings.resolution == "1440p" ? xcloud::Resolution::P1440
+                                                              : xcloud::Resolution::P1080);
         const xcloud::Region* region = gssv.session().defaultRegion();
         for (const auto& r : gssv.session().regions)
             if (r.name == g_settings.region) region = &r;
@@ -420,7 +426,7 @@ int main(int argc, char** argv) {
     {
         ui::SettingsChoice choice;
         choice.language = static_cast<int>(ui::language());
-        choice.hd = g_settings.resolution != "720p";
+        choice.resolution = g_settings.resolution == "720p" ? 1 : g_settings.resolution == "1440p" ? 2 : 0;
         choice.region = g_settings.region;
         g_ui->setSettings(choice);
     }
@@ -474,7 +480,8 @@ int main(int argc, char** argv) {
         nav.accept = pad.btnA && !prev.btnA;
         nav.back = pad.btnB && !prev.btnB;
         nav.options = pad.btnOptions && !prev.btnOptions;
-        nav.triangle = pad.btnY && !prev.btnY;
+        nav.touchpad = pad.btnTouchpad;
+        nav.nowMs = now;
         prev = pad;
 
         ui::UiEvent ev = g_ui->handle(nav);
@@ -498,7 +505,9 @@ int main(int argc, char** argv) {
                     std::string code = ui::languageCode(static_cast<ui::Language>(ev.settings.language));
                     languageChanged = code != g_settings.language;
                     g_settings.language = code;
-                    g_settings.resolution = ev.settings.hd ? "1080p" : "720p";
+                    g_settings.resolution = ev.settings.resolution == 1   ? "720p"
+                                            : ev.settings.resolution == 2 ? "1440p"
+                                                                          : "1080p";
                     g_settings.region = ev.settings.region;
                     if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
                     XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),

@@ -207,11 +207,19 @@ int cmdStream(auth::AuthManager& am, const std::string& titleId, int seconds, co
                 if (platform::nowMs() >= nextReport) {
                     nextReport += 1000;
                     session.tick();
-                    std::printf("video %llu frames (%llu key) %.1f MB, audio %llu packets (%.1f s decoded)\n",
+                    const auto& rtp = session.videoStats();
+                    std::printf("video %llu frames (%llu key) %.1f MB, audio %llu packets (%.1f s decoded); "
+                                "rtp %llu pkts, %llu lost, %llu recovered, %llu nacks, %llu dropped, %llu kf req\n",
                                 static_cast<unsigned long long>(videoFrames.load()),
                                 static_cast<unsigned long long>(keyFrames.load()), videoBytes.load() / 1048576.0,
                                 static_cast<unsigned long long>(audioPackets.load()),
-                                audioSamples.load() / double(media::AudioDecoder::kSampleRate));
+                                audioSamples.load() / double(media::AudioDecoder::kSampleRate),
+                                static_cast<unsigned long long>(rtp.packets.load()),
+                                static_cast<unsigned long long>(rtp.lost.load()),
+                                static_cast<unsigned long long>(rtp.recovered.load()),
+                                static_cast<unsigned long long>(rtp.nacks.load()),
+                                static_cast<unsigned long long>(rtp.framesDropped.load()),
+                                static_cast<unsigned long long>(rtp.keyframeRequests.load()));
                     std::fflush(stdout);
                 }
                 platform::sleepMs(16);
@@ -324,7 +332,7 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
     app.setRegions(regions, gssv.region().name);
     app.showHome();
     ui::NavInput tri;
-    tri.triangle = true;
+    tri.options = true;
     app.handle(tri);
     save("settings");
     ui::NavInput down2;
@@ -345,6 +353,17 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
     library.hydrate(onRows);
     app.showHome();
     save("home_pt", 3000);
+    // Sign-out hold feedback, 2 s into the 5 s hold.
+    ui::NavInput hold;
+    hold.touchpad = true;
+    hold.nowMs = 100000;
+    app.handle(hold);
+    hold.nowMs = 102000;
+    app.handle(hold);
+    app.render(canvas, 102000);
+    std::string holdPath = dir + "/signout_hold.png";
+    stbi_write_png(holdPath.c_str(), canvas.width(), canvas.height(), 4, canvas.data(), canvas.width() * 4);
+    std::printf("wrote %s\n", holdPath.c_str());
     ui::setLanguage(ui::Language::English);
     return 0;
 }
@@ -412,11 +431,14 @@ int main(int argc, char** argv) {
         std::vector<const char*> pos;
         xcloud::Resolution res = xcloud::Resolution::P1080;
         stream::StreamOptions opts;
+        if (const char* loss = std::getenv("XC_SIM_LOSS")) opts.simulatedVideoLoss = std::atoi(loss);
         std::string region;
         for (; argi < argc; ++argi) {
             std::string a = argv[argi];
             if (a.rfind("--region=", 0) == 0) region = a.substr(9);
             else if (a == "--720p") res = xcloud::Resolution::P720;
+            else if (a == "--qhd-display") res = xcloud::Resolution::P1440;
+            else if (a.rfind("--tier=", 0) == 0) opts.resolutionAlias = a.substr(7);
             else pos.push_back(argv[argi]);
         }
         int seconds = pos.size() > 1 ? std::atoi(pos[1]) : 30;

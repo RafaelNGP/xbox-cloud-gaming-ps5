@@ -42,5 +42,8 @@ struct ControllerState {
 bool init();
 void shutdown();
 bool poll(ControllerState& out);
+// Rumble, 0..255 per motor (large = low frequency, small = high frequency),
+// for `durationMs` (0 = until changed). Any thread; poll() applies it.
+void setRumble(uint8_t large, uint8_t small, uint32_t durationMs);
 
 } // namespace xc::input

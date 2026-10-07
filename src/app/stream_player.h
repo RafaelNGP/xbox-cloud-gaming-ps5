@@ -35,6 +35,8 @@ public:
     struct Stats {
         uint64_t videoFrames = 0, decodedFrames = 0, droppedFrames = 0, audioPackets = 0;
         uint64_t decodeFailures = 0, queueResets = 0, keyframeRequests = 0, queued = 0;
+        // RTP: packets lost, recovered by NACK, frames the jitter buffer dropped.
+        uint64_t rtpPackets = 0, rtpLost = 0, rtpRecovered = 0, rtpNacks = 0, rtpDroppedFrames = 0;
     };
     Stats stats() const;
 

@@ -4,9 +4,12 @@
 #include "util/log.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+
+#include "platform/platform.h"
 
 #if defined(XCLOUD_PS5)
 
@@ -61,6 +64,12 @@ int scePadInit(void);
 int scePadOpen(int32_t userId, int32_t type, int32_t index, const void* param);
 int scePadClose(int32_t handle);
 int scePadReadState(int32_t handle, ScePadData* data);
+
+struct ScePadVibrationParam {
+    uint8_t largeMotor;
+    uint8_t smallMotor;
+};
+int scePadSetVibration(int32_t handle, const ScePadVibrationParam* param);
 }
 
 namespace xc::input {
@@ -79,7 +88,35 @@ inline float normStick(uint8_t val) {
 inline float normTrigger(uint8_t val) {
     return static_cast<float>(val) / 255.0f;
 }
+
+// Requested rumble, packed as large << 8 | small, and when it ends (0 = never).
+std::atomic<uint32_t> g_rumbleWanted{0};
+std::atomic<uint64_t> g_rumbleUntilMs{0};
+uint32_t g_rumbleApplied = 0;
+bool g_rumbleErrorLogged = false;
+
+void applyRumble() {
+    uint32_t want = g_rumbleWanted;
+    uint64_t until = g_rumbleUntilMs;
+    if (want && until && platform::nowMs() >= until) {
+        g_rumbleWanted.compare_exchange_strong(want, 0);
+        want = 0;
+    }
+    if (want == g_rumbleApplied) return;
+    ScePadVibrationParam p{static_cast<uint8_t>(want >> 8), static_cast<uint8_t>(want)};
+    int rc = scePadSetVibration(g_padHandle, &p);
+    if (rc != 0 && !g_rumbleErrorLogged) {
+        g_rumbleErrorLogged = true;
+        XC_LOGW("scePadSetVibration failed: 0x%08x", rc);
+    }
+    g_rumbleApplied = want;
+}
 } // namespace
+
+void setRumble(uint8_t large, uint8_t small, uint32_t durationMs) {
+    g_rumbleUntilMs = durationMs ? platform::nowMs() + durationMs : 0;
+    g_rumbleWanted = (uint32_t(large) << 8) | small;
+}
 
 bool init() {
     int rc = scePadInit();
@@ -110,6 +147,8 @@ bool init() {
 
 void shutdown() {
     if (g_padHandle >= 0) {
+        ScePadVibrationParam off{0, 0};
+        scePadSetVibration(g_padHandle, &off);
         scePadClose(g_padHandle);
         g_padHandle = -1;
     }
@@ -120,6 +159,7 @@ bool poll(ControllerState& out) {
         out = {};
         return false;
     }
+    applyRumble();
     ScePadData pad{};
     int rc = scePadReadState(g_padHandle, &pad);
     if (rc != 0 || !pad.connected) {
@@ -176,6 +216,7 @@ bool poll(ControllerState& out) {
     out.connected = true;
     return true;
 }
+void setRumble(uint8_t, uint8_t, uint32_t) {}
 } // namespace xc::input
 
 #endif

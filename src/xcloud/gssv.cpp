@@ -7,6 +7,7 @@
 #include "util/json.h"
 #include "util/log.h"
 
+#include <cstdlib>
 #include <ctime>
 #include <map>
 
@@ -18,7 +19,7 @@ constexpr const char* kClientHeader = "XboxComBrowser";
 // Sent like the Windows Xbox app does: "Windows" plus a 1080p display is what
 // gets a 1080p stream; an Android device with a 720p display gets 720p.
 const std::string& deviceInfo(Resolution res) {
-    auto build = [](bool hd) {
+    auto build = [](bool hd, int w = 1920, int h = 1080) {
         json::Value env = json::Value::object();
         env.set("clientAppId", "Microsoft.GamingApp");
         env.set("clientAppType", "native");
@@ -37,8 +38,8 @@ const std::string& deviceInfo(Resolution res) {
         os.set("ver", hd ? "22631.2715" : "14");
         os.set("platform", hd ? "desktop" : "phone");
         json::Value dims = json::Value::object();
-        dims.set("widthInPixels", hd ? 1920 : 1280);
-        dims.set("heightInPixels", hd ? 1080 : 720);
+        dims.set("widthInPixels", hd ? w : 1280);
+        dims.set("heightInPixels", hd ? h : 720);
         json::Value dpi = json::Value::object();
         dpi.set("dpiX", 1);
         dpi.set("dpiY", 1);
@@ -54,8 +55,51 @@ const std::string& deviceInfo(Resolution res) {
         v.set("dev", dev);
         return v.dump();
     };
+    // 1440p: the xbox.com web client (SDK 10.6.62) in Edge on a 1440p display,
+    // field for field as its X-MS-Device-Info interceptor builds it.
+    static const std::string qhd = [] {
+        json::Value env = json::Value::object();
+        env.set("clientAppId", "www.xbox.com");
+        env.set("clientAppType", "browser");
+        env.set("clientAppVersion", "1.0.2609.0802");
+        env.set("clientSdkVersion", "10.6.62");
+        env.set("httpEnvironment", "prod");
+        env.set("sdkInstallId", "");
+        json::Value app = json::Value::object();
+        app.set("env", env);
+        json::Value dims = json::Value::object();
+        dims.set("heightInPixels", 1440);
+        dims.set("widthInPixels", 2560);
+        json::Value dpi = json::Value::object();
+        dpi.set("dpiX", 1);
+        dpi.set("dpiY", 1);
+        json::Value display = json::Value::object();
+        display.set("dimensions", dims);
+        display.set("pixelDensity", dpi);
+        json::Value browser = json::Value::object();
+        browser.set("browserName", "edge");
+        browser.set("browserVersion", "141.0.0.0");
+        json::Value hw = json::Value::object();
+        hw.set("make", "Microsoft");
+        hw.set("model", "Windows");
+        hw.set("platformType", "desktop");
+        hw.set("sdkType", "web");
+        json::Value os = json::Value::object();
+        os.set("name", "windows");
+        os.set("ver", "10.0");
+        os.set("platform", "desktop");
+        json::Value dev = json::Value::object();
+        dev.set("displayInfo", display);
+        dev.set("browser", browser);
+        dev.set("hw", hw);
+        dev.set("os", os);
+        json::Value v = json::Value::object();
+        v.set("appInfo", app);
+        v.set("dev", dev);
+        return v.dump();
+    }();
     static const std::string hd = build(true), sd = build(false);
-    return res == Resolution::P720 ? sd : hd;
+    return res == Resolution::P720 ? sd : res == Resolution::P1440 ? qhd : hd;
 }
 
 std::string describe(const net::Response& r) {
@@ -138,6 +182,12 @@ bool GssvClient::login(const auth::XblToken& gssvXsts, std::string& err) {
         err = "xCloud login failed: " + describe(r);
         if (r.status == 403) err += " (no Game Pass Ultimate, or xCloud is not available in this region)";
         return false;
+    }
+    if (std::getenv("XC_DUMP_LOGIN")) {
+        // Diagnostics: everything except the token itself.
+        json::Value copy = *j;
+        copy.set("gsToken", "<redacted>");
+        XC_LOGI("login response: %s", copy.dump().substr(0, 6000).c_str());
     }
     login_ = {};
     login_.gsToken = (*j)["gsToken"].str();

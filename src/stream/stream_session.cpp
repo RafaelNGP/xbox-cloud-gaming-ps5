@@ -2,6 +2,8 @@
 // Copyright (C) 2026 RafaelNGP
 #include "stream/stream_session.h"
 
+#include "stream/h264_receiver.h"
+
 #include "platform/platform.h"
 #include "util/json.h"
 #include "util/log.h"
@@ -48,6 +50,28 @@ std::vector<std::string> midsInOrder(const std::string& sdp) {
         mids.push_back(sdp.substr(pos, end - pos));
     }
     return mids;
+}
+
+// a=imageattr after every a=fmtp line: the largest picture we accept. The
+// xbox.com client adds "recv [x=[0:1920],y=[0:1080],fps=[0:60]]" to limit
+// devices that can't do 1440p; announcing 2560x1440 is what allows 1440p.
+std::string advertiseReceiveSize(const std::string& sdp, int w, int h) {
+    if (sdp.find("a=imageattr") != std::string::npos) return sdp;
+    std::string out;
+    size_t pos = 0;
+    while (pos < sdp.size()) {
+        size_t eol = sdp.find('\n', pos);
+        if (eol == std::string::npos) eol = sdp.size() - 1;
+        std::string line = sdp.substr(pos, eol - pos + 1);
+        out += line;
+        if (line.rfind("a=fmtp:", 0) == 0 && line.find("profile-level-id") != std::string::npos) {
+            std::string pt = line.substr(7, line.find(' ') - 7);
+            out += "a=imageattr:" + pt + " recv [x=[0:" + std::to_string(w) + "],y=[0:" + std::to_string(h) +
+                   "],fps=[0:60]]\r\n";
+        }
+        pos = eol + 1;
+    }
+    return out;
 }
 
 void initRtcLogging() {
@@ -100,6 +124,7 @@ struct StreamSession::Impl {
     std::chrono::steady_clock::time_point epoch = std::chrono::steady_clock::now();
     uint64_t lastKeepaliveMs = 0;
     uint64_t lastKeyframeMs = 0;
+    VideoReceiveStats videoStats;
 
     Impl(xcloud::GssvClient& g, StreamCallbacks c, StreamOptions o) : gssv(g), cb(std::move(c)), opt(o) {}
 
@@ -224,6 +249,13 @@ struct StreamSession::Impl {
         sendGamepadChanged(0, true);
         sendGamepadChanged(0, false);
         sendGamepadChanged(0, true);
+        if (!opt.resolutionAlias.empty()) {
+            json::Value res = json::Value::object();
+            res.set("message", "userRequestedResolutionUpdate");
+            res.set("resolutionAlias", opt.resolutionAlias);
+            sendText(control, res.dump());
+            XC_LOGI("requested stream resolution %s", opt.resolutionAlias.c_str());
+        }
 
         sendBinary(input, clientMetadataReport(0, nowMs()));
         sendClientConfig();
@@ -352,13 +384,27 @@ struct StreamSession::Impl {
 
         // Video: H.264 only, Main before Constrained Baseline / Baseline.
         rtc::Description::Video v("1", rtc::Description::Direction::RecvOnly);
-        v.addH264Codec(102, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d001f");
+        // Main profile at level 5.1 (0x33): the level that allows 1440p60; with
+        // 3.1 the service tops out at 1080p (it answers level 4.2).
+        v.addH264Codec(102, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d0033");
         v.addH264Codec(104, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f");
         v.addH264Codec(106, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f");
         video = pc->addTrack(v);
-        auto videoDepacketizer = std::make_shared<rtc::H264RtpDepacketizer>();
-        videoDepacketizer->addToChain(std::make_shared<rtc::RtcpReceivingSession>());
-        video->setMediaHandler(videoDepacketizer);
+        // Our jitter buffer (NACK, whole frames only) in place of
+        // H264RtpDepacketizer, which hands over frames with holes in them.
+        auto videoReceiver = std::make_shared<H264Receiver>(
+            [this] {
+                if (!open) return;
+                try {
+                    requestKeyframe();
+                } catch (const std::exception& e) {
+                    XC_LOGW("keyframe request: %s", e.what());
+                }
+            },
+            videoStats);
+        videoReceiver->setSimulatedLoss(opt.simulatedVideoLoss);
+        videoReceiver->addToChain(std::make_shared<rtc::RtcpReceivingSession>());
+        video->setMediaHandler(videoReceiver);
         video->onFrame([this](rtc::binary data, rtc::FrameInfo info) {
             if (cb.video) cb.video(reinterpret_cast<const uint8_t*>(data.data()), data.size(), info.timestamp);
         });
@@ -392,6 +438,7 @@ struct StreamSession::Impl {
             return false;
         }
         std::string offer = std::string(*local);
+        if (opt.resolutionAlias == "1440") offer = advertiseReceiveSize(offer, 2560, 1440);
         XC_LOGD("local offer:\n%s", offer.c_str());
         if (!gssv.sendSdpOffer(offer, err)) return false;
 
@@ -540,5 +587,6 @@ void StreamSession::requestKeyframe() {
 }
 void StreamSession::tick() { impl_->tick(); }
 void StreamSession::close() { impl_->close(); }
+const VideoReceiveStats& StreamSession::videoStats() const { return impl_->videoStats; }
 
 }  // namespace xc::stream

@@ -15,7 +15,7 @@ bool Settings::load(const std::string& path) {
     language = (*j)["language"].str(language);
     resolution = (*j)["resolution"].str(resolution);
     region = (*j)["region"].str(region);
-    if (resolution != "720p") resolution = "1080p";
+    if (resolution != "720p" && resolution != "1440p") resolution = "1080p";
     return true;
 }
 

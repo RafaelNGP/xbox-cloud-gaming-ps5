@@ -40,14 +40,14 @@ that code. Your password is never typed on the console.
 
 The sign-in is saved in /data/homebrew/@TITLE_ID@/account.json. That
 file gives access to your Microsoft account: never share it, and never
-attach it to a bug report. "Sign out" (OPTIONS on the home screen)
-deletes it.
+attach it to a bug report. Signing out (hold TOUCHPAD for 5 seconds
+on the home screen) deletes it.
 
 
 Controls
 --------
 Menus:   D-pad or left stick to move, Cross to select, Circle to go back,
-         Triangle for Settings, OPTIONS to sign out.
+         OPTIONS for Settings, hold TOUCHPAD for 5 seconds to sign out.
 In game: the DualSense acts as an Xbox controller
          (Cross = A, Circle = B, Square = X, Triangle = Y,
           OPTIONS = Menu, TOUCHPAD = View).
@@ -56,9 +56,10 @@ In game: the DualSense acts as an Xbox controller
 
 Settings
 --------
-Triangle on the home screen: language (English, Portugues (Brasil),
-Espanol, Francais, Deutsch, Italiano), stream resolution (1080p, or 720p
-for slower connections) and server region (Automatic, or a specific
+OPTIONS on the home screen: language (English, Portugues (Brasil),
+Espanol, Francais, Deutsch, Italiano), stream resolution (1080p, 720p
+for slower connections, or 1440p - experimental, only granted where
+Microsoft offers it, otherwise you still get 1080p) and server region (Automatic, or a specific
 Azure region). Saved in /data/homebrew/@TITLE_ID@/settings.json.
 
 

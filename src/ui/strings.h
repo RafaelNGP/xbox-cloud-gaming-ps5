@@ -44,8 +44,11 @@ enum class Str {
     RegionAuto,    // "%s" = the account's default region
     Res1080,
     Res720,
+    Res1440,
     SettingsNote,
     Change,
+    HoldSignOut,
+    SigningOutIn,     // "%s" = seconds left
     SignInFailed,     // "%s" = technical detail
     LibraryFailed,    // "%s" = technical detail
     StreamFailed,     // "%s" = technical detail
