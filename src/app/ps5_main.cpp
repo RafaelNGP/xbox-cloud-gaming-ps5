@@ -16,12 +16,17 @@
 #include "platform/platform.h"
 #include "ui/app_ui.h"
 #include "ui/strings.h"
+#include "util/json.h"
 #include "util/log.h"
 #include "xcloud/catalog.h"
 #include "xcloud/gssv.h"
+#include "xcloud/prices.h"
+#include "xcloud/regions.h"
 
 #include <atomic>
+#include <ctime>
 #include <map>
+#include <strings.h>
 #include <cstdio>
 #include <memory>
 #include <mutex>
@@ -70,7 +75,8 @@ app::StreamPlayer* g_player = nullptr;
 // in, plays that title for that long (pressing A at 15 s and 20 s), saves
 // decoded frames and logs "AUTOPLAY END". Options, comma-separated: nosimd,
 // dump, repeat, idle (no A presses), threads=N (H.264 decoder threads),
-// rumbletest (rumbles the pad for 1.5 s at start).
+// rumbletest (rumbles the pad for 1.5 s at start), detailtest (opens a game to
+// buy far down the list instead of playing, saves detail.ppm).
 // The title "BENCH" decodes <dataDir>/sample.h264 instead.
 
 std::string g_autoplayTitle;
@@ -78,6 +84,7 @@ int g_autoplaySeconds = 0;
 bool g_autoplayDump = false;
 int g_autoplayRuns = 1;
 bool g_autoplayIdle = false;
+bool g_autoplayDetailTest = false;  // open a game to buy far down the list, save its page
 int g_decodeThreads = 1;
 std::atomic<bool> g_syntheticA{false};
 
@@ -99,6 +106,7 @@ void loadAutoplay() {
         if (opt == "repeat") g_autoplayRuns = 2;
         if (opt == "idle") g_autoplayIdle = true;
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
+        if (opt == "detailtest") g_autoplayDetailTest = true;
         if (opt.rfind("threads=", 0) == 0) g_decodeThreads = std::atoi(opt.c_str() + 8);
     }
     g_autoplayTitle = title;
@@ -148,8 +156,15 @@ std::string formatWait(int seconds) {
     return std::to_string((seconds + 59) / 60) + " min";
 }
 
+// Set by stream(): the game quit on the server before its first frame.
+bool g_gameClosedOnServer = false;
+// Titles that would not start in the automatic region, and where they did
+// (for the rest of this run).
+std::map<std::string, std::string> g_regionFallback;
+
 // Streams until the player ends or the user leaves; returns a status line.
 std::string stream(xcloud::GssvClient& gssv) {
+    g_gameClosedOnServer = false;
     app::StreamPlayer player(gssv);
     if (g_autoplayDump) player.dumpVideo(platform::dataDir() + "/stream.aus", 20);
     player.setDecodeThreads(g_decodeThreads);
@@ -166,6 +181,7 @@ std::string stream(xcloud::GssvClient& gssv) {
     uint64_t nextTick = started;
     bool snapshot1 = false, snapshot2 = false;
     bool autoplayDone = false;
+    int bestRtt = -1;  // lowest round trip seen: the region's latency
     while (player.running() && !g_cancel) {
         uint64_t elapsed = platform::nowMs() - started;
         if (!g_autoplayTitle.empty()) {
@@ -190,7 +206,8 @@ std::string stream(xcloud::GssvClient& gssv) {
             auto st = player.stats();
             XC_LOGI("stream: %llu frames, %llu decoded, %llu skipped, %llu failed, %llu resets, %llu kf req, "
                     "%llu queued, %llu audio; rtp %llu pkts, %llu lost, %llu recovered, %llu nacks, "
-                    "%llu frames dropped; %llu kbps (remb %llu); %llu rumble; decode %.1f/%.1f ms, draw %.1f/%.1f ms, %llu late",
+                    "%llu frames dropped; %llu kbps (remb %llu); %llu rumble; decode %.1f/%.1f ms, draw %.1f/%.1f ms, %llu late; "
+                    "rtt %d ms",
                     static_cast<unsigned long long>(st.videoFrames), static_cast<unsigned long long>(st.decodedFrames),
                     static_cast<unsigned long long>(st.droppedFrames), static_cast<unsigned long long>(st.decodeFailures),
                     static_cast<unsigned long long>(st.queueResets), static_cast<unsigned long long>(st.keyframeRequests),
@@ -200,7 +217,8 @@ std::string stream(xcloud::GssvClient& gssv) {
                     static_cast<unsigned long long>(st.rtpDroppedFrames), static_cast<unsigned long long>(st.rtpKbps),
                     static_cast<unsigned long long>(st.rembKbps), static_cast<unsigned long long>(st.vibrations),
                     st.decodeAvgUs / 1000.0, st.decodeMaxUs / 1000.0, st.drawAvgUs / 1000.0, st.drawMaxUs / 1000.0,
-                    static_cast<unsigned long long>(st.lateFrames));
+                    static_cast<unsigned long long>(st.lateFrames), st.rttMs);
+            if (st.rttMs > 0 && (bestRtt < 0 || st.rttMs < bestRtt)) bestRtt = st.rttMs;
         }
         platform::sleepMs(100);
     }
@@ -210,16 +228,37 @@ std::string stream(xcloud::GssvClient& gssv) {
     }
     std::string reason = g_cancel ? "left the game" : autoplayDone ? "autoplay finished" : player.endReason();
     player.stop();
+    if (bestRtt > 0) {
+        // Remembered per region: Settings shows it, the region fallback uses it.
+        std::map<std::string, int> rtt;
+        {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            g_settings.regionRtt[gssv.region().name] = bestRtt;
+            g_settings.save(settingsPath());
+            rtt = g_settings.regionRtt;
+        }
+        XC_LOGI("region %s: %d ms round trip", gssv.region().name.c_str(), bestRtt);
+        g_ui->setRegionLatency(rtt);
+    }
     auto st = player.stats();
+    // Ended before a single frame: the game never started (e.g. it closed on
+    // the server); say so on the error screen instead of going back quietly.
+    if (st.decodedFrames == 0 && !g_cancel && !autoplayDone) {
+        g_gameClosedOnServer = reason.rfind("the game closed on the server", 0) == 0;
+        return "ERROR: " + ui::trf(ui::Str::StreamFailed, reason);
+    }
     return "Stream ended (" + reason + "), " + std::to_string(st.decodedFrames) + " frames shown";
 }
 
 // Queue -> /connect -> Provisioned -> stream. Returns a status line; sets
 // `failed` when the user should see an error rather than the home screen.
-std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::GameTile& game, bool& failed) {
+// `regionName` overrides the settings' region (empty: as set).
+std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::GameTile& game, bool& failed,
+                 const std::string& regionName = {}) {
     failed = true;
     XC_LOGI("starting %s (%s)", game.name.c_str(), game.titleId.c_str());
-    g_ui->showLaunching(game, ui::tr(ui::Str::Connecting));
+    g_ui->showLaunching(game, regionName.empty() ? ui::tr(ui::Str::Connecting)
+                                                 : ui::trf(ui::Str::TryingRegion, ui::prettyRegion(regionName)));
     std::string err;
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
@@ -227,8 +266,9 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
                            : g_settings.resolution == "1440p" ? xcloud::Resolution::P1440
                                                               : xcloud::Resolution::P1080);
         const xcloud::Region* region = gssv.session().defaultRegion();
+        const std::string& wanted = regionName.empty() ? g_settings.region : regionName;
         for (const auto& r : gssv.session().regions)
-            if (r.name == g_settings.region) region = &r;
+            if (r.name == wanted) region = &r;
         if (region) gssv.setRegion(*region);
         XC_LOGI("stream settings: %s, region %s, locale %s", g_settings.resolution.c_str(),
                 region ? region->name.c_str() : "?", ui::gameLocale());
@@ -289,6 +329,90 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
 
 void loadLibrary(xcloud::GssvClient& gssv);
 
+// Profile token for titlehub (memory only).
+std::string g_xblAuth;
+
+// --- Store prices ---------------------------------------------------------------
+// Asked for the games to buy as they come on screen; kept a day in
+// <dataDir>/prices.json. The same thread fetches the description of an
+// opened game that has none yet.
+std::mutex g_priceMutex;
+std::string g_priceMarket, g_priceLanguage;  // set by loadLibrary()
+platform::Thread g_priceThread;
+std::atomic<bool> g_stopPrices{false};
+constexpr int64_t kPriceTtlSeconds = 24 * 3600;
+
+std::string pricesPath() { return platform::dataDir() + "/prices.json"; }
+
+std::pair<std::string, std::string> priceTexts(const xcloud::Price& p) {
+    std::string now = p.list < 0.005 ? ui::tr(ui::Str::Free) : xcloud::formatPrice(p.list, p.currency);
+    std::string was = p.msrp > p.list + 0.005 ? xcloud::formatPrice(p.msrp, p.currency) : std::string();
+    return {now, was};
+}
+
+void priceLoop() {
+    json::Value cache = json::Value::object();
+    {
+        std::string text;
+        if (platform::readFile(pricesPath(), text))
+            if (auto j = json::parse(text)) cache = *j;
+    }
+    // Fresh cached prices to the UI right away.
+    int64_t now = static_cast<int64_t>(std::time(nullptr));
+    std::map<std::string, std::pair<std::string, std::string>> shown;
+    json::Value kept = json::Value::object();
+    for (const auto& [id, v] : cache.members()) {
+        if (now - v["t"].asInt() > kPriceTtlSeconds) continue;
+        kept.set(id, v);
+        xcloud::Price p{v["list"].asNumber(), v["msrp"].asNumber(), v["cur"].str()};
+        shown[id] = priceTexts(p);
+    }
+    cache = kept;
+    if (!shown.empty()) g_ui->setPrices(shown);
+    while (!g_stopPrices) {
+        std::string market, language;
+        {
+            std::lock_guard<std::mutex> lock(g_priceMutex);
+            market = g_priceMarket;
+            language = g_priceLanguage;
+        }
+        // The open page's description, for games that only have the light
+        // catalog data (games to buy, search results).
+        if (std::string id = market.empty() ? std::string() : g_ui->detailWanted(platform::nowMs()); !id.empty()) {
+            std::map<std::string, xcloud::Product> full;
+            std::string err;
+            bool ok = xcloud::fetchProducts({id}, market, language, full, err, true) && full.count(id);
+            if (ok) {
+                const auto& p = full[id];
+                g_ui->setDetailInfo(id, p.description, p.publisher, p.categories, p.heroUrl);
+            }
+            XC_LOGI("details of %s: %s", id.c_str(), ok ? "ok" : err.empty() ? "not in the catalog" : err.c_str());
+        }
+        std::vector<std::string> ids = market.empty() ? std::vector<std::string>() : g_ui->pricesWanted(20);
+        if (ids.empty()) {
+            platform::sleepMs(300);
+            continue;
+        }
+        std::map<std::string, xcloud::Price> got;
+        std::string err;
+        if (!xcloud::fetchPrices(ids, market, language, got, err)) XC_LOGW("%s", err.c_str());
+        std::map<std::string, std::pair<std::string, std::string>> texts;
+        now = static_cast<int64_t>(std::time(nullptr));
+        for (const auto& [id, p] : got) {
+            texts[id] = priceTexts(p);
+            json::Value v = json::Value::object();
+            v.set("list", p.list);
+            v.set("msrp", p.msrp);
+            v.set("cur", p.currency);
+            v.set("t", now);
+            cache.set(id, v);
+        }
+        if (!texts.empty()) {
+            g_ui->setPrices(texts);
+            platform::writeFileAtomic(pricesPath(), cache.dump());
+        }
+    }
+}
 void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
     std::string err;
@@ -300,6 +424,10 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         return;
     }
     g_ui->setProfile(am.profile().gamertag, am.profile().gamerpicUrl);
+    {
+        std::lock_guard<std::mutex> lock(g_argMutex);
+        g_xblAuth = am.profile().xblAuthorization;
+    }
     platform::notify(ui::trf(ui::Str::SignedInAs, am.profile().gamertag));
     std::vector<std::string> regions;
     for (const auto& r : gssv.session().regions) regions.push_back(r.name);
@@ -313,10 +441,22 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
     stopHydration();
     auto library = std::make_shared<app::Library>();
+    library->setCachePath(platform::dataDir() + "/library.json");
+    {
+        std::lock_guard<std::mutex> lock(g_priceMutex);
+        g_priceMarket = gssv.session().market.empty() ? "US" : gssv.session().market;
+        g_priceLanguage = ui::catalogLanguage();
+    }
     bool shown = false;
+    // Hands the library's current state to the UI (copies).
+    auto publish = [](const app::Library& lib) {
+        g_ui->setRows(lib.rows());
+        g_ui->setOwned(lib.owned(), lib.purchasable(), lib.ownedKnown());
+        g_ui->setSearchPools(lib.gamePassSearchPool(), lib.librarySearchPool());
+    };
     bool ok = library->load(gssv, ui::catalogLanguage(),
-                            [&](const std::vector<ui::GameRow>& r) {
-                                g_ui->setRows(r);
+                            [&] {
+                                publish(*library);
                                 if (!shown) {
                                     shown = true;
                                     g_ui->showHome();
@@ -328,12 +468,24 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         return;
     }
     std::vector<ui::GameRow> rows = library->rows();
-    // Hero art and descriptions keep arriving while the user browses/plays.
+    // The account's own games, the catalog names for the search, then hero
+    // art and descriptions keep arriving while the user browses/plays. The
+    // thread gets its own GssvClient copy.
     g_stopHydration = false;
-    platform::startThread(g_hydrationThread, [library] {
-        library->hydrate([](const std::vector<ui::GameRow>& r) { g_ui->setRows(r); }, &g_stopHydration);
+    std::string xblAuth;
+    {
+        std::lock_guard<std::mutex> lock(g_argMutex);
+        xblAuth = g_xblAuth;
+    }
+    platform::startThread(g_hydrationThread, [library, publish, owned = gssv, xblAuth] {
+        auto changed = [&] { publish(*library); };
+        library->loadFirstScreen(xblAuth, changed, &g_stopHydration);
+        library->loadOwned(owned, changed, &g_stopHydration);
+        library->loadCatalogNames(changed, &g_stopHydration);
+        library->loadPlatforms(xblAuth, changed, &g_stopHydration);
+        library->hydrate(changed, &g_stopHydration);
     });
-    if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH") {
+    if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH" && !g_autoplayDetailTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
         tile.titleId = g_autoplayTitle;
@@ -374,8 +526,39 @@ void worker() {
                     tile = g_playTile;
                 }
                 bool failed = false;
-                std::string result = play(am, gssv, tile, failed);
+                bool automatic;
+                {
+                    std::lock_guard<std::mutex> lock(g_settingsMutex);
+                    automatic = g_settings.region.empty();
+                }
+                std::string region = automatic && g_regionFallback.count(tile.titleId) ? g_regionFallback[tile.titleId] : "";
+                std::string result = play(am, gssv, tile, failed, region);
                 XC_LOGI("%s", result.c_str());
+                // Some games fail to start in one region only (Dead Cells in
+                // Brazil South quit at once with 0x8027025B, now and then, and
+                // ran in East US): with the region on automatic, try the
+                // nearest other one once.
+                if (failed && g_gameClosedOnServer && automatic && !g_cancel) {
+                    // The nearest other region: measured in past sessions, or
+                    // estimated from the distance (xcloud/regions.h).
+                    std::string tried = gssv.region().name, next;
+                    std::vector<std::string> names;
+                    for (const auto& r : gssv.session().regions) names.push_back(r.name);
+                    std::map<std::string, int> measured;
+                    {
+                        std::lock_guard<std::mutex> lock(g_settingsMutex);
+                        measured = g_settings.regionRtt;
+                    }
+                    auto order = xcloud::regionsByExpectedRtt(tried, names, measured);
+                    if (!order.empty()) next = order.front();
+                    if (!next.empty()) {
+                        XC_LOGI("%s closed on the server in %s; trying %s", tile.titleId.c_str(), tried.c_str(),
+                                next.c_str());
+                        result = play(am, gssv, tile, failed, next);
+                        XC_LOGI("%s", result.c_str());
+                        if (!failed) g_regionFallback[tile.titleId] = next;
+                    }
+                }
                 if (failed)
                     g_ui->showError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result);
                 else
@@ -436,16 +619,20 @@ int main(int argc, char** argv) {
 
     ui::Fonts fonts;
     if (!fonts.load(platform::assetDir() + "/fonts")) XC_LOGE("fonts missing in %s", platform::assetDir().c_str());
-    g_images = std::make_unique<ui::ImageCache>([] {
-        if (g_ui) g_ui->invalidate();
-    });
+    g_images = std::make_unique<ui::ImageCache>(
+        [] {
+            if (g_ui) g_ui->invalidate();
+        },
+        160u << 20, platform::dataDir() + "/imgcache");
     g_ui = std::make_unique<ui::AppUi>(fonts, *g_images);
+    platform::startThread(g_priceThread, priceLoop);
     {
         ui::SettingsChoice choice;
         choice.language = static_cast<int>(ui::language());
         choice.resolution = g_settings.resolution == "720p" ? 1 : g_settings.resolution == "1440p" ? 2 : 0;
         choice.region = g_settings.region;
         g_ui->setSettings(choice);
+        g_ui->setRegionLatency(g_settings.regionRtt);
     }
     ui::Canvas canvas(display::kWidth, display::kHeight);
 
@@ -497,6 +684,10 @@ int main(int argc, char** argv) {
         nav.accept = pad.btnA && !prev.btnA;
         nav.back = pad.btnB && !prev.btnB;
         nav.options = pad.btnOptions && !prev.btnOptions;
+        nav.l1 = pad.btnL1 && !prev.btnL1;
+        nav.r1 = pad.btnR1 && !prev.btnR1;
+        nav.square = pad.btnX && !prev.btnX;    // Square (Xbox X)
+        nav.triangle = pad.btnY && !prev.btnY;  // Triangle (Xbox Y)
         nav.touchpad = pad.btnTouchpad;
         nav.nowMs = now;
         prev = pad;
@@ -556,6 +747,21 @@ int main(int argc, char** argv) {
             if (now - launchSince > 8000) {
                 launchSaved = true;
                 saveCanvas("launch.ppm");
+            }
+        }
+        if (g_autoplayDetailTest && uiSaved) {
+            // A game to buy far down the list (no prefetched details): its
+            // page must fill in on its own.
+            static uint64_t openedAt = 0;
+            ui::GameTile tile;
+            if (!openedAt && g_ui->purchasableAt(40, tile)) {
+                XC_LOGI("autoplay: opening %s (%s)", tile.name.c_str(), tile.productId.c_str());
+                g_ui->showDetails(tile);
+                openedAt = now;
+            } else if (openedAt && now - openedAt > 8000) {
+                saveCanvas("detail.ppm");
+                g_autoplayDetailTest = false;
+                XC_LOGI("AUTOPLAY END: detail test");
             }
         }
         if (!g_autoplayTitle.empty() && !uiSaved && g_ui->screen() == ui::Screen::Home) {

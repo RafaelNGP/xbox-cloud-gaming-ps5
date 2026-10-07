@@ -19,6 +19,9 @@ struct Profile {
     std::string gamertag;
     std::string xuid;
     std::string gamerpicUrl;  // empty until fetched
+    // "XBL3.0 x=...;token" for services on http://xboxlive.com (titlehub...).
+    // Memory only: never logged or saved.
+    std::string xblAuthorization;
 };
 
 class AuthManager {

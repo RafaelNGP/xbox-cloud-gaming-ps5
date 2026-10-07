@@ -15,6 +15,7 @@ namespace xc::xcloud {
 struct Product {
     std::string productId;      // Store "big id"
     std::string xcloudTitleId;  // empty: not streamable
+    std::string xboxTitleId;    // Xbox Live title id (titlehub), may be empty
     std::string title;
     std::string publisher;
     std::string description;

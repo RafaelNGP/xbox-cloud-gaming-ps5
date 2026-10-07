@@ -20,6 +20,7 @@
 #include "auth/auth_manager.h"
 #include "media/decoder.h"
 #include "net/http.h"
+#include "util/json.h"
 #include "stream/stream_session.h"
 #include "platform/platform.h"
 #include "util/log.h"
@@ -27,6 +28,7 @@
 #include "ui/brand.h"
 #include "ui/strings.h"
 #include "xcloud/gssv.h"
+#include "xcloud/prices.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_STATIC
@@ -91,7 +93,7 @@ int cmdTitles(auth::AuthManager& am, bool recent) {
     std::string market = gssv.session().market.empty() ? "US" : gssv.session().market;
     if (!gssv.hydrateTitles(titles, market, "en-us", err)) XC_LOGW("%s", err.c_str());
     for (const auto& t : titles)
-        std::printf("%-28s %-14s %s\n", t.titleId.c_str(), t.productId.c_str(),
+        std::printf("%-28s %-14s %s %s\n", t.titleId.c_str(), t.productId.c_str(), t.hasEntitlement ? "owned" : "-    ",
                     t.name.empty() ? "?" : t.name.c_str());
     std::printf("%zu titles\n", titles.size());
     return 0;
@@ -301,14 +303,79 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
     app.setProfile(am.profile().gamertag, am.profile().gamerpicUrl);
     std::string err;
     app::Library library;
-    auto onRows = [&](const std::vector<ui::GameRow>& rows) { app.setRows(rows); };
+    auto onRows = [&] {
+        app.setRows(library.rows());
+        app.setOwned(library.owned(), library.purchasable(), library.ownedKnown());
+        app.setSearchPools(library.gamePassSearchPool(), library.librarySearchPool());
+    };
     if (!library.load(gssv, ui::catalogLanguage(), onRows, err)) {
         XC_LOGE("%s", err.c_str());
         return 1;
     }
+    library.loadOwned(gssv, onRows);
+    library.loadCatalogNames(onRows);
+    library.loadPlatforms(am.profile().xblAuthorization, onRows);
     library.hydrate(onRows);
     app.showHome();
     save("home", 4000);
+    {
+        // "Your games" (its games, then those to buy), then searches typed
+        // on the keyboard, in each tab.
+        auto press = [&](auto set, int times) {
+            for (int i = 0; i < times; ++i) {
+                ui::NavInput n;
+                set(n);
+                app.handle(n);
+            }
+        };
+        auto type = [&](const std::string& text) {
+            for (char ch : text) {
+                int idx = static_cast<int>(std::string("abcdefghijklmnopqrstuvwxyz0123456789").find(ch));
+                press([](ui::NavInput& n) { n.up = true; }, 7);
+                press([](ui::NavInput& n) { n.left = true; }, 6);
+                press([](ui::NavInput& n) { n.down = true; }, idx / 6);
+                press([](ui::NavInput& n) { n.right = true; }, idx % 6);
+                press([](ui::NavInput& n) { n.accept = true; }, 1);
+            }
+        };
+        press([](ui::NavInput& n) { n.triangle = true; }, 1);  // Game Pass search
+        type("forza");
+        save("search_gamepass", 3000);
+        press([](ui::NavInput& n) { n.back = true; }, 1);
+        press([](ui::NavInput& n) { n.r1 = true; }, 1);
+        save("library", 3000);
+        int ownedRows = static_cast<int>((library.owned().size() + 5) / 6);
+        press([](ui::NavInput& n) { n.down = true; }, ownedRows);  // into "Available to buy"
+        {
+            // What the app's price thread does: ask for the cards on screen.
+            std::map<std::string, xcloud::Price> got;
+            std::string e;
+            xcloud::fetchPrices(app.pricesWanted(40), gssv.session().market.empty() ? "US" : gssv.session().market,
+                                ui::catalogLanguage(), got, e);
+            std::map<std::string, std::pair<std::string, std::string>> texts;
+            for (const auto& [id, p] : got)
+                texts[id] = {p.list < 0.005 ? ui::tr(ui::Str::Free) : xcloud::formatPrice(p.list, p.currency),
+                             p.msrp > p.list + 0.005 ? xcloud::formatPrice(p.msrp, p.currency) : std::string()};
+            app.setPrices(texts);
+        }
+        save("library_buy", 3000);
+        press([](ui::NavInput& n) { n.accept = true; }, 1);
+        if (std::string id = app.detailWanted(platform::nowMs()); !id.empty()) {  // as the app's price thread does
+            std::map<std::string, xcloud::Product> full;
+            std::string e;
+            if (xcloud::fetchProducts({id}, gssv.session().market.empty() ? "US" : gssv.session().market,
+                                      ui::catalogLanguage(), full, e, true) &&
+                full.count(id))
+                app.setDetailInfo(id, full[id].description, full[id].publisher, full[id].categories, full[id].heroUrl);
+        }
+        save("details_buy", 2000);
+        press([](ui::NavInput& n) { n.back = true; }, 1);
+        press([](ui::NavInput& n) { n.triangle = true; }, 1);  // "Your games" search
+        type("dead");
+        save("search_library", 3000);
+        press([](ui::NavInput& n) { n.back = true; }, 1);
+        press([](ui::NavInput& n) { n.l1 = true; }, 1);  // back to the Game Pass tab
+    }
     ui::NavInput right;
     right.right = true;
     for (int i = 0; i < 3; ++i) app.handle(right);
@@ -320,6 +387,20 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
     accept.accept = true;
     app.handle(accept);
     save("details", 2000);
+    {
+        // A game the account can't stream: dimmed card with a lock, no Play.
+        auto rows = library.rows();
+        if (!rows.empty()) {
+            for (auto& row : rows)
+                for (size_t i = 0; i < row.tiles.size(); i += 2) row.tiles[i].playable = false;
+            app.setRows(rows);
+            app.showHome();
+            save("home_locked", 3000);
+            app.handle(accept);
+            save("details_locked", 1000);
+            app.setRows(library.rows());
+        }
+    }
     ui::GameTile game;
     game.name = "Balatro";
     app.showLaunching(game, ui::trf(ui::Str::InQueue, "1 min"));
@@ -423,6 +504,26 @@ int main(int argc, char** argv) {
     if (cmd == "login") {
         xcloud::GssvClient gssv;
         rc = signIn(am, gssv) ? 0 : 1;
+    } else if (cmd == "titlehub" && argi < argc) {
+        // Debugging: titlehub's view of Xbox title ids (devices etc.).
+        xcloud::GssvClient gssv;
+        if (!signIn(am, gssv)) return 1;
+        json::Value ids = json::Value::array();
+        for (; argi < argc; ++argi) ids.push(std::string(argv[argi]));
+        json::Value body = json::Value::object();
+        body.set("pfns", nullptr);
+        body.set("titleIds", ids);
+        net::Request req;
+        req.method = "POST";
+        req.url = "https://titlehub.xboxlive.com/titles/batch/decoration/detail";
+        req.headers = {{"Authorization", am.profile().xblAuthorization},
+                       {"x-xbl-contract-version", "2"},
+                       {"Content-Type", "application/json"},
+                       {"Accept-Language", "en-US"}};
+        req.body = body.dump();
+        auto r = net::perform(req);
+        std::printf("HTTP %d\n%s\n", r.status, r.body.c_str());
+        return r.ok() ? 0 : 1;
     } else if (cmd == "titles") {
         rc = cmdTitles(am, argi < argc && std::strcmp(argv[argi], "--recent") == 0);
     } else if (cmd == "provision" && argi < argc) {
@@ -444,6 +545,83 @@ int main(int argc, char** argv) {
         }
         int seconds = pos.size() > 1 ? std::atoi(pos[1]) : 30;
         rc = cmdStream(am, pos[0], seconds > 0 ? seconds : 30, pos.size() > 2 ? pos[2] : nullptr, res, opts, region);
+    } else if (cmd == "ui-settings" && argi < argc) {
+        // Offline: Settings with the region list open, then the language list.
+        ui::Fonts fonts;
+        if (!fonts.load("assets/fonts")) return 1;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+        ui::Canvas canvas(1920, 1080);
+        app.setRegions({"AUSTRALIAEAST", "BRAZILSOUTH", "CHILECENTRAL", "EASTUS", "EASTUS2", "JAPANEAST", "MEXICOCENTRAL",
+                        "NORTHCENTRALUS", "SOUTHCENTRALUS", "UKSOUTH", "WESTEUROPE", "WESTUS"},
+                       "BRAZILSOUTH");
+        app.setRegionLatency({{"BRAZILSOUTH", 9}, {"EASTUS", 128}});
+        app.showHome();
+        auto press = [&](auto set) {
+            ui::NavInput n;
+            set(n);
+            app.handle(n);
+        };
+        auto save = [&](const std::string& name) {
+            app.render(canvas, 1000);
+            std::string path = std::string(argv[argi]) + "/" + name + ".png";
+            stbi_write_png(path.c_str(), canvas.width(), canvas.height(), 4, canvas.data(), canvas.width() * 4);
+            std::printf("wrote %s\n", path.c_str());
+        };
+        press([](ui::NavInput& n) { n.options = true; });
+        press([](ui::NavInput& n) { n.down = true; });
+        press([](ui::NavInput& n) { n.down = true; });
+        save("settings_rows");
+        press([](ui::NavInput& n) { n.accept = true; });
+        for (int i = 0; i < 4; ++i) press([](ui::NavInput& n) { n.down = true; });
+        save("settings_regions");
+        press([](ui::NavInput& n) { n.back = true; });
+        press([](ui::NavInput& n) { n.up = true; });
+        press([](ui::NavInput& n) { n.up = true; });
+        press([](ui::NavInput& n) { n.accept = true; });
+        press([](ui::NavInput& n) { n.down = true; });
+        save("settings_language");
+        press([](ui::NavInput& n) { n.back = true; });
+        press([](ui::NavInput& n) { n.down = true; });
+        press([](ui::NavInput& n) { n.accept = true; });
+        save("settings_resolution");
+        return 0;
+    } else if (cmd == "ui-badges" && argi < argc) {
+        // Offline: cards with every badge, to check their layout.
+        ui::Fonts fonts;
+        if (!fonts.load("assets/fonts")) return 1;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+        ui::Canvas canvas(1920, 1080);
+        std::vector<ui::GameTile> owned, buy;
+        const char* platforms[] = {"XS", "ONE", "360"};
+        for (int i = 0; i < 6; ++i) {
+            ui::GameTile t;
+            t.productId = "OWNED" + std::to_string(i);
+            t.titleId = t.productId;
+            t.name = "Owned game " + std::to_string(i);
+            t.platform = platforms[i % 3];
+            owned.push_back(t);
+            t.productId = "BUY" + std::to_string(i);
+            t.titleId = t.productId;
+            t.name = "Game to buy " + std::to_string(i);
+            t.playable = false;
+            t.purchasable = true;
+            buy.push_back(t);
+        }
+        app.setOwned(owned, buy, true);
+        app.setPrices({{"BUY0", {"R$ 56,98", "R$ 284,90"}}, {"BUY1", {"R$ 199,99", ""}}, {"BUY2", {"GR\xC3\x81TIS", ""}},
+                       {"BUY3", {"R$ 1.299,90", ""}}});
+        app.showHome();
+        ui::NavInput r1;
+        r1.r1 = true;
+        app.handle(r1);
+        app.render(canvas, 1000);
+        app.render(canvas, 2000);
+        std::string path = argv[argi];
+        stbi_write_png(path.c_str(), canvas.width(), canvas.height(), 4, canvas.data(), canvas.width() * 4);
+        std::printf("wrote %s\n", path.c_str());
+        return 0;
     } else if (cmd == "ui-preview" && argi < argc) {
         rc = cmdUiPreview(am, argv[argi]);
     } else if (cmd == "logout") {

@@ -38,7 +38,8 @@ public:
         // RTP: packets lost, recovered by NACK, frames the jitter buffer dropped.
         uint64_t rtpPackets = 0, rtpLost = 0, rtpRecovered = 0, rtpNacks = 0, rtpDroppedFrames = 0;
         uint64_t rtpKbps = 0, rembKbps = 0, vibrations = 0;
-        uint64_t lateFrames = 0;  // decoded, not drawn: both flips still queued
+        uint64_t lateFrames = 0;
+        int rttMs = -1;  // to the stream server  // decoded, not drawn: both flips still queued
         // Since the previous stats() call (so call it from one place only).
         uint64_t decodeAvgUs = 0, decodeMaxUs = 0, drawAvgUs = 0, drawMaxUs = 0;
     };

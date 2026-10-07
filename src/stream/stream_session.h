@@ -68,6 +68,8 @@ public:
     // second from the thread that owns the GssvClient.
     void tick();
     void close();
+    // Round trip to the stream server (SCTP), ms; -1 while unknown.
+    int rttMs() const;
     // RTP loss / retransmission counters of the video track.
     const VideoReceiveStats& videoStats() const;
 

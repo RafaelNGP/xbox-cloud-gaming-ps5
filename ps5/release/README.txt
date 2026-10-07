@@ -47,6 +47,8 @@ on the home screen) deletes it.
 Controls
 --------
 Menus:   D-pad or left stick to move, Cross to select, Circle to go back,
+         L1 / R1 to switch between Game Pass and Your games,
+         Triangle to search the current tab (Square deletes a letter),
          OPTIONS for Settings, hold TOUCHPAD for 5 seconds to sign out.
 In game: the DualSense acts as an Xbox controller
          (Cross = A, Circle = B, Square = X, Triangle = Y,
@@ -56,11 +58,21 @@ In game: the DualSense acts as an Xbox controller
 
 Settings
 --------
-OPTIONS on the home screen: language (English, Portugues (Brasil),
-Espanol, Francais, Deutsch, Italiano), stream resolution (1080p, 720p
-for slower connections, or 1440p - experimental, only granted where
-Microsoft offers it, otherwise you still get 1080p) and server region (Automatic, or a specific
-Azure region). Saved in /data/homebrew/@TITLE_ID@/settings.json.
+OPTIONS on the home screen; Cross opens a list of choices: language
+(English, Portugues (Brasil), Espanol, Francais, Deutsch, Italiano),
+stream resolution (720p for slower connections, 1080p, or 1440p -
+experimental, only granted where Microsoft offers it, otherwise you
+still get 1080p) and server region (Automatic, or a specific Azure
+region, with the latency measured in your past sessions). Saved in
+/data/homebrew/@TITLE_ID@/settings.json.
+
+
+Your games
+----------
+Games your account owns outside Game Pass, then "Available to buy":
+games that stream in the cloud once bought, with their store price. A
+game's page shows a QR code of its store page: buy it on your phone (or
+on xbox.com / in the Xbox app) and it appears in Your games.
 
 
 Problems

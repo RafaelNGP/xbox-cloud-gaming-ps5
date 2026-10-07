@@ -405,6 +405,7 @@ StreamPlayer::Stats StreamPlayer::stats() const {
         st.rtpDroppedFrames = v.framesDropped;
         st.keyframeRequests += v.keyframeRequests;
         st.rtpKbps = v.receiveRate / 1000;
+        st.rttMs = impl_->session->rttMs();
         st.rembKbps = v.estimate / 1000;
     }
     {

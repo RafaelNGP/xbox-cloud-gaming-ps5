@@ -76,6 +76,26 @@ constexpr Column kEnglish = {
     "Could not load the game list: %s",               // LibraryFailed
     "Could not start the stream: %s",                 // StreamFailed
     "No input for a while: you will be disconnected in %s seconds",  // IdleWarning
+    "Your games",                                     // YourGames
+    "Not available on your account",                  // NotPlayable
+    "Game Pass",                                    // TabGamePass
+    "Search",                                       // TabSearch
+    "Type the name of a game",                      // SearchHint
+    "No games found",                               // NoResults
+    "%s results",                                   // ResultsCount
+    "Space",                                        // KeySpace
+    "Delete",                                       // KeyDelete
+    "Clear",                                        // KeyClear
+    "%s games",                                     // GamesCount
+    "Type",                                         // KeyType
+    "Trying another region: %s",                    // TryingRegion
+    "Available to buy",                              // AvailableToBuy
+    "BUY",                                           // BuyBadge
+    "Buy this game to play it in the cloud",         // BuyToPlay
+    "Buy it on xbox.com or in the Xbox app; it then shows up in Your games.", // BuyHint
+    "Scan to open the store page",                   // ScanToBuy
+    "Search in %s",                                  // SearchIn
+    "FREE",                                          // Free
 };
 
 constexpr Column kPortugueseBR = {
@@ -122,6 +142,26 @@ constexpr Column kPortugueseBR = {
     "Não foi possível carregar a lista de jogos: %s",
     "Não foi possível iniciar o streaming: %s",
     "Sem atividade: você será desconectado em %s segundos",
+    "Seus jogos",
+    "Indisponível na sua conta",
+    "Game Pass",
+    "Pesquisar",
+    "Digite o nome de um jogo",
+    "Nenhum jogo encontrado",
+    "%s resultados",
+    "Espaço",
+    "Apagar",
+    "Limpar",
+    "%s jogos",
+    "Digitar",
+    "Tentando outra região: %s",
+    "Disponíveis para comprar",
+    "COMPRAR",
+    "Compre este jogo para jogá-lo na nuvem",
+    "Compre em xbox.com ou no app Xbox; depois ele aparece em Seus jogos.",
+    "Escaneie para abrir a página da loja",
+    "Pesquisar em %s",
+    "GRÁTIS",
 };
 
 constexpr Column kSpanish = {
@@ -168,6 +208,26 @@ constexpr Column kSpanish = {
     "No se pudo cargar la lista de juegos: %s",
     "No se pudo iniciar el streaming: %s",
     "Sin actividad: se te desconectará en %s segundos",
+    "Tus juegos",
+    "No disponible en tu cuenta",
+    "Game Pass",
+    "Buscar",
+    "Escribe el nombre de un juego",
+    "No se encontraron juegos",
+    "%s resultados",
+    "Espacio",
+    "Borrar",
+    "Limpiar",
+    "%s juegos",
+    "Escribir",
+    "Probando otra región: %s",
+    "Disponibles para comprar",
+    "COMPRAR",
+    "Compra este juego para jugarlo en la nube",
+    "Cómpralo en xbox.com o en la app de Xbox; luego aparecerá en Tus juegos.",
+    "Escanea para abrir la página de la tienda",
+    "Buscar en %s",
+    "GRATIS",
 };
 
 constexpr Column kFrench = {
@@ -214,6 +274,26 @@ constexpr Column kFrench = {
     "Impossible de charger la liste des jeux : %s",
     "Impossible de démarrer le streaming : %s",
     "Aucune activité : vous serez déconnecté dans %s secondes",
+    "Vos jeux",
+    "Indisponible sur votre compte",
+    "Game Pass",
+    "Rechercher",
+    "Tapez le nom d'un jeu",
+    "Aucun jeu trouvé",
+    "%s résultats",
+    "Espace",
+    "Effacer",
+    "Tout effacer",
+    "%s jeux",
+    "Taper",
+    "Essai d'une autre région : %s",
+    "Disponibles à l'achat",
+    "ACHETER",
+    "Achetez ce jeu pour y jouer dans le cloud",
+    "Achetez-le sur xbox.com ou dans l'app Xbox ; il apparaîtra ensuite dans Vos jeux.",
+    "Scannez pour ouvrir la page du magasin",
+    "Rechercher dans %s",
+    "GRATUIT",
 };
 
 constexpr Column kGerman = {
@@ -260,6 +340,26 @@ constexpr Column kGerman = {
     "Die Spieleliste konnte nicht geladen werden: %s",
     "Das Streaming konnte nicht gestartet werden: %s",
     "Keine Aktivität: Die Verbindung wird in %s Sekunden getrennt",
+    "Deine Spiele",
+    "Für dein Konto nicht verfügbar",
+    "Game Pass",
+    "Suchen",
+    "Gib den Namen eines Spiels ein",
+    "Keine Spiele gefunden",
+    "%s Ergebnisse",
+    "Leerzeichen",
+    "Löschen",
+    "Leeren",
+    "%s Spiele",
+    "Tippen",
+    "Andere Region wird versucht: %s",
+    "Zum Kaufen verfügbar",
+    "KAUFEN",
+    "Kaufe dieses Spiel, um es in der Cloud zu spielen",
+    "Kaufe es auf xbox.com oder in der Xbox-App; danach erscheint es unter Deine Spiele.",
+    "Scannen, um die Store-Seite zu öffnen",
+    "Suchen in %s",
+    "KOSTENLOS",
 };
 
 constexpr Column kItalian = {
@@ -306,6 +406,26 @@ constexpr Column kItalian = {
     "Impossibile caricare l'elenco dei giochi: %s",
     "Impossibile avviare lo streaming: %s",
     "Nessuna attività: verrai disconnesso tra %s secondi",
+    "I tuoi giochi",
+    "Non disponibile sul tuo account",
+    "Game Pass",
+    "Cerca",
+    "Scrivi il nome di un gioco",
+    "Nessun gioco trovato",
+    "%s risultati",
+    "Spazio",
+    "Cancella",
+    "Svuota",
+    "%s giochi",
+    "Scrivi",
+    "Provo un'altra regione: %s",
+    "Disponibili per l'acquisto",
+    "ACQUISTA",
+    "Acquista questo gioco per giocarci nel cloud",
+    "Acquistalo su xbox.com o nell'app Xbox; poi apparirà in I tuoi giochi.",
+    "Scansiona per aprire la pagina dello store",
+    "Cerca in %s",
+    "GRATIS",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

@@ -36,6 +36,7 @@ struct Title {
     std::string name;       // filled in by hydrateTitles()
     std::string imageUrl;   // box art / tile
     bool hasEntitlement = false;
+    std::string xboxTitleId;  // Xbox Live title id (titlehub)
 };
 
 enum class SessionState { Unknown, Provisioning, WaitingForResources, ReadyToConnect, Provisioned, Failed };
