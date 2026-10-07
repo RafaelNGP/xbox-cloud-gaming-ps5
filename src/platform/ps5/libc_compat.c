@@ -149,3 +149,23 @@ int getnameinfo(const struct sockaddr *sa, socklen_t salen, char *host, size_t h
     if (serv && servlen) snprintf(serv, servlen, "%d", port);
     return 0;
 }
+
+/* --- Non-blocking sockets (see ps5/compat/ps5_lfs.h) ------------------------ */
+#include <sys/ioctl.h>
+#undef ioctl
+/* sys/ioctl.h declared it as xc_ioctl (the forced compat header). */
+int ioctl(int fd, unsigned long request, ...);
+
+#define XC_SO_NBIO 0x1200
+
+int xc_ioctl(int fd, unsigned long request, ...) {
+    va_list ap;
+    va_start(ap, request);
+    void *arg = va_arg(ap, void *);
+    va_end(ap);
+    if (request == FIONBIO && arg) {
+        int on = *(const int *)arg ? 1 : 0;
+        if (setsockopt(fd, SOL_SOCKET, XC_SO_NBIO, &on, sizeof on) == 0) return 0;
+    }
+    return ioctl(fd, request, arg);
+}

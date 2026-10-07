@@ -1,4 +1,5 @@
 #include "display/display.h"
+#include "platform/platform.h"
 #include "util/log.h"
 
 #include <algorithm>
@@ -302,7 +303,10 @@ class TilePool {
 public:
     TilePool() {
         unsigned n = std::max(1u, std::min(4u, std::thread::hardware_concurrency() / 2));
-        for (unsigned i = 0; i < n; ++i) workers_.emplace_back([this, i, n] { loop(i, n); });
+        for (unsigned i = 0; i < n; ++i) {
+            workers_.emplace_back();
+            platform::startThread(workers_.back(), [this, i, n] { loop(i, n); }, 256u << 10);
+        }
     }
     void run(const YuvJob& job) {
         {
@@ -334,7 +338,7 @@ private:
         }
     }
 
-    std::vector<std::thread> workers_;
+    std::vector<platform::Thread> workers_;
     std::mutex m_;
     std::condition_variable cv_, done_;
     const YuvJob* job_ = nullptr;

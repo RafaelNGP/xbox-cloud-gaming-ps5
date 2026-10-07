@@ -25,9 +25,14 @@ public:
     // Keepalives etc.; about once a second from the thread owning `gssv`.
     void tick();
     void stop();
+    // Appends every received access unit to `path` for `seconds` (diagnostics).
+    void dumpVideo(const std::string& path, int seconds);
+    // Writes the next decoded picture, half size, as a binary PPM.
+    void requestSnapshot(const std::string& path);
 
     struct Stats {
         uint64_t videoFrames = 0, decodedFrames = 0, droppedFrames = 0, audioPackets = 0;
+        uint64_t decodeFailures = 0, queueResets = 0, keyframeRequests = 0, queued = 0;
     };
     Stats stats() const;
 

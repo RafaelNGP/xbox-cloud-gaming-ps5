@@ -16,3 +16,10 @@
 #define pread64 pread
 #define pwrite64 pwrite
 #define off64_t off_t
+
+/*
+ * The app sandbox refuses ioctl(FIONBIO) and fcntl(O_NONBLOCK) on sockets
+ * (EACCES); setsockopt(SO_NBIO) works. Every ioctl call goes through
+ * xc_ioctl (src/platform/ps5/libc_compat.c), which translates FIONBIO.
+ */
+#define ioctl xc_ioctl

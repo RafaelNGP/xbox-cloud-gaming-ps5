@@ -76,6 +76,8 @@ bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err) {
     return true;
 }
 
+void probeNetworking() {}
+
 void notify(const std::string& text) { std::printf("\n>>> %s\n\n", text.c_str()); }
 
 }  // namespace xc::platform

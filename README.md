@@ -8,9 +8,37 @@ Cliente nativo de Xbox Cloud Gaming (xCloud) para PS5 com homebrew.
 | --- | --- | --- |
 | Interface na tela, DualSense nos menus | — | testado |
 | Login (conta salva), lista de jogos, sessão, fila | testado | testado |
-| WebRTC (SDP/ICE, DTLS-SRTP, canais de dados) | testado: 1080p60 H.264 + Opus | falhava no ICE (`getaddrinfo`); correção ainda não testada |
-| Decodificação H.264/Opus (FFmpeg) | testado (5,4 ms/quadro com SIMD) | não testado |
-| Vídeo na tela, áudio, DualSense → controle Xbox | — | não testado |
+| WebRTC (SDP/ICE, DTLS-SRTP, canais de dados) | testado | testado |
+| Vídeo 1080p60 H.264 (FFmpeg, 3,1 ms/quadro no PS5) | testado | testado: 3 min, 99,6% dos quadros exibidos |
+| Áudio Opus → sceAudioOut | decodificação testada | decodificado e enviado à saída (falta confirmar de ouvido) |
+| DualSense → controle Xbox no jogo | — | testado (autoplay aperta A no Balatro) |
+
+## Teste automático no console
+
+`tools/ps5/autotest.sh` compila, faz o deploy, abre o app pelo agente
+`ps5vkctl` do PS5_Vulkan e espera o resultado. O app, ao achar
+`autoplay.txt`, entra no jogo sozinho, aperta A aos 15 s e 20 s, registra
+estatísticas por segundo e salva quadros em `frame.ppm`/`frame2.ppm`.
+
+```bash
+PS5_HOST=<ip> tools/ps5/autotest.sh BALATRO 60          # streaming
+PS5_HOST=<ip> tools/ps5/autotest.sh BALATRO 30 dump     # + grava stream.aus (H.264 recebido)
+XC_SAMPLE=amostra.h264 PS5_HOST=<ip> tools/ps5/autotest.sh BENCH 30   # só o decoder
+build-host/xcloud-cli bench-decode build-ps5/autotest/stream.aus      # reproduz no PC
+```
+
+Resultados em `build-ps5/autotest/`.
+
+## Particularidades do PS5 (sandbox do app)
+
+- `getaddrinfo` não funciona (e o link do PS5_Vulkan o troca por um stub que
+  sempre falha): `libc_compat.c` implementa `getaddrinfo`/`getnameinfo` com
+  `sceNetResolver`, e o `link.sh` remove o redirecionamento.
+- `ioctl(FIONBIO)`/`fcntl(O_NONBLOCK)` em sockets dão `EACCES`;
+  `setsockopt(SO_NBIO)` funciona (`ioctl` é embrulhado via `ps5/compat/ps5_lfs.h`).
+- O callback de log padrão do FFmpeg derruba o app: o log vai para o nosso logger.
+- O depacketizador H.264 às vezes entrega unidades vazias, que o libavcodec
+  entende como fim de stream: são descartadas.
 
 ## Build
 

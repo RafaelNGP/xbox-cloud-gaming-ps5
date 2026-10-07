@@ -49,7 +49,7 @@ add_library(xcloud_media STATIC src/media/decoder.cpp src/media/audio_out.cpp)
 target_link_libraries(xcloud_media PUBLIC xcloud_core PRIVATE xc_ffmpeg)
 
 if(XCLOUD_PS5)
-    target_sources(xcloud_core PRIVATE src/platform/ps5/platform_ps5.cpp src/platform/ps5/libc_compat.c)
+    target_sources(xcloud_core PRIVATE src/platform/ps5/platform_ps5.cpp src/platform/ps5/libc_compat.c src/platform/ps5/net_probe.cpp)
 
     # The app itself: linked into eboot.bin by tools/ps5/link.sh.
     add_library(xcloud_app STATIC

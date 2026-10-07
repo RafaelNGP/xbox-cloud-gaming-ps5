@@ -7,12 +7,14 @@
 #include "auth/auth_manager.h"
 #include "display/display.h"
 #include "input/controller.h"
+#include "media/decoder.h"
 #include "net/http.h"
 #include "platform/platform.h"
 #include "util/log.h"
 #include "xcloud/gssv.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <atomic>
 #include <mutex>
 #include <string>
@@ -82,9 +84,64 @@ app::StreamPlayer* g_player = nullptr;
 
 void setSession(const std::string& text, bool running);
 
+// Unattended test mode (tools/ps5/autotest.sh): <dataDir>/autoplay.txt holds
+// "<titleId> <seconds>". The app signs in, plays that title for that long,
+// saves a decoded frame as frame.ppm and logs "AUTOPLAY END".
+std::string g_autoplayTitle;
+int g_autoplaySeconds = 0;
+// Autoplay presses A at 15 s and 20 s into the stream (input check).
+std::atomic<bool> g_syntheticA{false};
+bool g_autoplayDump = false;
+
+void loadAutoplay() {
+    std::string text;
+    if (!platform::readFile(platform::dataDir() + "/autoplay.txt", text)) return;
+    char title[128] = {};
+    char option[64] = {};
+    int seconds = 0;
+    if (std::sscanf(text.c_str(), "%127s %d %63s", title, &seconds, option) >= 1) {
+        if (std::string(option) == "nosimd") media::disableSimd();
+        g_autoplayDump = std::string(option) == "dump";
+        g_autoplayTitle = title;
+        g_autoplaySeconds = seconds > 0 ? seconds : 60;
+        XC_LOGI("AUTOPLAY %s for %ds", title, g_autoplaySeconds);
+        platform::probeNetworking();
+    }
+}
+
+// Autoplay "BENCH": decode <dataDir>/sample.h264 without any network, to test
+// FFmpeg on the console in isolation.
+void runDecodeBench() {
+    std::string data;
+    if (!platform::readFile(platform::dataDir() + "/sample.h264", data)) {
+        XC_LOGE("AUTOPLAY END: no sample.h264");
+        return;
+    }
+    auto aus = media::splitAccessUnits(reinterpret_cast<const uint8_t*>(data.data()), data.size());
+    XC_LOGI("bench: %zu bytes, %zu access units", data.size(), aus.size());
+    media::VideoDecoder dec;
+    if (!dec.init(1)) {
+        XC_LOGE("AUTOPLAY END: decoder init failed");
+        return;
+    }
+    media::Picture pic;
+    int pictures = 0;
+    uint64_t t0 = platform::nowMs();
+    for (size_t i = 0; i < aus.size(); ++i) {
+        if (i < 3) XC_LOGI("bench: decode AU %zu (%zu bytes)", i, aus[i].second);
+        bool ok = dec.decode(reinterpret_cast<const uint8_t*>(data.data()) + aus[i].first, aus[i].second, pic);
+        if (ok) ++pictures;
+        if (i < 3) XC_LOGI("bench: AU %zu done ok=%d", i, ok);
+    }
+    uint64_t ms = platform::nowMs() - t0;
+    XC_LOGI("AUTOPLAY END: bench %d pictures (%dx%d) in %llu ms = %.2f ms/picture", pictures, pic.width,
+            pic.height, static_cast<unsigned long long>(ms), pictures ? double(ms) / pictures : 0.0);
+}
+
 void play(xcloud::GssvClient& gssv, std::string& result) {
     setSession("Conectando o stream...", true);
     app::StreamPlayer player(gssv);
+    if (g_autoplayDump) player.dumpVideo(platform::dataDir() + "/stream.aus", 20);
     std::string err;
     if (!player.start(err)) {
         result = "ERRO ao conectar o stream: " + err;
@@ -97,14 +154,33 @@ void play(xcloud::GssvClient& gssv, std::string& result) {
     updateUi([](Ui& ui) { ui.screen = Screen::Streaming; });
     platform::notify("Segure OPTIONS + TOUCHPAD para sair do jogo");
     uint64_t nextTick = platform::nowMs();
+    const uint64_t started = nextTick;
+    bool snapshotAsked = false, snapshot2Asked = false;
     while (player.running() && !g_cancel) {
+        uint64_t elapsed = platform::nowMs() - started;
+        if (!g_autoplayTitle.empty()) {
+            if (elapsed >= static_cast<uint64_t>(g_autoplaySeconds) * 1000u) break;
+            if (!snapshotAsked && elapsed >= 10000) {
+                snapshotAsked = true;
+                player.requestSnapshot(platform::dataDir() + "/frame.ppm");
+            }
+            bool press = (elapsed >= 15000 && elapsed < 15300) || (elapsed >= 20000 && elapsed < 20300);
+            if (press != g_syntheticA.exchange(press)) XC_LOGI("autoplay: A %s", press ? "down" : "up");
+            if (!snapshot2Asked && elapsed >= 26000) {
+                snapshot2Asked = true;
+                player.requestSnapshot(platform::dataDir() + "/frame2.ppm");
+            }
+        }
         if (platform::nowMs() >= nextTick) {
             nextTick += 1000;
             player.tick();
             auto st = player.stats();
-            XC_LOGD("stream: %llu frames, %llu decoded, %llu skipped, %llu audio",
+            XC_LOGI("stream: %llu frames, %llu decoded, %llu skipped, %llu failed, %llu resets, %llu kf req, "
+                    "%llu queued, %llu audio",
                     static_cast<unsigned long long>(st.videoFrames), static_cast<unsigned long long>(st.decodedFrames),
-                    static_cast<unsigned long long>(st.droppedFrames), static_cast<unsigned long long>(st.audioPackets));
+                    static_cast<unsigned long long>(st.droppedFrames), static_cast<unsigned long long>(st.decodeFailures),
+                    static_cast<unsigned long long>(st.queueResets), static_cast<unsigned long long>(st.keyframeRequests),
+                    static_cast<unsigned long long>(st.queued), static_cast<unsigned long long>(st.audioPackets));
         }
         platform::sleepMs(100);
     }
@@ -112,7 +188,7 @@ void play(xcloud::GssvClient& gssv, std::string& result) {
         std::lock_guard<std::mutex> lock(g_playerMutex);
         g_player = nullptr;
     }
-    std::string reason = g_cancel ? "voce saiu do jogo" : player.endReason();
+    std::string reason = g_cancel ? "voce saiu do jogo" : player.running() ? "fim do autoplay" : player.endReason();
     player.stop();
     auto st = player.stats();
     result = "Stream encerrado (" + reason + "). " + std::to_string(st.decodedFrames) + " quadros exibidos.";
@@ -129,6 +205,7 @@ void doSignIn(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     };
     if (!am.signIn(gssv, onCode, err, &g_cancel)) {
         setError("Falha no login: " + err);
+        if (!g_autoplayTitle.empty()) XC_LOGI("AUTOPLAY END: login failed");
         return;
     }
     updateUi([&](Ui& ui) {
@@ -153,6 +230,11 @@ void doSignIn(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         ui.titles = std::move(titles);
         ui.screen = Screen::Titles;
     });
+    if (!g_autoplayTitle.empty()) {
+        std::lock_guard<std::mutex> lock(g_argMutex);
+        g_provisionTitle = g_autoplayTitle;
+        g_command = kProvision;
+    }
 }
 
 void setSession(const std::string& text, bool running) {
@@ -205,9 +287,16 @@ void doProvision(auth::AuthManager& am, xcloud::GssvClient& gssv, const std::str
     if (g_cancel && result.rfind("Stream", 0) != 0) result = "Cancelado";
     gssv.stopSession();
     setSession(result, false);
+    if (!g_autoplayTitle.empty()) XC_LOGI("AUTOPLAY END: %s", result.c_str());
 }
 
 void worker() {
+    if (g_autoplayTitle == "BENCH") {
+        platform::Thread t;  // same big stack as the stream's video thread
+        platform::startThread(t, runDecodeBench);
+        t.join();
+        for (;;) platform::sleepMs(1000);
+    }
     auth::AuthManager am(platform::dataDir() + "/account.json");
     xcloud::GssvClient gssv;
     for (;;) {
@@ -329,6 +418,7 @@ int main(int argc, char** argv) {
     platform::init();
     log::setFile((platform::dataDir() + "/xcloud.log").c_str());
     XC_LOGI("=== xCloud PS5 starting ===");
+    loadAutoplay();
     sceSystemServiceHideSplashScreen();
 
     bool haveDisplay = display::init();
@@ -392,7 +482,11 @@ int main(int argc, char** argv) {
             case Screen::Streaming: {
                 {
                     std::lock_guard<std::mutex> lock(g_playerMutex);
-                    if (g_player) g_player->sendInput(pad);
+                    if (g_player) {
+                        input::ControllerState sent = pad;
+                        if (g_syntheticA) sent.btnA = true;
+                        g_player->sendInput(sent);
+                    }
                 }
                 // OPTIONS + TOUCHPAD held for a second leaves the game.
                 if (pad.btnOptions && pad.btnTouchpad) {

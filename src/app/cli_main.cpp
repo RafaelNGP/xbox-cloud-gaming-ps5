@@ -208,28 +208,19 @@ int cmdBenchDecode(const char* path, int threads) {
         XC_LOGE("cannot read %s", path);
         return 1;
     }
-    // Access units start at each SPS or non-IDR/IDR slice with first_mb == 0;
-    // the stream from xCloud starts every AU with an AUD or SPS, so splitting
-    // at AUD (type 9) or SPS (type 7) not preceded by an AUD is enough.
     std::vector<std::pair<size_t, size_t>> aus;
-    size_t start = std::string::npos;
-    int prevType = -1;
-    for (size_t i = 0; i + 4 < data.size(); ++i) {
-        if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1) {
-            int type = data[i + 3] & 0x1f;
-            size_t sc = (i > 0 && data[i - 1] == 0) ? i - 1 : i;
-            bool boundary = type == 9 || (type == 7 && prevType != 9) ||
-                            ((type == 1 || type == 5) && prevType != 7 && prevType != 8 && prevType != 9 &&
-                             prevType != 6 && (static_cast<uint8_t>(data[i + 4]) & 0x80));
-            if (boundary) {
-                if (start != std::string::npos) aus.emplace_back(start, sc - start);
-                start = sc;
-            }
-            prevType = type;
-            i += 3;
+    if (std::string(path).size() > 4 && std::string(path).substr(std::string(path).size() - 4) == ".aus") {
+        // Length-prefixed access units as received on the console.
+        for (size_t p = 0; p + 4 <= data.size();) {
+            uint32_t n;
+            std::memcpy(&n, data.data() + p, 4);
+            if (p + 4 + n > data.size()) break;
+            aus.emplace_back(p + 4, n);
+            p += 4 + n;
         }
+    } else {
+        aus = media::splitAccessUnits(reinterpret_cast<const uint8_t*>(data.data()), data.size());
     }
-    if (start != std::string::npos) aus.emplace_back(start, data.size() - start);
 
     media::VideoDecoder dec;
     if (!dec.init(threads)) return 1;

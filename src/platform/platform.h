@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 
 namespace xc::platform {
@@ -26,6 +27,18 @@ bool randomBytes(void* out, size_t len);
 bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err);
 uint64_t nowMs();  // monotonic
 void sleepMs(uint32_t ms);
+
+// Logs which socket operations work (PS5 diagnostics; no-op on the host).
+void probeNetworking();
+
+// Starts a joinable thread with an explicit stack size (the console's default
+// thread stack is too small for the H.264 decoder). Returns false on failure.
+struct Thread {
+    void* handle = nullptr;
+    bool joinable() const { return handle != nullptr; }
+    void join();
+};
+bool startThread(Thread& t, std::function<void()> fn, size_t stackBytes = 8u << 20);
 
 // Short on-screen message (PS5 system notification / host stdout).
 void notify(const std::string& text);

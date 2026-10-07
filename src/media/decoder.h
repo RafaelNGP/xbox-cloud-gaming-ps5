@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 struct AVCodecContext;
@@ -20,6 +21,13 @@ struct Picture {
     int strideY = 0, strideU = 0, strideV = 0;
     int width = 0, height = 0;
 };
+
+// Splits an Annex-B H.264 stream into access units (offset, length): at AUD
+// or SPS NALs and at first slices not preceded by parameter sets/SEI.
+std::vector<std::pair<size_t, size_t>> splitAccessUnits(const uint8_t* data, size_t size);
+
+// Restricts FFmpeg to plain C code paths (diagnostics); call before init().
+void disableSimd();
 
 class VideoDecoder {
 public:
@@ -42,6 +50,7 @@ private:
     AVFrame* frame_ = nullptr;
     AVPacket* packet_ = nullptr;
     bool needsKeyframe_ = true;
+    int failuresLogged_ = 0;
 };
 
 class AudioDecoder {
