@@ -301,15 +301,53 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
     app.setProfile(am.profile().gamertag, am.profile().gamerpicUrl);
     std::string err;
     app::Library library;
-    auto onRows = [&](const std::vector<ui::GameRow>& rows) { app.setRows(rows); };
+    auto onRows = [&] {
+        app.setRows(library.rows());
+        app.setOwned(library.owned(), library.ownedKnown());
+        app.setSearchPool(library.searchPool());
+    };
     if (!library.load(gssv, ui::catalogLanguage(), onRows, err)) {
         XC_LOGE("%s", err.c_str());
         return 1;
     }
     library.loadOwned(gssv, onRows);
+    library.loadCatalogNames(onRows);
     library.hydrate(onRows);
     app.showHome();
     save("home", 4000);
+    {
+        // The other tabs: "Your games", then a search typed on the keyboard.
+        ui::NavInput r1;
+        r1.r1 = true;
+        app.handle(r1);
+        save("library", 3000);
+        ui::NavInput down1;
+        down1.down = true;
+        app.handle(down1);
+        app.handle(down1);
+        save("library_scrolled", 1500);
+        app.handle(r1);
+        auto press = [&](auto set, int times) {
+            for (int i = 0; i < times; ++i) {
+                ui::NavInput n;
+                set(n);
+                app.handle(n);
+            }
+        };
+        auto type = [&](char ch) {
+            int idx = static_cast<int>(std::string("abcdefghijklmnopqrstuvwxyz0123456789").find(ch));
+            press([](ui::NavInput& n) { n.up = true; }, 7);
+            press([](ui::NavInput& n) { n.left = true; }, 6);
+            press([](ui::NavInput& n) { n.down = true; }, idx / 6);
+            press([](ui::NavInput& n) { n.right = true; }, idx % 6);
+            press([](ui::NavInput& n) { n.accept = true; }, 1);
+        };
+        for (char ch : std::string("forza")) type(ch);
+        save("search", 3000);
+        press([](ui::NavInput& n) { n.right = true; }, 6);  // over to the results
+        save("search_results", 1500);
+        press([](ui::NavInput& n) { n.l1 = true; }, 2);     // back to the Game Pass tab
+    }
     ui::NavInput right;
     right.right = true;
     for (int i = 0; i < 3; ++i) app.handle(right);

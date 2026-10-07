@@ -55,6 +55,16 @@ enum class Str {
     IdleWarning,      // "%s" = seconds until the server disconnects
     YourGames,        // row of the account's own (non-Game Pass) games
     NotPlayable,      // the account can't stream this game
+    TabGamePass,
+    TabSearch,
+    SearchHint,
+    NoResults,
+    ResultsCount,     // "%s" = number
+    KeySpace,
+    KeyDelete,
+    KeyClear,
+    GamesCount,       // "%s" = number
+    KeyType,          // hint: press to type the focused key
     Count
 };
 

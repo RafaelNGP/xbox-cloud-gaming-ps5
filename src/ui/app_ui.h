@@ -41,9 +41,13 @@ struct GameRow {
 
 enum class Screen { Splash, SignIn, Home, Details, Launching, Streaming, Error, Settings };
 
+// The home screen's tabs (L1 / R1).
+enum class Tab { GamePass, Library, Search };
+
 struct NavInput {
     bool up = false, down = false, left = false, right = false;
     bool accept = false, back = false, options = false;
+    bool l1 = false, r1 = false, square = false;
     bool touchpad = false;  // held right now (sign out needs a 5 s hold)
     uint64_t nowMs = 0;
 };
@@ -76,6 +80,10 @@ public:
     void setProfile(const std::string& gamertag, const std::string& gamerpicUrl);
     // Replaces the rows, keeping the focus on the same game when possible.
     void setRows(std::vector<GameRow> rows);
+    // "Your games" grid; `known` false while the account's games load.
+    void setOwned(std::vector<GameTile> tiles, bool known);
+    // Everything the search looks through.
+    void setSearchPool(std::vector<GameTile> pool);
     void showHome(const std::string& toast = {});
     void showLaunching(const GameTile& game, const std::string& status);
     void setLaunchStatus(const std::string& status);
@@ -86,6 +94,7 @@ public:
     // one "Automatic" picks.
     void setRegions(std::vector<std::string> regions, const std::string& defaultRegion);
     Screen screen() const;
+    Tab tab() const;
     void invalidate();
 
     // --- UI thread -----------------------------------------------------------
@@ -111,6 +120,17 @@ private:
     void drawSplash(Canvas& c, uint64_t nowMs);
     void drawSignIn(Canvas& c, uint64_t nowMs);
     void drawHome(Canvas& c, uint64_t nowMs);
+    void drawTabs(Canvas& c);
+    void drawLibrary(Canvas& c, uint64_t nowMs);
+    void drawSearch(Canvas& c, uint64_t nowMs);
+    // A grid of cards with names below; `focus` < 0: none highlighted.
+    void drawGrid(Canvas& c, const std::vector<GameTile>& tiles, int x0, int y0, int cols, float scroll, int focus,
+                  int clipTop);
+    void handleHome(const NavInput& in, UiEvent& ev);
+    void handleSearchKeys(const NavInput& in);
+    void runSearch();
+    void openDetails(const GameTile& tile);
+    void refreshDetail();
     void drawDetails(Canvas& c, uint64_t nowMs);
     void drawLaunching(Canvas& c, uint64_t nowMs);
     void drawError(Canvas& c);
@@ -132,6 +152,18 @@ private:
     std::vector<int> focusCol_;
     std::vector<Anim> rowScroll_;
     Anim rowY_;
+    Tab tab_ = Tab::GamePass;
+    std::vector<GameTile> owned_;
+    bool ownedKnown_ = false;
+    int gridFocus_ = 0;
+    Anim gridScroll_;
+    std::vector<GameTile> pool_, results_;
+    std::string query_;
+    bool searchOnKeys_ = true;
+    int keyRow_ = 0, keyCol_ = 0;
+    int resultFocus_ = 0;
+    Anim resultScroll_;
+    GameTile detail_;  // the game the details page shows
     GameTile launching_;
     std::string error_;
     SettingsChoice settings_;

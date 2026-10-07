@@ -42,7 +42,57 @@ constexpr Color kGreen = rgba(16, 124, 16);
 constexpr Color kPanel = rgba(36, 36, 36);
 constexpr Color kPlaceholder = rgba(44, 44, 44);
 
-enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad };
+enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad, kIconSquare };
+
+// Grids ("Your games", search results): cards with the name below.
+constexpr int kGridPitchY = 300;
+constexpr int kLibraryCols = 6;
+constexpr int kResultCols = 4;
+constexpr int kGridTop = 236;       // y of the first card row
+constexpr int kResultsX = 760;
+constexpr size_t kMaxResults = 60;
+
+// The search keyboard: 6 x 6 letters and digits, then Space / Delete / Clear.
+constexpr const char* kKeys = "abcdefghijklmnopqrstuvwxyz0123456789";
+constexpr int kKeyCols = 6, kKeyRows = 6;  // + the row of wide keys
+constexpr int kKeyW = 90, kKeyH = 62, kKeyGap = 10;
+constexpr int kKeysY = 262;
+constexpr int kWideCols[3] = {0, 3, 5};  // first column of Space, Delete, Clear
+constexpr int kWideSpan[3] = {3, 2, 1};
+
+// Lower case, accents dropped (Latin-1 range), anything else a space: what
+// the search compares.
+std::string fold(const std::string& s) {
+    static const char kLatin1[] = "aaaaaaaceeeeiiiidnooooo ouuuuytsaaaaaaaceeeeiiiidnooooo ouuuuyty";
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size();) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        uint32_t cp = ' ';
+        size_t n = 1;
+        if (c < 0x80) {
+            cp = c;
+        } else if ((c & 0xE0) == 0xC0 && i + 1 < s.size()) {
+            cp = ((c & 0x1Fu) << 6) | (static_cast<unsigned char>(s[i + 1]) & 0x3Fu);
+            n = 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            n = 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            n = 4;
+        }
+        i += n;
+        char ch = ' ';
+        if (cp < 0x80 && std::isalnum(static_cast<int>(cp))) ch = static_cast<char>(std::tolower(static_cast<int>(cp)));
+        else if (cp >= 0xC0 && cp <= 0xFF) ch = kLatin1[cp - 0xC0];
+        out += ch;
+    }
+    return out;
+}
+
+std::string withoutSpaces(std::string s) {
+    s.erase(std::remove(s.begin(), s.end(), ' '), s.end());
+    return s;
+}
 
 constexpr uint64_t kSignOutHoldMs = 5000;
 
@@ -150,7 +200,92 @@ void AppUi::setRows(std::vector<GameRow> rows) {
         for (auto& a : rowScroll_) a.value = a.target;
         rowY_.value = rowY_.target;
     }
+    refreshDetail();
     dirty_ = true;
+}
+
+void AppUi::setOwned(std::vector<GameTile> tiles, bool known) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::string focused = gridFocus_ < static_cast<int>(owned_.size()) ? owned_[static_cast<size_t>(gridFocus_)].productId : "";
+    owned_ = std::move(tiles);
+    ownedKnown_ = known;
+    gridFocus_ = 0;
+    for (size_t i = 0; i < owned_.size(); ++i)
+        if (owned_[i].productId == focused) gridFocus_ = static_cast<int>(i);
+    refreshDetail();
+    dirty_ = true;
+}
+
+void AppUi::setSearchPool(std::vector<GameTile> pool) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    pool_ = std::move(pool);
+    runSearch();
+    refreshDetail();
+    dirty_ = true;
+}
+
+Tab AppUi::tab() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return tab_;
+}
+
+void AppUi::openDetails(const GameTile& tile) {
+    // Caller holds mutex_.
+    detail_ = tile;
+    screen_ = Screen::Details;
+    dirty_ = true;
+}
+
+void AppUi::refreshDetail() {
+    // Caller holds mutex_. Hero art and descriptions arrive after the page opened.
+    if (screen_ != Screen::Details || detail_.productId.empty()) return;
+    auto take = [&](const GameTile& t) {
+        if (t.productId == detail_.productId && t.heroUrl.size() + t.description.size() >
+                                                    detail_.heroUrl.size() + detail_.description.size())
+            detail_ = t;
+    };
+    for (const auto& row : rows_)
+        for (const auto& t : row.tiles) take(t);
+    for (const auto& t : owned_) take(t);
+    for (const auto& t : pool_) take(t);
+}
+
+void AppUi::runSearch() {
+    // Caller holds mutex_.
+    results_.clear();
+    resultFocus_ = 0;
+    resultScroll_ = Anim{};
+    std::string q = fold(query_);
+    std::vector<std::string> words;
+    for (size_t i = 0; i < q.size();) {
+        size_t j = q.find(' ', i);
+        if (j == std::string::npos) j = q.size();
+        if (j > i) words.push_back(q.substr(i, j - i));
+        i = j + 1;
+    }
+    if (words.empty()) return;
+    std::string compact = withoutSpaces(q);
+    struct Hit {
+        int score;
+        const GameTile* tile;
+    };
+    std::vector<Hit> hits;
+    for (const auto& t : pool_) {
+        std::string name = fold(t.name);
+        bool all = true;
+        for (const auto& w : words)
+            if (name.find(w) == std::string::npos) all = false;
+        if (!all && withoutSpaces(name).find(compact) == std::string::npos) continue;
+        // Starts with the query, then a word starting with it, then the rest.
+        int score = name.rfind(words[0], 0) == 0 ? 0 : name.find(" " + words[0]) != std::string::npos ? 1 : 2;
+        if (!t.playable) score += 3;
+        hits.push_back({score, &t});
+    }
+    std::stable_sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) {
+        if (a.score != b.score) return a.score < b.score;
+        return a.tile->name < b.tile->name;
+    });
+    for (size_t i = 0; i < hits.size() && i < kMaxResults; ++i) results_.push_back(*hits[i].tile);
 }
 
 void AppUi::showHome(const std::string& toast) {
@@ -253,19 +388,42 @@ void AppUi::retarget() {
 
 // --- Input ---------------------------------------------------------------------
 
-UiEvent AppUi::handle(const NavInput& in) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    UiEvent ev;
-    switch (screen_) {
-        case Screen::Home: {
-            if (rows_.empty()) {
-                if (in.options) {
-                    screen_ = Screen::Settings;
-                    settingsRow_ = 0;
-                    dirty_ = true;
-                }
-                break;
-            }
+namespace {
+
+// Moves `focus` in a grid of `count` items, `cols` wide. Returns true if it moved.
+bool moveInGrid(int& focus, int count, int cols, const NavInput& in) {
+    int before = focus;
+    if (in.right && focus + 1 < count && (focus + 1) % cols != 0) ++focus;
+    if (in.left && focus % cols != 0) --focus;
+    if (in.down && focus + cols < count) focus += cols;
+    else if (in.down && focus / cols < (count - 1) / cols) focus = count - 1;  // onto a short last row
+    if (in.up && focus >= cols) focus -= cols;
+    return focus != before;
+}
+
+// Keeps the focused grid row on screen: scrolls once it passes the second row.
+float gridTarget(int focus, int cols) { return static_cast<float>(std::max(0, focus / cols - 1) * kGridPitchY); }
+
+}  // namespace
+
+void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
+    // Caller holds mutex_.
+    if (in.l1 || in.r1) {
+        int t = (static_cast<int>(tab_) + (in.r1 ? 1 : 2)) % 3;
+        tab_ = static_cast<Tab>(t);
+        if (tab_ == Tab::Search) searchOnKeys_ = true;
+        dirty_ = true;
+        return;
+    }
+    if (in.options) {
+        screen_ = Screen::Settings;
+        settingsRow_ = 0;
+        dirty_ = true;
+        return;
+    }
+    switch (tab_) {
+        case Tab::GamePass: {
+            if (rows_.empty()) break;
             int rows = static_cast<int>(rows_.size());
             int& col = focusCol_[static_cast<size_t>(focusRow_)];
             int cols = static_cast<int>(rows_[static_cast<size_t>(focusRow_)].tiles.size());
@@ -277,17 +435,96 @@ UiEvent AppUi::handle(const NavInput& in) {
                 retarget();
                 dirty_ = true;
             }
-            if (in.accept && focusedTile()) {
-                screen_ = Screen::Details;
-                dirty_ = true;
-            }
-            if (in.options) {
-                screen_ = Screen::Settings;
-                settingsRow_ = 0;
-                dirty_ = true;
-            }
+            if (in.accept && focusedTile()) openDetails(*focusedTile());
             break;
         }
+        case Tab::Library:
+            if (owned_.empty()) break;
+            if (moveInGrid(gridFocus_, static_cast<int>(owned_.size()), kLibraryCols, in)) {
+                gridScroll_.target = gridTarget(gridFocus_, kLibraryCols);
+                dirty_ = true;
+            }
+            if (in.accept) openDetails(owned_[static_cast<size_t>(gridFocus_)]);
+            break;
+        case Tab::Search:
+            if (searchOnKeys_) {
+                handleSearchKeys(in);
+                break;
+            }
+            if (in.back) {  // back from the results to the keys
+                searchOnKeys_ = true;
+                dirty_ = true;
+                break;
+            }
+            if (in.left && resultFocus_ % kResultCols == 0) {
+                searchOnKeys_ = true;
+                dirty_ = true;
+                break;
+            }
+            if (in.square && !query_.empty()) {  // delete without going back to the keys
+                query_.pop_back();
+                runSearch();
+                searchOnKeys_ = results_.empty();
+                dirty_ = true;
+                break;
+            }
+            if (moveInGrid(resultFocus_, static_cast<int>(results_.size()), kResultCols, in)) {
+                resultScroll_.target = gridTarget(resultFocus_, kResultCols);
+                dirty_ = true;
+            }
+            if (in.accept && resultFocus_ < static_cast<int>(results_.size()))
+                openDetails(results_[static_cast<size_t>(resultFocus_)]);
+            break;
+    }
+}
+
+void AppUi::handleSearchKeys(const NavInput& in) {
+    // Caller holds mutex_. keyRow_ == kKeyRows is the row of wide keys, where
+    // keyCol_ is 0..2 (Space, Delete, Clear).
+    bool wide = keyRow_ == kKeyRows;
+    if (in.up && keyRow_ > 0) {
+        if (wide) keyCol_ = kWideCols[keyCol_];
+        --keyRow_;
+    } else if (in.down && keyRow_ < kKeyRows) {
+        ++keyRow_;
+        if (keyRow_ == kKeyRows) keyCol_ = keyCol_ < 3 ? 0 : keyCol_ < 5 ? 1 : 2;
+    } else if (in.left && keyCol_ > 0) {
+        --keyCol_;
+    } else if (in.right) {
+        int last = wide ? 2 : kKeyCols - 1;
+        if (keyCol_ < last) {
+            ++keyCol_;
+        } else if (!results_.empty()) {  // on to the results
+            searchOnKeys_ = false;
+            resultFocus_ = 0;
+        }
+    }
+    bool edited = false;
+    if (in.accept) {
+        if (!wide) {
+            query_ += kKeys[keyRow_ * kKeyCols + keyCol_];
+        } else if (keyCol_ == 0) {
+            if (!query_.empty() && query_.back() != ' ') query_ += ' ';
+        } else if (keyCol_ == 1) {
+            if (!query_.empty()) query_.pop_back();
+        } else {
+            query_.clear();
+        }
+        edited = true;
+    }
+    if (in.square && !query_.empty()) {
+        query_.pop_back();
+        edited = true;
+    }
+    if (edited) runSearch();
+    if (in.up || in.down || in.left || in.right || edited) dirty_ = true;
+}
+
+UiEvent AppUi::handle(const NavInput& in) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    UiEvent ev;
+    switch (screen_) {
+        case Screen::Home: handleHome(in, ev); break;
         case Screen::Settings:
             if (in.down && settingsRow_ < 2) ++settingsRow_, dirty_ = true;
             if (in.up && settingsRow_ > 0) --settingsRow_, dirty_ = true;
@@ -301,9 +538,9 @@ UiEvent AppUi::handle(const NavInput& in) {
             }
             break;
         case Screen::Details:
-            if (in.accept && focusedTile() && focusedTile()->playable) {
+            if (in.accept && detail_.playable && !detail_.titleId.empty()) {
                 ev.action = Action::Play;
-                ev.game = *focusedTile();
+                ev.game = detail_;
             }
             if (in.back) {
                 screen_ = Screen::Home;
@@ -401,6 +638,8 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
                 c.line(cx + 6, cy - 6, cx - 6, cy + 6, 2.5f, rgba(124, 178, 232));
             } else if (it->first == kIconCircle) {
                 c.strokeArc(cx, cy, 6.5f, 2.5f, 0, 6.2832f, rgba(255, 102, 102));
+            } else if (it->first == kIconSquare) {
+                c.strokeRect({static_cast<int>(cx) - 6, static_cast<int>(cy) - 6, 12, 12}, rgba(240, 130, 200), 2);
             } else {
                 c.line(cx, cy - 7, cx - 7, cy + 5, 2.5f, rgba(64, 226, 160));
                 c.line(cx, cy - 7, cx + 7, cy + 5, 2.5f, rgba(64, 226, 160));
@@ -513,11 +752,153 @@ void AppUi::drawSignIn(Canvas& c, uint64_t nowMs) {
     }
 }
 
+void AppUi::drawTabs(Canvas& c) {
+    // Centred pills in the top bar, between "L1" and "R1".
+    const char* labels[3] = {tr(Str::TabGamePass), tr(Str::YourGames), tr(Str::TabSearch)};
+    constexpr int kPx = 22, kPad = 26, kGap = 12, kH = 44, kY = 50;
+    int widths[3], total = 0;
+    for (int i = 0; i < 3; ++i) {
+        widths[i] = fonts_.semibold.measure(labels[i], kPx) + 2 * kPad;
+        total += widths[i] + (i ? kGap : 0);
+    }
+    int x = (kW - total) / 2;
+    auto shoulder = [&](const char* name, int cx) {
+        Rect r{cx - 22, kY + 8, 44, 28};
+        c.fillRect(r, rgba(255, 255, 255, 40), 8);
+        fonts_.bold.draw(c, name, cx - fonts_.bold.measure(name, 16) / 2, kY + 13, 16, kGray);
+    };
+    shoulder("L1", x - 40);
+    for (int i = 0; i < 3; ++i) {
+        bool on = static_cast<int>(tab_) == i;
+        Rect r{x, kY, widths[i], kH};
+        if (on) c.fillRect(r, kWhite, kH / 2);
+        fonts_.semibold.draw(c, labels[i], x + kPad, kY + 10, kPx, on ? kBg : kGray);
+        x += widths[i] + kGap;
+    }
+    shoulder("R1", x - kGap + 40);
+}
+
+void AppUi::drawGrid(Canvas& c, const std::vector<GameTile>& tiles, int x0, int y0, int cols, float scroll, int focus,
+                     int clipTop) {
+    int offset = static_cast<int>(std::lround(scroll));
+    for (size_t i = 0; i < tiles.size(); ++i) {
+        int col = static_cast<int>(i) % cols, row = static_cast<int>(i) / cols;
+        int x = x0 + col * kCardPitch;
+        int y = y0 + row * kGridPitchY - offset;
+        if (y + kCard + 40 < clipTop) continue;
+        if (y > kH) break;
+        const GameTile& t = tiles[i];
+        if (auto img = images_.get(t.tileUrl, kCard, kCard)) {
+            c.drawImage(*img, x, y, 255, 10);
+        } else {
+            c.fillRect({x, y, kCard, kCard}, kPlaceholder, 10);
+            auto lines = fonts_.semibold.wrap(t.name, 22, kCard - 32, 3);
+            for (size_t k = 0; k < lines.size(); ++k)
+                fonts_.semibold.draw(c, lines[k], x + 16, y + 16 + static_cast<int>(k) * 30, 22, kGray);
+        }
+        if (!t.playable) {
+            c.fillRect({x, y, kCard, kCard}, rgba(0, 0, 0, 150), 10);
+            drawLock(c, x + kCard - 34, y + 30);
+        }
+        bool focused = static_cast<int>(i) == focus;
+        auto name = fonts_.semibold.wrap(t.name, 20, kCard, 1);
+        if (!name.empty()) fonts_.semibold.draw(c, name[0], x, y + kCard + 12, 20, focused ? kWhite : kGray);
+        if (focused) c.strokeRect({x - 7, y - 7, kCard + 14, kCard + 14}, kWhite, 4, 16);
+    }
+    // Rows scrolled up (cards and names) disappear under the header.
+    c.fillRect({0, 0, kW, clipTop}, kBg);
+    c.gradientV({0, clipTop, kW, 12}, kBg, withAlpha(kBg, 0));
+}
+
+void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
+    drawBackground(c);
+    constexpr int kGridW = kLibraryCols * kCardPitch - kCardGap;
+    drawGrid(c, owned_, (kW - kGridW) / 2, kGridTop, kLibraryCols, gridScroll_.value, gridFocus_, kGridTop - 20);
+    drawTopBar(c);
+    drawTabs(c);
+    const int left = (kW - (kLibraryCols * kCardPitch - kCardGap)) / 2;
+    fonts_.bold.draw(c, tr(Str::YourGames), left, 130, 40, kWhite);
+    if (!owned_.empty()) {
+        std::string count = trf(Str::GamesCount, std::to_string(owned_.size()));
+        fonts_.semibold.draw(c, count, left + fonts_.bold.measure(tr(Str::YourGames), 40) + 24, 144, 24, kDim);
+    } else if (!ownedKnown_) {
+        drawSpinner(c, kW / 2.0f, 470, 26, nowMs);
+        drawCentered(c, fonts_.semibold, tr(Str::LoadingGames), 530, 28, kGray);
+        animating_ = true;
+    } else {
+        drawCentered(c, fonts_.semibold, tr(Str::NoGames), 500, 30, kGray);
+    }
+    c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
+    c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));
+    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconOptions, tr(Str::Settings)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
+    drawToast(c, nowMs);
+}
+
+void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
+    drawBackground(c);
+    // Results on the right.
+    drawGrid(c, results_, kResultsX, kGridTop, kResultCols, resultScroll_.value, searchOnKeys_ ? -1 : resultFocus_,
+             kGridTop - 20);
+    drawTopBar(c);
+    drawTabs(c);
+    if (query_.empty()) {
+        fonts_.semibold.draw(c, tr(Str::SearchHint), kResultsX, 150, 26, kDim);
+    } else if (results_.empty()) {
+        fonts_.semibold.draw(c, tr(Str::NoResults), kResultsX, 150, 26, kGray);
+    } else {
+        fonts_.semibold.draw(c, trf(Str::ResultsCount, std::to_string(results_.size())), kResultsX, 150, 26, kGray);
+    }
+
+    // The query.
+    const int kbW = kKeyCols * (kKeyW + kKeyGap) - kKeyGap;
+    Rect box{kMargin, 140, kbW, 76};
+    c.fillRect(box, kPanel, 14);
+    if (searchOnKeys_) c.strokeRect(box, rgba(255, 255, 255, 90), 2, 14);
+    int tx = box.x + 24;
+    if (query_.empty()) {
+        fonts_.regular.draw(c, tr(Str::TabSearch), tx, box.y + 20, 30, kDim);
+    } else {
+        fonts_.semibold.draw(c, query_, tx, box.y + 20, 30, kWhite);
+        tx += fonts_.semibold.measure(query_, 30) + 4;
+    }
+    if (searchOnKeys_ && (nowMs / 530) % 2 == 0) c.fillRect({tx, box.y + 18, 3, 40}, kWhite);
+    if (searchOnKeys_) animating_ = true;  // the caret blinks
+
+    // The keys.
+    for (int r = 0; r <= kKeyRows; ++r) {
+        int n = r == kKeyRows ? 3 : kKeyCols;
+        for (int k = 0; k < n; ++k) {
+            int col = r == kKeyRows ? kWideCols[k] : k;
+            int span = r == kKeyRows ? kWideSpan[k] : 1;
+            Rect key{kMargin + col * (kKeyW + kKeyGap), kKeysY + r * (kKeyH + kKeyGap),
+                     span * kKeyW + (span - 1) * kKeyGap, kKeyH};
+            bool focused = searchOnKeys_ && keyRow_ == r && keyCol_ == k;
+            c.fillRect(key, focused ? kWhite : kPanel, 10);
+            std::string label = r == kKeyRows ? tr(k == 0 ? Str::KeySpace : k == 1 ? Str::KeyDelete : Str::KeyClear)
+                                               : std::string(1, static_cast<char>(std::toupper(kKeys[r * kKeyCols + k])));
+            int px = r == kKeyRows ? 22 : 28;
+            int w = fonts_.semibold.measure(label, px);
+            fonts_.semibold.draw(c, label, key.x + (key.w - w) / 2, key.y + (kKeyH - px) / 2 - 4, px,
+                                 focused ? kBg : kWhite);
+        }
+    }
+    c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
+    c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));
+    if (searchOnKeys_)
+        drawHints(c, {{kIconCross, tr(Str::KeyType)}, {kIconSquare, tr(Str::KeyDelete)}, {kIconOptions, tr(Str::Settings)}});
+    else
+        drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconSquare, tr(Str::KeyDelete)}, {kIconCircle, tr(Str::Back)}});
+    drawToast(c, nowMs);
+}
+
 void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
+    if (tab_ == Tab::Library) return drawLibrary(c, nowMs);
+    if (tab_ == Tab::Search) return drawSearch(c, nowMs);
     const GameTile* focus = focusedTile();
     c.clear(kBg);
     drawHero(c, nowMs, focus ? focus->heroUrl : std::string(), false);
     drawTopBar(c);
+    drawTabs(c);
 
     if (rows_.empty()) {
         drawCentered(c, fonts_.semibold, tr(Str::NoGames), 500, 32, kGray);
@@ -580,9 +961,9 @@ void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
 }
 
 void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
-    const GameTile* g = focusedTile();
+    const GameTile* g = &detail_;
     c.clear(kBg);
-    if (!g) return;
+    if (g->productId.empty()) return;
     drawHero(c, nowMs, g->heroUrl, true);
     drawTopBar(c);
     int y = 260;
@@ -716,6 +1097,8 @@ void AppUi::render(Canvas& c, uint64_t nowMs) {
     lastRender_ = nowMs;
     animating_ = rowY_.step(dt);
     for (auto& a : rowScroll_) animating_ |= a.step(dt);
+    animating_ |= gridScroll_.step(dt);
+    animating_ |= resultScroll_.step(dt);
     dirty_ = false;
     switch (screen_) {
         case Screen::Splash: drawSplash(c, nowMs); break;

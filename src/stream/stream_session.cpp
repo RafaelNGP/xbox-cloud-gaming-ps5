@@ -296,10 +296,16 @@ struct StreamSession::Impl {
             // A warning shares this message with the real kicks: the session
             // goes on (the xbox.com client only shows a notice).
             auto content = json::parse(body);
-            if (content && (*content)["reason"].str() == "WarningForBeingIdle") {
+            std::string reason = content ? (*content)["reason"].str() : std::string();
+            if (reason == "WarningForBeingIdle") {
                 if (cb.idleWarning) cb.idleWarning(static_cast<int>((*content)["secondsUntilKick"].asInt(120)));
+            } else if (reason == "KickForClosedGame") {
+                // The game itself quit (or failed to start) on the server.
+                char hr[16];
+                std::snprintf(hr, sizeof hr, "0x%08X", static_cast<unsigned>((*content)["hr"].asInt()));
+                fail(std::string("the game closed on the server (") + hr + ")");
             } else {
-                fail("the server ended the session");
+                fail(reason.empty() ? "the server ended the session" : "the server ended the session (" + reason + ")");
             }
         } else if (target == "/streaming/systemUi/messages/ShowMessageDialog") {
             // No dialog UI yet: log it and pick the first (default) button.

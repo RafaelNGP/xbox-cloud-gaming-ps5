@@ -211,6 +211,9 @@ std::string stream(xcloud::GssvClient& gssv) {
     std::string reason = g_cancel ? "left the game" : autoplayDone ? "autoplay finished" : player.endReason();
     player.stop();
     auto st = player.stats();
+    // Ended before a single frame: the game never started (e.g. it closed on
+    // the server); say so on the error screen instead of going back quietly.
+    if (st.decodedFrames == 0 && !g_cancel && !autoplayDone) return "ERROR: " + ui::trf(ui::Str::StreamFailed, reason);
     return "Stream ended (" + reason + "), " + std::to_string(st.decodedFrames) + " frames shown";
 }
 
@@ -313,10 +316,17 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
     stopHydration();
     auto library = std::make_shared<app::Library>();
+    library->setCachePath(platform::dataDir() + "/library.json");
     bool shown = false;
+    // Hands the library's current state to the UI (copies).
+    auto publish = [](const app::Library& lib) {
+        g_ui->setRows(lib.rows());
+        g_ui->setOwned(lib.owned(), lib.ownedKnown());
+        g_ui->setSearchPool(lib.searchPool());
+    };
     bool ok = library->load(gssv, ui::catalogLanguage(),
-                            [&](const std::vector<ui::GameRow>& r) {
-                                g_ui->setRows(r);
+                            [&] {
+                                publish(*library);
                                 if (!shown) {
                                     shown = true;
                                     g_ui->showHome();
@@ -328,13 +338,15 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         return;
     }
     std::vector<ui::GameRow> rows = library->rows();
-    // The account's own games, then hero art and descriptions, keep arriving
-    // while the user browses/plays. The thread gets its own GssvClient copy.
+    // The account's own games, the catalog names for the search, then hero
+    // art and descriptions keep arriving while the user browses/plays. The
+    // thread gets its own GssvClient copy.
     g_stopHydration = false;
-    platform::startThread(g_hydrationThread, [library, owned = gssv] {
-        auto onRows = [](const std::vector<ui::GameRow>& r) { g_ui->setRows(r); };
-        library->loadOwned(owned, onRows, &g_stopHydration);
-        library->hydrate(onRows, &g_stopHydration);
+    platform::startThread(g_hydrationThread, [library, publish, owned = gssv] {
+        auto changed = [&] { publish(*library); };
+        library->loadOwned(owned, changed, &g_stopHydration);
+        library->loadCatalogNames(changed, &g_stopHydration);
+        library->hydrate(changed, &g_stopHydration);
     });
     if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH") {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
@@ -439,9 +451,11 @@ int main(int argc, char** argv) {
 
     ui::Fonts fonts;
     if (!fonts.load(platform::assetDir() + "/fonts")) XC_LOGE("fonts missing in %s", platform::assetDir().c_str());
-    g_images = std::make_unique<ui::ImageCache>([] {
-        if (g_ui) g_ui->invalidate();
-    });
+    g_images = std::make_unique<ui::ImageCache>(
+        [] {
+            if (g_ui) g_ui->invalidate();
+        },
+        160u << 20, platform::dataDir() + "/imgcache");
     g_ui = std::make_unique<ui::AppUi>(fonts, *g_images);
     {
         ui::SettingsChoice choice;
@@ -500,6 +514,9 @@ int main(int argc, char** argv) {
         nav.accept = pad.btnA && !prev.btnA;
         nav.back = pad.btnB && !prev.btnB;
         nav.options = pad.btnOptions && !prev.btnOptions;
+        nav.l1 = pad.btnL1 && !prev.btnL1;
+        nav.r1 = pad.btnR1 && !prev.btnR1;
+        nav.square = pad.btnX && !prev.btnX;  // Square (Xbox X)
         nav.touchpad = pad.btnTouchpad;
         nav.nowMs = now;
         prev = pad;
