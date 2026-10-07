@@ -380,8 +380,10 @@ void AppUi::drawSignIn(Canvas& c, uint64_t nowMs) {
     drawSpinner(c, left + 18, 830, 14, nowMs);
     fonts_.regular.draw(c, tr(Str::SignInWaiting), left + 48, 815, 26, kDim);
 
-    // QR code for https://www.microsoft.com/link?otc=<code>.
-    std::string target = "https://www.microsoft.com/link?otc=" + code_;
+    // QR code for the sign-in page. Not "?otc=<code>": that prefilled link
+    // goes through a consent flow that rejects this client id ("first party
+    // application ... pre-authorization"), so the code is typed on the phone.
+    std::string target = codeUrl_.empty() ? "https://www.microsoft.com/link" : codeUrl_;
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX], tmp[qrcodegen_BUFFER_LEN_MAX];
     if (qrcodegen_encodeText(target.c_str(), tmp, qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN,
                              qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true)) {

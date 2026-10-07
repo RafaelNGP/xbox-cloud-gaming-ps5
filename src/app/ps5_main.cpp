@@ -14,9 +14,11 @@
 #include "ui/app_ui.h"
 #include "ui/strings.h"
 #include "util/log.h"
+#include "xcloud/catalog.h"
 #include "xcloud/gssv.h"
 
 #include <atomic>
+#include <map>
 #include <cstdio>
 #include <memory>
 #include <mutex>
@@ -191,6 +193,20 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     g_ui->showLaunching(game, ui::tr(ui::Str::Connecting));
     std::string err;
     if (!gssv.startSession(game.titleId, "en-US", err)) return err;
+    if (game.heroUrl.empty() && !game.productId.empty()) {
+        // Picked before the background hydration reached it: fetch the hero
+        // art for the loading screen while the session queues.
+        std::map<std::string, xcloud::Product> full;
+        std::string e;
+        if (xcloud::fetchProducts({game.productId}, gssv.session().market.empty() ? "US" : gssv.session().market,
+                                  ui::catalogLanguage(), full, e, true) &&
+            full.count(game.productId)) {
+            ui::GameTile withArt = game;
+            withArt.heroUrl = full[game.productId].heroUrl;
+            XC_LOGI("launch art: %s", withArt.heroUrl.empty() ? "(none)" : withArt.heroUrl.c_str());
+            g_ui->showLaunching(withArt, ui::tr(ui::Str::Connecting));
+        }
+    }
     bool connected = false;
     std::string result = "timed out waiting for the session";
     for (int i = 0; i < 900 && !g_cancel; ++i) {
@@ -381,8 +397,8 @@ int main(int argc, char** argv) {
     input::ControllerState prev{}, pad{};
     Repeater up, down, left, right;
     uint64_t exitHeldSince = 0;
-    uint64_t homeSince = 0;
-    bool uiSaved = false;
+    uint64_t homeSince = 0, launchSince = 0;
+    bool uiSaved = false, launchSaved = false;
     for (;;) {
         input::poll(pad);
         // Autoplay runs unattended: the physical pad must not interfere.
@@ -437,20 +453,31 @@ int main(int argc, char** argv) {
             case ui::Action::None: break;
         }
 
-        // Autoplay: save the rendered home screen once its images are in.
+        // Autoplay: save the rendered home and loading screens.
+        auto saveCanvas = [&](const char* name) {
+            std::string ppm = "P6\n1920 1080\n255\n";
+            ppm.reserve(ppm.size() + 1920u * 1080u * 3u);
+            for (size_t i = 0; i < 1920u * 1080u; ++i) {
+                uint32_t p = canvas.data()[i];
+                ppm += static_cast<char>(p & 0xFF);
+                ppm += static_cast<char>((p >> 8) & 0xFF);
+                ppm += static_cast<char>((p >> 16) & 0xFF);
+            }
+            XC_LOGI("ui snapshot %s: %s", name,
+                    platform::writeFileAtomic(platform::dataDir() + "/" + name, ppm) ? "ok" : "failed");
+        };
+        if (!g_autoplayTitle.empty() && !launchSaved && g_ui->screen() == ui::Screen::Launching) {
+            if (!launchSince) launchSince = now;
+            if (now - launchSince > 8000) {
+                launchSaved = true;
+                saveCanvas("launch.ppm");
+            }
+        }
         if (!g_autoplayTitle.empty() && !uiSaved && g_ui->screen() == ui::Screen::Home) {
             if (!homeSince) homeSince = now;
             if (now - homeSince > 5000) {
                 uiSaved = true;
-                std::string ppm = "P6\n1920 1080\n255\n";
-                ppm.reserve(ppm.size() + 1920u * 1080u * 3u);
-                for (size_t i = 0; i < 1920u * 1080u; ++i) {
-                    uint32_t p = canvas.data()[i];
-                    ppm += static_cast<char>(p & 0xFF);
-                    ppm += static_cast<char>((p >> 8) & 0xFF);
-                    ppm += static_cast<char>((p >> 16) & 0xFF);
-                }
-                XC_LOGI("ui snapshot: %s", platform::writeFileAtomic(platform::dataDir() + "/ui.ppm", ppm) ? "ok" : "failed");
+                saveCanvas("ui.ppm");
             }
         }
 

@@ -17,7 +17,7 @@ constexpr std::array<const char*, static_cast<size_t>(Str::Count)> kEnglish = {
     "Sign in to play",                                // SignInTitle
     "On your phone or computer, go to",               // SignInStep1
     "and enter this code",                            // SignInStep2
-    "Or scan with your phone",                        // SignInScan
+    "Scan to open the page, then enter the code",     // SignInScan
     "Waiting for you to sign in...",                  // SignInWaiting
     "Jump back in",                                   // JumpBackIn
     "Play",                                           // Play
