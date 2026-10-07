@@ -10,7 +10,7 @@ Cliente nativo de Xbox Cloud Gaming (xCloud) para PS5 com homebrew.
 | Login (conta salva), lista de jogos, sessão, fila | testado | testado |
 | WebRTC (SDP/ICE, DTLS-SRTP, canais de dados) | testado | testado |
 | Vídeo 1080p60 H.264 (FFmpeg, 3,1 ms/quadro no PS5) | testado | testado: 3 min, 99,6% dos quadros exibidos |
-| Áudio Opus → sceAudioOut | decodificação testada | decodificado e enviado à saída (falta confirmar de ouvido) |
+| Áudio Opus → sceAudioOut | decodificação testada | testado (ouvido no console; também ao trocar de jogo) |
 | DualSense → controle Xbox no jogo | — | testado (autoplay aperta A no Balatro) |
 
 ## Teste automático no console
@@ -23,6 +23,7 @@ estatísticas por segundo e salva quadros em `frame.ppm`/`frame2.ppm`.
 ```bash
 PS5_HOST=<ip> tools/ps5/autotest.sh BALATRO 60          # streaming
 PS5_HOST=<ip> tools/ps5/autotest.sh BALATRO 30 dump     # + grava stream.aus (H.264 recebido)
+PS5_HOST=<ip> tools/ps5/autotest.sh BALATRO 20 repeat   # duas sessões seguidas no mesmo processo
 XC_SAMPLE=amostra.h264 PS5_HOST=<ip> tools/ps5/autotest.sh BENCH 30   # só o decoder
 build-host/xcloud-cli bench-decode build-ps5/autotest/stream.aus      # reproduz no PC
 ```
@@ -37,6 +38,8 @@ Resultados em `build-ps5/autotest/`.
 - `ioctl(FIONBIO)`/`fcntl(O_NONBLOCK)` em sockets dão `EACCES`;
   `setsockopt(SO_NBIO)` funciona (`ioctl` é embrulhado via `ps5/compat/ps5_lfs.h`).
 - O callback de log padrão do FFmpeg derruba o app: o log vai para o nosso logger.
+- `sceAudioOutInit` só pode ser chamado uma vez por processo (a segunda
+  chamada devolve `0x8026000E`); só a porta é aberta/fechada por jogo.
 - O depacketizador H.264 às vezes entrega unidades vazias, que o libavcodec
   entende como fim de stream: são descartadas.
 

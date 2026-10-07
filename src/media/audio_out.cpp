@@ -59,10 +59,16 @@ void loop() {
 bool audioStart() {
     if (g_running) return true;
 #if defined(XCLOUD_PS5)
-    int rc = sceAudioOutInit();
-    if (rc < 0 && rc != static_cast<int>(0x8026000C)) {  // already initialised
-        XC_LOGE("sceAudioOutInit: 0x%08x", static_cast<unsigned>(rc));
-        return false;
+    // Once per process: a second sceAudioOutInit answers "already
+    // initialised" (0x8026000E on this firmware, 0x8026000C elsewhere).
+    static bool initialised = false;
+    if (!initialised) {
+        int rc = sceAudioOutInit();
+        if (rc < 0 && rc != static_cast<int>(0x8026000C) && rc != static_cast<int>(0x8026000E)) {
+            XC_LOGE("sceAudioOutInit: 0x%08x", static_cast<unsigned>(rc));
+            return false;
+        }
+        initialised = true;
     }
     // The system user (0xFF), MAIN port, float stereo: as the WoW-PS5 port.
     g_handle = sceAudioOutOpen(0xFF, 0, 0, kGrain, kRate, 4);

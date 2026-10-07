@@ -92,6 +92,7 @@ int g_autoplaySeconds = 0;
 // Autoplay presses A at 15 s and 20 s into the stream (input check).
 std::atomic<bool> g_syntheticA{false};
 bool g_autoplayDump = false;
+int g_autoplayRuns = 1;  // "repeat": two sessions in one process
 
 void loadAutoplay() {
     std::string text;
@@ -102,6 +103,7 @@ void loadAutoplay() {
     if (std::sscanf(text.c_str(), "%127s %d %63s", title, &seconds, option) >= 1) {
         if (std::string(option) == "nosimd") media::disableSimd();
         g_autoplayDump = std::string(option) == "dump";
+        if (std::string(option) == "repeat") g_autoplayRuns = 2;
         g_autoplayTitle = title;
         g_autoplaySeconds = seconds > 0 ? seconds : 60;
         XC_LOGI("AUTOPLAY %s for %ds", title, g_autoplaySeconds);
@@ -287,7 +289,14 @@ void doProvision(auth::AuthManager& am, xcloud::GssvClient& gssv, const std::str
     if (g_cancel && result.rfind("Stream", 0) != 0) result = "Cancelado";
     gssv.stopSession();
     setSession(result, false);
-    if (!g_autoplayTitle.empty()) XC_LOGI("AUTOPLAY END: %s", result.c_str());
+    if (!g_autoplayTitle.empty()) {
+        if (--g_autoplayRuns > 0) {
+            XC_LOGI("AUTOPLAY next run: %s", result.c_str());
+            g_command = kProvision;
+        } else {
+            XC_LOGI("AUTOPLAY END: %s", result.c_str());
+        }
+    }
 }
 
 void worker() {
