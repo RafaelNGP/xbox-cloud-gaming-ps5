@@ -260,7 +260,7 @@ struct StreamSession::Impl {
             XC_LOGI("requested stream resolution %s", opt.resolutionAlias.c_str());
         }
 
-        sendBinary(input, clientMetadataReport(0, nowMs()));
+        sendBinary(input, clientMetadataReport(0, nowMs(), static_cast<uint8_t>(std::getenv("XC_TOUCH_POINTS") ? std::atoi(std::getenv("XC_TOUCH_POINTS")) : 1)));
         sendClientConfig();
         {
             std::lock_guard<std::mutex> lock(mutex);

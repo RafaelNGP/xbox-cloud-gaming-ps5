@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <map>
+#include <strings.h>
 #include <cstdio>
 #include <memory>
 #include <mutex>
@@ -148,8 +149,15 @@ std::string formatWait(int seconds) {
     return std::to_string((seconds + 59) / 60) + " min";
 }
 
+// Set by stream(): the game quit on the server before its first frame.
+bool g_gameClosedOnServer = false;
+// Titles that would not start in the automatic region, and where they did
+// (for the rest of this run).
+std::map<std::string, std::string> g_regionFallback;
+
 // Streams until the player ends or the user leaves; returns a status line.
 std::string stream(xcloud::GssvClient& gssv) {
+    g_gameClosedOnServer = false;
     app::StreamPlayer player(gssv);
     if (g_autoplayDump) player.dumpVideo(platform::dataDir() + "/stream.aus", 20);
     player.setDecodeThreads(g_decodeThreads);
@@ -213,16 +221,22 @@ std::string stream(xcloud::GssvClient& gssv) {
     auto st = player.stats();
     // Ended before a single frame: the game never started (e.g. it closed on
     // the server); say so on the error screen instead of going back quietly.
-    if (st.decodedFrames == 0 && !g_cancel && !autoplayDone) return "ERROR: " + ui::trf(ui::Str::StreamFailed, reason);
+    if (st.decodedFrames == 0 && !g_cancel && !autoplayDone) {
+        g_gameClosedOnServer = reason.rfind("the game closed on the server", 0) == 0;
+        return "ERROR: " + ui::trf(ui::Str::StreamFailed, reason);
+    }
     return "Stream ended (" + reason + "), " + std::to_string(st.decodedFrames) + " frames shown";
 }
 
 // Queue -> /connect -> Provisioned -> stream. Returns a status line; sets
 // `failed` when the user should see an error rather than the home screen.
-std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::GameTile& game, bool& failed) {
+// `regionName` overrides the settings' region (empty: as set).
+std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::GameTile& game, bool& failed,
+                 const std::string& regionName = {}) {
     failed = true;
     XC_LOGI("starting %s (%s)", game.name.c_str(), game.titleId.c_str());
-    g_ui->showLaunching(game, ui::tr(ui::Str::Connecting));
+    g_ui->showLaunching(game, regionName.empty() ? ui::tr(ui::Str::Connecting)
+                                                 : ui::trf(ui::Str::TryingRegion, ui::prettyRegion(regionName)));
     std::string err;
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
@@ -230,8 +244,9 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
                            : g_settings.resolution == "1440p" ? xcloud::Resolution::P1440
                                                               : xcloud::Resolution::P1080);
         const xcloud::Region* region = gssv.session().defaultRegion();
+        const std::string& wanted = regionName.empty() ? g_settings.region : regionName;
         for (const auto& r : gssv.session().regions)
-            if (r.name == g_settings.region) region = &r;
+            if (r.name == wanted) region = &r;
         if (region) gssv.setRegion(*region);
         XC_LOGI("stream settings: %s, region %s, locale %s", g_settings.resolution.c_str(),
                 region ? region->name.c_str() : "?", ui::gameLocale());
@@ -389,8 +404,29 @@ void worker() {
                     tile = g_playTile;
                 }
                 bool failed = false;
-                std::string result = play(am, gssv, tile, failed);
+                bool automatic;
+                {
+                    std::lock_guard<std::mutex> lock(g_settingsMutex);
+                    automatic = g_settings.region.empty();
+                }
+                std::string region = automatic && g_regionFallback.count(tile.titleId) ? g_regionFallback[tile.titleId] : "";
+                std::string result = play(am, gssv, tile, failed, region);
                 XC_LOGI("%s", result.c_str());
+                // Some games fail to start in one region only (Dead Cells in
+                // Brazil South quits at once with 0x8027025B but runs in East
+                // US): with the region on automatic, try another one once.
+                if (failed && g_gameClosedOnServer && automatic && !g_cancel) {
+                    std::string tried = gssv.region().name, next;
+                    for (const auto& r : gssv.session().regions)
+                        if (r.name != tried && (next.empty() || strcasecmp(r.name.c_str(), "EASTUS") == 0)) next = r.name;
+                    if (!next.empty()) {
+                        XC_LOGI("%s closed on the server in %s; trying %s", tile.titleId.c_str(), tried.c_str(),
+                                next.c_str());
+                        result = play(am, gssv, tile, failed, next);
+                        XC_LOGI("%s", result.c_str());
+                        if (!failed) g_regionFallback[tile.titleId] = next;
+                    }
+                }
                 if (failed)
                     g_ui->showError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result);
                 else

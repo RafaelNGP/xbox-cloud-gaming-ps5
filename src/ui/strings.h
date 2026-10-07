@@ -65,6 +65,7 @@ enum class Str {
     KeyClear,
     GamesCount,       // "%s" = number
     KeyType,          // hint: press to type the focused key
+    TryingRegion,     // "%s" = region name
     Count
 };
 

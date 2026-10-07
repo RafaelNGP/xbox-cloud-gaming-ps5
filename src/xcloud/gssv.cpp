@@ -8,6 +8,7 @@
 #include "platform/platform.h"
 #include "util/log.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <map>
@@ -225,7 +226,11 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
             err = "title list failed: " + describe(r);
             return false;
         }
+        // Debugging: XC_DUMP_TITLES="ID1,ID2" prints those entries as sent.
+        static const char* dump = std::getenv("XC_DUMP_TITLES");
         for (const auto& t : (*j)["results"].items()) {
+            if (dump && ("," + std::string(dump) + ",").find("," + t["titleId"].str() + ",") != std::string::npos)
+                std::printf("%s\n", t.dump().c_str());
             Title title;
             title.titleId = t["titleId"].str();
             title.productId = t["details"]["productId"].str();
