@@ -344,10 +344,13 @@ constexpr int64_t kPriceTtlSeconds = 24 * 3600;
 
 std::string pricesPath() { return platform::dataDir() + "/prices.json"; }
 
-std::pair<std::string, std::string> priceTexts(const xcloud::Price& p) {
-    std::string now = p.list < 0.005 ? ui::tr(ui::Str::Free) : xcloud::formatPrice(p.list, p.currency);
-    std::string was = p.msrp > p.list + 0.005 ? xcloud::formatPrice(p.msrp, p.currency) : std::string();
-    return {now, was};
+ui::PriceInfo priceTexts(const xcloud::Price& p) {
+    ui::PriceInfo info;
+    info.now = p.list < 0.005 ? ui::tr(ui::Str::Free) : xcloud::formatPrice(p.list, p.currency);
+    info.was = p.msrp > p.list + 0.005 ? xcloud::formatPrice(p.msrp, p.currency) : std::string();
+    info.list = p.list;
+    info.msrp = p.msrp;
+    return info;
 }
 
 void priceLoop() {
@@ -359,7 +362,7 @@ void priceLoop() {
     }
     // Fresh cached prices to the UI right away.
     int64_t now = static_cast<int64_t>(std::time(nullptr));
-    std::map<std::string, std::pair<std::string, std::string>> shown;
+    std::map<std::string, ui::PriceInfo> shown;
     json::Value kept = json::Value::object();
     for (const auto& [id, v] : cache.members()) {
         if (now - v["t"].asInt() > kPriceTtlSeconds) continue;
@@ -388,7 +391,7 @@ void priceLoop() {
             }
             XC_LOGI("details of %s: %s", id.c_str(), ok ? "ok" : err.empty() ? "not in the catalog" : err.c_str());
         }
-        std::vector<std::string> ids = market.empty() ? std::vector<std::string>() : g_ui->pricesWanted(20);
+        std::vector<std::string> ids = market.empty() ? std::vector<std::string>() : g_ui->pricesWanted(20, true);
         if (ids.empty()) {
             platform::sleepMs(300);
             continue;
@@ -396,7 +399,7 @@ void priceLoop() {
         std::map<std::string, xcloud::Price> got;
         std::string err;
         if (!xcloud::fetchPrices(ids, market, language, got, err)) XC_LOGW("%s", err.c_str());
-        std::map<std::string, std::pair<std::string, std::string>> texts;
+        std::map<std::string, ui::PriceInfo> texts;
         now = static_cast<int64_t>(std::time(nullptr));
         for (const auto& [id, p] : got) {
             texts[id] = priceTexts(p);
@@ -633,6 +636,9 @@ int main(int argc, char** argv) {
         choice.region = g_settings.region;
         g_ui->setSettings(choice);
         g_ui->setRegionLatency(g_settings.regionRtt);
+        g_ui->setPrefs(g_settings.hidden, g_settings.librarySort == "az"        ? ui::LibrarySort::AZ
+                                          : g_settings.librarySort == "console" ? ui::LibrarySort::Console
+                                                                                : ui::LibrarySort::Recent);
     }
     ui::Canvas canvas(display::kWidth, display::kHeight);
 
@@ -688,6 +694,7 @@ int main(int argc, char** argv) {
         nav.r1 = pad.btnR1 && !prev.btnR1;
         nav.square = pad.btnX && !prev.btnX;    // Square (Xbox X)
         nav.triangle = pad.btnY && !prev.btnY;  // Triangle (Xbox Y)
+        nav.r3 = pad.btnR3 && !prev.btnR3;
         nav.touchpad = pad.btnTouchpad;
         nav.nowMs = now;
         prev = pad;
@@ -706,6 +713,16 @@ int main(int argc, char** argv) {
                 break;
             case ui::Action::Retry: g_command = kSignIn; break;
             case ui::Action::CancelLaunch: g_cancel = true; break;
+            case ui::Action::PrefsChanged: {
+                std::lock_guard<std::mutex> lock(g_settingsMutex);
+                g_settings.hidden = ev.hidden;
+                g_settings.librarySort = ev.librarySort == ui::LibrarySort::AZ        ? "az"
+                                         : ev.librarySort == ui::LibrarySort::Console ? "console"
+                                                                                       : "recent";
+                if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
+                XC_LOGI("prefs saved: %zu hidden, sort %s", g_settings.hidden.size(), g_settings.librarySort.c_str());
+                break;
+            }
             case ui::Action::SettingsChanged: {
                 bool languageChanged;
                 {

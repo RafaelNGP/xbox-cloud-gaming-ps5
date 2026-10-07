@@ -101,6 +101,7 @@ private:
     std::vector<Item> owned_;        // outside Game Pass
     std::vector<Item> purchasable_;  // streamable once bought
     std::set<std::string> purchasableSet_;
+    std::set<std::string> freeInStore_;  // product ids free in the store
     std::map<std::string, std::string> xboxTitleOf_;  // productId -> Xbox title id
     std::map<std::string, std::string> platform_;     // Xbox title id -> platform code
     // Xbox title ids that have a "... - Xbox Series X|S" product, rebuilt

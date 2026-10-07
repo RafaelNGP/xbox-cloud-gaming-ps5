@@ -96,6 +96,22 @@ constexpr Column kEnglish = {
     "Scan to open the store page",                   // ScanToBuy
     "Search in %s",                                  // SearchIn
     "FREE",                                          // Free
+    "Hide",                                          // Hide
+    "Show",                                          // Unhide
+    "Hidden",                                        // HiddenSection
+    "Square shows a game again",                     // HiddenHint
+    "Hidden: find it in Your games > Hidden",        // HiddenToast
+    "Shown again",                                   // UnhiddenToast
+    "Sort: %s",                                      // SortLabel
+    "Recent first",                                  // SortRecent
+    "A-Z",                                           // SortAZ
+    "By console",                                    // SortConsole
+    "Sort",                                          // SortHint
+    "Free",                                          // FilterFree
+    "Lowest price",                                  // FilterCheapest
+    "On sale",                                       // FilterSale
+    "All consoles",                                  // FilterAllConsoles
+    "1 game",                                        // OneGame
 };
 
 constexpr Column kPortugueseBR = {
@@ -162,6 +178,22 @@ constexpr Column kPortugueseBR = {
     "Escaneie para abrir a página da loja",
     "Pesquisar em %s",
     "GRÁTIS",
+    "Ocultar",
+    "Mostrar",
+    "Ocultos",
+    "\xE2\x96\xA1 mostra o jogo de novo",
+    "Oculto: veja em Seus jogos > Ocultos",
+    "Visível de novo",
+    "Ordenar: %s",
+    "Recentes primeiro",
+    "A-Z",
+    "Por console",
+    "Ordenar",
+    "Grátis",
+    "Menor preço",
+    "Em promoção",
+    "Todos os consoles",
+    "1 jogo",
 };
 
 constexpr Column kSpanish = {
@@ -228,6 +260,22 @@ constexpr Column kSpanish = {
     "Escanea para abrir la página de la tienda",
     "Buscar en %s",
     "GRATIS",
+    "Ocultar",
+    "Mostrar",
+    "Ocultos",
+    "\xE2\x96\xA1 vuelve a mostrar un juego",
+    "Oculto: búscalo en Tus juegos > Ocultos",
+    "Visible de nuevo",
+    "Ordenar: %s",
+    "Recientes primero",
+    "A-Z",
+    "Por consola",
+    "Ordenar",
+    "Gratis",
+    "Menor precio",
+    "En oferta",
+    "Todas las consolas",
+    "1 juego",
 };
 
 constexpr Column kFrench = {
@@ -294,6 +342,22 @@ constexpr Column kFrench = {
     "Scannez pour ouvrir la page du magasin",
     "Rechercher dans %s",
     "GRATUIT",
+    "Masquer",
+    "Afficher",
+    "Masqués",
+    "\xE2\x96\xA1 réaffiche un jeu",
+    "Masqué : voir Vos jeux > Masqués",
+    "De nouveau visible",
+    "Trier : %s",
+    "Récents d'abord",
+    "A-Z",
+    "Par console",
+    "Trier",
+    "Gratuit",
+    "Prix croissant",
+    "En promotion",
+    "Toutes les consoles",
+    "1 jeu",
 };
 
 constexpr Column kGerman = {
@@ -360,6 +424,22 @@ constexpr Column kGerman = {
     "Scannen, um die Store-Seite zu öffnen",
     "Suchen in %s",
     "KOSTENLOS",
+    "Ausblenden",
+    "Einblenden",
+    "Ausgeblendet",
+    "\xE2\x96\xA1 blendet ein Spiel wieder ein",
+    "Ausgeblendet: unter Deine Spiele > Ausgeblendet",
+    "Wieder sichtbar",
+    "Sortieren: %s",
+    "Zuletzt gespielt",
+    "A-Z",
+    "Nach Konsole",
+    "Sortieren",
+    "Kostenlos",
+    "Niedrigster Preis",
+    "Im Angebot",
+    "Alle Konsolen",
+    "1 Spiel",
 };
 
 constexpr Column kItalian = {
@@ -426,6 +506,22 @@ constexpr Column kItalian = {
     "Scansiona per aprire la pagina dello store",
     "Cerca in %s",
     "GRATIS",
+    "Nascondi",
+    "Mostra",
+    "Nascosti",
+    "\xE2\x96\xA1 mostra di nuovo un gioco",
+    "Nascosto: lo trovi in I tuoi giochi > Nascosti",
+    "Di nuovo visibile",
+    "Ordina: %s",
+    "Recenti prima",
+    "A-Z",
+    "Per console",
+    "Ordina",
+    "Gratis",
+    "Prezzo più basso",
+    "In offerta",
+    "Tutte le console",
+    "1 gioco",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

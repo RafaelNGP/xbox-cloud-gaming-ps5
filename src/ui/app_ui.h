@@ -35,6 +35,8 @@ struct GameTile {
     bool playable = true;
     // Not playable, but streams in the cloud once bought.
     bool purchasable = false;
+    // Free in the store (free-to-play): the "Free" search filter.
+    bool freeInStore = false;
     // Console it was made for: "360", "ONE", "XS" (xcloud/titlehub.h); empty
     // while unknown.
     std::string platform;
@@ -54,7 +56,7 @@ enum class Tab { GamePass, Library };
 struct NavInput {
     bool up = false, down = false, left = false, right = false;
     bool accept = false, back = false, options = false;
-    bool l1 = false, r1 = false, square = false, triangle = false;
+    bool l1 = false, r1 = false, square = false, triangle = false, r3 = false;
     bool touchpad = false;  // held right now (sign out needs a 5 s hold)
     uint64_t nowMs = 0;
 };
@@ -66,12 +68,24 @@ struct SettingsChoice {
     std::string region;    // gssv region name; empty = automatic
 };
 
-enum class Action { None, Play, SignOut, Retry, CancelLaunch, SettingsChanged };
+enum class Action { None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, PrefsChanged };
+
+// How "Your games" is sorted (R3).
+enum class LibrarySort { Recent, AZ, Console, Count };
+
+// A store price, as shown and as a number (for sorting and the filters).
+struct PriceInfo {
+    std::string now, was;  // formatted; `was` empty unless on sale
+    double list = 0, msrp = 0;
+};
 
 struct UiEvent {
     Action action = Action::None;
     GameTile game;
     SettingsChoice settings;  // SettingsChanged
+    // PrefsChanged: hidden games (product ids) and the "Your games" order.
+    std::vector<std::string> hidden;
+    LibrarySort librarySort = LibrarySort::Recent;
 };
 
 // "SOUTHCENTRALUS" -> "South Central US".
@@ -95,10 +109,13 @@ public:
     // Measured round trip to each region, ms (shown in Settings).
     void setRegionLatency(std::map<std::string, int> ms);
     // Store prices, formatted: productId -> {now, regular (empty unless on sale)}.
-    void setPrices(const std::map<std::string, std::pair<std::string, std::string>>& prices);
+    void setPrices(const std::map<std::string, PriceInfo>& prices);
+    // Saved preferences: hidden games and the "Your games" order.
+    void setPrefs(const std::vector<std::string>& hidden, LibrarySort sort);
     // Games to buy on screen (or about to be) whose price hasn't been asked
-    // for yet; marks them asked.
-    std::vector<std::string> pricesWanted(size_t max);
+    // for yet; with `background`, any other game to buy once those are done
+    // (never while streaming). Marks them asked.
+    std::vector<std::string> pricesWanted(size_t max, bool background = false);
     // The game whose page is open, if its description or hero art hasn't
     // arrived; asked again every 5 s while missing (empty otherwise).
     std::string detailWanted(uint64_t nowMs);
@@ -162,10 +179,20 @@ private:
         std::vector<int> rowOf, colOf;  // per tile index (owned, then purchasable)
         std::vector<int> rowY;          // per row, y relative to the grid top
         std::vector<int> rowFirst;      // first tile index of each row
-        int headerY[2] = {0, 0};        // section headers, relative
+        int headerY[3] = {0, 0, 0};     // section headers, relative (1: to buy, 2: hidden)
     };
     LibraryLayout libraryLayout() const;
     const GameTile* libraryTile(int index) const;
+    // Applies hiding and sorting to the received lists (caller holds mutex_).
+    void rebuild();
+    void setRowsLocked(std::vector<GameRow> rows);
+    // Hides / shows a game; fills `ev` so the app saves it.
+    void toggleHidden(const GameTile& tile, UiEvent& ev);
+    void prefsEvent(UiEvent& ev) const;
+    // The filter buttons of the current tab's search.
+    std::vector<std::string> filterLabels() const;
+    void pressFilter(int index);
+    bool anyFilter() const { return filterFree_ || filterCheapest_ || filterSale_ || filterConsole_; }
     void handleHome(const NavInput& in, UiEvent& ev);
     void handleSearchKeys(const NavInput& in);
     void runSearch();
@@ -197,7 +224,15 @@ private:
     std::vector<Anim> rowScroll_;
     Anim rowY_;
     Tab tab_ = Tab::GamePass;
-    std::vector<GameTile> owned_, purchasable_;
+    std::vector<GameTile> owned_, purchasable_, hiddenTiles_;  // as shown
+    // As received, before hiding and sorting (rebuild() derives the above).
+    std::vector<GameRow> allRows_;
+    std::vector<GameTile> allOwned_, allPurchasable_;
+    std::set<std::string> hidden_;
+    LibrarySort librarySort_ = LibrarySort::Recent;
+    // Search filters (the row of buttons under the keys).
+    bool filterFree_ = false, filterCheapest_ = false, filterSale_ = false;
+    int filterConsole_ = 0;  // 0 all, 1 Series X|S, 2 Xbox One, 3 Xbox 360
     bool ownedKnown_ = false;
     int gridFocus_ = 0;
     Anim gridScroll_;
@@ -215,7 +250,7 @@ private:
     std::vector<std::string> regions_;
     std::string defaultRegion_;
     std::map<std::string, int> regionMs_;
-    std::map<std::string, std::pair<std::string, std::string>> prices_;
+    std::map<std::string, PriceInfo> prices_;
     std::set<std::string> pricesAsked_;
     std::string detailAskedFor_;
     uint64_t detailAskedAt_ = 0;

@@ -104,6 +104,7 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
     t.categories = p.categories;
     if (ownershipKnown_) t.playable = ownedTitles_.count(t.titleId) || ownedProducts_.count(t.productId);
     t.purchasable = !t.playable && purchasableSet_.count(productId);
+    t.freeInStore = freeInStore_.count(productId) > 0;
     if (siblingsFor_ != products_.size()) {
         seriesSiblings_.clear();
         for (const auto& [id, prod] : products_) {
@@ -193,6 +194,7 @@ bool Library::loadCache() {
             if (!products_.count(id)) products_[id] = productFromJson(id, v);
     for (const auto& [id, code] : (*j)["platforms"].members()) platform_[id] = code.str();
     for (const auto& [pid, xbox] : (*j)["xboxTitles"].members()) xboxTitleOf_[pid] = xbox.str();
+    for (const auto& id : (*j)["freeInStore"].items()) freeInStore_.insert(id.str());
     for (const auto& t : (*j)["ownedTitles"].items()) ownedTitles_.insert(t.str());
     for (const auto& p : (*j)["ownedProducts"].items()) ownedProducts_.insert(p.str());
     owned_.clear();
@@ -239,6 +241,9 @@ void Library::saveCache() const {
     for (const auto& [pid, xbox] : xboxTitleOf_) xboxTitles.set(pid, xbox);
     root.set("platforms", platforms);
     root.set("xboxTitles", xboxTitles);
+    json::Value free = json::Value::array();
+    for (const auto& id : freeInStore_) free.push(id);
+    root.set("freeInStore", free);
     if (!platform::writeFileAtomic(cachePath_, root.dump())) XC_LOGW("library: could not write %s", cachePath_.c_str());
 }
 
@@ -257,6 +262,7 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
     owned_.clear();
     purchasable_.clear();
     purchasableSet_.clear();
+    freeInStore_.clear();
     xboxTitleOf_.clear();
     platform_.clear();
     std::string lastErr;
@@ -366,6 +372,7 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
     std::map<std::string, std::string> toBuy;  // productId -> titleId
     for (const auto& t : titles) {
         if (!t.productId.empty() && !t.xboxTitleId.empty()) xboxTitleOf_[t.productId] = t.xboxTitleId;
+        if (t.isFreeInStore && !t.productId.empty()) freeInStore_.insert(t.productId);
         if (t.hasEntitlement) {
             ownedTitles.insert(t.titleId);
             if (t.productId.empty()) continue;
