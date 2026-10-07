@@ -621,7 +621,8 @@ int main(int argc, char** argv) {
                        {"BUY1", {"R$ 199,99", "", 199.99, 199.99}},
                        {"BUY2", {"GR\xC3\x81TIS", "", 0, 0}},
                        {"BUY3", {"R$ 1.299,90", "", 1299.9, 1299.9}},
-                       {"BUY4", {"R$ 20,00", "R$ 40,00", 20, 40}}});
+                       {"BUY4", {"R$ 20,00", "R$ 40,00", 20, 40}},
+                       {"BUY5", {"GR\xC3\x81TIS", "R$ 99,90", 0, 99.9}}});  // a giveaway
         app.showHome();
         auto press = [&](auto set, int times = 1) {
             for (int i = 0; i < times; ++i) {

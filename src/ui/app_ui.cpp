@@ -488,11 +488,15 @@ void AppUi::runSearch() {
         auto price = prices_.find(t.productId);
         bool priced = price != prices_.end();
         if (tab_ == Tab::Library) {
-            bool free = t.freeInStore || (t.purchasable && priced && price->second.list < 0.005);
-            if (filterFree_ && !free) continue;
-            // Free games have their own filter: the price orders leave them
-            // out (FREE would top "Lowest price"), unless Free is on too.
-            if ((filterCheapest_ || filterSale_) && free && !filterFree_) continue;
+            // Free-to-play: free in the store and no regular price. A paid
+            // game given away (price 0 now, regular price above 0) is a
+            // sale, not free-to-play.
+            bool zeroNow = t.purchasable && priced && price->second.list < 0.005;
+            bool freeToPlay = t.freeInStore || (zeroNow && price->second.msrp < 0.005);
+            if (filterFree_ && !freeToPlay && !zeroNow) continue;  // Free: both
+            // Free-to-play games have their own filter: the price orders
+            // leave them out, unless Free is on too. Giveaways stay (first).
+            if ((filterCheapest_ || filterSale_) && freeToPlay && !filterFree_) continue;
             // Price filters look at games to buy only.
             if ((filterCheapest_ || filterSale_) && !t.purchasable) continue;
             if (filterSale_ && !(priced && price->second.msrp > price->second.list + 0.005)) continue;
