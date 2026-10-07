@@ -21,16 +21,26 @@ an Xbox controller.
 
 - Sign-in with a device code (or QR code) shown on the TV; no password is
   ever typed on the console.
-- Home screen with the same rows as xbox.com/play: Jump back in, Recently
-  added, Most popular on cloud, Leaving soon and All games.
+- Two tabs (L1 / R1): **Game Pass**, with the xbox.com/play rows (Jump back
+  in, Recently added, Most popular on cloud, Leaving soon, All games), and
+  **Your games**: what your account owns outside Game Pass, then the games
+  that stream in the cloud once bought, with their store price and a QR code
+  of their store page.
+- Search (Triangle) in either tab, with an on-screen keyboard.
+- Every game shows the console it was made for: Xbox 360, Xbox One or
+  Series X|S.
 - WebRTC streaming (libdatachannel on Mbed TLS) with H.264 and Opus decoded by
   FFmpeg on the CPU.
 - Settings (OPTIONS on the home screen): language (English, Português
   (Brasil), Español, Français, Deutsch, Italiano), stream resolution (1080p,
   720p for slower connections, or 1440p, experimental: only where Microsoft
-  offers it) and server region. Hold TOUCHPAD for 5 seconds to sign out.
+  offers it) and server region, with the latency measured in your sessions.
+  Hold TOUCHPAD for 5 seconds to sign out.
 - Lost video packets are re-requested (RTCP NACK) and damaged frames are
-  never shown; DualSense rumble follows the game.
+  never shown; DualSense rumble follows the game. A game that fails to start
+  in one region is retried in the nearest other one.
+- Your games, art and prices are cached: the home screen is complete about
+  a second after it appears.
 - Custom PS5 Home art (selection and launch backgrounds), generated from the
   same code as the icon by `tools/ps5/home-art.sh`.
 
