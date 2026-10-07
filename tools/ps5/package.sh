@@ -23,10 +23,10 @@ cp "$root/ps5/sce_sys/icon0.png" "$app/sce_sys/icon0.png"
 cp "$vk/runtime/libc.prx" "$app/sce_module/libc.prx"
 cp -r "$root/assets/." "$app/assets/"
 
-# Copia tokens autenticados se existirem para facilitar o primeiro teste no PS5
+# Ship the signed-in account from the host build, if any, to skip the first sign-in.
 if [[ -f "$root/build-host/data/account.json" ]]; then
     cp "$root/build-host/data/account.json" "$app/account.json"
 fi
 
-echo "App empacotado com sucesso em: $app"
+echo "App packaged in: $app"
 ls -lh "$app"

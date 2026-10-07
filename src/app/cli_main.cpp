@@ -10,14 +10,22 @@
 //                               (optionally dumped as Annex-B H.264)
 //   xcloud-cli bench-decode <file.h264> [threads]
 //                               decode speed of a dumped stream
+//   xcloud-cli ui-preview <dir>  render the menus to PNGs with live data
 //   xcloud-cli logout
+#include "app/library.h"
 #include "auth/auth_manager.h"
 #include "media/decoder.h"
 #include "net/http.h"
 #include "stream/stream_session.h"
 #include "platform/platform.h"
 #include "util/log.h"
+#include "ui/app_ui.h"
+#include "ui/strings.h"
 #include "xcloud/gssv.h"
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_STATIC
+#include "stb_image_write.h"
 
 #include <atomic>
 #include <cstdio>
@@ -40,6 +48,7 @@ int usage() {
                  "                        provision and stream; dump video to a file\n"
                  "  bench-decode <file.h264> [threads]\n"
                  "                        measure H.264 decode speed\n"
+                 "  ui-preview <dir>      render every menu screen to <dir>/*.png\n"
                  "  logout                forget the stored account\n");
     return 2;
 }
@@ -236,6 +245,65 @@ int cmdBenchDecode(const char* path, int threads) {
     return pictures > 0 ? 0 : 1;
 }
 
+// Renders each screen of the console UI with live account data, so the
+// layout can be checked on a PC.
+int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
+    ui::Fonts fonts;
+    if (!fonts.load("assets/fonts")) return 1;
+    ui::ImageCache images([] {});
+    ui::AppUi app(fonts, images);
+    ui::Canvas canvas(1920, 1080);
+    uint64_t t = 1000;
+    auto save = [&](const char* name, int settleMs = 0) {
+        // Let images arrive and animations settle.
+        for (int waited = 0; waited <= settleMs; waited += 250) {
+            app.render(canvas, t += 250);
+            if (settleMs) platform::sleepMs(250);
+        }
+        app.render(canvas, t += 400);
+        std::string path = dir + "/" + name + ".png";
+        stbi_write_png(path.c_str(), canvas.width(), canvas.height(), 4, canvas.data(), canvas.width() * 4);
+        std::printf("wrote %s\n", path.c_str());
+    };
+
+    app.showSplash(ui::tr(ui::Str::SigningIn));
+    save("splash");
+    app.showSignIn("A1B2C3D4", "https://www.microsoft.com/link");
+    save("signin");
+
+    xcloud::GssvClient gssv;
+    if (!signIn(am, gssv)) return 1;
+    app.setProfile(am.profile().gamertag, am.profile().gamerpicUrl);
+    std::string err;
+    app::Library library;
+    auto onRows = [&](const std::vector<ui::GameRow>& rows) { app.setRows(rows); };
+    if (!library.load(gssv, ui::catalogLanguage(), onRows, err)) {
+        XC_LOGE("%s", err.c_str());
+        return 1;
+    }
+    library.hydrate(onRows);
+    app.showHome();
+    save("home", 4000);
+    ui::NavInput right;
+    right.right = true;
+    for (int i = 0; i < 3; ++i) app.handle(right);
+    ui::NavInput down;
+    down.down = true;
+    app.handle(down);
+    save("home_nav", 3000);
+    ui::NavInput accept;
+    accept.accept = true;
+    app.handle(accept);
+    save("details", 2000);
+    ui::GameTile game;
+    game.name = "Balatro";
+    app.showLaunching(game, ui::trf(ui::Str::InQueue, "1 min"));
+    save("launching");
+    app.showError("Could not connect to the stream: the server did not answer in time.");
+    save("error");
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -265,6 +333,8 @@ int main(int argc, char** argv) {
         const char* id = argv[argi++];
         int seconds = argi < argc ? std::atoi(argv[argi++]) : 30;
         rc = cmdStream(am, id, seconds > 0 ? seconds : 30, argi < argc ? argv[argi] : nullptr);
+    } else if (cmd == "ui-preview" && argi < argc) {
+        rc = cmdUiPreview(am, argv[argi]);
     } else if (cmd == "logout") {
         am.signOut();
         std::printf("Signed out.\n");

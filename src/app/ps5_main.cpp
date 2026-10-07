@@ -1,8 +1,9 @@
-// PS5 front end: on-screen device-code sign-in, the streamable title list,
-// and playing a title (queue -> /connect -> Provisioned -> StreamPlayer).
+// PS5 front end: the menus (ui::AppUi) and playing a title
+// (queue -> /connect -> Provisioned -> StreamPlayer).
 //
-// Network work runs on one worker thread that owns AuthManager/GssvClient;
-// the main thread only reads the pad and draws a snapshot of `Ui`.
+// One worker thread owns AuthManager/GssvClient and does all network work;
+// the main thread reads the pad, drives the UI and draws it.
+#include "app/library.h"
 #include "app/stream_player.h"
 #include "auth/auth_manager.h"
 #include "display/display.h"
@@ -10,89 +11,61 @@
 #include "media/decoder.h"
 #include "net/http.h"
 #include "platform/platform.h"
+#include "ui/app_ui.h"
+#include "ui/strings.h"
 #include "util/log.h"
 #include "xcloud/gssv.h"
 
-#include <algorithm>
-#include <cstdio>
 #include <atomic>
+#include <cstdio>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
 
 using namespace xc;
-using display::Color;
 
 extern "C" int sceSystemServiceHideSplashScreen(void);
 
 namespace {
 
-enum class Screen { Busy, DeviceCode, Titles, Session, Streaming, Error };
+std::unique_ptr<ui::ImageCache> g_images;
+std::unique_ptr<ui::AppUi> g_ui;
 
-struct Ui {
-    Screen screen = Screen::Busy;
-    std::string status;  // Busy / Session / Error text
-    bool sessionRunning = false;
-    auth::DeviceCode code;
-    std::vector<xcloud::Title> titles;
-    std::string gamertag;
-    std::string region;
-};
+// --- Worker commands ---------------------------------------------------------
 
-std::mutex g_uiMutex;
-Ui g_ui;
-std::atomic<uint64_t> g_uiVersion{1};
-
-template <class F>
-void updateUi(F&& f) {
-    {
-        std::lock_guard<std::mutex> lock(g_uiMutex);
-        f(g_ui);
-    }
-    ++g_uiVersion;
-}
-
-void setBusy(const std::string& text) {
-    XC_LOGI("%s", text.c_str());
-    updateUi([&](Ui& ui) {
-        ui.screen = Screen::Busy;
-        ui.status = text;
-    });
-}
-
-void setError(const std::string& text) {
-    XC_LOGE("%s", text.c_str());
-    updateUi([&](Ui& ui) {
-        ui.screen = Screen::Error;
-        ui.status = text;
-    });
-}
-
-// --- Worker ----------------------------------------------------------------
-
-enum Command { kNone, kSignIn, kProvision, kSignOut };
+enum Command { kNone, kSignIn, kPlay, kSignOut };
 
 std::atomic<int> g_command{kSignIn};
 std::atomic<bool> g_cancel{false};
 std::mutex g_argMutex;
-std::string g_provisionTitle;
+ui::GameTile g_playTile;
+
+// Background catalog hydration (hero art, descriptions).
+std::atomic<bool> g_stopHydration{false};
+platform::Thread g_hydrationThread;
+
+void stopHydration() {
+    g_stopHydration = true;
+    if (g_hydrationThread.joinable()) g_hydrationThread.join();
+}
 
 // The running stream, for the input thread.
 std::mutex g_playerMutex;
 app::StreamPlayer* g_player = nullptr;
 
-void setSession(const std::string& text, bool running);
+// --- Unattended test mode (tools/ps5/autotest.sh) ----------------------------
+// <dataDir>/autoplay.txt holds "<titleId> <seconds> [option]". The app signs
+// in, plays that title for that long (pressing A at 15 s and 20 s), saves
+// decoded frames and logs "AUTOPLAY END". Options: nosimd, dump, repeat.
+// The title "BENCH" decodes <dataDir>/sample.h264 instead.
 
-// Unattended test mode (tools/ps5/autotest.sh): <dataDir>/autoplay.txt holds
-// "<titleId> <seconds>". The app signs in, plays that title for that long,
-// saves a decoded frame as frame.ppm and logs "AUTOPLAY END".
 std::string g_autoplayTitle;
 int g_autoplaySeconds = 0;
-// Autoplay presses A at 15 s and 20 s into the stream (input check).
-std::atomic<bool> g_syntheticA{false};
 bool g_autoplayDump = false;
-int g_autoplayRuns = 1;  // "repeat": two sessions in one process
+int g_autoplayRuns = 1;
+std::atomic<bool> g_syntheticA{false};
 
 void loadAutoplay() {
     std::string text;
@@ -100,19 +73,27 @@ void loadAutoplay() {
     char title[128] = {};
     char option[64] = {};
     int seconds = 0;
-    if (std::sscanf(text.c_str(), "%127s %d %63s", title, &seconds, option) >= 1) {
-        if (std::string(option) == "nosimd") media::disableSimd();
-        g_autoplayDump = std::string(option) == "dump";
-        if (std::string(option) == "repeat") g_autoplayRuns = 2;
-        g_autoplayTitle = title;
-        g_autoplaySeconds = seconds > 0 ? seconds : 60;
-        XC_LOGI("AUTOPLAY %s for %ds", title, g_autoplaySeconds);
-        platform::probeNetworking();
+    if (std::sscanf(text.c_str(), "%127s %d %63s", title, &seconds, option) < 1) return;
+    std::string opt = option;
+    if (opt == "nosimd") media::disableSimd();
+    g_autoplayDump = opt == "dump";
+    if (opt == "repeat") g_autoplayRuns = 2;
+    g_autoplayTitle = title;
+    g_autoplaySeconds = seconds > 0 ? seconds : 60;
+    XC_LOGI("AUTOPLAY %s for %ds %s", title, g_autoplaySeconds, option);
+    platform::probeNetworking();
+}
+
+void autoplayFinished(const std::string& result) {
+    if (g_autoplayTitle.empty()) return;
+    if (--g_autoplayRuns > 0) {
+        XC_LOGI("AUTOPLAY next run: %s", result.c_str());
+        g_command = kPlay;
+    } else {
+        XC_LOGI("AUTOPLAY END: %s", result.c_str());
     }
 }
 
-// Autoplay "BENCH": decode <dataDir>/sample.h264 without any network, to test
-// FFmpeg on the console in isolation.
 void runDecodeBench() {
     std::string data;
     if (!platform::readFile(platform::dataDir() + "/sample.h264", data)) {
@@ -129,47 +110,53 @@ void runDecodeBench() {
     media::Picture pic;
     int pictures = 0;
     uint64_t t0 = platform::nowMs();
-    for (size_t i = 0; i < aus.size(); ++i) {
-        if (i < 3) XC_LOGI("bench: decode AU %zu (%zu bytes)", i, aus[i].second);
-        bool ok = dec.decode(reinterpret_cast<const uint8_t*>(data.data()) + aus[i].first, aus[i].second, pic);
-        if (ok) ++pictures;
-        if (i < 3) XC_LOGI("bench: AU %zu done ok=%d", i, ok);
-    }
+    for (const auto& [off, len] : aus)
+        if (dec.decode(reinterpret_cast<const uint8_t*>(data.data()) + off, len, pic)) ++pictures;
     uint64_t ms = platform::nowMs() - t0;
     XC_LOGI("AUTOPLAY END: bench %d pictures (%dx%d) in %llu ms = %.2f ms/picture", pictures, pic.width,
             pic.height, static_cast<unsigned long long>(ms), pictures ? double(ms) / pictures : 0.0);
 }
 
-void play(xcloud::GssvClient& gssv, std::string& result) {
-    setSession("Conectando o stream...", true);
+// --- Worker ----------------------------------------------------------------------
+
+std::string formatWait(int seconds) {
+    if (seconds < 0) return "...";
+    if (seconds < 60) return std::to_string(seconds) + " s";
+    return std::to_string((seconds + 59) / 60) + " min";
+}
+
+// Streams until the player ends or the user leaves; returns a status line.
+std::string stream(xcloud::GssvClient& gssv) {
     app::StreamPlayer player(gssv);
     if (g_autoplayDump) player.dumpVideo(platform::dataDir() + "/stream.aus", 20);
     std::string err;
-    if (!player.start(err)) {
-        result = "ERRO ao conectar o stream: " + err;
-        return;
-    }
+    if (!player.start(err)) return "ERROR: could not connect the stream: " + err;
     {
         std::lock_guard<std::mutex> lock(g_playerMutex);
         g_player = &player;
     }
-    updateUi([](Ui& ui) { ui.screen = Screen::Streaming; });
-    platform::notify("Segure OPTIONS + TOUCHPAD para sair do jogo");
-    uint64_t nextTick = platform::nowMs();
-    const uint64_t started = nextTick;
-    bool snapshotAsked = false, snapshot2Asked = false;
+    g_ui->showStreaming();
+    platform::notify(ui::tr(ui::Str::LeaveHint));
+
+    const uint64_t started = platform::nowMs();
+    uint64_t nextTick = started;
+    bool snapshot1 = false, snapshot2 = false;
+    bool autoplayDone = false;
     while (player.running() && !g_cancel) {
         uint64_t elapsed = platform::nowMs() - started;
         if (!g_autoplayTitle.empty()) {
-            if (elapsed >= static_cast<uint64_t>(g_autoplaySeconds) * 1000u) break;
-            if (!snapshotAsked && elapsed >= 10000) {
-                snapshotAsked = true;
+            if (elapsed >= static_cast<uint64_t>(g_autoplaySeconds) * 1000u) {
+                autoplayDone = true;
+                break;
+            }
+            if (!snapshot1 && elapsed >= 10000) {
+                snapshot1 = true;
                 player.requestSnapshot(platform::dataDir() + "/frame.ppm");
             }
             bool press = (elapsed >= 15000 && elapsed < 15300) || (elapsed >= 20000 && elapsed < 20300);
             if (press != g_syntheticA.exchange(press)) XC_LOGI("autoplay: A %s", press ? "down" : "up");
-            if (!snapshot2Asked && elapsed >= 26000) {
-                snapshot2Asked = true;
+            if (!snapshot2 && elapsed >= 26000) {
+                snapshot2 = true;
                 player.requestSnapshot(platform::dataDir() + "/frame2.ppm");
             }
         }
@@ -190,112 +177,106 @@ void play(xcloud::GssvClient& gssv, std::string& result) {
         std::lock_guard<std::mutex> lock(g_playerMutex);
         g_player = nullptr;
     }
-    std::string reason = g_cancel ? "voce saiu do jogo" : player.running() ? "fim do autoplay" : player.endReason();
+    std::string reason = g_cancel ? "left the game" : autoplayDone ? "autoplay finished" : player.endReason();
     player.stop();
     auto st = player.stats();
-    result = "Stream encerrado (" + reason + "). " + std::to_string(st.decodedFrames) + " quadros exibidos.";
+    return "Stream ended (" + reason + "), " + std::to_string(st.decodedFrames) + " frames shown";
 }
 
-void doSignIn(auth::AuthManager& am, xcloud::GssvClient& gssv) {
-    setBusy(am.hasStoredAccount() ? "Entrando na conta salva..." : "Pedindo codigo de login...");
+// Queue -> /connect -> Provisioned -> stream. Returns a status line; sets
+// `failed` when the user should see an error rather than the home screen.
+std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::GameTile& game, bool& failed) {
+    failed = true;
+    XC_LOGI("starting %s (%s)", game.name.c_str(), game.titleId.c_str());
+    g_ui->showLaunching(game, ui::tr(ui::Str::Connecting));
     std::string err;
-    auto onCode = [](const auth::DeviceCode& dc) {
-        updateUi([&](Ui& ui) {
-            ui.screen = Screen::DeviceCode;
-            ui.code = dc;
-        });
-    };
-    if (!am.signIn(gssv, onCode, err, &g_cancel)) {
-        setError("Falha no login: " + err);
-        if (!g_autoplayTitle.empty()) XC_LOGI("AUTOPLAY END: login failed");
-        return;
-    }
-    updateUi([&](Ui& ui) {
-        ui.gamertag = am.profile().gamertag;
-        ui.region = gssv.region().name;
-    });
-    platform::notify("Conectado como " + am.profile().gamertag);
-
-    setBusy("Carregando jogos...");
-    std::vector<xcloud::Title> titles;
-    if (!gssv.listTitles(titles, err, true) || titles.empty()) {
-        // The recent list is short and fast; fall back to the full catalog.
-        if (!gssv.listTitles(titles, err, false)) {
-            setError("Falha ao listar jogos: " + err);
-            return;
-        }
-    }
-    std::string market = gssv.session().market.empty() ? "US" : gssv.session().market;
-    if (!gssv.hydrateTitles(titles, market, "en-us", err)) XC_LOGW("%s", err.c_str());
-    XC_LOGI("%zu titles", titles.size());
-    updateUi([&](Ui& ui) {
-        ui.titles = std::move(titles);
-        ui.screen = Screen::Titles;
-    });
-    if (!g_autoplayTitle.empty()) {
-        std::lock_guard<std::mutex> lock(g_argMutex);
-        g_provisionTitle = g_autoplayTitle;
-        g_command = kProvision;
-    }
-}
-
-void setSession(const std::string& text, bool running) {
-    XC_LOGI("session: %s", text.c_str());
-    updateUi([&](Ui& ui) {
-        ui.screen = Screen::Session;
-        ui.status = text;
-        ui.sessionRunning = running;
-    });
-}
-
-void doProvision(auth::AuthManager& am, xcloud::GssvClient& gssv, const std::string& titleId) {
-    setSession("Iniciando sessao para " + titleId + "...", true);
-    std::string err;
-    if (!gssv.startSession(titleId, "en-US", err)) {
-        setSession("ERRO: " + err, false);
-        return;
-    }
+    if (!gssv.startSession(game.titleId, "en-US", err)) return err;
     bool connected = false;
-    std::string result = "Tempo esgotado esperando a sessao";
-    for (int i = 0; i < 600 && !g_cancel; ++i) {
+    std::string result = "timed out waiting for the session";
+    for (int i = 0; i < 900 && !g_cancel; ++i) {
         xcloud::SessionStatus st;
         if (!gssv.sessionState(st, err)) {
-            result = "ERRO: " + err;
+            result = err;
             break;
         }
-        if (st.state == xcloud::SessionState::WaitingForResources) {
-            setSession("Na fila, espera estimada " + std::to_string(gssv.waitTimeSeconds()) + "s", true);
-        } else {
-            setSession("Estado da sessao: " + st.raw, true);
-        }
+        XC_LOGI("session state: %s", st.raw.c_str());
+        if (st.state == xcloud::SessionState::WaitingForResources)
+            g_ui->setLaunchStatus(ui::trf(ui::Str::InQueue, formatWait(gssv.waitTimeSeconds())));
         if (st.state == xcloud::SessionState::Failed) {
-            result = "Sessao falhou: " + st.errorCode + " " + st.errorMessage;
+            result = "the session failed: " + st.errorCode + " " + st.errorMessage;
             break;
         }
         if (st.state == xcloud::SessionState::ReadyToConnect && !connected) {
             std::string transfer;
             if (!am.consoleTransferToken(transfer, err) || !gssv.connect(transfer, err)) {
-                result = "ERRO: " + err;
+                result = err;
                 break;
             }
             connected = true;
         }
         if (st.state == xcloud::SessionState::Provisioned) {
-            play(gssv, result);
+            g_ui->setLaunchStatus(ui::tr(ui::Str::StartingStream));
+            result = stream(gssv);
+            failed = result.rfind("ERROR", 0) == 0;
             break;
         }
         platform::sleepMs(1000);
     }
-    if (g_cancel && result.rfind("Stream", 0) != 0) result = "Cancelado";
+    if (g_cancel && failed) {
+        result = "cancelled";
+        failed = false;
+    }
     gssv.stopSession();
-    setSession(result, false);
-    if (!g_autoplayTitle.empty()) {
-        if (--g_autoplayRuns > 0) {
-            XC_LOGI("AUTOPLAY next run: %s", result.c_str());
-            g_command = kProvision;
-        } else {
-            XC_LOGI("AUTOPLAY END: %s", result.c_str());
-        }
+    return result;
+}
+
+void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
+    g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
+    std::string err;
+    auto onCode = [](const auth::DeviceCode& dc) { g_ui->showSignIn(dc.userCode, dc.verificationUri); };
+    if (!am.signIn(gssv, onCode, err, &g_cancel)) {
+        XC_LOGE("sign-in failed: %s", err.c_str());
+        g_ui->showError("Sign-in failed: " + err);
+        if (!g_autoplayTitle.empty()) XC_LOGI("AUTOPLAY END: sign-in failed");
+        return;
+    }
+    g_ui->setProfile(am.profile().gamertag, am.profile().gamerpicUrl);
+    platform::notify(ui::trf(ui::Str::SignedInAs, am.profile().gamertag));
+
+    g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
+    stopHydration();
+    auto library = std::make_shared<app::Library>();
+    bool shown = false;
+    bool ok = library->load(gssv, ui::catalogLanguage(),
+                            [&](const std::vector<ui::GameRow>& r) {
+                                g_ui->setRows(r);
+                                if (!shown) {
+                                    shown = true;
+                                    g_ui->showHome();
+                                }
+                            },
+                            err);
+    if (!ok) {
+        g_ui->showError("Could not load the game list: " + err);
+        return;
+    }
+    std::vector<ui::GameRow> rows = library->rows();
+    // Hero art and descriptions keep arriving while the user browses/plays.
+    g_stopHydration = false;
+    platform::startThread(g_hydrationThread, [library] {
+        library->hydrate([](const std::vector<ui::GameRow>& r) { g_ui->setRows(r); }, &g_stopHydration);
+    });
+    if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH") {
+        platform::sleepMs(6000);  // leave the home screen up for ui.ppm
+        ui::GameTile tile;
+        tile.titleId = g_autoplayTitle;
+        tile.name = g_autoplayTitle;
+        for (const auto& row : rows)
+            for (const auto& t : row.tiles)
+                if (t.titleId == g_autoplayTitle && tile.productId.empty()) tile = t;
+        std::lock_guard<std::mutex> lock(g_argMutex);
+        g_playTile = tile;
+        g_command = kPlay;
     }
 }
 
@@ -312,18 +293,26 @@ void worker() {
         int cmd = g_command.exchange(kNone);
         g_cancel = false;
         switch (cmd) {
-            case kSignIn: doSignIn(am, gssv); break;
+            case kSignIn: signInAndLoad(am, gssv); break;
             case kSignOut:
                 am.signOut();
-                doSignIn(am, gssv);
+                g_ui->setProfile({}, {});
+                signInAndLoad(am, gssv);
                 break;
-            case kProvision: {
-                std::string id;
+            case kPlay: {
+                ui::GameTile tile;
                 {
                     std::lock_guard<std::mutex> lock(g_argMutex);
-                    id = g_provisionTitle;
+                    tile = g_playTile;
                 }
-                doProvision(am, gssv, id);
+                bool failed = false;
+                std::string result = play(am, gssv, tile, failed);
+                XC_LOGI("%s", result.c_str());
+                if (failed)
+                    g_ui->showError(result);
+                else
+                    g_ui->showHome(ui::tr(ui::Str::StreamEnded));
+                autoplayFinished(result);
                 break;
             }
             default: platform::sleepMs(50); break;
@@ -331,92 +320,32 @@ void worker() {
     }
 }
 
-// --- Drawing ---------------------------------------------------------------
+// --- Input ---------------------------------------------------------------------
 
-constexpr unsigned kMargin = 80;
-
-unsigned textWidth(size_t chars, unsigned scale) { return static_cast<unsigned>(chars) * 6 * scale; }
-
-void drawCentered(display::Canvas& c, unsigned y, const std::string& text, unsigned scale, Color color) {
-    unsigned w = textWidth(text.size(), scale);
-    c.drawText(w < display::kWidth ? (display::kWidth - w) / 2 : 0, y, text, scale, color);
-}
-
-// Word-wraps `text` to `maxChars` per line and draws it; returns the next y.
-unsigned drawWrapped(display::Canvas& c, unsigned x, unsigned y, const std::string& text, unsigned scale,
-                     Color color, size_t maxChars) {
-    size_t pos = 0;
-    while (pos < text.size()) {
-        size_t len = std::min(maxChars, text.size() - pos);
-        if (pos + len < text.size()) {
-            size_t sp = text.rfind(' ', pos + len);
-            if (sp != std::string::npos && sp > pos) len = sp - pos;
+// D-pad / left stick with key repeat: first press, then every 110 ms after
+// 350 ms held.
+class Repeater {
+public:
+    bool update(bool held, uint64_t now) {
+        if (!held) {
+            since_ = 0;
+            return false;
         }
-        c.drawText(x, y, text.substr(pos, len), scale, color);
-        y += 10 * scale;
-        pos += len;
-        while (pos < text.size() && text[pos] == ' ') ++pos;
-    }
-    return y;
-}
-
-void drawFrame(const Ui& ui, int selected, int scroll) {
-    display::Canvas c = display::getBackBuffer();
-    c.clear(Color::DarkSlate);
-
-    c.fillRect(0, 0, display::kWidth, 110, Color::HeaderBar);
-    c.fillRect(0, 106, display::kWidth, 4, Color::XboxGreen);
-    c.drawText(kMargin, 38, "XBOX CLOUD GAMING", 5, Color::White);
-    if (!ui.gamertag.empty()) {
-        std::string who = ui.gamertag + (ui.region.empty() ? "" : "  (" + ui.region + ")");
-        c.drawText(display::kWidth - kMargin - textWidth(who.size(), 3), 46, who, 3, Color::GrayText);
-    }
-
-    const unsigned footerY = display::kHeight - 70;
-    std::string footer;
-    switch (ui.screen) {
-        case Screen::Busy:
-            drawCentered(c, 480, ui.status, 4, Color::LightGray);
-            break;
-        case Screen::DeviceCode:
-            drawCentered(c, 260, "No celular ou PC, abra:", 4, Color::GrayText);
-            drawCentered(c, 340, ui.code.verificationUri, 6, Color::White);
-            drawCentered(c, 470, "e digite o codigo:", 4, Color::GrayText);
-            c.fillRect(560, 550, 800, 170, Color::CardBg);
-            drawCentered(c, 595, ui.code.userCode, 14, Color::LightGreen);
-            drawCentered(c, 800, "Aguardando login...", 3, Color::GrayText);
-            footer = "O: cancelar";
-            break;
-        case Screen::Titles: {
-            constexpr unsigned kTop = 150, kRow = 54;
-            const int visible = static_cast<int>((footerY - 20 - kTop) / kRow);
-            for (int i = 0; i < visible && scroll + i < static_cast<int>(ui.titles.size()); ++i) {
-                const auto& t = ui.titles[static_cast<size_t>(scroll + i)];
-                unsigned y = kTop + static_cast<unsigned>(i) * kRow;
-                bool sel = scroll + i == selected;
-                c.fillRect(kMargin, y, display::kWidth - 2 * kMargin, kRow - 6, sel ? Color::CardSelected : Color::CardBg);
-                c.drawText(kMargin + 20, y + 13, t.name.empty() ? t.titleId : t.name, 3,
-                           sel ? Color::White : Color::LightGray);
-            }
-            footer = "X: jogar    OPTIONS: sair da conta    " + std::to_string(selected + 1) + "/" +
-                     std::to_string(ui.titles.size());
-            break;
+        if (!since_) {
+            since_ = next_ = now;
+            next_ += 350;
+            return true;
         }
-        case Screen::Session:
-            drawCentered(c, 300, "SESSAO", 5, Color::White);
-            drawWrapped(c, kMargin + 100, 450, ui.status, 4, Color::LightGray, 60);
-            footer = ui.sessionRunning ? "O: cancelar" : "X ou O: voltar";
-            break;
-        case Screen::Streaming: break;  // the video thread owns the screen
-        case Screen::Error:
-            drawCentered(c, 300, "ERRO", 6, Color::White);
-            drawWrapped(c, kMargin + 40, 420, ui.status, 3, Color::LightGray, 90);
-            footer = "X: tentar novamente    OPTIONS: sair da conta";
-            break;
+        if (now >= next_) {
+            next_ = now + 110;
+            return true;
+        }
+        return false;
     }
-    if (!footer.empty()) c.drawText(kMargin, footerY, footer, 3, Color::GrayText);
-    display::present();
-}
+
+private:
+    uint64_t since_ = 0, next_ = 0;
+};
 
 }  // namespace
 
@@ -433,103 +362,114 @@ int main(int argc, char** argv) {
     bool haveDisplay = display::init();
     if (!input::init()) XC_LOGE("controller init failed");
 
+    ui::Fonts fonts;
+    if (!fonts.load(platform::assetDir() + "/fonts")) XC_LOGE("fonts missing in %s", platform::assetDir().c_str());
+    g_images = std::make_unique<ui::ImageCache>([] {
+        if (g_ui) g_ui->invalidate();
+    });
+    g_ui = std::make_unique<ui::AppUi>(fonts, *g_images);
+    ui::Canvas canvas(display::kWidth, display::kHeight);
+
     if (!net::initTls(platform::caBundlePath())) {
-        platform::notify("xCloud: erro ao carregar certificados TLS");
-        setError("Nao foi possivel carregar " + platform::caBundlePath());
+        platform::notify("xCloud: could not load the TLS certificates");
+        g_ui->showError("Could not load " + platform::caBundlePath());
     } else {
         std::thread(worker).detach();
     }
 
     // Never return from main: the app is closed from the home screen.
     input::ControllerState prev{}, pad{};
-    int selected = 0, scroll = 0;
-    uint64_t drawn = 0;
+    Repeater up, down, left, right;
     uint64_t exitHeldSince = 0;
+    uint64_t homeSince = 0;
+    bool uiSaved = false;
     for (;;) {
         input::poll(pad);
-        auto pressed = [&](bool input::ControllerState::*b) { return pad.*b && !(prev.*b); };
+        // Autoplay runs unattended: the physical pad must not interfere.
+        if (!g_autoplayTitle.empty()) pad = input::ControllerState{};
+        uint64_t now = platform::nowMs();
 
-        Screen screen;
-        size_t titleCount;
-        bool running;
-        {
-            std::lock_guard<std::mutex> lock(g_uiMutex);
-            screen = g_ui.screen;
-            titleCount = g_ui.titles.size();
-            running = g_ui.sessionRunning;
+        if (g_ui->screen() == ui::Screen::Streaming) {
+            {
+                std::lock_guard<std::mutex> lock(g_playerMutex);
+                if (g_player) {
+                    input::ControllerState sent = pad;
+                    if (g_syntheticA) sent.btnA = true;
+                    g_player->sendInput(sent);
+                }
+            }
+            // OPTIONS + TOUCHPAD held for a second leaves the game.
+            if (pad.btnOptions && pad.btnTouchpad) {
+                if (!exitHeldSince) exitHeldSince = now;
+                if (now - exitHeldSince > 1000) g_cancel = true;
+            } else {
+                exitHeldSince = 0;
+            }
+            prev = pad;
+            platform::sleepMs(8);  // ~120 Hz input
+            continue;
         }
 
-        bool moved = false;
-        switch (screen) {
-            case Screen::DeviceCode:
-                if (pressed(&input::ControllerState::btnB)) g_cancel = true;
-                break;
-            case Screen::Titles: {
-                int n = static_cast<int>(titleCount);
-                if (pressed(&input::ControllerState::dpadDown) && selected + 1 < n) ++selected, moved = true;
-                if (pressed(&input::ControllerState::dpadUp) && selected > 0) --selected, moved = true;
-                if (pressed(&input::ControllerState::dpadRight)) selected = std::min(n - 1, selected + 10), moved = true;
-                if (pressed(&input::ControllerState::dpadLeft)) selected = std::max(0, selected - 10), moved = true;
-                if (pressed(&input::ControllerState::btnA) && n > 0) {
-                    std::lock_guard<std::mutex> lock(g_uiMutex);
-                    std::lock_guard<std::mutex> lock2(g_argMutex);
-                    g_provisionTitle = g_ui.titles[static_cast<size_t>(selected)].titleId;
-                    g_command = kProvision;
-                }
-                if (pressed(&input::ControllerState::btnOptions)) g_command = kSignOut;
-                break;
-            }
-            case Screen::Session:
-                if (running && pressed(&input::ControllerState::btnB)) g_cancel = true;
-                if (!running && (pressed(&input::ControllerState::btnA) || pressed(&input::ControllerState::btnB)))
-                    updateUi([](Ui& ui) { ui.screen = Screen::Titles; });
-                break;
-            case Screen::Error:
-                if (pressed(&input::ControllerState::btnA)) g_command = kSignIn;
-                if (pressed(&input::ControllerState::btnOptions)) g_command = kSignOut;
-                break;
-            case Screen::Streaming: {
-                {
-                    std::lock_guard<std::mutex> lock(g_playerMutex);
-                    if (g_player) {
-                        input::ControllerState sent = pad;
-                        if (g_syntheticA) sent.btnA = true;
-                        g_player->sendInput(sent);
-                    }
-                }
-                // OPTIONS + TOUCHPAD held for a second leaves the game.
-                if (pad.btnOptions && pad.btnTouchpad) {
-                    if (!exitHeldSince) exitHeldSince = platform::nowMs();
-                    if (platform::nowMs() - exitHeldSince > 1000) g_cancel = true;
-                } else {
-                    exitHeldSince = 0;
-                }
-                break;
-            }
-            case Screen::Busy: break;
-        }
+        ui::NavInput nav;
+        nav.up = up.update(pad.dpadUp || pad.leftStickY < -0.6f, now);
+        nav.down = down.update(pad.dpadDown || pad.leftStickY > 0.6f, now);
+        nav.left = left.update(pad.dpadLeft || pad.leftStickX < -0.6f, now);
+        nav.right = right.update(pad.dpadRight || pad.leftStickX > 0.6f, now);
+        nav.accept = pad.btnA && !prev.btnA;
+        nav.back = pad.btnB && !prev.btnB;
+        nav.options = pad.btnOptions && !prev.btnOptions;
         prev = pad;
 
-        if (moved) {
-            constexpr int kVisible = 15;
-            if (selected < scroll) scroll = selected;
-            if (selected >= scroll + kVisible) scroll = selected - kVisible + 1;
+        ui::UiEvent ev = g_ui->handle(nav);
+        switch (ev.action) {
+            case ui::Action::Play: {
+                std::lock_guard<std::mutex> lock(g_argMutex);
+                g_playTile = ev.game;
+                g_command = kPlay;
+                break;
+            }
+            case ui::Action::SignOut:
+                g_cancel = true;
+                g_command = kSignOut;
+                break;
+            case ui::Action::Retry: g_command = kSignIn; break;
+            case ui::Action::CancelLaunch: g_cancel = true; break;
+            case ui::Action::None: break;
         }
 
-        uint64_t version = g_uiVersion.load();
-        if (screen == Screen::Streaming) {
-            platform::sleepMs(8);  // ~120 Hz input polling
-        } else if (haveDisplay && (version != drawn || moved)) {
-            Ui snapshot;
-            {
-                std::lock_guard<std::mutex> lock(g_uiMutex);
-                snapshot = g_ui;
+        // Autoplay: save the rendered home screen once its images are in.
+        if (!g_autoplayTitle.empty() && !uiSaved && g_ui->screen() == ui::Screen::Home) {
+            if (!homeSince) homeSince = now;
+            if (now - homeSince > 5000) {
+                uiSaved = true;
+                std::string ppm = "P6\n1920 1080\n255\n";
+                ppm.reserve(ppm.size() + 1920u * 1080u * 3u);
+                for (size_t i = 0; i < 1920u * 1080u; ++i) {
+                    uint32_t p = canvas.data()[i];
+                    ppm += static_cast<char>(p & 0xFF);
+                    ppm += static_cast<char>((p >> 8) & 0xFF);
+                    ppm += static_cast<char>((p >> 16) & 0xFF);
+                }
+                XC_LOGI("ui snapshot: %s", platform::writeFileAtomic(platform::dataDir() + "/ui.ppm", ppm) ? "ok" : "failed");
+            }
+        }
+
+        if (haveDisplay && g_ui->needsRedraw(now)) {
+            uint64_t t0 = platform::nowMs();
+            g_ui->render(canvas, now);
+            uint64_t t1 = platform::nowMs();
+            static int logged = 0;
+            if (logged < 5 && g_ui->screen() == ui::Screen::Home) {
+                ++logged;
+                XC_LOGI("ui render %llu ms", static_cast<unsigned long long>(t1 - t0));
             }
             std::lock_guard<std::mutex> lock(display::frameMutex());
-            if (snapshot.screen != Screen::Streaming) drawFrame(snapshot, selected, scroll);  // waits for vblank
-            drawn = version;
+            if (g_ui->screen() != ui::Screen::Streaming) {
+                display::drawRgba(canvas.data());
+                display::present();  // waits for vblank
+            }
         } else {
-            platform::sleepMs(16);
+            platform::sleepMs(8);
         }
     }
 }

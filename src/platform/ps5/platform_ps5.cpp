@@ -51,6 +51,8 @@ std::string dataDir() {
     return g_dataDir;
 }
 
+std::string assetDir() { return "/app0/assets"; }
+
 std::string caBundlePath() {
     // Shipped in /app0/assets/cacert.pem
     return "/app0/assets/cacert.pem";

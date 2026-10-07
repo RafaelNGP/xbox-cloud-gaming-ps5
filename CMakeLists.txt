@@ -18,6 +18,7 @@ add_library(xcloud_core STATIC
     src/auth/xbox_live.cpp
     src/auth/auth_manager.cpp
     src/xcloud/gssv.cpp
+    src/xcloud/catalog.cpp
     src/platform/posix_common.cpp
 )
 target_include_directories(xcloud_core PUBLIC src)
@@ -48,6 +49,19 @@ include(cmake/deps/ffmpeg.cmake)
 add_library(xcloud_media STATIC src/media/decoder.cpp src/media/audio_out.cpp)
 target_link_libraries(xcloud_media PUBLIC xcloud_core PRIVATE xc_ffmpeg)
 
+# --- Menus: software-rendered UI, Game Pass library ---------------------------
+add_library(xcloud_ui STATIC
+    src/ui/strings.cpp
+    src/ui/canvas.cpp
+    src/ui/font.cpp
+    src/ui/image_cache.cpp
+    src/ui/app_ui.cpp
+    src/app/library.cpp
+    extern/qrcodegen/qrcodegen.c
+)
+target_include_directories(xcloud_ui PUBLIC extern/stb extern/qrcodegen)
+target_link_libraries(xcloud_ui PUBLIC xcloud_core)
+
 if(XCLOUD_PS5)
     target_sources(xcloud_core PRIVATE src/platform/ps5/platform_ps5.cpp src/platform/ps5/libc_compat.c src/platform/ps5/net_probe.cpp)
 
@@ -58,13 +72,13 @@ if(XCLOUD_PS5)
         src/display/display.cpp
         src/input/controller.cpp
     )
-    target_link_libraries(xcloud_app PUBLIC xcloud_stream xcloud_media)
+    target_link_libraries(xcloud_app PUBLIC xcloud_stream xcloud_media xcloud_ui)
 else()
     target_link_libraries(xcloud_core PUBLIC Threads::Threads)
     target_sources(xcloud_core PRIVATE src/platform/host/platform_host.cpp)
 
     add_executable(xcloud-cli src/app/cli_main.cpp)
-    target_link_libraries(xcloud-cli PRIVATE xcloud_stream xcloud_media xc_ffmpeg)
+    target_link_libraries(xcloud-cli PRIVATE xcloud_stream xcloud_media xcloud_ui xc_ffmpeg)
 
     enable_testing()
     add_executable(xcloud-tests tests/test_main.cpp)

@@ -16,6 +16,7 @@ namespace xc::auth {
 struct Profile {
     std::string gamertag;
     std::string xuid;
+    std::string gamerpicUrl;  // empty until fetched
 };
 
 class AuthManager {
@@ -45,6 +46,7 @@ private:
     bool save() const;
     bool deviceCodeSignIn(const DeviceCodeCallback& onCode, std::string& err, const std::atomic<bool>* cancel);
     bool xboxChain(xcloud::GssvClient& gssv, std::string& err);
+    void fetchGamerpic(const XblToken& xsts);
 
     std::string storePath_;
     MsaClient msa_;

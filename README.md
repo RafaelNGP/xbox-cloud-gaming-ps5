@@ -6,7 +6,7 @@ Cliente nativo de Xbox Cloud Gaming (xCloud) para PS5 com homebrew.
 
 | Parte | PC (`xcloud-cli`) | PS5 |
 | --- | --- | --- |
-| Interface na tela, DualSense nos menus | — | testado |
+| Interface estilo xbox.com/play (home, detalhes, login com QR) | preview em PNG | testado (renderiza em 5-7 ms) |
 | Login (conta salva), lista de jogos, sessão, fila | testado | testado |
 | WebRTC (SDP/ICE, DTLS-SRTP, canais de dados) | testado | testado |
 | Vídeo 1080p60 H.264 (FFmpeg, 3,1 ms/quadro no PS5) | testado | testado: 3 min, 99,6% dos quadros exibidos |
@@ -66,13 +66,32 @@ O FFmpeg (`deps/ffmpeg`, só os decoders H.264/Opus) é compilado pelo
 `~/.cache/xcloud-ps5` porque o FFmpeg não aceita espaços no caminho; o `nasm`
 também é compilado ali se não estiver instalado.
 
+## Interface
+
+Desenhada por software (`src/ui`): canvas RGBA, texto TrueType (Inter, OFL),
+imagens baixadas e redimensionadas em segundo plano. As fileiras vêm das
+mesmas listas do xbox.com/play (catalog.gamepass.com): Jump back in, Recently
+added, Most popular on cloud, Leaving soon e All games. Primeiro carrega a
+versão leve do catálogo (a home aparece em ~4 s) e depois, em segundo plano,
+as artes hero e as descrições.
+
+Todos os textos ficam em `src/ui/strings.cpp` (inglês por padrão; outros
+idiomas entram como uma nova coluna).
+
+Para ajustar o visual sem o console:
+
+```bash
+XCLOUD_DATA_DIR=build-host/data build-host/xcloud-cli ui-preview /tmp/ui   # PNG de cada tela
+```
+
 ## No console
 
 - Na primeira vez, aparece um código: abra https://www.microsoft.com/link no
   celular e digite o código. O `package.sh` copia o `build-host/data/account.json`
   para o pacote se ele existir, e aí o app pula essa etapa. Esse arquivo tem o
   seu token: não compartilhe o pacote.
-- Lista de jogos: direcional move a seleção, X joga, OPTIONS sai da conta.
+- Home: direcional ou analógico navega, X abre os detalhes, X de novo joga,
+  O volta, OPTIONS sai da conta.
 - No jogo: segure OPTIONS + TOUCHPAD por 1 s para sair. TOUCHPAD = View,
   OPTIONS = Menu.
 - Log: `/data/homebrew/PPSA99810/xcloud.log`.
@@ -82,8 +101,11 @@ também é compilado ali se não estiver instalado.
 - `src/auth`, `src/xcloud`: login e API gssv (sessões, SDP, ICE).
 - `src/stream`: sessão WebRTC (libdatachannel) e formato do canal de input.
 - `src/media`: decodificação (libavcodec) e saída de áudio.
+- `src/ui`: interface (canvas, fontes, cache de imagens, telas, textos).
 - `src/display`, `src/input`: framebuffer do PS5 (sceVideoOut) e DualSense.
-- `src/app`: `cli_main.cpp` (PC), `ps5_main.cpp` + `stream_player.cpp` (PS5).
+- `src/app`: `cli_main.cpp` (PC), `ps5_main.cpp` + `stream_player.cpp` (PS5),
+  `library.cpp` (fileiras do catálogo).
+- `extern`: stb (truetype, image, resize, write), qrcodegen.
 - `deps`: mbedTLS (com DTLS-SRTP habilitado), libdatachannel e FFmpeg.
 
 Protocolo baseado nos clientes open-source xbox-xcloud-player e Greenlight.

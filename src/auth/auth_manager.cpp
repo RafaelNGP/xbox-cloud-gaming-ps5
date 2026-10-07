@@ -1,5 +1,6 @@
 #include "auth/auth_manager.h"
 
+#include "net/http.h"
 #include "platform/platform.h"
 #include "util/json.h"
 #include "util/log.h"
@@ -108,6 +109,7 @@ bool AuthManager::xboxChain(xcloud::GssvClient& gssv, std::string& err) {
     if (xstsToken(user, rp::kXboxLive, profileXsts, perr)) {
         profile_.gamertag = profileXsts.gamertag;
         profile_.xuid = profileXsts.xuid;
+        fetchGamerpic(profileXsts);
     } else {
         XC_LOGW("profile XSTS: %s", perr.c_str());
     }
@@ -115,6 +117,20 @@ bool AuthManager::xboxChain(xcloud::GssvClient& gssv, std::string& err) {
     XblToken gssvXsts;
     if (!xstsToken(user, rp::kGssv, gssvXsts, err)) return false;
     return gssv.login(gssvXsts, err);
+}
+
+void AuthManager::fetchGamerpic(const XblToken& xsts) {
+    net::Request req;
+    req.url = "https://profile.xboxlive.com/users/me/profile/settings?settings=GameDisplayPicRaw";
+    req.headers = {{"Authorization", xsts.authorizationHeader()}, {"x-xbl-contract-version", "2"}};
+    auto r = net::perform(req);
+    auto j = json::parse(r.body);
+    if (!r.ok() || !j) {
+        XC_LOGW("gamerpic: %s", r.status ? ("HTTP " + std::to_string(r.status)).c_str() : r.error.c_str());
+        return;
+    }
+    for (const auto& s : (*j)["profileUsers"][0]["settings"].items())
+        if (s["id"].str() == "GameDisplayPicRaw") profile_.gamerpicUrl = s["value"].str();
 }
 
 bool AuthManager::signIn(xcloud::GssvClient& gssv, const DeviceCodeCallback& onCode, std::string& err,

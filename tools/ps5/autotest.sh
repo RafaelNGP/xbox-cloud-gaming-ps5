@@ -20,7 +20,7 @@ export PS5_HOST
 ctl() { (cd "$vk" && python3 tools/ps5_console.py "$@"); }
 
 mkdir -p "$out"
-rm -f "$out"/frame*.ppm "$out"/xcloud.log "$out"/stream.aus
+rm -f "$out"/*.ppm "$out"/xcloud.log "$out"/stream.aus
 ninja -C "$root/build-ps5" xcloud_app >/dev/null
 bash "$root/tools/ps5/link.sh" "$root/build-ps5" | tail -1
 bash "$root/tools/ps5/package.sh" "$root/build-ps5" >/dev/null
@@ -35,7 +35,7 @@ import io, sys
 from ftplib import FTP, error_perm, error_reply
 host, port, d, line = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
 f = FTP(); f.connect(host, port, timeout=15); f.login(); f.cwd(d)
-for name in ("xcloud.log", "frame.ppm", "frame2.ppm", "stream.aus"):
+for name in ("xcloud.log", "frame.ppm", "frame2.ppm", "stream.aus", "ui.ppm"):
     try: f.sendcmd(f"DELE {name}")
     except (error_perm, error_reply): pass
 f.storbinary("STOR autoplay.txt", io.BytesIO(line.encode() + b"\n"))
@@ -80,7 +80,7 @@ PY
         if [[ $status != *"$title_id"* ]]; then result=crashed; break; fi
     fi
 done
-fetch xcloud.log frame.ppm frame2.ppm stream.aus || true
+fetch xcloud.log frame.ppm frame2.ppm stream.aus ui.ppm || true
 ctl kill "$title_id" >/dev/null 2>&1 || true
 # Remove the request so a manual launch behaves normally.
 python3 - "$PS5_HOST" "${FTP_PORT:-2121}" "/data/homebrew/$title_id" <<'PY'
@@ -93,5 +93,5 @@ f.quit()
 PY
 echo "RESULT: $result"
 rm -f "$out"/frame*.png
-for f in "$out"/frame*.ppm; do [[ -f $f ]] && echo "frame: $f"; done
+for f in "$out"/*.ppm; do [[ -f $f ]] && echo "frame: $f"; done
 echo "log: $out/xcloud.log"

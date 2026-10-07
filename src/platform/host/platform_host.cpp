@@ -36,6 +36,11 @@ void shutdown() {}
 
 std::string dataDir() { return g_dataDir; }
 
+std::string assetDir() {
+    if (const char* env = std::getenv("XCLOUD_ASSETS")) return env;
+    return "assets";
+}
+
 std::string caBundlePath() {
     if (const char* env = std::getenv("XCLOUD_CA_BUNDLE")) return env;
     static const char* candidates[] = {

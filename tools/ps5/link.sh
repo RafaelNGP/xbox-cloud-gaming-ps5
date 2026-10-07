@@ -48,7 +48,8 @@ for flag in "${radv_link_flags[@]}"; do
 done
 radv_link_flags=("${filtered[@]}")
 
-libs=("$build/libxcloud_stream.a"
+libs=("$build/libxcloud_ui.a"
+      "$build/libxcloud_stream.a"
       "$build/libxcloud_media.a"
       "$build/libxcloud_core.a"
       "$build/ffmpeg/lib/libavcodec.a"
@@ -78,4 +79,4 @@ for s in "${stubs[@]}"; do stub_args+=(--stub "$s"); done
     --module-sdk 0x02000009 --companion-sdk 0x08050001 --file-name eboot.elf
 "$tool" self --sign --in "$work/eboot.elf" --out "$build/eboot.bin" --magic 0x1D3D154F
 "$tool" self --inspect --file "$build/eboot.bin" > /dev/null
-echo "eboot.bin gerado com sucesso: $build/eboot.bin ($(stat -c %s "$build/eboot.bin") bytes)"
+echo "eboot.bin built: $build/eboot.bin ($(stat -c %s "$build/eboot.bin") bytes)"

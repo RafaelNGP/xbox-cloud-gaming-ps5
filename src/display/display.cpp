@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <cctype>
 #include <condition_variable>
 #include <cstring>
 #include <functional>
@@ -59,51 +58,6 @@ int g_videoHandle = -1;
 void* g_mappedMemory = nullptr;
 int g_currentBuffer = 0;
 
-struct Glyph {
-    char character;
-    std::array<uint8_t, 7> rows;
-};
-
-constexpr std::array<Glyph, 57> kGlyphs{{
-    {' ', {0, 0, 0, 0, 0, 0, 0}},
-    {'0', {14, 17, 19, 21, 25, 17, 14}}, {'1', {4, 12, 4, 4, 4, 4, 14}},
-    {'2', {14, 17, 1, 2, 4, 8, 31}},     {'3', {30, 1, 1, 14, 1, 1, 30}},
-    {'4', {2, 6, 10, 18, 31, 2, 2}},     {'5', {31, 16, 16, 30, 1, 1, 30}},
-    {'6', {14, 16, 16, 30, 17, 17, 14}}, {'7', {31, 1, 2, 4, 8, 8, 8}},
-    {'8', {14, 17, 17, 14, 17, 17, 14}}, {'9', {14, 17, 17, 15, 1, 1, 14}},
-    {'A', {14, 17, 17, 31, 17, 17, 17}}, {'B', {30, 17, 17, 30, 17, 17, 30}},
-    {'C', {14, 17, 16, 16, 16, 17, 14}}, {'D', {30, 17, 17, 17, 17, 17, 30}},
-    {'E', {31, 16, 16, 30, 16, 16, 31}}, {'F', {31, 16, 16, 30, 16, 16, 16}},
-    {'G', {14, 17, 16, 23, 17, 17, 14}}, {'H', {17, 17, 17, 31, 17, 17, 17}},
-    {'I', {31, 4, 4, 4, 4, 4, 31}},      {'J', {7, 2, 2, 2, 18, 18, 12}},
-    {'K', {17, 18, 20, 24, 20, 18, 17}}, {'L', {16, 16, 16, 16, 16, 16, 31}},
-    {'M', {17, 27, 21, 21, 17, 17, 17}}, {'N', {17, 25, 21, 19, 17, 17, 17}},
-    {'O', {14, 17, 17, 17, 17, 17, 14}}, {'P', {30, 17, 17, 30, 16, 16, 16}},
-    {'Q', {14, 17, 17, 17, 21, 18, 13}}, {'R', {30, 17, 17, 30, 20, 18, 17}},
-    {'S', {15, 16, 16, 14, 1, 1, 30}},   {'T', {31, 4, 4, 4, 4, 4, 4}},
-    {'U', {17, 17, 17, 17, 17, 17, 14}}, {'V', {17, 17, 17, 17, 17, 10, 4}},
-    {'W', {17, 17, 17, 21, 21, 21, 10}}, {'X', {17, 17, 10, 4, 10, 17, 17}},
-    {'Y', {17, 17, 10, 4, 4, 4, 4}},     {'Z', {31, 1, 2, 4, 8, 16, 31}},
-    {'-', {0, 0, 0, 31, 0, 0, 0}},       {':', {0, 12, 12, 0, 12, 12, 0}},
-    {'.', {0, 0, 0, 0, 0, 12, 12}},       {'!', {4, 4, 4, 4, 4, 0, 4}},
-    {'?', {14, 17, 1, 2, 4, 0, 4}},       {'/', {1, 2, 2, 4, 8, 8, 16}},
-    {'(', {2, 4, 8, 8, 8, 4, 2}},        {')', {8, 4, 2, 2, 2, 4, 8}},
-    {',', {0, 0, 0, 0, 12, 4, 8}},       {'\'', {4, 4, 8, 0, 0, 0, 0}},
-    {'&', {12, 18, 20, 8, 21, 18, 13}},  {'+', {0, 4, 4, 31, 4, 4, 0}},
-    {'_', {0, 0, 0, 0, 0, 0, 31}},       {'=', {0, 0, 31, 0, 31, 0, 0}},
-    {'#', {10, 10, 31, 10, 31, 10, 10}}, {'"', {10, 10, 0, 0, 0, 0, 0}},
-    {'>', {8, 4, 2, 1, 2, 4, 8}},        {'<', {2, 4, 8, 16, 8, 4, 2}},
-    {'%', {24, 25, 2, 4, 8, 19, 3}},     {'*', {0, 4, 21, 14, 21, 4, 0}}
-}};
-
-const std::array<uint8_t, 7>& getGlyphRows(char c) {
-    char u = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-    for (const auto& g : kGlyphs) {
-        if (g.character == u) return g.rows;
-    }
-    return kGlyphs.front().rows;
-}
-
 // PS5 VideoOut swizzled 64KB macro-tile mapping
 constexpr size_t tiledByteOffset(unsigned x, unsigned y) {
     uint32_t offset = ((y << 4) & 0x70U) ^ ((y << 5) & 0xf00U) ^ ((y << 9) & 0x1000U) ^
@@ -112,12 +66,6 @@ constexpr size_t tiledByteOffset(unsigned x, unsigned y) {
     uint32_t blocksPerRow = (kWidth + 127U) >> 7;
     uint32_t blockIndex = (y >> 7) * blocksPerRow + (x >> 7);
     return (static_cast<size_t>(blockIndex) << 16) + offset;
-}
-
-inline void putPixel(uint32_t* pixels, unsigned x, unsigned y, Color color) {
-    if (x >= kWidth || y >= kHeight) return;
-    auto* bytes = reinterpret_cast<uint8_t*>(pixels);
-    *reinterpret_cast<uint32_t*>(bytes + tiledByteOffset(x, y)) = static_cast<uint32_t>(color);
 }
 
 // 128x128 pixel macro tiles covering the screen (the last row is partial).
@@ -133,42 +81,6 @@ void flushRange(void *address, size_t length) {
     __asm__ volatile("mfence" ::: "memory");
 }
 } // namespace
-
-void Canvas::clear(Color color) {
-    fillRect(0, 0, kWidth, kHeight, color);
-}
-
-void Canvas::fillRect(unsigned x, unsigned y, unsigned w, unsigned h, Color color) {
-    unsigned x2 = std::min(x + w, kWidth);
-    unsigned y2 = std::min(y + h, kHeight);
-    for (unsigned cy = y; cy < y2; ++cy) {
-        for (unsigned cx = x; cx < x2; ++cx) {
-            putPixel(pixels_, cx, cy, color);
-        }
-    }
-}
-
-void Canvas::drawRect(unsigned x, unsigned y, unsigned w, unsigned h, Color color, unsigned thickness) {
-    fillRect(x, y, w, thickness, color);
-    fillRect(x, y + h - thickness, w, thickness, color);
-    fillRect(x, y, thickness, h, color);
-    fillRect(x + w - thickness, y, thickness, h, color);
-}
-
-void Canvas::drawText(unsigned x, unsigned y, std::string_view text, unsigned scale, Color color) {
-    for (char c : text) {
-        const auto& rows = getGlyphRows(c);
-        for (size_t row = 0; row < rows.size(); ++row) {
-            for (size_t col = 0; col < 5; ++col) {
-                if ((rows[row] & (1U << (4 - col))) != 0) {
-                    fillRect(x + col * scale, y + row * scale, scale, scale, color);
-                }
-            }
-        }
-        x += 6 * scale;
-        if (x >= kWidth) break;
-    }
-}
 
 bool init() {
     g_videoHandle = sceVideoOutOpen(0xff, 0, 0, nullptr);
@@ -227,11 +139,6 @@ void shutdown() {
         sceVideoOutClose(g_videoHandle);
         g_videoHandle = -1;
     }
-}
-
-Canvas getBackBuffer() {
-    uint8_t* base = static_cast<uint8_t*>(g_mappedMemory) + (g_currentBuffer * kFrameBytes);
-    return Canvas(reinterpret_cast<uint32_t*>(base));
 }
 
 void present() {
@@ -308,10 +215,10 @@ public:
             platform::startThread(workers_.back(), [this, i, n] { loop(i, n); }, 256u << 10);
         }
     }
-    void run(const YuvJob& job) {
+    void run(std::function<void(unsigned, unsigned)> job) {
         {
             std::lock_guard<std::mutex> lock(m_);
-            job_ = &job;
+            job_ = std::move(job);
             pending_ = static_cast<int>(workers_.size());
             ++generation_;
         }
@@ -324,7 +231,7 @@ private:
     void loop(unsigned index, unsigned count) {
         uint64_t seen = 0;
         for (;;) {
-            const YuvJob* job;
+            std::function<void(unsigned, unsigned)> job;
             {
                 std::unique_lock<std::mutex> lock(m_);
                 cv_.wait(lock, [&] { return generation_ != seen; });
@@ -332,7 +239,7 @@ private:
                 job = job_;
             }
             constexpr unsigned kTiles = kTilesX * kTilesY;
-            convertTiles(*job, kTiles * index / count, kTiles * (index + 1) / count);
+            job(kTiles * index / count, kTiles * (index + 1) / count);
             std::lock_guard<std::mutex> lock(m_);
             if (--pending_ == 0) done_.notify_one();
         }
@@ -341,17 +248,37 @@ private:
     std::vector<platform::Thread> workers_;
     std::mutex m_;
     std::condition_variable cv_, done_;
-    const YuvJob* job_ = nullptr;
+    std::function<void(unsigned, unsigned)> job_;
     int pending_ = 0;
     uint64_t generation_ = 0;
 };
 
 }  // namespace
 
+TilePool& tilePool() {
+    static TilePool pool;
+    return pool;
+}
+
+void drawRgba(const uint32_t* pixels) {
+    if (!g_mappedMemory) return;
+    uint8_t* base = static_cast<uint8_t*>(g_mappedMemory) + (g_currentBuffer * kFrameBytes);
+    tilePool().run([pixels, base](unsigned first, unsigned last) {
+        const TileOrder& order = tileOrder();
+        for (unsigned t = first; t < last; ++t) {
+            unsigned tx = t % kTilesX, ty = t / kTilesX;
+            auto* out = reinterpret_cast<uint32_t*>(base + static_cast<size_t>(t) * 0x10000);
+            for (unsigned i = 0; i < 16384; ++i) {
+                unsigned x = tx * 128 + order.dx[i], y = ty * 128 + order.dy[i];
+                out[i] = (x < kWidth && y < kHeight) ? (pixels[y * kWidth + x] | 0xFF000000u) : 0xFF000000u;
+            }
+        }
+    });
+}
+
 void drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int strideY, int strideU, int strideV,
                 int width, int height) {
     if (!g_mappedMemory || width <= 0 || height <= 0) return;
-    static TilePool pool;
     static YuvJob job;
     if (job.width != width || job.height != height) {
         job.srcX.resize(kWidth);
@@ -369,7 +296,7 @@ void drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int stride
     job.width = width;
     job.height = height;
     job.base = static_cast<uint8_t*>(g_mappedMemory) + (g_currentBuffer * kFrameBytes);
-    pool.run(job);
+    tilePool().run([](unsigned first, unsigned last) { convertTiles(job, first, last); });
 }
 
 } // namespace xc::display
@@ -382,16 +309,11 @@ std::mutex& frameMutex() {
     static std::mutex m;
     return m;
 }
-static std::vector<uint32_t> g_dummy(kWidth * kHeight, 0xFF000000);
-void Canvas::clear(Color) {}
-void Canvas::fillRect(unsigned, unsigned, unsigned, unsigned, Color) {}
-void Canvas::drawRect(unsigned, unsigned, unsigned, unsigned, Color, unsigned) {}
-void Canvas::drawText(unsigned, unsigned, std::string_view, unsigned, Color) {}
 bool init() { return true; }
 void shutdown() {}
-Canvas getBackBuffer() { return Canvas(g_dummy.data()); }
 void present() {}
 void drawYuv420(const uint8_t*, const uint8_t*, const uint8_t*, int, int, int, int, int) {}
+void drawRgba(const uint32_t*) {}
 } // namespace xc::display
 
 #endif

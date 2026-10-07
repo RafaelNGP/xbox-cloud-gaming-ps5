@@ -104,6 +104,9 @@ int connectTcp(const std::string& host, int port, int timeoutMs, std::string& er
     ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
     int one = 1;
     ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+    // A larger window: catalog responses are hundreds of KB from far away.
+    int buf = 1 << 20;
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buf, sizeof buf);
     if (::connect(fd, reinterpret_cast<sockaddr*>(&sa), sizeof sa) != 0) {
         err = "connect failed to " + host + ":" + std::to_string(port) + " (errno " + std::to_string(errno) + ")";
         ::close(fd);
@@ -204,8 +207,11 @@ Response perform(const Request& req) {
         return resp;
     }
 
+    const uint64_t t0 = platform::nowMs();
     int fd = connectTcp(url.host, url.port, req.timeoutMs, resp.error);
     if (fd < 0) return resp;
+    const uint64_t tConnected = platform::nowMs();
+    uint64_t tHandshake = tConnected;
 
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config conf;
@@ -214,6 +220,11 @@ Response perform(const Request& req) {
 
     auto finish = [&](std::string err) {
         if (!err.empty()) resp.error = std::move(err);
+        uint64_t total = platform::nowMs() - t0;
+        if (total > 1500)
+            XC_LOGI("slow request %s%s: connect %llu ms, TLS %llu ms, total %llu ms", url.host.c_str(),
+                    url.path.substr(0, 40).c_str(), static_cast<unsigned long long>(tConnected - t0),
+                    static_cast<unsigned long long>(tHandshake - tConnected), static_cast<unsigned long long>(total));
         mbedtls_ssl_free(&ssl);
         mbedtls_ssl_config_free(&conf);
         ::close(fd);
@@ -234,6 +245,7 @@ Response perform(const Request& req) {
         if (rc != MBEDTLS_ERR_SSL_WANT_READ && rc != MBEDTLS_ERR_SSL_WANT_WRITE)
             return finish("TLS handshake with " + url.host + ": " + tlsError(rc));
     }
+    tHandshake = platform::nowMs();
 
     // Request.
     std::string head = req.method + " " + url.path + " HTTP/1.1\r\n";

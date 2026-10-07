@@ -16,6 +16,8 @@ void shutdown();
 
 // Writable directory for tokens, caches and logs (no trailing slash).
 std::string dataDir();
+// Read-only directory with the bundled assets (fonts, certificates).
+std::string assetDir();
 // Read-only PEM bundle of trusted root certificates.
 std::string caBundlePath();
 
