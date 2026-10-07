@@ -216,6 +216,12 @@ struct YuvJob {
     int width, height;
     uint8_t* base;
     std::vector<uint16_t> srcX, srcY;  // screen -> picture coordinate
+    // Bilinear chroma: the two chroma columns/rows around each screen
+    // pixel and the weight of the first, in eighths (columns) and quarters
+    // (rows). H.264's default siting: chroma sits on the even luma columns
+    // and halfway between two luma rows.
+    std::vector<uint16_t> cx0, cx1, cy0, cy1;
+    std::vector<uint8_t> wx, wy;
 };
 
 inline uint8_t clamp8(int v) { return static_cast<uint8_t>(v < 0 ? 0 : v > 255 ? 255 : v); }
@@ -235,8 +241,15 @@ void convertTiles(const YuvJob& job, unsigned first, unsigned last) {
             unsigned sx = job.srcX[x], sy = job.srcY[y];
             // BT.709 limited range, 10-bit fixed point.
             int c = (static_cast<int>(job.y[sy * job.strideY + sx]) - 16) * 1192;
-            int d = static_cast<int>(job.u[(sy >> 1) * job.strideU + (sx >> 1)]) - 128;
-            int e = static_cast<int>(job.v[(sy >> 1) * job.strideV + (sx >> 1)]) - 128;
+            const uint8_t* u0 = job.u + job.cy0[y] * job.strideU;
+            const uint8_t* u1 = job.u + job.cy1[y] * job.strideU;
+            const uint8_t* v0 = job.v + job.cy0[y] * job.strideV;
+            const uint8_t* v1 = job.v + job.cy1[y] * job.strideV;
+            unsigned ca = job.cx0[x], cb = job.cx1[x];
+            int wxa = job.wx[x], wxb = 2 - wxa, wya = job.wy[y], wyb = 4 - wya;
+            // Weights total 2 * 4 = 8.
+            int d = ((wya * (wxa * u0[ca] + wxb * u0[cb]) + wyb * (wxa * u1[ca] + wxb * u1[cb]) + 4) >> 3) - 128;
+            int e = ((wya * (wxa * v0[ca] + wxb * v0[cb]) + wyb * (wxa * v1[ca] + wxb * v1[cb]) + 4) >> 3) - 128;
             uint32_t r = clamp8((c + 1836 * e + 512) >> 10);
             uint32_t g = clamp8((c - 218 * d - 546 * e + 512) >> 10);
             uint32_t b = clamp8((c + 2163 * d + 512) >> 10);
@@ -295,6 +308,22 @@ private:
 
 }  // namespace
 
+bool readBackRgb(std::vector<uint8_t>& rgb) {
+    if (!g_mappedMemory) return false;
+    const auto* base = static_cast<const uint8_t*>(g_mappedMemory) + (g_currentBuffer * kFrameBytes);
+    rgb.resize(static_cast<size_t>(kWidth) * kHeight * 3);
+    for (unsigned y = 0; y < kHeight; ++y)
+        for (unsigned x = 0; x < kWidth; ++x) {
+            uint32_t p;
+            std::memcpy(&p, base + tiledByteOffset(x, y), 4);
+            uint8_t* o = &rgb[(static_cast<size_t>(y) * kWidth + x) * 3];
+            o[0] = static_cast<uint8_t>(p);
+            o[1] = static_cast<uint8_t>(p >> 8);
+            o[2] = static_cast<uint8_t>(p >> 16);
+        }
+    return true;
+}
+
 TilePool& tilePool() {
     static TilePool pool;
     return pool;
@@ -328,6 +357,37 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int stride
         for (unsigned x = 0; x < kWidth; ++x) job.srcX[x] = static_cast<uint16_t>(x * static_cast<unsigned>(width) / kWidth);
         for (unsigned yy = 0; yy < kHeight; ++yy)
             job.srcY[yy] = static_cast<uint16_t>(yy * static_cast<unsigned>(height) / kHeight);
+        int cw = (width + 1) / 2, ch = (height + 1) / 2;
+        job.cx0.resize(kWidth);
+        job.cx1.resize(kWidth);
+        job.wx.resize(kWidth);
+        for (unsigned x = 0; x < kWidth; ++x) {
+            int sx = job.srcX[x];
+            int c0 = sx / 2;
+            bool between = (sx & 1) != 0;  // odd luma column: halfway between two chroma samples
+            job.cx0[x] = static_cast<uint16_t>(c0);
+            job.cx1[x] = static_cast<uint16_t>(std::min(c0 + (between ? 1 : 0), cw - 1));
+            job.wx[x] = between ? 1 : 2;  // of 2
+        }
+        job.cy0.resize(kHeight);
+        job.cy1.resize(kHeight);
+        job.wy.resize(kHeight);
+        for (unsigned yy = 0; yy < kHeight; ++yy) {
+            int sy = job.srcY[yy];
+            // Chroma row r sits at luma row 2r + 0.5: even rows take 1/4 of
+            // the row above and 3/4 of their own, odd rows 3/4 of their own
+            // and 1/4 of the row below.
+            int r = sy / 2;
+            if (sy & 1) {
+                job.cy0[yy] = static_cast<uint16_t>(r);
+                job.cy1[yy] = static_cast<uint16_t>(std::min(r + 1, ch - 1));
+                job.wy[yy] = 3;  // of 4, for cy0
+            } else {
+                job.cy0[yy] = static_cast<uint16_t>(std::max(r - 1, 0));
+                job.cy1[yy] = static_cast<uint16_t>(r);
+                job.wy[yy] = 1;
+            }
+        }
     }
     job.y = y;
     job.u = u;
@@ -357,6 +417,7 @@ void shutdown() {}
 void present() {}
 bool drawYuv420(const uint8_t*, const uint8_t*, const uint8_t*, int, int, int, int, int, bool) { return true; }
 void drawRgba(const uint32_t*) {}
+bool readBackRgb(std::vector<uint8_t>&) { return false; }
 } // namespace xc::display
 
 #endif

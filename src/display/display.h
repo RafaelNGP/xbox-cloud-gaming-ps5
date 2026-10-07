@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <mutex>
+#include <vector>
 
 namespace xc::display {
 
@@ -27,5 +28,9 @@ void drawRgba(const uint32_t* pixels);
 // returns false and draws nothing.
 bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int strideY, int strideU, int strideV,
                 int width, int height, bool wait);
+
+// The back buffer last drawn, untiled, as 8-bit RGB rows (diagnostics:
+// what the TV shows). False without a display.
+bool readBackRgb(std::vector<uint8_t>& rgb);
 
 } // namespace xc::display
