@@ -36,19 +36,30 @@ struct GameRow {
     bool gamePassBadges = true;
 };
 
-enum class Screen { Splash, SignIn, Home, Details, Launching, Streaming, Error };
+enum class Screen { Splash, SignIn, Home, Details, Launching, Streaming, Error, Settings };
 
 struct NavInput {
     bool up = false, down = false, left = false, right = false;
-    bool accept = false, back = false, options = false;
+    bool accept = false, back = false, options = false, triangle = false;
 };
 
-enum class Action { None, Play, SignOut, Retry, CancelLaunch };
+// What the Settings screen edits.
+struct SettingsChoice {
+    int language = 0;      // ui::Language
+    bool hd = true;        // 1080p (else 720p)
+    std::string region;    // gssv region name; empty = automatic
+};
+
+enum class Action { None, Play, SignOut, Retry, CancelLaunch, SettingsChanged };
 
 struct UiEvent {
     Action action = Action::None;
     GameTile game;
+    SettingsChoice settings;  // SettingsChanged
 };
+
+// "SOUTHCENTRALUS" -> "South Central US".
+std::string prettyRegion(const std::string& name);
 
 class AppUi {
 public:
@@ -65,6 +76,10 @@ public:
     void setLaunchStatus(const std::string& status);
     void showStreaming();
     void showError(const std::string& message);
+    void setSettings(const SettingsChoice& choice);
+    // Regions offered by the account's xCloud login; `defaultRegion` is the
+    // one "Automatic" picks.
+    void setRegions(std::vector<std::string> regions, const std::string& defaultRegion);
     Screen screen() const;
     void invalidate();
 
@@ -94,6 +109,8 @@ private:
     void drawDetails(Canvas& c, uint64_t nowMs);
     void drawLaunching(Canvas& c, uint64_t nowMs);
     void drawError(Canvas& c);
+    void drawSettings(Canvas& c);
+    void changeSetting(int delta);
     void drawCentered(Canvas& c, const Font& f, const std::string& text, int y, int px, Color color);
 
     const Fonts& fonts_;
@@ -112,6 +129,10 @@ private:
     Anim rowY_;
     GameTile launching_;
     std::string error_;
+    SettingsChoice settings_;
+    std::vector<std::string> regions_;
+    std::string defaultRegion_;
+    int settingsRow_ = 0;
     std::string toast_;
     uint64_t toastUntil_ = 0;
     std::string heroUrl_, prevHeroUrl_;

@@ -8,6 +8,7 @@
 #include "qrcodegen.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <map>
 
@@ -35,6 +36,35 @@ constexpr Color kPlaceholder = rgba(44, 44, 44);
 enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle };
 
 }  // namespace
+
+std::string prettyRegion(const std::string& name) {
+    static const char* kWords[] = {"SOUTHEAST", "NORTHEAST", "CENTRAL", "AUSTRALIA", "GERMANY", "EUROPE", "BRAZIL",
+                                   "CANADA", "FRANCE", "MEXICO", "SWEDEN", "JAPAN",   "KOREA",  "INDIA", "NORTH",
+                                   "SOUTH",  "EAST",   "WEST",   "ASIA",   "UK",      "US"};
+    std::string out;
+    size_t i = 0;
+    while (i < name.size()) {
+        bool matched = false;
+        for (const char* w : kWords) {
+            size_t n = std::char_traits<char>::length(w);
+            if (name.compare(i, n, w) == 0) {
+                std::string word = n <= 2 ? std::string(w) : std::string(1, w[0]);
+                if (n > 2)
+                    for (size_t k = 1; k < n; ++k) word += static_cast<char>(w[k] - 'A' + 'a');
+                out += (out.empty() ? "" : " ") + word;
+                i += n;
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            if (std::isdigit(static_cast<unsigned char>(name[i])) && !out.empty() && !std::isdigit(static_cast<unsigned char>(out.back())))
+                out += ' ';
+            out += name[i++];
+        }
+    }
+    return out;
+}
 
 bool AppUi::Anim::step(float dt) {
     float d = target - value;
@@ -148,6 +178,39 @@ void AppUi::showError(const std::string& message) {
     dirty_ = true;
 }
 
+void AppUi::setSettings(const SettingsChoice& choice) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    settings_ = choice;
+    dirty_ = true;
+}
+
+void AppUi::setRegions(std::vector<std::string> regions, const std::string& defaultRegion) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    regions_ = std::move(regions);
+    defaultRegion_ = defaultRegion;
+    dirty_ = true;
+}
+
+void AppUi::changeSetting(int delta) {
+    // Caller holds mutex_.
+    if (settingsRow_ == 0) {
+        int n = static_cast<int>(Language::Count);
+        settings_.language = (settings_.language + delta + n) % n;
+        setLanguage(static_cast<Language>(settings_.language));  // the UI switches right away
+    } else if (settingsRow_ == 1) {
+        settings_.hd = !settings_.hd;
+    } else {
+        // Index 0 is automatic, then the regions in the login's order.
+        int n = static_cast<int>(regions_.size()) + 1;
+        int cur = 0;
+        for (size_t i = 0; i < regions_.size(); ++i)
+            if (regions_[i] == settings_.region) cur = static_cast<int>(i) + 1;
+        cur = (cur + delta + n) % n;
+        settings_.region = cur == 0 ? std::string() : regions_[static_cast<size_t>(cur - 1)];
+    }
+    dirty_ = true;
+}
+
 Screen AppUi::screen() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return screen_;
@@ -186,6 +249,11 @@ UiEvent AppUi::handle(const NavInput& in) {
         case Screen::Home: {
             if (rows_.empty()) {
                 if (in.options) ev.action = Action::SignOut;
+                if (in.triangle) {
+                    screen_ = Screen::Settings;
+                    settingsRow_ = 0;
+                    dirty_ = true;
+                }
                 break;
             }
             int rows = static_cast<int>(rows_.size());
@@ -204,8 +272,25 @@ UiEvent AppUi::handle(const NavInput& in) {
                 dirty_ = true;
             }
             if (in.options) ev.action = Action::SignOut;
+            if (in.triangle) {
+                screen_ = Screen::Settings;
+                settingsRow_ = 0;
+                dirty_ = true;
+            }
             break;
         }
+        case Screen::Settings:
+            if (in.down && settingsRow_ < 2) ++settingsRow_, dirty_ = true;
+            if (in.up && settingsRow_ > 0) --settingsRow_, dirty_ = true;
+            if (in.right || in.accept) changeSetting(+1);
+            if (in.left) changeSetting(-1);
+            if (in.back || in.triangle) {
+                screen_ = Screen::Home;
+                dirty_ = true;
+                ev.action = Action::SettingsChanged;
+                ev.settings = settings_;
+            }
+            break;
         case Screen::Details:
             if (in.accept && focusedTile()) {
                 ev.action = Action::Play;
@@ -459,7 +544,7 @@ void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
     // Fade the rows out under the button hints.
     c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
     c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));
-    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconOptions, tr(Str::SignOut)}});
+    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconTriangle, tr(Str::Settings)}, {kIconOptions, tr(Str::SignOut)}});
     drawToast(c, nowMs);
 }
 
@@ -529,6 +614,40 @@ void AppUi::drawError(Canvas& c) {
     drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconOptions, tr(Str::SignOut)}});
 }
 
+void AppUi::drawSettings(Canvas& c) {
+    drawBackground(c);
+    drawTopBar(c);
+    fonts_.bold.draw(c, tr(Str::Settings), kMargin, 170, 60, kWhite);
+    struct Row {
+        const char* label;
+        std::string value;
+    };
+    std::string region = settings_.region.empty()
+                             ? trf(Str::RegionAuto, defaultRegion_.empty() ? "-" : prettyRegion(defaultRegion_))
+                             : prettyRegion(settings_.region);
+    const Row rows[] = {{tr(Str::Language), languageName(static_cast<Language>(settings_.language))},
+                        {tr(Str::Resolution), tr(settings_.hd ? Str::Res1080 : Str::Res720)},
+                        {tr(Str::Region), region}};
+    constexpr int kRowW = 1200, kRowH = 92;
+    int y = 290;
+    for (int i = 0; i < 3; ++i) {
+        Rect r{kMargin, y, kRowW, kRowH};
+        bool focused = i == settingsRow_;
+        c.fillRect(r, focused ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 16);
+        if (focused) c.strokeRect({r.x - 5, r.y - 5, r.w + 10, r.h + 10}, kWhite, 3, 20);
+        fonts_.semibold.draw(c, rows[i].label, r.x + 36, r.y + 28, 30, kWhite);
+        std::string value = focused ? "\xE2\x80\xB9   " + rows[i].value + "   \xE2\x80\xBA" : rows[i].value;
+        int w = fonts_.regular.measure(value, 30);
+        fonts_.regular.draw(c, value, r.x + r.w - 36 - w, r.y + 28, 30, focused ? kWhite : kGray);
+        y += kRowH + 22;
+    }
+    for (const auto& line : fonts_.regular.wrap(tr(Str::SettingsNote), 24, kRowW, 2)) {
+        fonts_.regular.draw(c, line, kMargin, y + 20, 24, kDim);
+        y += 34;
+    }
+    drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconCircle, tr(Str::Back)}});
+}
+
 void AppUi::render(Canvas& c, uint64_t nowMs) {
     std::lock_guard<std::mutex> lock(mutex_);
     float dt = lastRender_ ? std::min(0.1f, (nowMs - lastRender_) / 1000.0f) : 0.0f;
@@ -543,6 +662,7 @@ void AppUi::render(Canvas& c, uint64_t nowMs) {
         case Screen::Details: drawDetails(c, nowMs); break;
         case Screen::Launching: drawLaunching(c, nowMs); break;
         case Screen::Error: drawError(c); break;
+        case Screen::Settings: drawSettings(c); break;
         case Screen::Streaming: break;
     }
     if (!toast_.empty()) animating_ = true;  // to expire it

@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RafaelNGP
+// User settings, kept in <dataDir>/settings.json.
+#pragma once
+
+#include <string>
+
+namespace xc::app {
+
+struct Settings {
+    std::string language = "en";     // ui::languageCode()
+    std::string resolution = "1080p";  // "1080p" or "720p"
+    std::string region;                // gssv region name; empty = automatic
+
+    bool load(const std::string& path);
+    bool save(const std::string& path) const;
+};
+
+}  // namespace xc::app

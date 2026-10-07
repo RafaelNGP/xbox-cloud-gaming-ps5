@@ -36,6 +36,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <strings.h>
 #include <string>
 #include <vector>
 
@@ -144,9 +145,18 @@ int cmdProvision(auth::AuthManager& am, const std::string& titleId) {
     return ok ? 0 : 1;
 }
 
-int cmdStream(auth::AuthManager& am, const std::string& titleId, int seconds, const char* outPath) {
+int cmdStream(auth::AuthManager& am, const std::string& titleId, int seconds, const char* outPath,
+              xcloud::Resolution res, const stream::StreamOptions& opts, const std::string& region = {}) {
     xcloud::GssvClient gssv;
+    gssv.setResolution(res);
     if (!signIn(am, gssv)) return 1;
+    for (const auto& r : gssv.session().regions) {
+        XC_LOGD("region %s%s", r.name.c_str(), r.isDefault ? " (default)" : "");
+        if (!region.empty() && strcasecmp(r.name.c_str(), region.c_str()) == 0) {
+            gssv.setRegion(r);
+            XC_LOGI("using region %s (%s)", r.name.c_str(), r.baseUri.c_str());
+        }
+    }
     if (!provision(am, gssv, titleId)) {
         gssv.stopSession();
         return 1;
@@ -183,7 +193,7 @@ int cmdStream(auth::AuthManager& am, const std::string& titleId, int seconds, co
 
     int rc = 1;
     {
-        stream::StreamSession session(gssv, cb);
+        stream::StreamSession session(gssv, cb, opts);
         std::string err;
         if (!session.start(err)) {
             XC_LOGE("stream: %s", err.c_str());
@@ -307,6 +317,35 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
     save("launching");
     app.showError("Could not connect to the stream: the server did not answer in time.");
     save("error");
+
+    // Settings, then the same screens in Portuguese.
+    std::vector<std::string> regions;
+    for (const auto& r : gssv.session().regions) regions.push_back(r.name);
+    app.setRegions(regions, gssv.region().name);
+    app.showHome();
+    ui::NavInput tri;
+    tri.triangle = true;
+    app.handle(tri);
+    save("settings");
+    ui::NavInput down2;
+    down2.down = true;
+    app.handle(down2);
+    app.handle(down2);
+    ui::NavInput rightOne;
+    rightOne.right = true;
+    app.handle(rightOne);  // pick the first non-automatic region
+    ui::NavInput up2;
+    up2.up = true;
+    app.handle(up2);
+    app.handle(up2);
+    app.handle(rightOne);  // English -> Portugues (Brasil)
+    save("settings_pt");
+    app.handle(tri);  // back to home
+    if (!library.load(gssv, ui::catalogLanguage(), onRows, err)) XC_LOGE("%s", err.c_str());
+    library.hydrate(onRows);
+    app.showHome();
+    save("home_pt", 3000);
+    ui::setLanguage(ui::Language::English);
     return 0;
 }
 
@@ -336,6 +375,23 @@ int main(int argc, char** argv) {
         }
         return stbi_write_png(argv[argi], size, size, 3, rgb.data(), size * 3) ? 0 : 1;
     }
+    if ((cmd == "render-pic0" || cmd == "render-pic1") && argi < argc) {
+        // PS5 home-screen backgrounds (PNG; tools/ps5/home-art.sh makes DDS).
+        int w = argi + 1 < argc ? std::atoi(argv[argi + 1]) : 3840;
+        int h = w * 9 / 16;
+        ui::Fonts fonts;
+        if (!fonts.load("assets/fonts")) return 1;
+        ui::Canvas art(w, h);
+        ui::drawHomeArt(art, fonts, cmd == "render-pic1");
+        std::vector<uint8_t> rgb(static_cast<size_t>(w) * h * 3);
+        for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i) {
+            uint32_t p = art.data()[i];
+            rgb[i * 3] = p & 0xFF;
+            rgb[i * 3 + 1] = (p >> 8) & 0xFF;
+            rgb[i * 3 + 2] = (p >> 16) & 0xFF;
+        }
+        return stbi_write_png(argv[argi], w, h, 3, rgb.data(), w * 3) ? 0 : 1;
+    }
     if (cmd == "bench-decode" && argi < argc)
         return cmdBenchDecode(argv[argi], argi + 1 < argc ? std::atoi(argv[argi + 1]) : 1);
 
@@ -352,9 +408,19 @@ int main(int argc, char** argv) {
     } else if (cmd == "provision" && argi < argc) {
         rc = cmdProvision(am, argv[argi]);
     } else if (cmd == "stream" && argi < argc) {
-        const char* id = argv[argi++];
-        int seconds = argi < argc ? std::atoi(argv[argi++]) : 30;
-        rc = cmdStream(am, id, seconds > 0 ? seconds : 30, argi < argc ? argv[argi] : nullptr);
+        // stream <id> [seconds] [out.h264] [--720p] [--region=NAME]
+        std::vector<const char*> pos;
+        xcloud::Resolution res = xcloud::Resolution::P1080;
+        stream::StreamOptions opts;
+        std::string region;
+        for (; argi < argc; ++argi) {
+            std::string a = argv[argi];
+            if (a.rfind("--region=", 0) == 0) region = a.substr(9);
+            else if (a == "--720p") res = xcloud::Resolution::P720;
+            else pos.push_back(argv[argi]);
+        }
+        int seconds = pos.size() > 1 ? std::atoi(pos[1]) : 30;
+        rc = cmdStream(am, pos[0], seconds > 0 ? seconds : 30, pos.size() > 2 ? pos[2] : nullptr, res, opts, region);
     } else if (cmd == "ui-preview" && argi < argc) {
         rc = cmdUiPreview(am, argv[argi]);
     } else if (cmd == "logout") {

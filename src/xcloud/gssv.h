@@ -53,6 +53,10 @@ struct IceCandidate {
     int sdpMLineIndex = 0;
 };
 
+// Stream resolution the service is asked for. It decides from the device the
+// client claims to be: a Windows desktop gets 1080p, other devices 720p.
+enum class Resolution { P1080, P720 };
+
 class GssvClient {
 public:
     // `offering` is "xgpuweb" (Game Pass cloud) or "xhome" (own console).
@@ -61,6 +65,8 @@ public:
     bool login(const auth::XblToken& gssvXsts, std::string& err);
     const GssvLogin& session() const { return login_; }
     void setRegion(const Region& r) { region_ = r; }
+    void setResolution(Resolution r) { resolution_ = r; }
+    Resolution resolution() const { return resolution_; }
     const Region& region() const { return region_; }
 
     // Titles available to stream (entitled + Game Pass) and recently played.
@@ -91,6 +97,7 @@ private:
     std::string sessionUrl(const std::string& suffix) const;
 
     std::string offering_;
+    Resolution resolution_ = Resolution::P1080;
     GssvLogin login_;
     Region region_;
     std::string sessionPath_;

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
-// User-facing text. English is the default; other languages add a column to
-// the table in strings.cpp and are picked with setLanguage().
+// User-facing text in every supported language. English is the default; the
+// user picks another in Settings. To add a language: a Language value, its
+// codes in strings.cpp, and a column in the table there.
 #pragma once
 
 #include <string>
@@ -36,15 +37,34 @@ enum class Str {
     SignedInAs,    // "%s" = gamertag
     NoGames,
     PublisherBy,   // "%s" = publisher
+    Settings,
+    Language,
+    Resolution,
+    Region,
+    RegionAuto,    // "%s" = the account's default region
+    Res1080,
+    Res720,
+    SettingsNote,
+    Change,
+    SignInFailed,     // "%s" = technical detail
+    LibraryFailed,    // "%s" = technical detail
+    StreamFailed,     // "%s" = technical detail
     Count
 };
 
-enum class Language { English };
+enum class Language { English, PortugueseBR, Spanish, French, German, Italian, Count };
 
 void setLanguage(Language lang);
 Language language();
-// Catalog language tag for the current language, e.g. "en-us".
+// The language's own name ("Português (Brasil)").
+const char* languageName(Language lang);
+// Stable code saved in settings.json ("pt-BR"); fromCode() falls back to English.
+const char* languageCode(Language lang);
+Language languageFromCode(const std::string& code);
+// Catalog language tag for the current language, e.g. "pt-br".
 const char* catalogLanguage();
+// Locale asked of the cloud game, e.g. "pt-BR".
+const char* gameLocale();
 
 const char* tr(Str id);
 // tr() with one "%s" substituted.

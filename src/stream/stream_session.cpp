@@ -255,6 +255,7 @@ struct StreamSession::Impl {
         std::string id = (*j)["id"].str();
         XC_LOGI("message %s %s", type.c_str(), target.c_str());
         if (target == "/streaming/sessionLifetimeManagement/serverInitiatedDisconnect") {
+            XC_LOGW("server disconnect: %s", (*j)["content"].str().substr(0, 300).c_str());
             completeTransaction(id, json::Value(""));
             fail("the server ended the session");
         } else if (target == "/streaming/systemUi/messages/ShowMessageDialog") {

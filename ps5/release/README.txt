@@ -47,11 +47,19 @@ deletes it.
 Controls
 --------
 Menus:   D-pad or left stick to move, Cross to select, Circle to go back,
-         OPTIONS to sign out.
+         Triangle for Settings, OPTIONS to sign out.
 In game: the DualSense acts as an Xbox controller
          (Cross = A, Circle = B, Square = X, Triangle = Y,
           OPTIONS = Menu, TOUCHPAD = View).
          Hold OPTIONS + TOUCHPAD for one second to leave the game.
+
+
+Settings
+--------
+Triangle on the home screen: language (English, Portugues (Brasil),
+Espanol, Francais, Deutsch, Italiano), stream resolution (1080p, or 720p
+for slower connections) and server region (Automatic, or a specific
+Azure region). Saved in /data/homebrew/@TITLE_ID@/settings.json.
 
 
 Problems

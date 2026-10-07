@@ -6,6 +6,7 @@
 // One worker thread owns AuthManager/GssvClient and does all network work;
 // the main thread reads the pad, drives the UI and draws it.
 #include "app/library.h"
+#include "app/settings.h"
 #include "app/stream_player.h"
 #include "auth/auth_manager.h"
 #include "display/display.h"
@@ -39,7 +40,12 @@ std::unique_ptr<ui::AppUi> g_ui;
 
 // --- Worker commands ---------------------------------------------------------
 
-enum Command { kNone, kSignIn, kPlay, kSignOut };
+enum Command { kNone, kSignIn, kPlay, kSignOut, kReloadLibrary };
+
+// User settings (settings.json); read by the worker, changed by the UI thread.
+std::mutex g_settingsMutex;
+app::Settings g_settings;
+std::string settingsPath() { return platform::dataDir() + "/settings.json"; }
 
 std::atomic<int> g_command{kSignIn};
 std::atomic<bool> g_cancel{false};
@@ -134,7 +140,7 @@ std::string stream(xcloud::GssvClient& gssv) {
     app::StreamPlayer player(gssv);
     if (g_autoplayDump) player.dumpVideo(platform::dataDir() + "/stream.aus", 20);
     std::string err;
-    if (!player.start(err)) return "ERROR: could not connect the stream: " + err;
+    if (!player.start(err)) return "ERROR: " + ui::trf(ui::Str::StreamFailed, err);
     {
         std::lock_guard<std::mutex> lock(g_playerMutex);
         g_player = &player;
@@ -194,7 +200,17 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     XC_LOGI("starting %s (%s)", game.name.c_str(), game.titleId.c_str());
     g_ui->showLaunching(game, ui::tr(ui::Str::Connecting));
     std::string err;
-    if (!gssv.startSession(game.titleId, "en-US", err)) return err;
+    {
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        gssv.setResolution(g_settings.resolution == "720p" ? xcloud::Resolution::P720 : xcloud::Resolution::P1080);
+        const xcloud::Region* region = gssv.session().defaultRegion();
+        for (const auto& r : gssv.session().regions)
+            if (r.name == g_settings.region) region = &r;
+        if (region) gssv.setRegion(*region);
+        XC_LOGI("stream settings: %s, region %s, locale %s", g_settings.resolution.c_str(),
+                region ? region->name.c_str() : "?", ui::gameLocale());
+    }
+    if (!gssv.startSession(game.titleId, ui::gameLocale(), err)) return err;
     if (game.heroUrl.empty() && !game.productId.empty()) {
         // Picked before the background hydration reached it: fetch the hero
         // art for the loading screen while the session queues.
@@ -248,19 +264,29 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     return result;
 }
 
+void loadLibrary(xcloud::GssvClient& gssv);
+
 void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
     std::string err;
     auto onCode = [](const auth::DeviceCode& dc) { g_ui->showSignIn(dc.userCode, dc.verificationUri); };
     if (!am.signIn(gssv, onCode, err, &g_cancel)) {
         XC_LOGE("sign-in failed: %s", err.c_str());
-        g_ui->showError("Sign-in failed: " + err);
+        g_ui->showError(ui::trf(ui::Str::SignInFailed, err));
         if (!g_autoplayTitle.empty()) XC_LOGI("AUTOPLAY END: sign-in failed");
         return;
     }
     g_ui->setProfile(am.profile().gamertag, am.profile().gamerpicUrl);
     platform::notify(ui::trf(ui::Str::SignedInAs, am.profile().gamertag));
+    std::vector<std::string> regions;
+    for (const auto& r : gssv.session().regions) regions.push_back(r.name);
+    const xcloud::Region* def = gssv.session().defaultRegion();
+    g_ui->setRegions(regions, def ? def->name : std::string());
+    loadLibrary(gssv);
+}
 
+void loadLibrary(xcloud::GssvClient& gssv) {
+    std::string err;
     g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
     stopHydration();
     auto library = std::make_shared<app::Library>();
@@ -275,7 +301,7 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
                             },
                             err);
     if (!ok) {
-        g_ui->showError("Could not load the game list: " + err);
+        g_ui->showError(ui::trf(ui::Str::LibraryFailed, err));
         return;
     }
     std::vector<ui::GameRow> rows = library->rows();
@@ -312,6 +338,7 @@ void worker() {
         g_cancel = false;
         switch (cmd) {
             case kSignIn: signInAndLoad(am, gssv); break;
+            case kReloadLibrary: loadLibrary(gssv); break;  // e.g. after a language change
             case kSignOut:
                 am.signOut();
                 g_ui->setProfile({}, {});
@@ -327,7 +354,7 @@ void worker() {
                 std::string result = play(am, gssv, tile, failed);
                 XC_LOGI("%s", result.c_str());
                 if (failed)
-                    g_ui->showError(result);
+                    g_ui->showError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result);
                 else
                     g_ui->showHome(ui::tr(ui::Str::StreamEnded));
                 autoplayFinished(result);
@@ -375,6 +402,10 @@ int main(int argc, char** argv) {
     log::setFile((platform::dataDir() + "/xcloud.log").c_str());
     XC_LOGI("=== PSBox Cloud Gaming starting ===");
     loadAutoplay();
+    g_settings.load(settingsPath());
+    ui::setLanguage(ui::languageFromCode(g_settings.language));
+    XC_LOGI("settings: language %s, %s, region %s", g_settings.language.c_str(), g_settings.resolution.c_str(),
+            g_settings.region.empty() ? "auto" : g_settings.region.c_str());
     sceSystemServiceHideSplashScreen();
 
     bool haveDisplay = display::init();
@@ -386,6 +417,13 @@ int main(int argc, char** argv) {
         if (g_ui) g_ui->invalidate();
     });
     g_ui = std::make_unique<ui::AppUi>(fonts, *g_images);
+    {
+        ui::SettingsChoice choice;
+        choice.language = static_cast<int>(ui::language());
+        choice.hd = g_settings.resolution != "720p";
+        choice.region = g_settings.region;
+        g_ui->setSettings(choice);
+    }
     ui::Canvas canvas(display::kWidth, display::kHeight);
 
     if (!net::initTls(platform::caBundlePath())) {
@@ -436,6 +474,7 @@ int main(int argc, char** argv) {
         nav.accept = pad.btnA && !prev.btnA;
         nav.back = pad.btnB && !prev.btnB;
         nav.options = pad.btnOptions && !prev.btnOptions;
+        nav.triangle = pad.btnY && !prev.btnY;
         prev = pad;
 
         ui::UiEvent ev = g_ui->handle(nav);
@@ -452,6 +491,24 @@ int main(int argc, char** argv) {
                 break;
             case ui::Action::Retry: g_command = kSignIn; break;
             case ui::Action::CancelLaunch: g_cancel = true; break;
+            case ui::Action::SettingsChanged: {
+                bool languageChanged;
+                {
+                    std::lock_guard<std::mutex> lock(g_settingsMutex);
+                    std::string code = ui::languageCode(static_cast<ui::Language>(ev.settings.language));
+                    languageChanged = code != g_settings.language;
+                    g_settings.language = code;
+                    g_settings.resolution = ev.settings.hd ? "1080p" : "720p";
+                    g_settings.region = ev.settings.region;
+                    if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
+                    XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
+                            g_settings.region.empty() ? "auto" : g_settings.region.c_str());
+                }
+                // Row titles and game details come from the catalog in the
+                // chosen language.
+                if (languageChanged) g_command = kReloadLibrary;
+                break;
+            }
             case ui::Action::None: break;
         }
 

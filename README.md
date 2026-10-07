@@ -25,7 +25,11 @@ an Xbox controller.
   added, Most popular on cloud, Leaving soon and All games.
 - WebRTC streaming (libdatachannel on Mbed TLS) with H.264 and Opus decoded by
   FFmpeg on the CPU.
-- English UI; text is centralized in `src/ui/strings.cpp` for translation.
+- Settings (Triangle on the home screen): language (English, Português
+  (Brasil), Español, Français, Deutsch, Italiano), stream resolution (1080p or
+  720p for slower connections) and server region.
+- Custom PS5 Home art (selection and launch backgrounds), generated from the
+  same code as the icon by `tools/ps5/home-art.sh`.
 
 Requires a homebrew-enabled PS5 that can run directory-style apps (for
 example through ShadowMountPlus) and a subscription that includes cloud
@@ -71,7 +75,7 @@ cmake -S . -B build-host -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ninja -C build-host
 build-host/xcloud-tests                       # unit tests
 build-host/xcloud-cli login                   # sign in
-build-host/xcloud-cli stream BALATRO 30       # stream a title for 30 s
+build-host/xcloud-cli stream BALATRO 30       # stream a title for 30 s (--720p, --region=EASTUS)
 build-host/xcloud-cli ui-preview /tmp/ui      # render every screen to PNG
 ```
 

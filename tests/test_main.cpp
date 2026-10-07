@@ -4,6 +4,8 @@
 #include "net/http.h"
 #include "stream/input_packet.h"
 #include "stream/stream_session.h"
+#include "ui/app_ui.h"
+#include "ui/strings.h"
 #include "util/json.h"
 
 #include <cstdio>
@@ -107,7 +109,34 @@ static void testTeredo() {
     CHECK(!stream::decodeTeredo("10.0.0.1", ip, port));
 }
 
+static void testStrings() {
+    using namespace ui;
+    auto placeholders = [](const std::string& t) {
+        int n = 0;
+        for (size_t at = t.find("%s"); at != std::string::npos; at = t.find("%s", at + 2)) ++n;
+        return n;
+    };
+    for (int l = 0; l < static_cast<int>(Language::Count); ++l) {
+        setLanguage(Language::English);
+        std::vector<std::string> english;
+        for (int i = 0; i < static_cast<int>(Str::Count); ++i) english.push_back(tr(static_cast<Str>(i)));
+        setLanguage(static_cast<Language>(l));
+        CHECK(languageFromCode(languageCode(static_cast<Language>(l))) == static_cast<Language>(l));
+        for (int i = 0; i < static_cast<int>(Str::Count); ++i) {
+            std::string t = tr(static_cast<Str>(i));
+            CHECK(!t.empty());
+            CHECK(placeholders(t) == placeholders(english[static_cast<size_t>(i)]));
+        }
+    }
+    setLanguage(Language::English);
+    CHECK(languageFromCode("xx") == Language::English);
+    CHECK(prettyRegion("SOUTHCENTRALUS") == "South Central US");
+    CHECK(prettyRegion("EASTUS2") == "East US 2");
+    CHECK(prettyRegion("BRAZILSOUTH") == "Brazil South");
+}
+
 int main() {
+    testStrings();
     testJson();
     testUrl();
     testInputPacket();

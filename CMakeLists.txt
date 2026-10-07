@@ -60,6 +60,7 @@ add_library(xcloud_ui STATIC
     src/ui/app_ui.cpp
     src/ui/brand.cpp
     src/app/library.cpp
+    src/app/settings.cpp
     extern/qrcodegen/qrcodegen.c
 )
 target_include_directories(xcloud_ui PUBLIC extern/stb extern/qrcodegen)
@@ -85,6 +86,6 @@ else()
 
     enable_testing()
     add_executable(xcloud-tests tests/test_main.cpp)
-    target_link_libraries(xcloud-tests PRIVATE xcloud_stream)
+    target_link_libraries(xcloud-tests PRIVATE xcloud_stream xcloud_ui)
     add_test(NAME unit COMMAND xcloud-tests)
 endif()

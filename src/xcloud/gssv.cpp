@@ -16,9 +16,9 @@ namespace {
 constexpr const char* kClientHeader = "XboxComBrowser";
 
 // Sent like the Windows Xbox app does: "Windows" plus a 1080p display is what
-// gets a 1080p stream instead of 720p.
-const std::string& deviceInfo() {
-    static const std::string info = [] {
+// gets a 1080p stream; an Android device with a 720p display gets 720p.
+const std::string& deviceInfo(Resolution res) {
+    auto build = [](bool hd) {
         json::Value env = json::Value::object();
         env.set("clientAppId", "Microsoft.GamingApp");
         env.set("clientAppType", "native");
@@ -29,16 +29,16 @@ const std::string& deviceInfo() {
         json::Value app = json::Value::object();
         app.set("env", env);
         json::Value hw = json::Value::object();
-        hw.set("make", "Microsoft");
-        hw.set("model", "Surface Pro");
+        hw.set("make", hd ? "Microsoft" : "Google");
+        hw.set("model", hd ? "Surface Pro" : "Pixel");
         hw.set("sdktype", "native");
         json::Value os = json::Value::object();
-        os.set("name", "Windows 11");
-        os.set("ver", "22631.2715");
-        os.set("platform", "desktop");
+        os.set("name", hd ? "Windows 11" : "Android");
+        os.set("ver", hd ? "22631.2715" : "14");
+        os.set("platform", hd ? "desktop" : "phone");
         json::Value dims = json::Value::object();
-        dims.set("widthInPixels", 1920);
-        dims.set("heightInPixels", 1080);
+        dims.set("widthInPixels", hd ? 1920 : 1280);
+        dims.set("heightInPixels", hd ? 1080 : 720);
         json::Value dpi = json::Value::object();
         dpi.set("dpiX", 1);
         dpi.set("dpiY", 1);
@@ -53,8 +53,9 @@ const std::string& deviceInfo() {
         v.set("appInfo", app);
         v.set("dev", dev);
         return v.dump();
-    }();
-    return info;
+    };
+    static const std::string hd = build(true), sd = build(false);
+    return res == Resolution::P720 ? sd : hd;
 }
 
 std::string describe(const net::Response& r) {
@@ -108,14 +109,15 @@ std::string GssvClient::sessionUrl(const std::string& suffix) const {
     return region_.baseUri + p + suffix;
 }
 
-static net::Request authed(const GssvLogin& l, std::string method, std::string url, std::string body = {}) {
+static net::Request authed(Resolution res, const GssvLogin& l, std::string method, std::string url,
+                           std::string body = {}) {
     net::Request req;
     req.method = std::move(method);
     req.url = std::move(url);
     req.body = std::move(body);
     req.headers = {{"Authorization", "Bearer " + l.gsToken},
                    {"x-gssv-client", kClientHeader},
-                   {"X-MS-Device-Info", deviceInfo()}};
+                   {"X-MS-Device-Info", deviceInfo(res)}};
     if (!req.body.empty() || req.method == "POST") req.headers.emplace_back("Content-Type", "application/json");
     return req;
 }
@@ -165,7 +167,7 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
     do {
         std::string path = recentOnly ? "/v2/titles/mru?mr=25" : "/v2/titles?mr=200";
         if (!continuation.empty()) path += "&ct=" + net::urlEncode(continuation);
-        auto r = net::perform(authed(login_, "GET", url(path)));
+        auto r = net::perform(authed(resolution_, login_, "GET", url(path)));
         auto j = json::parse(r.body);
         if (!r.ok() || !j) {
             err = "title list failed: " + describe(r);
@@ -242,7 +244,7 @@ bool GssvClient::startSession(const std::string& titleId, const std::string& loc
     settings.set("useIceConnection", false);
     settings.set("timezoneOffsetMinutes", 0);
     settings.set("sdkType", "web");
-    settings.set("osName", "windows");
+    settings.set("osName", resolution_ == Resolution::P720 ? "android" : "windows");
 
     json::Value body = json::Value::object();
     body.set("clientSessionId", "");
@@ -253,7 +255,7 @@ bool GssvClient::startSession(const std::string& titleId, const std::string& loc
     body.set("fallbackRegionNames", json::Value::array());
 
     std::string kind = offering_ == "xhome" ? "home" : "cloud";
-    auto r = net::perform(authed(login_, "POST", url("/v5/sessions/" + kind + "/play"), body.dump()));
+    auto r = net::perform(authed(resolution_, login_, "POST", url("/v5/sessions/" + kind + "/play"), body.dump()));
     auto j = json::parse(r.body);
     if (!r.ok() || !j || !(*j)["sessionPath"].isString()) {
         err = "session start failed: " + describe(r);
@@ -265,7 +267,7 @@ bool GssvClient::startSession(const std::string& titleId, const std::string& loc
 }
 
 bool GssvClient::sessionState(SessionStatus& out, std::string& err) {
-    auto r = net::perform(authed(login_, "GET", sessionUrl("/state")));
+    auto r = net::perform(authed(resolution_, login_, "GET", sessionUrl("/state")));
     auto j = json::parse(r.body);
     if (!r.ok() || !j) {
         err = "session state failed: " + describe(r);
@@ -279,7 +281,7 @@ bool GssvClient::sessionState(SessionStatus& out, std::string& err) {
 }
 
 int GssvClient::waitTimeSeconds() {
-    auto r = net::perform(authed(login_, "GET", sessionUrl("/waittime")));
+    auto r = net::perform(authed(resolution_, login_, "GET", sessionUrl("/waittime")));
     auto j = json::parse(r.body);
     if (!r.ok() || !j) return -1;
     return static_cast<int>((*j)["estimatedTotalWaitTimeInSeconds"].asInt(-1));
@@ -288,7 +290,7 @@ int GssvClient::waitTimeSeconds() {
 bool GssvClient::connect(const std::string& msaTransferToken, std::string& err) {
     json::Value body = json::Value::object();
     body.set("userToken", msaTransferToken);
-    auto r = net::perform(authed(login_, "POST", sessionUrl("/connect"), body.dump()));
+    auto r = net::perform(authed(resolution_, login_, "POST", sessionUrl("/connect"), body.dump()));
     if (!r.ok()) {
         err = "session connect failed: " + describe(r);
         return false;
@@ -325,7 +327,7 @@ bool GssvClient::sendSdpOffer(const std::string& sdp, std::string& err) {
     body.set("sdp", sdp);
     body.set("requestId", "1");
     body.set("configuration", cfg);
-    auto r = net::perform(authed(login_, "POST", sessionUrl("/sdp"), body.dump()));
+    auto r = net::perform(authed(resolution_, login_, "POST", sessionUrl("/sdp"), body.dump()));
     if (!r.ok()) {
         err = "SDP offer failed: " + describe(r);
         return false;
@@ -335,7 +337,7 @@ bool GssvClient::sendSdpOffer(const std::string& sdp, std::string& err) {
 
 bool GssvClient::pollSdpAnswer(std::string& answer, std::string& err) {
     answer.clear();
-    auto r = net::perform(authed(login_, "GET", sessionUrl("/sdp")));
+    auto r = net::perform(authed(resolution_, login_, "GET", sessionUrl("/sdp")));
     if (r.status == 204) return true;  // not ready yet
     auto j = json::parse(r.body);
     if (!r.ok() || !j) {
@@ -364,7 +366,7 @@ bool GssvClient::sendIceCandidates(const std::vector<IceCandidate>& candidates, 
     json::Value body = json::Value::object();
     body.set("messageType", "iceCandidate");
     body.set("candidate", list);
-    auto r = net::perform(authed(login_, "POST", sessionUrl("/ice"), body.dump()));
+    auto r = net::perform(authed(resolution_, login_, "POST", sessionUrl("/ice"), body.dump()));
     if (!r.ok()) {
         err = "ICE upload failed: " + describe(r);
         return false;
@@ -374,7 +376,7 @@ bool GssvClient::sendIceCandidates(const std::vector<IceCandidate>& candidates, 
 
 bool GssvClient::pollIceCandidates(std::vector<IceCandidate>& out, std::string& err) {
     out.clear();
-    auto r = net::perform(authed(login_, "GET", sessionUrl("/ice")));
+    auto r = net::perform(authed(resolution_, login_, "GET", sessionUrl("/ice")));
     if (r.status == 204) return true;
     auto j = json::parse(r.body);
     if (!r.ok() || !j) {
@@ -394,7 +396,7 @@ bool GssvClient::pollIceCandidates(std::vector<IceCandidate>& out, std::string& 
 }
 
 bool GssvClient::keepalive(std::string& err) {
-    auto r = net::perform(authed(login_, "POST", sessionUrl("/keepalive")));
+    auto r = net::perform(authed(resolution_, login_, "POST", sessionUrl("/keepalive")));
     if (!r.ok()) {
         err = "keepalive failed: " + describe(r);
         return false;
@@ -404,7 +406,7 @@ bool GssvClient::keepalive(std::string& err) {
 
 void GssvClient::stopSession() {
     if (sessionPath_.empty()) return;
-    net::perform(authed(login_, "DELETE", sessionUrl("")));
+    net::perform(authed(resolution_, login_, "DELETE", sessionUrl("")));
     XC_LOGI("session stopped: %s", sessionPath_.c_str());
     sessionPath_.clear();
 }
