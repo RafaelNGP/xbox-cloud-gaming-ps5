@@ -267,20 +267,38 @@ std::vector<std::string> AppUi::pricesWanted(size_t max) {
     return out;
 }
 
-std::string AppUi::detailWanted() {
+std::string AppUi::detailWanted(uint64_t nowMs) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (screen_ != Screen::Details || detail_.productId.empty() || !detail_.description.empty()) return {};
-    return detailsAsked_.insert(detail_.productId).second ? detail_.productId : std::string();
+    if (screen_ != Screen::Details || detail_.productId.empty()) return {};
+    if (!detail_.description.empty() && !detail_.heroUrl.empty()) return {};
+    if (detail_.productId == detailAskedFor_ && nowMs - detailAskedAt_ < 5000) return {};
+    detailAskedFor_ = detail_.productId;
+    detailAskedAt_ = nowMs;
+    return detail_.productId;
 }
 
 void AppUi::setDetailInfo(const std::string& productId, const std::string& description, const std::string& publisher,
-                          const std::vector<std::string>& categories) {
+                          const std::vector<std::string>& categories, const std::string& heroUrl) {
     std::lock_guard<std::mutex> lock(mutex_);
+    detailInfo_[productId] = {description, publisher, heroUrl, categories};
     if (detail_.productId != productId) return;
     if (!description.empty()) detail_.description = description;
     if (!publisher.empty()) detail_.publisher = publisher;
     if (!categories.empty()) detail_.categories = categories;
+    if (!heroUrl.empty()) detail_.heroUrl = heroUrl;
     dirty_ = true;
+}
+
+bool AppUi::purchasableAt(size_t index, GameTile& out) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (index >= purchasable_.size()) return false;
+    out = purchasable_[index];
+    return true;
+}
+
+void AppUi::showDetails(const GameTile& tile) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    openDetails(tile);
 }
 
 const GameTile* AppUi::libraryTile(int index) const {
@@ -299,6 +317,13 @@ Tab AppUi::tab() const {
 void AppUi::openDetails(const GameTile& tile) {
     // Caller holds mutex_.
     detail_ = tile;
+    auto info = detailInfo_.find(tile.productId);
+    if (info != detailInfo_.end()) {
+        if (detail_.description.empty()) detail_.description = info->second.description;
+        if (detail_.heroUrl.empty()) detail_.heroUrl = info->second.heroUrl;
+        if (detail_.publisher.empty()) detail_.publisher = info->second.publisher;
+        if (detail_.categories.empty()) detail_.categories = info->second.categories;
+    }
     screen_ = Screen::Details;
     dirty_ = true;
 }

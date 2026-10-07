@@ -99,12 +99,17 @@ public:
     // Games to buy on screen (or about to be) whose price hasn't been asked
     // for yet; marks them asked.
     std::vector<std::string> pricesWanted(size_t max);
-    // The game whose page is open, if its description hasn't arrived: asked
-    // once per game (empty otherwise).
-    std::string detailWanted();
-    // Fills in the open page when it shows `productId`.
+    // The game whose page is open, if its description or hero art hasn't
+    // arrived; asked again every 5 s while missing (empty otherwise).
+    std::string detailWanted(uint64_t nowMs);
+    // Fills in the open page when it shows `productId`, and keeps the details
+    // for the next time that game's page opens.
     void setDetailInfo(const std::string& productId, const std::string& description, const std::string& publisher,
-                       const std::vector<std::string>& categories);
+                       const std::vector<std::string>& categories, const std::string& heroUrl);
+    // Opens a game's page (autoplay tests).
+    void showDetails(const GameTile& tile);
+    // The `index`-th game to buy, if loaded (autoplay tests).
+    bool purchasableAt(size_t index, GameTile& out) const;
     void showHome(const std::string& toast = {});
     void showLaunching(const GameTile& game, const std::string& status);
     void setLaunchStatus(const std::string& status);
@@ -207,7 +212,14 @@ private:
     std::string defaultRegion_;
     std::map<std::string, int> regionMs_;
     std::map<std::string, std::pair<std::string, std::string>> prices_;
-    std::set<std::string> pricesAsked_, detailsAsked_;
+    std::set<std::string> pricesAsked_;
+    std::string detailAskedFor_;
+    uint64_t detailAskedAt_ = 0;
+    struct DetailInfo {
+        std::string description, publisher, heroUrl;
+        std::vector<std::string> categories;
+    };
+    std::map<std::string, DetailInfo> detailInfo_;  // fetched on demand, by product id
     int settingsRow_ = 0;
     uint64_t signOutHoldStart_ = 0;  // TOUCHPAD hold in progress
     bool signOutLatched_ = false;    // fired; wait for release

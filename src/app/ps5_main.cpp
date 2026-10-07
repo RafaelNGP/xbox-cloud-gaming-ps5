@@ -75,7 +75,8 @@ app::StreamPlayer* g_player = nullptr;
 // in, plays that title for that long (pressing A at 15 s and 20 s), saves
 // decoded frames and logs "AUTOPLAY END". Options, comma-separated: nosimd,
 // dump, repeat, idle (no A presses), threads=N (H.264 decoder threads),
-// rumbletest (rumbles the pad for 1.5 s at start).
+// rumbletest (rumbles the pad for 1.5 s at start), detailtest (opens a game to
+// buy far down the list instead of playing, saves detail.ppm).
 // The title "BENCH" decodes <dataDir>/sample.h264 instead.
 
 std::string g_autoplayTitle;
@@ -83,6 +84,7 @@ int g_autoplaySeconds = 0;
 bool g_autoplayDump = false;
 int g_autoplayRuns = 1;
 bool g_autoplayIdle = false;
+bool g_autoplayDetailTest = false;  // open a game to buy far down the list, save its page
 int g_decodeThreads = 1;
 std::atomic<bool> g_syntheticA{false};
 
@@ -104,6 +106,7 @@ void loadAutoplay() {
         if (opt == "repeat") g_autoplayRuns = 2;
         if (opt == "idle") g_autoplayIdle = true;
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
+        if (opt == "detailtest") g_autoplayDetailTest = true;
         if (opt.rfind("threads=", 0) == 0) g_decodeThreads = std::atoi(opt.c_str() + 8);
     }
     g_autoplayTitle = title;
@@ -375,13 +378,15 @@ void priceLoop() {
         }
         // The open page's description, for games that only have the light
         // catalog data (games to buy, search results).
-        if (std::string id = market.empty() ? std::string() : g_ui->detailWanted(); !id.empty()) {
+        if (std::string id = market.empty() ? std::string() : g_ui->detailWanted(platform::nowMs()); !id.empty()) {
             std::map<std::string, xcloud::Product> full;
             std::string err;
-            if (xcloud::fetchProducts({id}, market, language, full, err, true) && full.count(id)) {
+            bool ok = xcloud::fetchProducts({id}, market, language, full, err, true) && full.count(id);
+            if (ok) {
                 const auto& p = full[id];
-                g_ui->setDetailInfo(id, p.description, p.publisher, p.categories);
+                g_ui->setDetailInfo(id, p.description, p.publisher, p.categories, p.heroUrl);
             }
+            XC_LOGI("details of %s: %s", id.c_str(), ok ? "ok" : err.empty() ? "not in the catalog" : err.c_str());
         }
         std::vector<std::string> ids = market.empty() ? std::vector<std::string>() : g_ui->pricesWanted(20);
         if (ids.empty()) {
@@ -480,7 +485,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         library->loadPlatforms(xblAuth, changed, &g_stopHydration);
         library->hydrate(changed, &g_stopHydration);
     });
-    if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH") {
+    if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH" && !g_autoplayDetailTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
         tile.titleId = g_autoplayTitle;
@@ -742,6 +747,21 @@ int main(int argc, char** argv) {
             if (now - launchSince > 8000) {
                 launchSaved = true;
                 saveCanvas("launch.ppm");
+            }
+        }
+        if (g_autoplayDetailTest && uiSaved) {
+            // A game to buy far down the list (no prefetched details): its
+            // page must fill in on its own.
+            static uint64_t openedAt = 0;
+            ui::GameTile tile;
+            if (!openedAt && g_ui->purchasableAt(40, tile)) {
+                XC_LOGI("autoplay: opening %s (%s)", tile.name.c_str(), tile.productId.c_str());
+                g_ui->showDetails(tile);
+                openedAt = now;
+            } else if (openedAt && now - openedAt > 8000) {
+                saveCanvas("detail.ppm");
+                g_autoplayDetailTest = false;
+                XC_LOGI("AUTOPLAY END: detail test");
             }
         }
         if (!g_autoplayTitle.empty() && !uiSaved && g_ui->screen() == ui::Screen::Home) {
