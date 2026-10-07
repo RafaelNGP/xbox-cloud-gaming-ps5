@@ -91,7 +91,7 @@ int cmdTitles(auth::AuthManager& am, bool recent) {
     std::string market = gssv.session().market.empty() ? "US" : gssv.session().market;
     if (!gssv.hydrateTitles(titles, market, "en-us", err)) XC_LOGW("%s", err.c_str());
     for (const auto& t : titles)
-        std::printf("%-28s %-14s %s\n", t.titleId.c_str(), t.productId.c_str(),
+        std::printf("%-28s %-14s %s %s\n", t.titleId.c_str(), t.productId.c_str(), t.hasEntitlement ? "owned" : "-    ",
                     t.name.empty() ? "?" : t.name.c_str());
     std::printf("%zu titles\n", titles.size());
     return 0;
@@ -306,6 +306,7 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
         XC_LOGE("%s", err.c_str());
         return 1;
     }
+    library.loadOwned(gssv, onRows);
     library.hydrate(onRows);
     app.showHome();
     save("home", 4000);
@@ -320,6 +321,20 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
     accept.accept = true;
     app.handle(accept);
     save("details", 2000);
+    {
+        // A game the account can't stream: dimmed card with a lock, no Play.
+        auto rows = library.rows();
+        if (!rows.empty()) {
+            for (auto& row : rows)
+                for (size_t i = 0; i < row.tiles.size(); i += 2) row.tiles[i].playable = false;
+            app.setRows(rows);
+            app.showHome();
+            save("home_locked", 3000);
+            app.handle(accept);
+            save("details_locked", 1000);
+            app.setRows(library.rows());
+        }
+    }
     ui::GameTile game;
     game.name = "Balatro";
     app.showLaunching(game, ui::trf(ui::Str::InQueue, "1 min"));

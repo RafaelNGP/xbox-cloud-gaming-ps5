@@ -53,6 +53,8 @@ enum class Str {
     LibraryFailed,    // "%s" = technical detail
     StreamFailed,     // "%s" = technical detail
     IdleWarning,      // "%s" = seconds until the server disconnects
+    YourGames,        // row of the account's own (non-Game Pass) games
+    NotPlayable,      // the account can't stream this game
     Count
 };
 

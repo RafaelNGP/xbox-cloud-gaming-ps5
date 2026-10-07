@@ -5,6 +5,7 @@
 #include "auth/msa.h"
 #include "net/http.h"
 #include "util/json.h"
+#include "platform/platform.h"
 #include "util/log.h"
 
 #include <cstdlib>
@@ -213,6 +214,7 @@ bool GssvClient::login(const auth::XblToken& gssvXsts, std::string& err) {
 
 bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool recentOnly) {
     out.clear();
+    uint64_t started = platform::nowMs();
     std::string continuation;
     do {
         std::string path = recentOnly ? "/v2/titles/mru?mr=25" : "/v2/titles?mr=200";
@@ -231,7 +233,9 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
             if (!title.titleId.empty()) out.push_back(std::move(title));
         }
         continuation = recentOnly ? std::string() : (*j)["continuationToken"].str();
-    } while (!continuation.empty() && out.size() < 2000);
+    } while (!continuation.empty() && out.size() < 5000);
+    XC_LOGI("title list%s: %zu titles in %llu ms", recentOnly ? " (recent)" : "", out.size(),
+            static_cast<unsigned long long>(platform::nowMs() - started));
     return true;
 }
 

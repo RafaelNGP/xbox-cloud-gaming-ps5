@@ -76,6 +76,8 @@ constexpr Column kEnglish = {
     "Could not load the game list: %s",               // LibraryFailed
     "Could not start the stream: %s",                 // StreamFailed
     "No input for a while: you will be disconnected in %s seconds",  // IdleWarning
+    "Your games",                                     // YourGames
+    "Not available on your account",                  // NotPlayable
 };
 
 constexpr Column kPortugueseBR = {
@@ -122,6 +124,8 @@ constexpr Column kPortugueseBR = {
     "Não foi possível carregar a lista de jogos: %s",
     "Não foi possível iniciar o streaming: %s",
     "Sem atividade: você será desconectado em %s segundos",
+    "Seus jogos",
+    "Indisponível na sua conta",
 };
 
 constexpr Column kSpanish = {
@@ -168,6 +172,8 @@ constexpr Column kSpanish = {
     "No se pudo cargar la lista de juegos: %s",
     "No se pudo iniciar el streaming: %s",
     "Sin actividad: se te desconectará en %s segundos",
+    "Tus juegos",
+    "No disponible en tu cuenta",
 };
 
 constexpr Column kFrench = {
@@ -214,6 +220,8 @@ constexpr Column kFrench = {
     "Impossible de charger la liste des jeux : %s",
     "Impossible de démarrer le streaming : %s",
     "Aucune activité : vous serez déconnecté dans %s secondes",
+    "Vos jeux",
+    "Indisponible sur votre compte",
 };
 
 constexpr Column kGerman = {
@@ -260,6 +268,8 @@ constexpr Column kGerman = {
     "Die Spieleliste konnte nicht geladen werden: %s",
     "Das Streaming konnte nicht gestartet werden: %s",
     "Keine Aktivität: Die Verbindung wird in %s Sekunden getrennt",
+    "Deine Spiele",
+    "Für dein Konto nicht verfügbar",
 };
 
 constexpr Column kItalian = {
@@ -306,6 +316,8 @@ constexpr Column kItalian = {
     "Impossibile caricare l'elenco dei giochi: %s",
     "Impossibile avviare lo streaming: %s",
     "Nessuna attività: verrai disconnesso tra %s secondi",
+    "I tuoi giochi",
+    "Non disponibile sul tuo account",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

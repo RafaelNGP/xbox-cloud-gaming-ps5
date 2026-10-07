@@ -328,10 +328,13 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         return;
     }
     std::vector<ui::GameRow> rows = library->rows();
-    // Hero art and descriptions keep arriving while the user browses/plays.
+    // The account's own games, then hero art and descriptions, keep arriving
+    // while the user browses/plays. The thread gets its own GssvClient copy.
     g_stopHydration = false;
-    platform::startThread(g_hydrationThread, [library] {
-        library->hydrate([](const std::vector<ui::GameRow>& r) { g_ui->setRows(r); }, &g_stopHydration);
+    platform::startThread(g_hydrationThread, [library, owned = gssv] {
+        auto onRows = [](const std::vector<ui::GameRow>& r) { g_ui->setRows(r); };
+        library->loadOwned(owned, onRows, &g_stopHydration);
+        library->hydrate(onRows, &g_stopHydration);
     });
     if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH") {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm

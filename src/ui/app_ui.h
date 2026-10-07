@@ -28,6 +28,9 @@ struct GameTile {
     std::string tileUrl;
     std::string heroUrl;
     std::vector<std::string> categories;
+    // False once the account's titles are known and this one isn't among
+    // them (bought separately, or not in the subscription).
+    bool playable = true;
 };
 
 struct GameRow {

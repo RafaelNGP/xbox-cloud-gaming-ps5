@@ -43,7 +43,10 @@ std::vector<ui::GameRow> Library::rows() const {
             auto it = products_.find(pid);
             if (it == products_.end()) continue;
             if (tid.empty() && it->second.xcloudTitleId.empty()) continue;
-            row.tiles.push_back(toTile(it->second, tid));
+            ui::GameTile tile = toTile(it->second, tid);
+            if (ownershipKnown_)
+                tile.playable = ownedTitles_.count(tile.titleId) || ownedProducts_.count(tile.productId);
+            row.tiles.push_back(std::move(tile));
         }
         if (!row.tiles.empty()) rows.push_back(std::move(row));
     }
@@ -73,17 +76,38 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
         }
     }
 
+    // The Game Pass catalog first: it decides what the other lists may show.
+    xcloud::ProductList all;
+    std::string e;
+    if (xcloud::fetchList(xcloud::sigl::kAllGames, market_, language_, all, e)) {
+        gamePass_.insert(all.productIds.begin(), all.productIds.end());
+    } else {
+        XC_LOGW("%s", e.c_str());
+        lastErr = e;
+    }
+
     const ListSpec lists[] = {{xcloud::sigl::kRecentlyAdded, 40},
                               {xcloud::sigl::kMostPopular, 40},
                               {xcloud::sigl::kLeavingSoon, 40},
                               {xcloud::sigl::kAllGames, 120}};
     for (const auto& spec : lists) {
         xcloud::ProductList list;
-        std::string e;
-        if (!xcloud::fetchList(spec.sigl, market_, language_, list, e)) {
+        if (spec.sigl == xcloud::sigl::kAllGames && !all.productIds.empty()) {
+            list = all;
+        } else if (!xcloud::fetchList(spec.sigl, market_, language_, list, e)) {
             XC_LOGW("%s", e.c_str());
             lastErr = e;
             continue;
+        }
+        // "Most popular on cloud" also lists games to buy first (Cuphead...).
+        if (!gamePass_.empty()) {
+            size_t before = list.productIds.size();
+            list.productIds.erase(std::remove_if(list.productIds.begin(), list.productIds.end(),
+                                                 [&](const std::string& id) { return !gamePass_.count(id); }),
+                                  list.productIds.end());
+            if (list.productIds.size() != before)
+                XC_LOGI("library: %s: %zu of %zu not in Game Pass, left out", list.title.c_str(),
+                        before - list.productIds.size(), before);
         }
         if (list.productIds.size() > spec.limit) list.productIds.resize(spec.limit);
         std::vector<std::string> missing;
@@ -104,6 +128,44 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
         return false;
     }
     return true;
+}
+
+void Library::loadOwned(xcloud::GssvClient gssv, const RowsCallback& onRows, const std::atomic<bool>* stop) {
+    std::vector<xcloud::Title> titles;
+    std::string err;
+    if (!gssv.listTitles(titles, err, false)) {
+        XC_LOGW("%s", err.c_str());  // rows stay as they are, all playable
+        return;
+    }
+    if (stop && *stop) return;
+    std::vector<std::pair<std::string, std::string>> mine;  // productId, titleId
+    for (const auto& t : titles) {
+        if (!t.hasEntitlement) continue;
+        ownedTitles_.insert(t.titleId);
+        if (t.productId.empty()) continue;
+        ownedProducts_.insert(t.productId);
+        if (!gamePass_.count(t.productId)) mine.emplace_back(t.productId, t.titleId);
+    }
+    std::vector<std::string> missing;
+    for (const auto& m : mine)
+        if (!products_.count(m.first)) missing.push_back(m.first);
+    if (!missing.empty() && !xcloud::fetchProducts(missing, market_, language_, products_, err, false))
+        XC_LOGW("%s", err.c_str());
+    if (stop && *stop) return;
+    // Alphabetical; products the catalog doesn't know have no name or art.
+    mine.erase(std::remove_if(mine.begin(), mine.end(), [&](const auto& m) { return !products_.count(m.first); }),
+               mine.end());
+    std::sort(mine.begin(), mine.end(), [&](const auto& a, const auto& b) {
+        return products_[a.first].title < products_[b.first].title;
+    });
+    RowIds row{ui::tr(ui::Str::YourGames), false, std::move(mine)};
+    size_t at = 0;  // after "Jump back in"
+    if (!layout_.empty() && !layout_.front().badges) at = 1;
+    size_t count = row.items.size();
+    layout_.insert(layout_.begin() + static_cast<long>(at), std::move(row));
+    ownershipKnown_ = true;
+    XC_LOGI("library: account can stream %zu titles; %zu outside Game Pass", ownedTitles_.size(), count);
+    onRows(rows());
 }
 
 void Library::hydrate(const RowsCallback& onRows, const std::atomic<bool>* stop) {

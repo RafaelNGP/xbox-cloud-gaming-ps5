@@ -16,6 +16,15 @@ namespace xc::ui {
 
 namespace {
 
+// A padlock centred on (cx, cy), about 24x30 px: a game the account can't play.
+void drawLock(Canvas& c, int cx, int cy) {
+    const Color white = rgba(255, 255, 255, 230);
+    c.strokeArc(static_cast<float>(cx), static_cast<float>(cy - 4), 8, 3.5f, 3.1416f, 3.1416f, white);
+    c.line(cx - 8.0f, cy - 4.0f, cx - 8.0f, cy + 1.0f, 3.5f, white);
+    c.line(cx + 8.0f, cy - 4.0f, cx + 8.0f, cy + 1.0f, 3.5f, white);
+    c.fillRect({cx - 12, cy, 24, 18}, white, 4);
+}
+
 constexpr int kW = 1920, kH = 1080;
 constexpr int kMargin = 96;
 constexpr int kCard = 240;
@@ -292,7 +301,7 @@ UiEvent AppUi::handle(const NavInput& in) {
             }
             break;
         case Screen::Details:
-            if (in.accept && focusedTile()) {
+            if (in.accept && focusedTile() && focusedTile()->playable) {
                 ev.action = Action::Play;
                 ev.game = *focusedTile();
             }
@@ -552,7 +561,10 @@ void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
                 for (size_t i = 0; i < lines.size(); ++i)
                     fonts_.semibold.draw(c, lines[i], x + 16, cardY + 16 + static_cast<int>(i) * 30, 22, kGray);
             }
-            if (row.gamePassBadges) {
+            if (!t.playable) {  // dimmed, with a lock: can't be streamed on this account
+                c.fillRect({x, cardY, kCard, kCard}, rgba(0, 0, 0, 150), 10);
+                drawLock(c, x + kCard - 34, cardY + 30);
+            } else if (row.gamePassBadges) {
                 Rect badge{x + 10, cardY + kCard - 34, 96, 24};
                 c.fillRect(badge, rgba(0, 0, 0, 210), 4);
                 fonts_.bold.draw(c, "GAME PASS", badge.x + 9, badge.y + 4, 13, kWhite);
@@ -593,6 +605,15 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     for (const auto& line : fonts_.regular.wrap(g->description, 24, 880, 6)) {
         fonts_.regular.draw(c, line, kMargin, y, 24, kGray);
         y += 34;
+    }
+    if (!g->playable) {
+        // Bought separately or outside the subscription: no Play button.
+        Rect note{kMargin, std::max(y + 48, 620), 560, 76};
+        c.fillRect(note, rgba(255, 255, 255, 40), 38);
+        drawLock(c, note.x + 52, note.y + note.h / 2);
+        fonts_.semibold.draw(c, tr(Str::NotPlayable), note.x + 90, note.y + 22, 28, kGray);
+        drawHints(c, {{kIconCircle, tr(Str::Back)}});
+        return;
     }
     // Play button (focused).
     Rect play{kMargin, std::max(y + 48, 620), 300, 76};
