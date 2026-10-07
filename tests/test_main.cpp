@@ -7,6 +7,8 @@
 #include "ui/app_ui.h"
 #include "ui/strings.h"
 #include "util/json.h"
+#include "xcloud/prices.h"
+#include "xcloud/regions.h"
 
 #include <cstdio>
 #include <string>
@@ -133,10 +135,41 @@ static void testStrings() {
     CHECK(prettyRegion("SOUTHCENTRALUS") == "South Central US");
     CHECK(prettyRegion("EASTUS2") == "East US 2");
     CHECK(prettyRegion("BRAZILSOUTH") == "Brazil South");
+    CHECK(prettyRegion("CHILECENTRAL") == "Chile Central");
+    CHECK(prettyRegion("MEXICOCENTRAL") == "Mexico Central");
+    CHECK(prettyRegion("SWEDENCENTRAL") == "Sweden Central");
+    CHECK(prettyRegion("UAENORTH") == "UAE North");
+}
+
+static void testRegions() {
+    using xc::xcloud::regionsByExpectedRtt;
+    std::vector<std::string> all = {"BRAZILSOUTH", "EASTUS", "WESTEUROPE", "CHILECENTRAL", "JAPANEAST", "UNKNOWN"};
+    // Nothing measured: by distance, the unknown region last.
+    auto order = regionsByExpectedRtt("BRAZILSOUTH", all, {});
+    CHECK(order.size() == 5);
+    CHECK(order.front() == "CHILECENTRAL");
+    CHECK(order[1] == "EASTUS");
+    CHECK(order.back() == "UNKNOWN");
+    // A measured round trip beats an estimate.
+    order = regionsByExpectedRtt("BRAZILSOUTH", all, {{"BRAZILSOUTH", 15}, {"EASTUS", 40}});
+    CHECK(order.front() == "EASTUS");
+    double km = xc::xcloud::regionDistanceKm("brazilsouth", "CHILECENTRAL");
+    CHECK(km > 2500 && km < 3000);
+}
+
+static void testPrices() {
+    using xc::xcloud::formatPrice;
+    CHECK(formatPrice(78.82, "BRL") == "R$ 78,82");
+    CHECK(formatPrice(1299.9, "BRL") == "R$ 1.299,90");
+    CHECK(formatPrice(59.99, "USD") == "$59.99");
+    CHECK(formatPrice(69.99, "EUR") == "69,99 \xE2\x82\xAC");
+    CHECK(formatPrice(4, "XYZ") == "XYZ 4.00");
 }
 
 int main() {
     testStrings();
+    testRegions();
+    testPrices();
     testJson();
     testUrl();
     testInputPacket();

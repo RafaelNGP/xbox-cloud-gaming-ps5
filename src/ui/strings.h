@@ -53,6 +53,26 @@ enum class Str {
     LibraryFailed,    // "%s" = technical detail
     StreamFailed,     // "%s" = technical detail
     IdleWarning,      // "%s" = seconds until the server disconnects
+    YourGames,        // row of the account's own (non-Game Pass) games
+    NotPlayable,      // the account can't stream this game
+    TabGamePass,
+    TabSearch,
+    SearchHint,
+    NoResults,
+    ResultsCount,     // "%s" = number
+    KeySpace,
+    KeyDelete,
+    KeyClear,
+    GamesCount,       // "%s" = number
+    KeyType,          // hint: press to type the focused key
+    TryingRegion,     // "%s" = region name
+    AvailableToBuy,   // section of games that stream once bought
+    BuyBadge,         // short, on the card
+    BuyToPlay,
+    BuyHint,
+    ScanToBuy,
+    SearchIn,         // "%s" = tab name
+    Free,             // price 0 (free-to-play games still "bought" in the store)
     Count
 };
 

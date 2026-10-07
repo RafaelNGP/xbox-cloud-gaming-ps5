@@ -3,6 +3,9 @@
 // Box art and hero images: downloaded and decoded on background threads,
 // scaled to exactly the size they are drawn at ("cover": fill and crop), and
 // kept in memory up to a byte budget (least recently used dropped first).
+// With a disk directory, downloads are also kept there (as fetched, already
+// sized by the image server) so the next launch doesn't download them again;
+// the directory is trimmed to a size limit, oldest files first.
 #pragma once
 
 #include "platform/platform.h"
@@ -28,7 +31,8 @@ Image coverResize(const Image& src, int w, int h);
 class ImageCache {
 public:
     // `onReady` is called (from a loader thread) whenever an image arrives.
-    explicit ImageCache(std::function<void()> onReady, size_t budgetBytes = 160u << 20);
+    explicit ImageCache(std::function<void()> onReady, size_t budgetBytes = 160u << 20, std::string diskDir = {},
+                        size_t diskBudgetBytes = 256u << 20);
     ~ImageCache();
 
     // The image scaled to w x h, or nullptr while it loads (or if it failed).
@@ -46,9 +50,13 @@ private:
     };
     void loop();
     void evict();
+    std::string diskPath(const std::string& url) const;
+    void trimDisk();
 
     std::function<void()> onReady_;
     size_t budget_;
+    std::string diskDir_;
+    size_t diskBudget_;
     std::mutex mutex_;
     std::condition_variable cv_;
     std::map<std::string, Entry> entries_;

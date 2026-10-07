@@ -5,8 +5,10 @@
 #include "auth/msa.h"
 #include "net/http.h"
 #include "util/json.h"
+#include "platform/platform.h"
 #include "util/log.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <map>
@@ -213,6 +215,7 @@ bool GssvClient::login(const auth::XblToken& gssvXsts, std::string& err) {
 
 bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool recentOnly) {
     out.clear();
+    uint64_t started = platform::nowMs();
     std::string continuation;
     do {
         std::string path = recentOnly ? "/v2/titles/mru?mr=25" : "/v2/titles?mr=200";
@@ -223,15 +226,22 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
             err = "title list failed: " + describe(r);
             return false;
         }
+        // Debugging: XC_DUMP_TITLES="ID1,ID2" prints those entries as sent.
+        static const char* dump = std::getenv("XC_DUMP_TITLES");
         for (const auto& t : (*j)["results"].items()) {
+            if (dump && ("," + std::string(dump) + ",").find("," + t["titleId"].str() + ",") != std::string::npos)
+                std::printf("%s\n", t.dump().c_str());
             Title title;
             title.titleId = t["titleId"].str();
             title.productId = t["details"]["productId"].str();
             title.hasEntitlement = t["details"]["hasEntitlement"].asBool();
+            title.xboxTitleId = t["details"]["xboxTitleId"].str();
             if (!title.titleId.empty()) out.push_back(std::move(title));
         }
         continuation = recentOnly ? std::string() : (*j)["continuationToken"].str();
-    } while (!continuation.empty() && out.size() < 2000);
+    } while (!continuation.empty() && out.size() < 5000);
+    XC_LOGI("title list%s: %zu titles in %llu ms", recentOnly ? " (recent)" : "", out.size(),
+            static_cast<unsigned long long>(platform::nowMs() - started));
     return true;
 }
 
