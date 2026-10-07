@@ -693,6 +693,9 @@ int main(int argc, char** argv) {
             case ui::Action::Retry: g_command = kSignIn; break;
             case ui::Action::CancelLaunch: g_cancel = true; break;
             case ui::Action::OpenUrl:
+                // The browser is a heavy process next to this app: give it
+                // the decoded images (up to 160 MB; they come back from disk).
+                g_images->clear();
                 platform::openUrl(ev.url);  // the result is logged
                 break;
             case ui::Action::SettingsChanged: {
