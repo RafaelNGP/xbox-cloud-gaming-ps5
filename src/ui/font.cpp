@@ -36,6 +36,15 @@ bool Font::load(const std::string& path) {
     return true;
 }
 
+int Font::centeredY(int boxY, int boxH, int px) const {
+    // Cap height from the "H" glyph's box, in font units.
+    int x0, y0, x1, y1;
+    float capH = stbtt_GetCodepointBox(&impl_->info, 'H', &x0, &y0, &x1, &y1) ? y1 * scale(px) : 0.7f * px;
+    float ascent = impl_->ascent * scale(px);  // line top to baseline
+    // Cap top = y + ascent - capH; centre it: (boxH - capH) / 2 below boxY.
+    return static_cast<int>(std::lround(boxY + (boxH - capH) / 2.0f - (ascent - capH)));
+}
+
 float Font::scale(int px) const { return stbtt_ScaleForPixelHeight(&impl_->info, static_cast<float>(px)); }
 
 int Font::lineHeight(int px) const {

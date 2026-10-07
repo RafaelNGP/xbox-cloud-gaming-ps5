@@ -921,14 +921,14 @@ void AppUi::drawTabs(Canvas& c) {
     auto shoulder = [&](const char* name, int cx) {
         Rect r{cx - 22, kY + 8, 44, 28};
         c.fillRect(r, rgba(255, 255, 255, 40), 8);
-        fonts_.bold.draw(c, name, cx - fonts_.bold.measure(name, 16) / 2, kY + 13, 16, kGray);
+        fonts_.bold.draw(c, name, cx - fonts_.bold.measure(name, 16) / 2, fonts_.bold.centeredY(r.y, r.h, 16), 16, kGray);
     };
     shoulder("L1", x - 40);
     for (int i = 0; i < 2; ++i) {
         bool on = static_cast<int>(tab_) == i;
         Rect r{x, kY, widths[i], kH};
         if (on) c.fillRect(r, kWhite, kH / 2);
-        fonts_.semibold.draw(c, labels[i], x + kPad, kY + 10, kPx, on ? kBg : kGray);
+        fonts_.semibold.draw(c, labels[i], x + kPad, fonts_.semibold.centeredY(kY, kH, kPx), kPx, on ? kBg : kGray);
         x += widths[i] + kGap;
     }
     shoulder("R1", x - kGap + 40);
@@ -944,9 +944,15 @@ const char* platformLabel(const std::string& code) {
 }
 
 // A shopping bag centred on (cx, cy), about 22x24 px: a game to buy.
-void drawBag(Canvas& c, int cx, int cy, Color color) {
-    c.fillRect({cx - 11, cy - 5, 22, 17}, color, 3);
-    c.strokeArc(static_cast<float>(cx), static_cast<float>(cy - 5), 6, 2.5f, 3.1416f, 3.1416f, color);
+// A shopping bag (body + handle) centred on (cx, cy); `size` scales it
+// (1 = 22 x 23 px).
+void drawBag(Canvas& c, int cx, int cy, Color color, float size = 1.0f) {
+    float w = 22 * size, h = 17 * size, r = 6 * size;
+    float bodyTop = cy - (h + r) / 2 + r;
+    c.fillRect({static_cast<int>(std::lround(cx - w / 2)), static_cast<int>(std::lround(bodyTop)),
+                static_cast<int>(std::lround(w)), static_cast<int>(std::lround(h))},
+               color, std::max(1, static_cast<int>(3 * size)));
+    c.strokeArc(static_cast<float>(cx), bodyTop, r, std::max(1.5f, 2.5f * size), 3.1416f, 3.1416f, color);
 }
 
 }  // namespace
@@ -966,18 +972,19 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
         c.fillRect({x, y, kCard, kCard}, rgba(0, 0, 0, 70), 10);
         auto price = prices_.find(t.productId);
         std::string label = price != prices_.end() ? price->second.first : tr(Str::BuyBadge);
-        int w = fonts_.bold.measure(label, 13) + 46;
+        int w = fonts_.bold.measure(label, 13) + 42;
         Rect badge{x + 10, y + kCard - 34, w, 24};
         c.fillRect(badge, rgba(16, 124, 16, 235), 4);
-        drawBag(c, badge.x + 16, badge.y + 11, kWhite);
-        fonts_.bold.draw(c, label, badge.x + 34, badge.y + 4, 13, kWhite);
+        drawBag(c, badge.x + 15, badge.y + badge.h / 2, kWhite, 0.62f);
+        fonts_.bold.draw(c, label, badge.x + 30, fonts_.bold.centeredY(badge.y, badge.h, 13), 13, kWhite);
     } else if (!t.playable) {
         c.fillRect({x, y, kCard, kCard}, rgba(0, 0, 0, 150), 10);
         drawLock(c, x + kCard - 34, y + 30);
     } else if (gamePassBadge) {
         Rect badge{x + 10, y + kCard - 34, 96, 24};
         c.fillRect(badge, rgba(0, 0, 0, 220), 4);
-        fonts_.bold.draw(c, "GAME PASS", badge.x + (96 - fonts_.bold.measure("GAME PASS", 13)) / 2, badge.y + 4, 13,
+        fonts_.bold.draw(c, "GAME PASS", badge.x + (96 - fonts_.bold.measure("GAME PASS", 13)) / 2,
+                         fonts_.bold.centeredY(badge.y, badge.h, 13), 13,
                          kWhite);
     }
     // Bottom-right: the console it was made for; one style and width for all.
@@ -985,7 +992,8 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
         constexpr int kBadgeW = 96;
         Rect badge{x + kCard - 10 - kBadgeW, y + kCard - 34, kBadgeW, 24};
         c.fillRect(badge, rgba(0, 0, 0, 220), 4);
-        fonts_.bold.draw(c, p, badge.x + (kBadgeW - fonts_.bold.measure(p, 13)) / 2, badge.y + 4, 13, kWhite);
+        fonts_.bold.draw(c, p, badge.x + (kBadgeW - fonts_.bold.measure(p, 13)) / 2,
+                         fonts_.bold.centeredY(badge.y, badge.h, 13), 13, kWhite);
     }
     if (focused) c.strokeRect({x - 7, y - 7, kCard + 14, kCard + 14}, kWhite, 4, 16);
 }
@@ -1108,7 +1116,7 @@ void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
                                                : std::string(1, static_cast<char>(std::toupper(kKeys[r * kKeyCols + k])));
             int px = r == kKeyRows ? 22 : 28;
             int w = fonts_.semibold.measure(label, px);
-            fonts_.semibold.draw(c, label, key.x + (key.w - w) / 2, key.y + (kKeyH - px) / 2 - 4, px,
+            fonts_.semibold.draw(c, label, key.x + (key.w - w) / 2, fonts_.semibold.centeredY(key.y, kKeyH, px), px,
                                  focused ? kBg : kWhite);
         }
     }

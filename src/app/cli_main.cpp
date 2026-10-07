@@ -545,6 +545,42 @@ int main(int argc, char** argv) {
         }
         int seconds = pos.size() > 1 ? std::atoi(pos[1]) : 30;
         rc = cmdStream(am, pos[0], seconds > 0 ? seconds : 30, pos.size() > 2 ? pos[2] : nullptr, res, opts, region);
+    } else if (cmd == "ui-badges" && argi < argc) {
+        // Offline: cards with every badge, to check their layout.
+        ui::Fonts fonts;
+        if (!fonts.load("assets/fonts")) return 1;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+        ui::Canvas canvas(1920, 1080);
+        std::vector<ui::GameTile> owned, buy;
+        const char* platforms[] = {"XS", "ONE", "360"};
+        for (int i = 0; i < 6; ++i) {
+            ui::GameTile t;
+            t.productId = "OWNED" + std::to_string(i);
+            t.titleId = t.productId;
+            t.name = "Owned game " + std::to_string(i);
+            t.platform = platforms[i % 3];
+            owned.push_back(t);
+            t.productId = "BUY" + std::to_string(i);
+            t.titleId = t.productId;
+            t.name = "Game to buy " + std::to_string(i);
+            t.playable = false;
+            t.purchasable = true;
+            buy.push_back(t);
+        }
+        app.setOwned(owned, buy, true);
+        app.setPrices({{"BUY0", {"R$ 56,98", "R$ 284,90"}}, {"BUY1", {"R$ 199,99", ""}}, {"BUY2", {"GR\xC3\x81TIS", ""}},
+                       {"BUY3", {"R$ 1.299,90", ""}}});
+        app.showHome();
+        ui::NavInput r1;
+        r1.r1 = true;
+        app.handle(r1);
+        app.render(canvas, 1000);
+        app.render(canvas, 2000);
+        std::string path = argv[argi];
+        stbi_write_png(path.c_str(), canvas.width(), canvas.height(), 4, canvas.data(), canvas.width() * 4);
+        std::printf("wrote %s\n", path.c_str());
+        return 0;
     } else if (cmd == "ui-preview" && argi < argc) {
         rc = cmdUiPreview(am, argv[argi]);
     } else if (cmd == "logout") {
