@@ -103,11 +103,18 @@ bool VideoDecoder::init(int threads) {
     frame_ = av_frame_alloc();
     packet_ = av_packet_alloc();
     if (!ctx_ || !frame_ || !packet_) return false;
-    ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
     ctx_->flags2 |= AV_CODEC_FLAG2_FAST;
     ctx_->thread_count = std::max(1, threads);
-    ctx_->thread_type = FF_THREAD_SLICE;
-    XC_LOGI("h264 decoder: cpu flags 0x%x", av_get_cpu_flags());
+    if (threads > 1) {
+        // xCloud sends one slice per picture, so slice threads would idle:
+        // decode several pictures at once instead, one frame of latency per
+        // extra thread. (LOW_DELAY would turn frame threading off.)
+        ctx_->thread_type = FF_THREAD_FRAME;
+    } else {
+        ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
+        ctx_->thread_type = FF_THREAD_SLICE;
+    }
+    XC_LOGI("h264 decoder: cpu flags 0x%x, %d thread(s)", av_get_cpu_flags(), ctx_->thread_count);
     int rc = avcodec_open2(ctx_, codec, nullptr);
     if (rc < 0) {
         XC_LOGE("avcodec_open2(h264): %s", averr(rc).c_str());
@@ -119,6 +126,7 @@ bool VideoDecoder::init(int threads) {
 bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out) {
     // An empty packet means "end of stream" to libavcodec and would switch it
     // to draining for good; the RTP depacketizer emits them after packet loss.
+    pending_ = false;
     if (!ctx_ || len == 0) return false;
     packet_->data = const_cast<uint8_t*>(data);
     packet_->size = static_cast<int>(len);
@@ -135,8 +143,12 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out) {
     }
     int sent = rc;
     rc = avcodec_receive_frame(ctx_, frame_);
+    if (rc == AVERROR(EAGAIN)) {
+        pending_ = true;
+        return false;
+    }
     if (rc < 0) {
-        if (rc != AVERROR(EAGAIN)) needsKeyframe_ = true;
+        needsKeyframe_ = true;
         if (failuresLogged_++ < 20)
             XC_LOGI("h264 no picture: send=%d receive=%s (%zu bytes, first NAL type %d)", sent, averr(rc).c_str(),
                     len, len > 4 ? data[4] & 0x1f : -1);

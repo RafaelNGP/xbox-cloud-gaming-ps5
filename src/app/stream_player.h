@@ -37,8 +37,14 @@ public:
         uint64_t decodeFailures = 0, queueResets = 0, keyframeRequests = 0, queued = 0;
         // RTP: packets lost, recovered by NACK, frames the jitter buffer dropped.
         uint64_t rtpPackets = 0, rtpLost = 0, rtpRecovered = 0, rtpNacks = 0, rtpDroppedFrames = 0;
+        uint64_t rtpKbps = 0, rembKbps = 0, vibrations = 0;
+        uint64_t lateFrames = 0;  // decoded, not drawn: both flips still queued
+        // Since the previous stats() call (so call it from one place only).
+        uint64_t decodeAvgUs = 0, decodeMaxUs = 0, drawAvgUs = 0, drawMaxUs = 0;
     };
     Stats stats() const;
+    // Before start(): H.264 decoder threads (more than 1 = frame threading).
+    void setDecodeThreads(int threads);
 
 private:
     struct Impl;

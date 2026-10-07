@@ -187,7 +187,7 @@ int cmdStream(auth::AuthManager& am, const std::string& titleId, int seconds, co
         if (audioDecoder.decode(d, n, pcm)) audioSamples += pcm.size() / 2;
     };
     cb.vibration = [](const stream::Vibration& v) {
-        XC_LOGD("rumble %u/%u for %ums", v.leftMotor, v.rightMotor, v.durationMs);
+        XC_LOGI("rumble %u/%u for %ums", v.leftMotor, v.rightMotor, v.durationMs);
     };
     cb.closed = [&](const std::string&) { closed = true; };
 
@@ -209,7 +209,7 @@ int cmdStream(auth::AuthManager& am, const std::string& titleId, int seconds, co
                     session.tick();
                     const auto& rtp = session.videoStats();
                     std::printf("video %llu frames (%llu key) %.1f MB, audio %llu packets (%.1f s decoded); "
-                                "rtp %llu pkts, %llu lost, %llu recovered, %llu nacks, %llu dropped, %llu kf req\n",
+                                "rtp %llu pkts, %llu lost, %llu recovered, %llu nacks, %llu dropped, %llu kf req, %u kbps (remb %u)\n",
                                 static_cast<unsigned long long>(videoFrames.load()),
                                 static_cast<unsigned long long>(keyFrames.load()), videoBytes.load() / 1048576.0,
                                 static_cast<unsigned long long>(audioPackets.load()),
@@ -219,7 +219,8 @@ int cmdStream(auth::AuthManager& am, const std::string& titleId, int seconds, co
                                 static_cast<unsigned long long>(rtp.recovered.load()),
                                 static_cast<unsigned long long>(rtp.nacks.load()),
                                 static_cast<unsigned long long>(rtp.framesDropped.load()),
-                                static_cast<unsigned long long>(rtp.keyframeRequests.load()));
+                                static_cast<unsigned long long>(rtp.keyframeRequests.load()),
+                                rtp.receiveRate.load() / 1000, rtp.estimate.load() / 1000);
                     std::fflush(stdout);
                 }
                 platform::sleepMs(16);

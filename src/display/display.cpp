@@ -37,13 +37,16 @@ int sceVideoOutRegisterBuffers2(int32_t handle, int32_t set_index,
 int sceVideoOutSubmitFlip(int32_t handle, int32_t buffer_index,
                           uint32_t flip_mode, int64_t flip_argument);
 int sceVideoOutWaitVblank(int32_t handle);
+// 16 64-bit words; word 3 is the argument of the latest flip shown.
+int sceVideoOutGetFlipStatus(int32_t handle, uint64_t status[16]);
 }
 
 namespace xc::display {
 
 namespace {
-constexpr size_t kFrameBytes = 0x1000000; // 16MB
-constexpr size_t kMemoryBytes = kFrameBytes * 2; // double buffer
+constexpr size_t kFrameBytes = 0xA00000;  // 10 MB: 15x9 macro tiles, 2 MB aligned
+constexpr int kBuffers = 3;
+constexpr size_t kMemoryBytes = kFrameBytes * kBuffers;
 constexpr size_t kMemoryAlignment = 0x200000;
 constexpr int kMemoryTypeGarlic = 3;
 constexpr int kMapProtection = 0x33;
@@ -59,6 +62,13 @@ struct VideoBuffer {
 int g_videoHandle = -1;
 void* g_mappedMemory = nullptr;
 int g_currentBuffer = 0;
+// Triple buffering: each flip carries an increasing marker, VideoOut reports
+// the marker of the flip on screen. A buffer can be drawn into once a later
+// flip than its own has shown; with three, one normally is, so drawing
+// never waits for vblank (it did with two, which made a 60 fps stream fall
+// behind whenever two frames arrived within one refresh).
+int64_t g_flipMarker = 0;
+std::array<int64_t, kBuffers> g_bufferMarker{};
 
 // PS5 VideoOut swizzled 64KB macro-tile mapping
 constexpr size_t tiledByteOffset(unsigned x, unsigned y) {
@@ -111,23 +121,21 @@ bool init() {
         return false;
     }
 
-    auto* secondFrame = static_cast<uint8_t*>(g_mappedMemory) + kFrameBytes;
-    std::array<VideoBuffer, 2> buffers{{
-        {g_mappedMemory, nullptr, nullptr, nullptr},
-        {secondFrame, nullptr, nullptr, nullptr}
-    }};
+    std::array<VideoBuffer, kBuffers> buffers{};
+    for (int i = 0; i < kBuffers; ++i)
+        buffers[i] = {static_cast<uint8_t*>(g_mappedMemory) + i * kFrameBytes, nullptr, nullptr, nullptr};
 
     uint8_t attr[80]{};
     sceVideoOutSetFlipRate(g_videoHandle, 0);
     sceVideoOutSetBufferAttribute2(attr, kPixelFormatRGBA8, 0, kWidth, kHeight, 0, 0, 0);
 
-    rc = sceVideoOutRegisterBuffers2(g_videoHandle, 0, 0, buffers.data(), 2, attr, 0, nullptr);
+    rc = sceVideoOutRegisterBuffers2(g_videoHandle, 0, 0, buffers.data(), kBuffers, attr, 0, nullptr);
     if (rc < 0) {
         XC_LOGE("sceVideoOutRegisterBuffers2 failed: 0x%08x", rc);
         return false;
     }
 
-    XC_LOGI("PS5 Display initialized (1080p, double buffered)");
+    XC_LOGI("PS5 Display initialized (1080p, triple buffered)");
     return true;
 }
 
@@ -143,13 +151,43 @@ void shutdown() {
     }
 }
 
+namespace {
+// Picks the back buffer for the next frame: not on screen, not queued.
+// Without `wait`, gives up at once when all are busy.
+bool acquireBuffer(bool wait = true) {
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        uint64_t status[16] = {};
+        int64_t shown = g_flipMarker;  // no status: assume everything shown
+        if (g_flipMarker && sceVideoOutGetFlipStatus(g_videoHandle, status) == 0)
+            shown = static_cast<int64_t>(status[3]);
+        int onScreen = -1;
+        for (int i = 0; i < kBuffers; ++i)
+            if (g_bufferMarker[i] <= shown && (onScreen < 0 || g_bufferMarker[i] > g_bufferMarker[onScreen]))
+                onScreen = i;
+        int best = -1;
+        for (int i = 0; i < kBuffers; ++i) {
+            if (i == onScreen || g_bufferMarker[i] > shown) continue;
+            if (best < 0 || g_bufferMarker[i] < g_bufferMarker[best]) best = i;
+        }
+        if (best >= 0) {
+            g_currentBuffer = best;
+            return true;
+        }
+        if (!wait) return false;
+        sceVideoOutWaitVblank(g_videoHandle);
+    }
+    // Flip status not moving: fall back to round robin.
+    g_currentBuffer = static_cast<int>(g_flipMarker % kBuffers);
+    return true;
+}
+}  // namespace
+
 void present() {
     if (g_videoHandle < 0 || !g_mappedMemory) return;
     uint8_t* base = static_cast<uint8_t*>(g_mappedMemory) + (g_currentBuffer * kFrameBytes);
     flushRange(base, kUsedBytes);
-    sceVideoOutSubmitFlip(g_videoHandle, g_currentBuffer, 1, 1);
-    sceVideoOutWaitVblank(g_videoHandle);
-    g_currentBuffer = 1 - g_currentBuffer;
+    g_bufferMarker[g_currentBuffer] = ++g_flipMarker;
+    sceVideoOutSubmitFlip(g_videoHandle, g_currentBuffer, 1, g_flipMarker);
 }
 
 namespace {
@@ -264,6 +302,7 @@ TilePool& tilePool() {
 
 void drawRgba(const uint32_t* pixels) {
     if (!g_mappedMemory) return;
+    acquireBuffer();
     uint8_t* base = static_cast<uint8_t*>(g_mappedMemory) + (g_currentBuffer * kFrameBytes);
     tilePool().run([pixels, base](unsigned first, unsigned last) {
         const TileOrder& order = tileOrder();
@@ -278,9 +317,10 @@ void drawRgba(const uint32_t* pixels) {
     });
 }
 
-void drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int strideY, int strideU, int strideV,
-                int width, int height) {
-    if (!g_mappedMemory || width <= 0 || height <= 0) return;
+bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int strideY, int strideU, int strideV,
+                int width, int height, bool wait) {
+    if (!g_mappedMemory || width <= 0 || height <= 0) return false;
+    if (!acquireBuffer(wait)) return false;
     static YuvJob job;
     if (job.width != width || job.height != height) {
         job.srcX.resize(kWidth);
@@ -299,6 +339,7 @@ void drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int stride
     job.height = height;
     job.base = static_cast<uint8_t*>(g_mappedMemory) + (g_currentBuffer * kFrameBytes);
     tilePool().run([](unsigned first, unsigned last) { convertTiles(job, first, last); });
+    return true;
 }
 
 } // namespace xc::display
@@ -314,7 +355,7 @@ std::mutex& frameMutex() {
 bool init() { return true; }
 void shutdown() {}
 void present() {}
-void drawYuv420(const uint8_t*, const uint8_t*, const uint8_t*, int, int, int, int, int) {}
+bool drawYuv420(const uint8_t*, const uint8_t*, const uint8_t*, int, int, int, int, int, bool) { return true; }
 void drawRgba(const uint32_t*) {}
 } // namespace xc::display
 
