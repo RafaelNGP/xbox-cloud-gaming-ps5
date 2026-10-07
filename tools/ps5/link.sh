@@ -36,6 +36,17 @@ done
 # shellcheck source=/dev/null
 source "$vk/tools/radv-link.sh"
 radv_link_recipe "$vk" "$sdk" "$archive" || exit 2
+# The recipe binds getaddrinfo/freeaddrinfo to the platform's ps5_* stubs,
+# which always fail (EAI_FAIL). Drop those so src/platform/ps5/libc_compat.c
+# (numeric parsing + sceNetResolver) provides them.
+filtered=()
+for flag in "${radv_link_flags[@]}"; do
+    case $flag in
+        --defsym=getaddrinfo=*|--defsym=freeaddrinfo=*) ;;
+        *) filtered+=("$flag") ;;
+    esac
+done
+radv_link_flags=("${filtered[@]}")
 
 libs=("$build/libxcloud_stream.a"
       "$build/libxcloud_media.a"
