@@ -135,6 +135,10 @@ static void testStrings() {
     CHECK(prettyRegion("SOUTHCENTRALUS") == "South Central US");
     CHECK(prettyRegion("EASTUS2") == "East US 2");
     CHECK(prettyRegion("BRAZILSOUTH") == "Brazil South");
+    CHECK(prettyRegion("CHILECENTRAL") == "Chile Central");
+    CHECK(prettyRegion("MEXICOCENTRAL") == "Mexico Central");
+    CHECK(prettyRegion("SWEDENCENTRAL") == "Sweden Central");
+    CHECK(prettyRegion("UAENORTH") == "UAE North");
 }
 
 static void testRegions() {

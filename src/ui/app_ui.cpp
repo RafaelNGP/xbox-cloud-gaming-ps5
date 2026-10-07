@@ -100,9 +100,13 @@ constexpr uint64_t kSignOutHoldMs = 5000;
 }  // namespace
 
 std::string prettyRegion(const std::string& name) {
-    static const char* kWords[] = {"SOUTHEAST", "NORTHEAST", "CENTRAL", "AUSTRALIA", "GERMANY", "EUROPE", "BRAZIL",
-                                   "CANADA", "FRANCE", "MEXICO", "SWEDEN", "JAPAN",   "KOREA",  "INDIA", "NORTH",
-                                   "SOUTH",  "EAST",   "WEST",   "ASIA",   "UK",      "US"};
+    // Longer words first where one starts another (SOUTHEAST before SOUTH).
+    static const char* kWords[] = {"SOUTHEAST", "NORTHEAST", "SWITZERLAND", "CENTRAL", "AUSTRALIA", "GERMANY",
+                                   "EUROPE",    "BRAZIL",    "CANADA",      "FRANCE",  "MEXICO",    "SWEDEN",
+                                   "NORWAY",    "POLAND",    "ITALY",       "SPAIN",   "CHILE",     "JAPAN",
+                                   "KOREA",     "INDIA",     "QATAR",       "ISRAEL",  "AFRICA",    "NORTH",
+                                   "SOUTH",     "EAST",      "WEST",        "ASIA",    "UAE",       "UK",
+                                   "US"};
     std::string out;
     size_t i = 0;
     while (i < name.size()) {
@@ -110,8 +114,9 @@ std::string prettyRegion(const std::string& name) {
         for (const char* w : kWords) {
             size_t n = std::char_traits<char>::length(w);
             if (name.compare(i, n, w) == 0) {
-                std::string word = n <= 2 ? std::string(w) : std::string(1, w[0]);
-                if (n > 2)
+                bool acronym = n <= 3;  // UK, US, UAE
+                std::string word = acronym ? std::string(w) : std::string(1, w[0]);
+                if (!acronym)
                     for (size_t k = 1; k < n; ++k) word += static_cast<char>(w[k] - 'A' + 'a');
                 out += (out.empty() ? "" : " ") + word;
                 i += n;
@@ -429,24 +434,53 @@ void AppUi::setRegions(std::vector<std::string> regions, const std::string& defa
     dirty_ = true;
 }
 
-void AppUi::changeSetting(int delta) {
+std::vector<std::string> AppUi::settingOptions(int row) const {
     // Caller holds mutex_.
-    if (settingsRow_ == 0) {
-        int n = static_cast<int>(Language::Count);
-        settings_.language = (settings_.language + delta + n) % n;
-        setLanguage(static_cast<Language>(settings_.language));  // the UI switches right away
-    } else if (settingsRow_ == 1) {
-        settings_.resolution = (settings_.resolution + delta + 3) % 3;
+    std::vector<std::string> out;
+    auto withMs = [&](std::string label, const std::string& region) {
+        auto ms = regionMs_.find(region);
+        if (ms != regionMs_.end()) label += "  \xE2\x80\xA2  " + std::to_string(ms->second) + " ms";
+        return label;
+    };
+    if (row == 0) {
+        for (int i = 0; i < static_cast<int>(Language::Count); ++i) out.push_back(languageName(static_cast<Language>(i)));
+    } else if (row == 1) {
+        out = {tr(Str::Res1080), tr(Str::Res720), tr(Str::Res1440)};  // = SettingsChoice::resolution
     } else {
-        // Index 0 is automatic, then the regions in the login's order.
-        int n = static_cast<int>(regions_.size()) + 1;
-        int cur = 0;
-        for (size_t i = 0; i < regions_.size(); ++i)
-            if (regions_[i] == settings_.region) cur = static_cast<int>(i) + 1;
-        cur = (cur + delta + n) % n;
-        settings_.region = cur == 0 ? std::string() : regions_[static_cast<size_t>(cur - 1)];
+        // Automatic first, then the regions in the login's order.
+        out.push_back(withMs(trf(Str::RegionAuto, defaultRegion_.empty() ? "-" : prettyRegion(defaultRegion_)),
+                             defaultRegion_));
+        for (const auto& r : regions_) out.push_back(withMs(prettyRegion(r), r));
+    }
+    return out;
+}
+
+int AppUi::settingSelected(int row) const {
+    // Caller holds mutex_.
+    if (row == 0) return settings_.language;
+    if (row == 1) return settings_.resolution;
+    for (size_t i = 0; i < regions_.size(); ++i)
+        if (regions_[i] == settings_.region) return static_cast<int>(i) + 1;
+    return 0;
+}
+
+void AppUi::applySetting(int row, int index) {
+    // Caller holds mutex_.
+    if (row == 0) {
+        settings_.language = index;
+        setLanguage(static_cast<Language>(index));  // the UI switches right away
+    } else if (row == 1) {
+        settings_.resolution = index;
+    } else {
+        settings_.region = index == 0 ? std::string() : regions_[static_cast<size_t>(index - 1)];
     }
     dirty_ = true;
+}
+
+void AppUi::changeSetting(int delta) {
+    // Caller holds mutex_. Left / right: the previous / next choice.
+    int n = static_cast<int>(settingOptions(settingsRow_).size());
+    if (n > 0) applySetting(settingsRow_, (settingSelected(settingsRow_) + delta + n) % n);
 }
 
 Screen AppUi::screen() const {
@@ -538,6 +572,7 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
     if (in.options) {
         screen_ = Screen::Settings;
         settingsRow_ = 0;
+        dropdownOpen_ = false;
         dirty_ = true;
         return;
     }
@@ -672,10 +707,26 @@ UiEvent AppUi::handle(const NavInput& in) {
     switch (screen_) {
         case Screen::Home: handleHome(in, ev); break;
         case Screen::Settings:
+            if (dropdownOpen_) {
+                // The list: up / down, Cross picks, Circle closes it unchanged.
+                int n = static_cast<int>(settingOptions(settingsRow_).size());
+                if (in.down && dropdownIndex_ + 1 < n) ++dropdownIndex_;
+                if (in.up && dropdownIndex_ > 0) --dropdownIndex_;
+                if (in.accept) applySetting(settingsRow_, dropdownIndex_);
+                if (in.accept || in.back) dropdownOpen_ = false;
+                dirty_ = true;
+                break;
+            }
             if (in.down && settingsRow_ < 2) ++settingsRow_, dirty_ = true;
             if (in.up && settingsRow_ > 0) --settingsRow_, dirty_ = true;
-            if (in.right || in.accept) changeSetting(+1);
+            if (in.right) changeSetting(+1);
             if (in.left) changeSetting(-1);
+            if (in.accept) {
+                dropdownOpen_ = true;
+                dropdownIndex_ = settingSelected(settingsRow_);
+                dropdownTop_ = 0;
+                dirty_ = true;
+            }
             if (in.back || in.options) {
                 screen_ = Screen::Home;
                 dirty_ = true;
@@ -1319,41 +1370,80 @@ void AppUi::drawSettings(Canvas& c) {
     drawBackground(c);
     drawTopBar(c);
     fonts_.bold.draw(c, tr(Str::Settings), kMargin, 170, 60, kWhite);
-    struct Row {
-        const char* label;
-        std::string value;
-    };
-    std::string region = settings_.region.empty()
-                             ? trf(Str::RegionAuto, defaultRegion_.empty() ? "-" : prettyRegion(defaultRegion_))
-                             : prettyRegion(settings_.region);
-    {
-        const std::string& shown = settings_.region.empty() ? defaultRegion_ : settings_.region;
-        auto ms = regionMs_.find(shown);
-        if (ms != regionMs_.end()) region += "  \xE2\x80\xA2  " + std::to_string(ms->second) + " ms";
-    }
-    const Row rows[] = {{tr(Str::Language), languageName(static_cast<Language>(settings_.language))},
-                        {tr(Str::Resolution), tr(settings_.resolution == 1   ? Str::Res720
-                                                : settings_.resolution == 2 ? Str::Res1440
-                                                                            : Str::Res1080)},
-                        {tr(Str::Region), region}};
+    const char* labels[3] = {tr(Str::Language), tr(Str::Resolution), tr(Str::Region)};
     constexpr int kRowW = 1200, kRowH = 92;
+    Rect rows[3];
     int y = 290;
     for (int i = 0; i < 3; ++i) {
         Rect r{kMargin, y, kRowW, kRowH};
+        rows[i] = r;
         bool focused = i == settingsRow_;
         c.fillRect(r, focused ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 16);
-        if (focused) c.strokeRect({r.x - 5, r.y - 5, r.w + 10, r.h + 10}, kWhite, 3, 20);
-        fonts_.semibold.draw(c, rows[i].label, r.x + 36, r.y + 28, 30, kWhite);
-        std::string value = focused ? "\xE2\x80\xB9   " + rows[i].value + "   \xE2\x80\xBA" : rows[i].value;
+        if (focused && !dropdownOpen_) c.strokeRect({r.x - 5, r.y - 5, r.w + 10, r.h + 10}, kWhite, 3, 20);
+        int ty = fonts_.semibold.centeredY(r.y, r.h, 30);
+        fonts_.semibold.draw(c, labels[i], r.x + 36, ty, 30, kWhite);
+        // The value, then a chevron: this opens a list.
+        auto options = settingOptions(i);
+        int sel = settingSelected(i);
+        std::string value = sel < static_cast<int>(options.size()) ? options[static_cast<size_t>(sel)] : "";
+        float cx = static_cast<float>(r.x + r.w - 44), cy = static_cast<float>(r.y + r.h / 2);
+        c.line(cx - 9, cy - 4, cx, cy + 5, 3, focused ? kWhite : kGray);
+        c.line(cx, cy + 5, cx + 9, cy - 4, 3, focused ? kWhite : kGray);
         int w = fonts_.regular.measure(value, 30);
-        fonts_.regular.draw(c, value, r.x + r.w - 36 - w, r.y + 28, 30, focused ? kWhite : kGray);
+        fonts_.regular.draw(c, value, r.x + r.w - 76 - w, fonts_.regular.centeredY(r.y, r.h, 30), 30,
+                            focused ? kWhite : kGray);
         y += kRowH + 22;
     }
     for (const auto& line : fonts_.regular.wrap(tr(Str::SettingsNote), 24, kRowW, 2)) {
         fonts_.regular.draw(c, line, kMargin, y + 20, 24, kDim);
         y += 34;
     }
-    drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconCircle, tr(Str::Back)}});
+
+    if (dropdownOpen_) {
+        // The list under (or, near the bottom, over) the row, right-aligned
+        // with it; scrolls past kVisible choices.
+        auto options = settingOptions(settingsRow_);
+        int sel = settingSelected(settingsRow_);
+        constexpr int kItemH = 62, kVisible = 8, kListW = 640;
+        int n = static_cast<int>(options.size());
+        int visible = std::min(n, kVisible);
+        if (dropdownIndex_ < dropdownTop_) dropdownTop_ = dropdownIndex_;
+        if (dropdownIndex_ >= dropdownTop_ + visible) dropdownTop_ = dropdownIndex_ - visible + 1;
+        const Rect& row = rows[settingsRow_];
+        Rect panel{row.x + row.w - kListW, row.y + row.h + 8, kListW, visible * kItemH + 16};
+        if (panel.y + panel.h > kH - 100) panel.y = std::max(120, kH - 100 - panel.h);
+        c.fillRect({panel.x + 6, panel.y + 10, panel.w, panel.h}, rgba(0, 0, 0, 120), 18);  // shadow
+        c.fillRect(panel, rgba(38, 38, 38, 250), 18);
+        c.strokeRect(panel, rgba(255, 255, 255, 50), 2, 18);
+        for (int k = 0; k < visible; ++k) {
+            int i = dropdownTop_ + k;
+            Rect item{panel.x + 8, panel.y + 8 + k * kItemH, panel.w - 16, kItemH};
+            bool on = i == dropdownIndex_;
+            if (on) c.fillRect(item, kWhite, 12);
+            Color text = on ? kBg : (i == sel ? kWhite : kGray);
+            fonts_.semibold.draw(c, options[static_cast<size_t>(i)], item.x + 24,
+                                 fonts_.semibold.centeredY(item.y, item.h, 26), 26, text);
+            if (i == sel) {  // a check mark on the current choice
+                float cx = static_cast<float>(item.x + item.w - 36), cy = static_cast<float>(item.y + item.h / 2);
+                c.line(cx - 10, cy, cx - 3, cy + 7, 3, on ? kBg : kGreen);
+                c.line(cx - 3, cy + 7, cx + 10, cy - 7, 3, on ? kBg : kGreen);
+            }
+        }
+        // Scroll hints: more choices above / below.
+        if (dropdownTop_ > 0) {
+            float cx = static_cast<float>(panel.x + panel.w / 2), cy = static_cast<float>(panel.y - 14);
+            c.line(cx - 10, cy + 4, cx, cy - 4, 3, kGray);
+            c.line(cx, cy - 4, cx + 10, cy + 4, 3, kGray);
+        }
+        if (dropdownTop_ + visible < n) {
+            float cx = static_cast<float>(panel.x + panel.w / 2), cy = static_cast<float>(panel.y + panel.h + 14);
+            c.line(cx - 10, cy - 4, cx, cy + 4, 3, kGray);
+            c.line(cx, cy + 4, cx + 10, cy - 4, 3, kGray);
+        }
+        drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
+    } else {
+        drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconCircle, tr(Str::Back)}});
+    }
 }
 
 void AppUi::drawSignOutHold(Canvas& c, uint64_t nowMs) {

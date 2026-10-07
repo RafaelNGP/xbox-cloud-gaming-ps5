@@ -176,6 +176,10 @@ private:
     void drawError(Canvas& c);
     void drawSettings(Canvas& c);
     void changeSetting(int delta);
+    // Settings drop-downs: the choices of a row, the chosen one, choosing.
+    std::vector<std::string> settingOptions(int row) const;
+    int settingSelected(int row) const;
+    void applySetting(int row, int index);
     void drawCentered(Canvas& c, const Font& f, const std::string& text, int y, int px, Color color);
 
     const Fonts& fonts_;
@@ -221,6 +225,8 @@ private:
     };
     std::map<std::string, DetailInfo> detailInfo_;  // fetched on demand, by product id
     int settingsRow_ = 0;
+    bool dropdownOpen_ = false;  // the list of the focused settings row
+    int dropdownIndex_ = 0, dropdownTop_ = 0;
     uint64_t signOutHoldStart_ = 0;  // TOUCHPAD hold in progress
     bool signOutLatched_ = false;    // fired; wait for release
     void drawSignOutHold(Canvas& c, uint64_t nowMs);

@@ -545,6 +545,43 @@ int main(int argc, char** argv) {
         }
         int seconds = pos.size() > 1 ? std::atoi(pos[1]) : 30;
         rc = cmdStream(am, pos[0], seconds > 0 ? seconds : 30, pos.size() > 2 ? pos[2] : nullptr, res, opts, region);
+    } else if (cmd == "ui-settings" && argi < argc) {
+        // Offline: Settings with the region list open, then the language list.
+        ui::Fonts fonts;
+        if (!fonts.load("assets/fonts")) return 1;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+        ui::Canvas canvas(1920, 1080);
+        app.setRegions({"AUSTRALIAEAST", "BRAZILSOUTH", "CHILECENTRAL", "EASTUS", "EASTUS2", "JAPANEAST", "MEXICOCENTRAL",
+                        "NORTHCENTRALUS", "SOUTHCENTRALUS", "UKSOUTH", "WESTEUROPE", "WESTUS"},
+                       "BRAZILSOUTH");
+        app.setRegionLatency({{"BRAZILSOUTH", 9}, {"EASTUS", 128}});
+        app.showHome();
+        auto press = [&](auto set) {
+            ui::NavInput n;
+            set(n);
+            app.handle(n);
+        };
+        auto save = [&](const std::string& name) {
+            app.render(canvas, 1000);
+            std::string path = std::string(argv[argi]) + "/" + name + ".png";
+            stbi_write_png(path.c_str(), canvas.width(), canvas.height(), 4, canvas.data(), canvas.width() * 4);
+            std::printf("wrote %s\n", path.c_str());
+        };
+        press([](ui::NavInput& n) { n.options = true; });
+        press([](ui::NavInput& n) { n.down = true; });
+        press([](ui::NavInput& n) { n.down = true; });
+        save("settings_rows");
+        press([](ui::NavInput& n) { n.accept = true; });
+        for (int i = 0; i < 4; ++i) press([](ui::NavInput& n) { n.down = true; });
+        save("settings_regions");
+        press([](ui::NavInput& n) { n.back = true; });
+        press([](ui::NavInput& n) { n.up = true; });
+        press([](ui::NavInput& n) { n.up = true; });
+        press([](ui::NavInput& n) { n.accept = true; });
+        press([](ui::NavInput& n) { n.down = true; });
+        save("settings_language");
+        return 0;
     } else if (cmd == "ui-badges" && argi < argc) {
         // Offline: cards with every badge, to check their layout.
         ui::Fonts fonts;
