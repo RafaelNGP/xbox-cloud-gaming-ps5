@@ -8,6 +8,7 @@
 #include "media/decoder.h"
 #include "platform/platform.h"
 #include "stream/stream_session.h"
+#include "ui/strings.h"
 #include "util/log.h"
 
 #include <algorithm>
@@ -62,6 +63,7 @@ struct StreamPlayer::Impl {
     uint64_t dumpUntilMs = 0;
     std::mutex snapshotMutex;
     std::string snapshotPath;
+    std::string screenPath;  // video thread only
     uint64_t lastKeyframeRequestMs = 0;
 
     explicit Impl(xcloud::GssvClient& g) : gssv(g) {}
@@ -145,7 +147,7 @@ struct StreamPlayer::Impl {
                 continue;
             }
             ++decodedFrames;
-            saveSnapshotIfAsked(pic);
+            bool screenshot = saveSnapshotIfAsked(pic);
             if (backlog > 2) {  // behind: skip drawing to catch up
                 ++droppedFrames;
                 continue;
@@ -174,6 +176,7 @@ struct StreamPlayer::Impl {
             }
             display::present();
             uint64_t t3 = platform::nowUs();
+            if (screenshot) saveScreen();
             drawUs += t3 - t2;
             ++drawCalls;
             atomicMax(drawMaxUs, t3 - t2);
@@ -218,12 +221,21 @@ struct StreamPlayer::Impl {
             auto scale = [](uint8_t pct) { return static_cast<uint8_t>(std::min<int>(pct, 100) * 255 / 100); };
             input::setRumble(scale(v.leftMotor), scale(v.rightMotor), v.durationMs);
         };
+        cb.idleWarning = [](int seconds) {
+            platform::notify(ui::trf(ui::Str::IdleWarning, std::to_string(seconds)));
+        };
         cb.closed = [this](const std::string& reason) { end(reason); };
 
         stream::StreamOptions opts;
-        // 1440p is asked for like the xbox.com client does; the service only
-        // grants it where Microsoft has enabled it (not every market).
-        if (gssv.resolution() == xcloud::Resolution::P1440) opts.resolutionAlias = "1440";
+        // Each setting asks for the best tier of its resolution, like the
+        // xbox.com client: the HQ tiers (higher bitrate) and 1440p need Game
+        // Pass Ultimate and a market where Microsoft enabled them; elsewhere
+        // the service ignores the request and streams the plain tier.
+        switch (gssv.resolution()) {
+        case xcloud::Resolution::P1440: opts.resolutionAlias = "1440"; break;
+        case xcloud::Resolution::P1080: opts.resolutionAlias = "1080HQ"; break;
+        case xcloud::Resolution::P720: opts.resolutionAlias = "720HQ"; break;
+        }
         opts.maxBitrate = gssv.resolution() == xcloud::Resolution::P720    ? 12000000
                           : gssv.resolution() == xcloud::Resolution::P1440 ? 40000000
                                                                            : 25000000;
@@ -243,13 +255,16 @@ struct StreamPlayer::Impl {
         return true;
     }
 
-    void saveSnapshotIfAsked(const media::Picture& pic) {
+    // Returns true when a snapshot was taken: the caller then saves what the
+    // screen shows too (saveScreen()).
+    bool saveSnapshotIfAsked(const media::Picture& pic) {
         std::string path;
         {
             std::lock_guard<std::mutex> lock(snapshotMutex);
             path.swap(snapshotPath);
         }
-        if (path.empty()) return;
+        if (path.empty()) return false;
+        screenPath = path.substr(0, path.rfind('/') + 1) + "screen.ppm";
         int w = pic.width / 2, h = pic.height / 2;
         std::vector<uint8_t> rgb(static_cast<size_t>(w) * h * 3);
         for (int y = 0; y < h; ++y)
@@ -267,6 +282,17 @@ struct StreamPlayer::Impl {
         data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
         bool ok = platform::writeFileAtomic(path, data);
         XC_LOGI("snapshot %dx%d -> %s: %s", w, h, path.c_str(), ok ? "ok" : "failed");
+        return true;
+    }
+
+    // The scan-out buffer just presented, at full resolution.
+    void saveScreen() {
+        std::vector<uint8_t> rgb;
+        if (!display::readBackRgb(rgb)) return;
+        std::string data = "P6\n" + std::to_string(display::kWidth) + " " + std::to_string(display::kHeight) + "\n255\n";
+        data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
+        bool ok = platform::writeFileAtomic(screenPath, data);
+        XC_LOGI("screen -> %s: %s", screenPath.c_str(), ok ? "ok" : "failed");
     }
 
     // Video thread only (data channel sends are thread-safe).

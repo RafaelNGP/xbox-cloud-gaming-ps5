@@ -23,6 +23,9 @@ struct StreamCallbacks {
     std::function<void(const uint8_t* data, size_t len, uint32_t rtpTimestamp)> video;
     std::function<void(const uint8_t* data, size_t len, uint32_t rtpTimestamp)> audio;
     std::function<void(const Vibration&)> vibration;
+    // The server will end the session for inactivity in `seconds` unless
+    // input arrives.
+    std::function<void(int seconds)> idleWarning;
     // The stream ended (server disconnect, connection lost). Called once.
     std::function<void(const std::string& reason)> closed;
 };

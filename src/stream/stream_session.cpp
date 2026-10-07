@@ -290,9 +290,17 @@ struct StreamSession::Impl {
         std::string id = (*j)["id"].str();
         XC_LOGI("message %s %s", type.c_str(), target.c_str());
         if (target == "/streaming/sessionLifetimeManagement/serverInitiatedDisconnect") {
-            XC_LOGW("server disconnect: %s", (*j)["content"].str().substr(0, 300).c_str());
+            std::string body = (*j)["content"].str();
+            XC_LOGW("server disconnect: %s", body.substr(0, 300).c_str());
             completeTransaction(id, json::Value(""));
-            fail("the server ended the session");
+            // A warning shares this message with the real kicks: the session
+            // goes on (the xbox.com client only shows a notice).
+            auto content = json::parse(body);
+            if (content && (*content)["reason"].str() == "WarningForBeingIdle") {
+                if (cb.idleWarning) cb.idleWarning(static_cast<int>((*content)["secondsUntilKick"].asInt(120)));
+            } else {
+                fail("the server ended the session");
+            }
         } else if (target == "/streaming/systemUi/messages/ShowMessageDialog") {
             // No dialog UI yet: log it and pick the first (default) button.
             auto content = json::parse((*j)["content"].str());
