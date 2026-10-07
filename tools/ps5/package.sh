@@ -25,9 +25,13 @@ cp "$root/ps5/sce_sys/icon0.png" "$app/sce_sys/icon0.png"
 cp "$vk/runtime/libc.prx" "$app/sce_module/libc.prx"
 cp -r "$root/assets/." "$app/assets/"
 
-# License texts for everything in the package (see THIRD_PARTY_NOTICES.md).
+# README.txt for users, LICENSE, and the license texts of everything in the
+# package (see THIRD_PARTY_NOTICES.md). XC_VERSION names the release.
+version=${XC_VERSION:-$(git -C "$root" describe --tags --always 2>/dev/null || echo dev)}
+sed -e "s/@VERSION@/$version/g" -e "s/@TITLE_ID@/$title/g" "$root/ps5/release/README.txt" > "$app/README.txt"
+cp "$root/LICENSE" "$app/LICENSE"
 mkdir -p "$app/licenses"
-cp "$root/LICENSE" "$root/THIRD_PARTY_NOTICES.md" "$app/licenses/"
+cp "$root/THIRD_PARTY_NOTICES.md" "$app/licenses/"
 cp "$root/assets/fonts/OFL.txt" "$app/licenses/Inter-OFL.txt"
 cp "$root/deps/mbedtls/LICENSE" "$app/licenses/mbedtls-LICENSE.txt"
 cp "$root/deps/libdatachannel/LICENSE" "$app/licenses/libdatachannel-MPL-2.0.txt"

@@ -1,0 +1,57 @@
+name: Bug report
+description: The app doesn't start, crashes, can't sign in, or a game doesn't stream properly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing! The log is the most useful thing you can send:
+        it is at `/data/homebrew/PPSA99810/xcloud.log` on the PS5 (copy it over FTP).
+
+        **Never attach `account.json`**: it gives access to your Microsoft account.
+        For security problems, use the private report link in SECURITY.md instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what you saw (error text, black screen, crash, no sound...).
+    validations:
+      required: true
+  - type: input
+    id: release
+    attributes:
+      label: App release
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: PS5 firmware
+      placeholder: e.g. 4.03
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Game(s) affected
+      placeholder: e.g. Balatro
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network
+      options:
+        - Wired
+        - Wi-Fi 5 GHz
+        - Wi-Fi 2.4 GHz
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: xcloud.log
+      description: Paste the full contents of /data/homebrew/PPSA99810/xcloud.log (or attach the file).
+      render: text
+    validations:
+      required: true
