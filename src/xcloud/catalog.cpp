@@ -73,6 +73,8 @@ bool fetchProducts(const std::vector<std::string>& ids, const std::string& marke
             prod.productId = id;
             prod.xcloudTitleId = p["XCloudTitleId"].str();
             prod.title = p["ProductTitle"].str();
+            prod.xboxTitleId = p["XboxTitleId"].str();
+            if (prod.xboxTitleId.empty()) prod.xboxTitleId = p["ChildXboxTitleIds"][0].str();
             prod.publisher = p["PublisherName"].str();
             prod.description = p["ProductDescriptionShort"].str();
             if (prod.description.empty()) prod.description = p["ProductDescription"].str();

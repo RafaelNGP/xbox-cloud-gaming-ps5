@@ -607,6 +607,15 @@ void StreamSession::requestKeyframe() {
 }
 void StreamSession::tick() { impl_->tick(); }
 void StreamSession::close() { impl_->close(); }
+int StreamSession::rttMs() const {
+    try {
+        if (impl_->pc)
+            if (auto rtt = impl_->pc->rtt()) return static_cast<int>(rtt->count());
+    } catch (const std::exception&) {
+    }
+    return -1;
+}
+
 const VideoReceiveStats& StreamSession::videoStats() const {
     if (impl_->videoReporter) {
         impl_->videoStats.receiveRate = impl_->videoReporter->receiveRate();

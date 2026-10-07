@@ -7,6 +7,7 @@
 #include "ui/app_ui.h"
 #include "ui/strings.h"
 #include "util/json.h"
+#include "xcloud/regions.h"
 
 #include <cstdio>
 #include <string>
@@ -135,8 +136,25 @@ static void testStrings() {
     CHECK(prettyRegion("BRAZILSOUTH") == "Brazil South");
 }
 
+static void testRegions() {
+    using xc::xcloud::regionsByExpectedRtt;
+    std::vector<std::string> all = {"BRAZILSOUTH", "EASTUS", "WESTEUROPE", "CHILECENTRAL", "JAPANEAST", "UNKNOWN"};
+    // Nothing measured: by distance, the unknown region last.
+    auto order = regionsByExpectedRtt("BRAZILSOUTH", all, {});
+    CHECK(order.size() == 5);
+    CHECK(order.front() == "CHILECENTRAL");
+    CHECK(order[1] == "EASTUS");
+    CHECK(order.back() == "UNKNOWN");
+    // A measured round trip beats an estimate.
+    order = regionsByExpectedRtt("BRAZILSOUTH", all, {{"BRAZILSOUTH", 15}, {"EASTUS", 40}});
+    CHECK(order.front() == "EASTUS");
+    double km = xc::xcloud::regionDistanceKm("brazilsouth", "CHILECENTRAL");
+    CHECK(km > 2500 && km < 3000);
+}
+
 int main() {
     testStrings();
+    testRegions();
     testJson();
     testUrl();
     testInputPacket();

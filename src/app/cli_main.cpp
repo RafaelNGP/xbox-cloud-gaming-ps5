@@ -20,6 +20,7 @@
 #include "auth/auth_manager.h"
 #include "media/decoder.h"
 #include "net/http.h"
+#include "util/json.h"
 #include "stream/stream_session.h"
 #include "platform/platform.h"
 #include "util/log.h"
@@ -303,8 +304,8 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
     app::Library library;
     auto onRows = [&] {
         app.setRows(library.rows());
-        app.setOwned(library.owned(), library.ownedKnown());
-        app.setSearchPool(library.searchPool());
+        app.setOwned(library.owned(), library.purchasable(), library.ownedKnown());
+        app.setSearchPools(library.gamePassSearchPool(), library.librarySearchPool());
     };
     if (!library.load(gssv, ui::catalogLanguage(), onRows, err)) {
         XC_LOGE("%s", err.c_str());
@@ -312,21 +313,13 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
     }
     library.loadOwned(gssv, onRows);
     library.loadCatalogNames(onRows);
+    library.loadPlatforms(am.profile().xblAuthorization, onRows);
     library.hydrate(onRows);
     app.showHome();
     save("home", 4000);
     {
-        // The other tabs: "Your games", then a search typed on the keyboard.
-        ui::NavInput r1;
-        r1.r1 = true;
-        app.handle(r1);
-        save("library", 3000);
-        ui::NavInput down1;
-        down1.down = true;
-        app.handle(down1);
-        app.handle(down1);
-        save("library_scrolled", 1500);
-        app.handle(r1);
+        // "Your games" (its games, then those to buy), then searches typed
+        // on the keyboard, in each tab.
         auto press = [&](auto set, int times) {
             for (int i = 0; i < times; ++i) {
                 ui::NavInput n;
@@ -334,19 +327,33 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
                 app.handle(n);
             }
         };
-        auto type = [&](char ch) {
-            int idx = static_cast<int>(std::string("abcdefghijklmnopqrstuvwxyz0123456789").find(ch));
-            press([](ui::NavInput& n) { n.up = true; }, 7);
-            press([](ui::NavInput& n) { n.left = true; }, 6);
-            press([](ui::NavInput& n) { n.down = true; }, idx / 6);
-            press([](ui::NavInput& n) { n.right = true; }, idx % 6);
-            press([](ui::NavInput& n) { n.accept = true; }, 1);
+        auto type = [&](const std::string& text) {
+            for (char ch : text) {
+                int idx = static_cast<int>(std::string("abcdefghijklmnopqrstuvwxyz0123456789").find(ch));
+                press([](ui::NavInput& n) { n.up = true; }, 7);
+                press([](ui::NavInput& n) { n.left = true; }, 6);
+                press([](ui::NavInput& n) { n.down = true; }, idx / 6);
+                press([](ui::NavInput& n) { n.right = true; }, idx % 6);
+                press([](ui::NavInput& n) { n.accept = true; }, 1);
+            }
         };
-        for (char ch : std::string("forza")) type(ch);
-        save("search", 3000);
-        press([](ui::NavInput& n) { n.right = true; }, 6);  // over to the results
-        save("search_results", 1500);
-        press([](ui::NavInput& n) { n.l1 = true; }, 2);     // back to the Game Pass tab
+        press([](ui::NavInput& n) { n.triangle = true; }, 1);  // Game Pass search
+        type("forza");
+        save("search_gamepass", 3000);
+        press([](ui::NavInput& n) { n.back = true; }, 1);
+        press([](ui::NavInput& n) { n.r1 = true; }, 1);
+        save("library", 3000);
+        int ownedRows = static_cast<int>((library.owned().size() + 5) / 6);
+        press([](ui::NavInput& n) { n.down = true; }, ownedRows);  // into "Available to buy"
+        save("library_buy", 3000);
+        press([](ui::NavInput& n) { n.accept = true; }, 1);
+        save("details_buy", 2000);
+        press([](ui::NavInput& n) { n.back = true; }, 1);
+        press([](ui::NavInput& n) { n.triangle = true; }, 1);  // "Your games" search
+        type("dead");
+        save("search_library", 3000);
+        press([](ui::NavInput& n) { n.back = true; }, 1);
+        press([](ui::NavInput& n) { n.l1 = true; }, 1);  // back to the Game Pass tab
     }
     ui::NavInput right;
     right.right = true;
@@ -476,6 +483,26 @@ int main(int argc, char** argv) {
     if (cmd == "login") {
         xcloud::GssvClient gssv;
         rc = signIn(am, gssv) ? 0 : 1;
+    } else if (cmd == "titlehub" && argi < argc) {
+        // Debugging: titlehub's view of Xbox title ids (devices etc.).
+        xcloud::GssvClient gssv;
+        if (!signIn(am, gssv)) return 1;
+        json::Value ids = json::Value::array();
+        for (; argi < argc; ++argi) ids.push(std::string(argv[argi]));
+        json::Value body = json::Value::object();
+        body.set("pfns", nullptr);
+        body.set("titleIds", ids);
+        net::Request req;
+        req.method = "POST";
+        req.url = "https://titlehub.xboxlive.com/titles/batch/decoration/detail";
+        req.headers = {{"Authorization", am.profile().xblAuthorization},
+                       {"x-xbl-contract-version", "2"},
+                       {"Content-Type", "application/json"},
+                       {"Accept-Language", "en-US"}};
+        req.body = body.dump();
+        auto r = net::perform(req);
+        std::printf("HTTP %d\n%s\n", r.status, r.body.c_str());
+        return r.ok() ? 0 : 1;
     } else if (cmd == "titles") {
         rc = cmdTitles(am, argi < argc && std::strcmp(argv[argi], "--recent") == 0);
     } else if (cmd == "provision" && argi < argc) {

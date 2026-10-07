@@ -50,6 +50,7 @@ constexpr int kLibraryCols = 6;
 constexpr int kResultCols = 4;
 constexpr int kGridTop = 236;       // y of the first card row
 constexpr int kResultsX = 760;
+constexpr int kSectionHeaderH = 96;  // "Available to buy" heading in the grid
 constexpr size_t kMaxResults = 60;
 
 // The search keyboard: 6 x 6 letters and digits, then Space / Delete / Clear.
@@ -204,24 +205,45 @@ void AppUi::setRows(std::vector<GameRow> rows) {
     dirty_ = true;
 }
 
-void AppUi::setOwned(std::vector<GameTile> tiles, bool known) {
+void AppUi::setOwned(std::vector<GameTile> owned, std::vector<GameTile> purchasable, bool known) {
     std::lock_guard<std::mutex> lock(mutex_);
-    std::string focused = gridFocus_ < static_cast<int>(owned_.size()) ? owned_[static_cast<size_t>(gridFocus_)].productId : "";
-    owned_ = std::move(tiles);
+    const GameTile* was = libraryTile(gridFocus_);
+    std::string focused = was ? was->productId : "";
+    owned_ = std::move(owned);
+    purchasable_ = std::move(purchasable);
     ownedKnown_ = known;
     gridFocus_ = 0;
-    for (size_t i = 0; i < owned_.size(); ++i)
-        if (owned_[i].productId == focused) gridFocus_ = static_cast<int>(i);
+    for (int i = 0; libraryTile(i); ++i)
+        if (libraryTile(i)->productId == focused) gridFocus_ = i;
     refreshDetail();
     dirty_ = true;
 }
 
-void AppUi::setSearchPool(std::vector<GameTile> pool) {
+void AppUi::setSearchPools(std::vector<GameTile> gamePass, std::vector<GameTile> library) {
     std::lock_guard<std::mutex> lock(mutex_);
-    pool_ = std::move(pool);
-    runSearch();
+    gamePassPool_ = std::move(gamePass);
+    libraryPool_ = std::move(library);
+    if (searching_) {
+        int keep = resultFocus_;
+        runSearch();
+        resultFocus_ = std::min(keep, std::max(0, static_cast<int>(results_.size()) - 1));
+    }
     refreshDetail();
     dirty_ = true;
+}
+
+void AppUi::setRegionLatency(std::map<std::string, int> ms) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    regionMs_ = std::move(ms);
+    dirty_ = true;
+}
+
+const GameTile* AppUi::libraryTile(int index) const {
+    if (index < 0) return nullptr;
+    size_t i = static_cast<size_t>(index);
+    if (i < owned_.size()) return &owned_[i];
+    i -= owned_.size();
+    return i < purchasable_.size() ? &purchasable_[i] : nullptr;
 }
 
 Tab AppUi::tab() const {
@@ -246,8 +268,8 @@ void AppUi::refreshDetail() {
     };
     for (const auto& row : rows_)
         for (const auto& t : row.tiles) take(t);
-    for (const auto& t : owned_) take(t);
-    for (const auto& t : pool_) take(t);
+    for (const auto* list : {&owned_, &purchasable_, &gamePassPool_, &libraryPool_})
+        for (const auto& t : *list) take(t);
 }
 
 void AppUi::runSearch() {
@@ -270,7 +292,7 @@ void AppUi::runSearch() {
         const GameTile* tile;
     };
     std::vector<Hit> hits;
-    for (const auto& t : pool_) {
+    for (const auto& t : tab_ == Tab::GamePass ? gamePassPool_ : libraryPool_) {
         std::string name = fold(t.name);
         bool all = true;
         for (const auto& w : words)
@@ -278,7 +300,7 @@ void AppUi::runSearch() {
         if (!all && withoutSpaces(name).find(compact) == std::string::npos) continue;
         // Starts with the query, then a word starting with it, then the rest.
         int score = name.rfind(words[0], 0) == 0 ? 0 : name.find(" " + words[0]) != std::string::npos ? 1 : 2;
-        if (!t.playable) score += 3;
+        if (!t.playable) score += 3;  // in "Your games": owned before games to buy
         hits.push_back({score, &t});
     }
     std::stable_sort(hits.begin(), hits.end(), [](const Hit& a, const Hit& b) {
@@ -406,12 +428,40 @@ float gridTarget(int focus, int cols) { return static_cast<float>(std::max(0, fo
 
 }  // namespace
 
+AppUi::LibraryLayout AppUi::libraryLayout() const {
+    // Caller holds mutex_. The account's games, then (after a header) the
+    // games to buy, both kLibraryCols wide.
+    LibraryLayout L;
+    L.cols = kLibraryCols;
+    int y = 0, row = 0, index = 0;
+    for (int section = 0; section < 2; ++section) {
+        const auto& list = section == 0 ? owned_ : purchasable_;
+        if (list.empty()) continue;
+        if (section == 1) {
+            if (row > 0) y += 30;
+            L.headerY[1] = y;
+            y += kSectionHeaderH;
+        }
+        for (size_t i = 0; i < list.size(); ++i, ++index) {
+            int col = static_cast<int>(i) % L.cols;
+            if (col == 0) {
+                L.rowY.push_back(y + static_cast<int>(i) / L.cols * kGridPitchY);
+                L.rowFirst.push_back(index);
+                ++row;
+            }
+            L.rowOf.push_back(row - 1);
+            L.colOf.push_back(col);
+        }
+        y = L.rowY.back() + kGridPitchY;
+    }
+    return L;
+}
+
 void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
     // Caller holds mutex_.
     if (in.l1 || in.r1) {
-        int t = (static_cast<int>(tab_) + (in.r1 ? 1 : 2)) % 3;
-        tab_ = static_cast<Tab>(t);
-        if (tab_ == Tab::Search) searchOnKeys_ = true;
+        tab_ = tab_ == Tab::GamePass ? Tab::Library : Tab::GamePass;
+        searching_ = false;
         dirty_ = true;
         return;
     }
@@ -419,6 +469,44 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
         screen_ = Screen::Settings;
         settingsRow_ = 0;
         dirty_ = true;
+        return;
+    }
+    if (in.triangle && !searching_) {  // search this tab
+        searching_ = true;
+        searchOnKeys_ = true;
+        query_.clear();
+        runSearch();
+        dirty_ = true;
+        return;
+    }
+    if (searching_) {
+        if (searchOnKeys_) {
+            if (in.back || in.triangle) {  // close the search
+                searching_ = false;
+                dirty_ = true;
+                return;
+            }
+            handleSearchKeys(in);
+            return;
+        }
+        if (in.back || in.triangle || (in.left && resultFocus_ % kResultCols == 0)) {  // back to the keys
+            searchOnKeys_ = true;
+            dirty_ = true;
+            return;
+        }
+        if (in.square && !query_.empty()) {  // delete without going back to the keys
+            query_.pop_back();
+            runSearch();
+            searchOnKeys_ = results_.empty();
+            dirty_ = true;
+            return;
+        }
+        if (moveInGrid(resultFocus_, static_cast<int>(results_.size()), kResultCols, in)) {
+            resultScroll_.target = gridTarget(resultFocus_, kResultCols);
+            dirty_ = true;
+        }
+        if (in.accept && resultFocus_ < static_cast<int>(results_.size()))
+            openDetails(results_[static_cast<size_t>(resultFocus_)]);
         return;
     }
     switch (tab_) {
@@ -438,44 +526,32 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
             if (in.accept && focusedTile()) openDetails(*focusedTile());
             break;
         }
-        case Tab::Library:
-            if (owned_.empty()) break;
-            if (moveInGrid(gridFocus_, static_cast<int>(owned_.size()), kLibraryCols, in)) {
-                gridScroll_.target = gridTarget(gridFocus_, kLibraryCols);
+        case Tab::Library: {
+            if (!libraryTile(0)) break;
+            LibraryLayout L = libraryLayout();
+            int count = static_cast<int>(L.rowOf.size());
+            int f = std::min(gridFocus_, count - 1), before = f;
+            int row = L.rowOf[static_cast<size_t>(f)], col = L.colOf[static_cast<size_t>(f)];
+            int rows = static_cast<int>(L.rowY.size());
+            auto rowLen = [&](int r) {
+                int next = r + 1 < rows ? L.rowFirst[static_cast<size_t>(r + 1)] : count;
+                return next - L.rowFirst[static_cast<size_t>(r)];
+            };
+            if (in.right && f + 1 < count && L.rowOf[static_cast<size_t>(f + 1)] == row) ++f;
+            if (in.left && col > 0) --f;
+            if (in.down && row + 1 < rows) f = L.rowFirst[static_cast<size_t>(row + 1)] + std::min(col, rowLen(row + 1) - 1);
+            if (in.up && row > 0) f = L.rowFirst[static_cast<size_t>(row - 1)] + std::min(col, rowLen(row - 1) - 1);
+            if (f != before) {
+                gridFocus_ = f;
+                int y = L.rowY[static_cast<size_t>(L.rowOf[static_cast<size_t>(f)])];
+                gridScroll_.target = static_cast<float>(std::max(0, y - kGridPitchY - 40));
                 dirty_ = true;
             }
-            if (in.accept) openDetails(owned_[static_cast<size_t>(gridFocus_)]);
+            if (in.accept && libraryTile(f)) openDetails(*libraryTile(f));
             break;
-        case Tab::Search:
-            if (searchOnKeys_) {
-                handleSearchKeys(in);
-                break;
-            }
-            if (in.back) {  // back from the results to the keys
-                searchOnKeys_ = true;
-                dirty_ = true;
-                break;
-            }
-            if (in.left && resultFocus_ % kResultCols == 0) {
-                searchOnKeys_ = true;
-                dirty_ = true;
-                break;
-            }
-            if (in.square && !query_.empty()) {  // delete without going back to the keys
-                query_.pop_back();
-                runSearch();
-                searchOnKeys_ = results_.empty();
-                dirty_ = true;
-                break;
-            }
-            if (moveInGrid(resultFocus_, static_cast<int>(results_.size()), kResultCols, in)) {
-                resultScroll_.target = gridTarget(resultFocus_, kResultCols);
-                dirty_ = true;
-            }
-            if (in.accept && resultFocus_ < static_cast<int>(results_.size()))
-                openDetails(results_[static_cast<size_t>(resultFocus_)]);
-            break;
+        }
     }
+    (void)ev;
 }
 
 void AppUi::handleSearchKeys(const NavInput& in) {
@@ -754,10 +830,10 @@ void AppUi::drawSignIn(Canvas& c, uint64_t nowMs) {
 
 void AppUi::drawTabs(Canvas& c) {
     // Centred pills in the top bar, between "L1" and "R1".
-    const char* labels[3] = {tr(Str::TabGamePass), tr(Str::YourGames), tr(Str::TabSearch)};
+    const char* labels[2] = {tr(Str::TabGamePass), tr(Str::YourGames)};
     constexpr int kPx = 22, kPad = 26, kGap = 12, kH = 44, kY = 50;
-    int widths[3], total = 0;
-    for (int i = 0; i < 3; ++i) {
+    int widths[2], total = 0;
+    for (int i = 0; i < 2; ++i) {
         widths[i] = fonts_.semibold.measure(labels[i], kPx) + 2 * kPad;
         total += widths[i] + (i ? kGap : 0);
     }
@@ -768,7 +844,7 @@ void AppUi::drawTabs(Canvas& c) {
         fonts_.bold.draw(c, name, cx - fonts_.bold.measure(name, 16) / 2, kY + 13, 16, kGray);
     };
     shoulder("L1", x - 40);
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 2; ++i) {
         bool on = static_cast<int>(tab_) == i;
         Rect r{x, kY, widths[i], kH};
         if (on) c.fillRect(r, kWhite, kH / 2);
@@ -776,6 +852,60 @@ void AppUi::drawTabs(Canvas& c) {
         x += widths[i] + kGap;
     }
     shoulder("R1", x - kGap + 40);
+}
+
+namespace {
+
+const char* platformLabel(const std::string& code) {
+    if (code == "360") return "XBOX 360";
+    if (code == "ONE") return "XBOX ONE";
+    if (code == "XS") return "SERIES X|S";
+    return nullptr;
+}
+
+// A shopping bag centred on (cx, cy), about 22x24 px: a game to buy.
+void drawBag(Canvas& c, int cx, int cy, Color color) {
+    c.fillRect({cx - 11, cy - 5, 22, 17}, color, 3);
+    c.strokeArc(static_cast<float>(cx), static_cast<float>(cy - 5), 6, 2.5f, 3.1416f, 3.1416f, color);
+}
+
+}  // namespace
+
+void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, bool gamePassBadge) {
+    if (auto img = images_.get(t.tileUrl, kCard, kCard)) {
+        c.drawImage(*img, x, y, 255, 10);
+    } else {
+        c.fillRect({x, y, kCard, kCard}, kPlaceholder, 10);
+        auto lines = fonts_.semibold.wrap(t.name, 22, kCard - 32, 3);
+        for (size_t k = 0; k < lines.size(); ++k)
+            fonts_.semibold.draw(c, lines[k], x + 16, y + 16 + static_cast<int>(k) * 30, 22, kGray);
+    }
+    // Bottom-left: GAME PASS, or BUY with a bag; a padlock (top right) when
+    // it can't be played or bought.
+    if (t.purchasable) {
+        c.fillRect({x, y, kCard, kCard}, rgba(0, 0, 0, 70), 10);
+        std::string label = tr(Str::BuyBadge);
+        int w = fonts_.bold.measure(label, 13) + 46;
+        Rect badge{x + 10, y + kCard - 34, w, 24};
+        c.fillRect(badge, rgba(16, 124, 16, 235), 4);
+        drawBag(c, badge.x + 16, badge.y + 11, kWhite);
+        fonts_.bold.draw(c, label, badge.x + 34, badge.y + 4, 13, kWhite);
+    } else if (!t.playable) {
+        c.fillRect({x, y, kCard, kCard}, rgba(0, 0, 0, 150), 10);
+        drawLock(c, x + kCard - 34, y + 30);
+    } else if (gamePassBadge) {
+        Rect badge{x + 10, y + kCard - 34, 96, 24};
+        c.fillRect(badge, rgba(0, 0, 0, 210), 4);
+        fonts_.bold.draw(c, "GAME PASS", badge.x + 9, badge.y + 4, 13, kWhite);
+    }
+    // Bottom-right: the console it was made for.
+    if (const char* p = platformLabel(t.platform)) {
+        int w = fonts_.bold.measure(p, 13) + 18;
+        Rect badge{x + kCard - 10 - w, y + kCard - 34, w, 24};
+        c.fillRect(badge, t.platform == "360" ? rgba(60, 60, 60, 225) : rgba(0, 0, 0, 210), 4);
+        fonts_.bold.draw(c, p, badge.x + 9, badge.y + 4, 13, t.platform == "XS" ? rgba(120, 230, 120) : kWhite);
+    }
+    if (focused) c.strokeRect({x - 7, y - 7, kCard + 14, kCard + 14}, kWhite, 4, 16);
 }
 
 void AppUi::drawGrid(Canvas& c, const std::vector<GameTile>& tiles, int x0, int y0, int cols, float scroll, int focus,
@@ -787,23 +917,10 @@ void AppUi::drawGrid(Canvas& c, const std::vector<GameTile>& tiles, int x0, int 
         int y = y0 + row * kGridPitchY - offset;
         if (y + kCard + 40 < clipTop) continue;
         if (y > kH) break;
-        const GameTile& t = tiles[i];
-        if (auto img = images_.get(t.tileUrl, kCard, kCard)) {
-            c.drawImage(*img, x, y, 255, 10);
-        } else {
-            c.fillRect({x, y, kCard, kCard}, kPlaceholder, 10);
-            auto lines = fonts_.semibold.wrap(t.name, 22, kCard - 32, 3);
-            for (size_t k = 0; k < lines.size(); ++k)
-                fonts_.semibold.draw(c, lines[k], x + 16, y + 16 + static_cast<int>(k) * 30, 22, kGray);
-        }
-        if (!t.playable) {
-            c.fillRect({x, y, kCard, kCard}, rgba(0, 0, 0, 150), 10);
-            drawLock(c, x + kCard - 34, y + 30);
-        }
         bool focused = static_cast<int>(i) == focus;
-        auto name = fonts_.semibold.wrap(t.name, 20, kCard, 1);
+        drawCard(c, tiles[i], x, y, focused, false);
+        auto name = fonts_.semibold.wrap(tiles[i].name, 20, kCard, 1);
         if (!name.empty()) fonts_.semibold.draw(c, name[0], x, y + kCard + 12, 20, focused ? kWhite : kGray);
-        if (focused) c.strokeRect({x - 7, y - 7, kCard + 14, kCard + 14}, kWhite, 4, 16);
     }
     // Rows scrolled up (cards and names) disappear under the header.
     c.fillRect({0, 0, kW, clipTop}, kBg);
@@ -813,10 +930,37 @@ void AppUi::drawGrid(Canvas& c, const std::vector<GameTile>& tiles, int x0, int 
 void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
     drawBackground(c);
     constexpr int kGridW = kLibraryCols * kCardPitch - kCardGap;
-    drawGrid(c, owned_, (kW - kGridW) / 2, kGridTop, kLibraryCols, gridScroll_.value, gridFocus_, kGridTop - 20);
+    const int left = (kW - kGridW) / 2;
+    const int clipTop = kGridTop - 20;
+    LibraryLayout L = libraryLayout();
+    int offset = static_cast<int>(std::lround(gridScroll_.value));
+    // "Available to buy": a heading with what it means, inside the grid.
+    if (!purchasable_.empty()) {
+        int hy = kGridTop + L.headerY[1] - offset;
+        if (hy > clipTop - 80 && hy < kH) {
+            drawBag(c, left + 14, hy + 30, kGreen);
+            fonts_.bold.draw(c, tr(Str::AvailableToBuy), left + 40, hy + 8, 34, kWhite);
+            int w = fonts_.bold.measure(tr(Str::AvailableToBuy), 34);
+            fonts_.semibold.draw(c, trf(Str::GamesCount, std::to_string(purchasable_.size())), left + 60 + w, hy + 20,
+                                 22, kDim);
+            fonts_.regular.draw(c, tr(Str::BuyToPlay), left + 40, hy + 52, 22, kGray);
+        }
+    }
+    for (size_t i = 0; i < L.rowOf.size(); ++i) {
+        int y = kGridTop + L.rowY[static_cast<size_t>(L.rowOf[i])] - offset;
+        if (y + kCard + 40 < clipTop) continue;
+        if (y > kH) break;
+        int x = left + L.colOf[i] * kCardPitch;
+        const GameTile* t = libraryTile(static_cast<int>(i));
+        bool focused = static_cast<int>(i) == gridFocus_;
+        drawCard(c, *t, x, y, focused, false);
+        auto name = fonts_.semibold.wrap(t->name, 20, kCard, 1);
+        if (!name.empty()) fonts_.semibold.draw(c, name[0], x, y + kCard + 12, 20, focused ? kWhite : kGray);
+    }
+    c.fillRect({0, 0, kW, clipTop}, kBg);
+    c.gradientV({0, clipTop, kW, 12}, kBg, withAlpha(kBg, 0));
     drawTopBar(c);
     drawTabs(c);
-    const int left = (kW - (kLibraryCols * kCardPitch - kCardGap)) / 2;
     fonts_.bold.draw(c, tr(Str::YourGames), left, 130, 40, kWhite);
     if (!owned_.empty()) {
         std::string count = trf(Str::GamesCount, std::to_string(owned_.size()));
@@ -825,12 +969,15 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
         drawSpinner(c, kW / 2.0f, 470, 26, nowMs);
         drawCentered(c, fonts_.semibold, tr(Str::LoadingGames), 530, 28, kGray);
         animating_ = true;
-    } else {
+    } else if (purchasable_.empty()) {
         drawCentered(c, fonts_.semibold, tr(Str::NoGames), 500, 30, kGray);
     }
     c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
     c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));
-    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconOptions, tr(Str::Settings)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
+    drawHints(c, {{kIconCross, tr(Str::Select)},
+                  {kIconTriangle, tr(Str::TabSearch)},
+                  {kIconOptions, tr(Str::Settings)},
+                  {kIconTouchpad, tr(Str::HoldSignOut)}});
     drawToast(c, nowMs);
 }
 
@@ -841,6 +988,7 @@ void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
              kGridTop - 20);
     drawTopBar(c);
     drawTabs(c);
+    const char* scope = tab_ == Tab::GamePass ? tr(Str::TabGamePass) : tr(Str::YourGames);
     if (query_.empty()) {
         fonts_.semibold.draw(c, tr(Str::SearchHint), kResultsX, 150, 26, kDim);
     } else if (results_.empty()) {
@@ -856,12 +1004,12 @@ void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
     if (searchOnKeys_) c.strokeRect(box, rgba(255, 255, 255, 90), 2, 14);
     int tx = box.x + 24;
     if (query_.empty()) {
-        fonts_.regular.draw(c, tr(Str::TabSearch), tx, box.y + 20, 30, kDim);
+        fonts_.regular.draw(c, trf(Str::SearchIn, scope), tx, box.y + 22, 26, kDim);
     } else {
         fonts_.semibold.draw(c, query_, tx, box.y + 20, 30, kWhite);
         tx += fonts_.semibold.measure(query_, 30) + 4;
     }
-    if (searchOnKeys_ && (nowMs / 530) % 2 == 0) c.fillRect({tx, box.y + 18, 3, 40}, kWhite);
+    if (searchOnKeys_ && (nowMs / 530) % 2 == 0) c.fillRect({query_.empty() ? box.x + 20 : tx, box.y + 18, 3, 40}, kWhite);
     if (searchOnKeys_) animating_ = true;  // the caret blinks
 
     // The keys.
@@ -885,15 +1033,15 @@ void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
     c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
     c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));
     if (searchOnKeys_)
-        drawHints(c, {{kIconCross, tr(Str::KeyType)}, {kIconSquare, tr(Str::KeyDelete)}, {kIconOptions, tr(Str::Settings)}});
+        drawHints(c, {{kIconCross, tr(Str::KeyType)}, {kIconSquare, tr(Str::KeyDelete)}, {kIconCircle, tr(Str::Back)}});
     else
         drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconSquare, tr(Str::KeyDelete)}, {kIconCircle, tr(Str::Back)}});
     drawToast(c, nowMs);
 }
 
 void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
+    if (searching_) return drawSearch(c, nowMs);
     if (tab_ == Tab::Library) return drawLibrary(c, nowMs);
-    if (tab_ == Tab::Search) return drawSearch(c, nowMs);
     const GameTile* focus = focusedTile();
     c.clear(kBg);
     drawHero(c, nowMs, focus ? focus->heroUrl : std::string(), false);
@@ -932,31 +1080,17 @@ void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
             int x = kMargin + static_cast<int>(col) * kCardPitch - scroll;
             if (x > kW) break;
             if (x + kCard < 0) continue;
-            const GameTile& t = row.tiles[col];
             bool focused = static_cast<int>(r) == focusRow_ && static_cast<int>(col) == focusCol_[r];
-            if (auto img = images_.get(t.tileUrl, kCard, kCard)) {
-                c.drawImage(*img, x, cardY, 255, 10);
-            } else {
-                c.fillRect({x, cardY, kCard, kCard}, kPlaceholder, 10);
-                auto lines = fonts_.semibold.wrap(t.name, 22, kCard - 32, 3);
-                for (size_t i = 0; i < lines.size(); ++i)
-                    fonts_.semibold.draw(c, lines[i], x + 16, cardY + 16 + static_cast<int>(i) * 30, 22, kGray);
-            }
-            if (!t.playable) {  // dimmed, with a lock: can't be streamed on this account
-                c.fillRect({x, cardY, kCard, kCard}, rgba(0, 0, 0, 150), 10);
-                drawLock(c, x + kCard - 34, cardY + 30);
-            } else if (row.gamePassBadges) {
-                Rect badge{x + 10, cardY + kCard - 34, 96, 24};
-                c.fillRect(badge, rgba(0, 0, 0, 210), 4);
-                fonts_.bold.draw(c, "GAME PASS", badge.x + 9, badge.y + 4, 13, kWhite);
-            }
-            if (focused) c.strokeRect({x - 7, cardY - 7, kCard + 14, kCard + 14}, kWhite, 4, 16);
+            drawCard(c, row.tiles[col], x, cardY, focused, row.gamePassBadges);
         }
     }
     // Fade the rows out under the button hints.
     c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
     c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));
-    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconOptions, tr(Str::Settings)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
+    drawHints(c, {{kIconCross, tr(Str::Select)},
+                  {kIconTriangle, tr(Str::TabSearch)},
+                  {kIconOptions, tr(Str::Settings)},
+                  {kIconTouchpad, tr(Str::HoldSignOut)}});
     drawToast(c, nowMs);
 }
 
@@ -964,7 +1098,19 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     const GameTile* g = &detail_;
     c.clear(kBg);
     if (g->productId.empty()) return;
-    drawHero(c, nowMs, g->heroUrl, true);
+    // Without hero art yet (games to buy, search results): the cover on the
+    // right instead of another game's backdrop.
+    constexpr int kCover = 420;
+    const Rect cover{kW - kMargin - kCover, 170, kCover, kCover};
+    if (g->heroUrl.empty()) {
+        drawBackground(c);
+        prevHeroUrl_.clear();
+        heroUrl_.clear();
+        if (auto img = images_.get(g->tileUrl, kCover, kCover)) c.drawImage(*img, cover.x, cover.y, 255, 16);
+        else c.fillRect(cover, kPlaceholder, 16);
+    } else {
+        drawHero(c, nowMs, g->heroUrl, true);
+    }
     drawTopBar(c);
     int y = 260;
     for (const auto& line : fonts_.bold.wrap(g->name, 68, 960, 2)) {
@@ -977,6 +1123,7 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         y += 40;
     }
     std::string cats;
+    if (const char* p = platformLabel(g->platform)) cats = p;
     for (const auto& cat : g->categories) cats += (cats.empty() ? "" : "  \xE2\x80\xA2  ") + cat;
     if (!cats.empty()) {
         fonts_.regular.draw(c, cats, kMargin, y, 24, kDim);
@@ -986,6 +1133,39 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     for (const auto& line : fonts_.regular.wrap(g->description, 24, 880, 6)) {
         fonts_.regular.draw(c, line, kMargin, y, 24, kGray);
         y += 34;
+    }
+    if (g->purchasable) {
+        // Streams once bought: say where to buy it, with a QR code of the
+        // store page for the phone.
+        int ny = std::max(y + 40, 600);
+        Rect note{kMargin, ny, 620, 76};
+        c.fillRect(note, rgba(16, 124, 16, 235), 38);
+        drawBag(c, note.x + 50, note.y + note.h / 2, kWhite);
+        fonts_.semibold.draw(c, tr(Str::BuyToPlay), note.x + 86, note.y + 22, 26, kWhite);
+        auto hint = fonts_.regular.wrap(tr(Str::BuyHint), 22, 760, 2);
+        for (size_t i = 0; i < hint.size(); ++i)
+            fonts_.regular.draw(c, hint[i], kMargin, ny + 100 + static_cast<int>(i) * 32, 22, kGray);
+        std::string url = "https://www.xbox.com/games/store/p/" + g->productId;
+        uint8_t qr[qrcodegen_BUFFER_LEN_MAX], tmp[qrcodegen_BUFFER_LEN_MAX];
+        if (qrcodegen_encodeText(url.c_str(), tmp, qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN,
+                                 qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true)) {
+            // Under the cover, centred, on a dark panel with its caption.
+            int n = qrcodegen_getSize(qr);
+            int module = 220 / (n + 2), size = module * (n + 2);
+            int w = fonts_.regular.measure(tr(Str::ScanToBuy), 20);
+            Rect panel{cover.x + (cover.w - std::max(size + 40, w + 40)) / 2, cover.y + cover.h + 24,
+                       std::max(size + 40, w + 40), size + 76};
+            c.fillRect(panel, rgba(20, 20, 20, 235), 18);
+            Rect box{panel.x + (panel.w - size - 20) / 2, panel.y + 14, size + 20, size + 20};
+            c.fillRect(box, kWhite, 12);
+            int ox = box.x + 10 + module, oy = box.y + 10 + module;
+            for (int yy = 0; yy < n; ++yy)
+                for (int xx = 0; xx < n; ++xx)
+                    if (qrcodegen_getModule(qr, xx, yy)) c.fillRect({ox + xx * module, oy + yy * module, module, module}, kBg);
+            fonts_.regular.draw(c, tr(Str::ScanToBuy), panel.x + (panel.w - w) / 2, box.y + box.h + 12, 20, kGray);
+        }
+        drawHints(c, {{kIconCircle, tr(Str::Back)}});
+        return;
     }
     if (!g->playable) {
         // Bought separately or outside the subscription: no Play button.
@@ -1046,6 +1226,11 @@ void AppUi::drawSettings(Canvas& c) {
     std::string region = settings_.region.empty()
                              ? trf(Str::RegionAuto, defaultRegion_.empty() ? "-" : prettyRegion(defaultRegion_))
                              : prettyRegion(settings_.region);
+    {
+        const std::string& shown = settings_.region.empty() ? defaultRegion_ : settings_.region;
+        auto ms = regionMs_.find(shown);
+        if (ms != regionMs_.end()) region += "  \xE2\x80\xA2  " + std::to_string(ms->second) + " ms";
+    }
     const Row rows[] = {{tr(Str::Language), languageName(static_cast<Language>(settings_.language))},
                         {tr(Str::Resolution), tr(settings_.resolution == 1   ? Str::Res720
                                                 : settings_.resolution == 2 ? Str::Res1440

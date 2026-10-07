@@ -19,6 +19,7 @@
 #include "util/log.h"
 #include "xcloud/catalog.h"
 #include "xcloud/gssv.h"
+#include "xcloud/regions.h"
 
 #include <atomic>
 #include <map>
@@ -174,6 +175,7 @@ std::string stream(xcloud::GssvClient& gssv) {
     uint64_t nextTick = started;
     bool snapshot1 = false, snapshot2 = false;
     bool autoplayDone = false;
+    int bestRtt = -1;  // lowest round trip seen: the region's latency
     while (player.running() && !g_cancel) {
         uint64_t elapsed = platform::nowMs() - started;
         if (!g_autoplayTitle.empty()) {
@@ -198,7 +200,8 @@ std::string stream(xcloud::GssvClient& gssv) {
             auto st = player.stats();
             XC_LOGI("stream: %llu frames, %llu decoded, %llu skipped, %llu failed, %llu resets, %llu kf req, "
                     "%llu queued, %llu audio; rtp %llu pkts, %llu lost, %llu recovered, %llu nacks, "
-                    "%llu frames dropped; %llu kbps (remb %llu); %llu rumble; decode %.1f/%.1f ms, draw %.1f/%.1f ms, %llu late",
+                    "%llu frames dropped; %llu kbps (remb %llu); %llu rumble; decode %.1f/%.1f ms, draw %.1f/%.1f ms, %llu late; "
+                    "rtt %d ms",
                     static_cast<unsigned long long>(st.videoFrames), static_cast<unsigned long long>(st.decodedFrames),
                     static_cast<unsigned long long>(st.droppedFrames), static_cast<unsigned long long>(st.decodeFailures),
                     static_cast<unsigned long long>(st.queueResets), static_cast<unsigned long long>(st.keyframeRequests),
@@ -208,7 +211,8 @@ std::string stream(xcloud::GssvClient& gssv) {
                     static_cast<unsigned long long>(st.rtpDroppedFrames), static_cast<unsigned long long>(st.rtpKbps),
                     static_cast<unsigned long long>(st.rembKbps), static_cast<unsigned long long>(st.vibrations),
                     st.decodeAvgUs / 1000.0, st.decodeMaxUs / 1000.0, st.drawAvgUs / 1000.0, st.drawMaxUs / 1000.0,
-                    static_cast<unsigned long long>(st.lateFrames));
+                    static_cast<unsigned long long>(st.lateFrames), st.rttMs);
+            if (st.rttMs > 0 && (bestRtt < 0 || st.rttMs < bestRtt)) bestRtt = st.rttMs;
         }
         platform::sleepMs(100);
     }
@@ -218,6 +222,18 @@ std::string stream(xcloud::GssvClient& gssv) {
     }
     std::string reason = g_cancel ? "left the game" : autoplayDone ? "autoplay finished" : player.endReason();
     player.stop();
+    if (bestRtt > 0) {
+        // Remembered per region: Settings shows it, the region fallback uses it.
+        std::map<std::string, int> rtt;
+        {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            g_settings.regionRtt[gssv.region().name] = bestRtt;
+            g_settings.save(settingsPath());
+            rtt = g_settings.regionRtt;
+        }
+        XC_LOGI("region %s: %d ms round trip", gssv.region().name.c_str(), bestRtt);
+        g_ui->setRegionLatency(rtt);
+    }
     auto st = player.stats();
     // Ended before a single frame: the game never started (e.g. it closed on
     // the server); say so on the error screen instead of going back quietly.
@@ -307,6 +323,8 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
 
 void loadLibrary(xcloud::GssvClient& gssv);
 
+// Profile token for titlehub (memory only).
+std::string g_xblAuth;
 void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
     std::string err;
@@ -318,6 +336,10 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         return;
     }
     g_ui->setProfile(am.profile().gamertag, am.profile().gamerpicUrl);
+    {
+        std::lock_guard<std::mutex> lock(g_argMutex);
+        g_xblAuth = am.profile().xblAuthorization;
+    }
     platform::notify(ui::trf(ui::Str::SignedInAs, am.profile().gamertag));
     std::vector<std::string> regions;
     for (const auto& r : gssv.session().regions) regions.push_back(r.name);
@@ -336,8 +358,8 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     // Hands the library's current state to the UI (copies).
     auto publish = [](const app::Library& lib) {
         g_ui->setRows(lib.rows());
-        g_ui->setOwned(lib.owned(), lib.ownedKnown());
-        g_ui->setSearchPool(lib.searchPool());
+        g_ui->setOwned(lib.owned(), lib.purchasable(), lib.ownedKnown());
+        g_ui->setSearchPools(lib.gamePassSearchPool(), lib.librarySearchPool());
     };
     bool ok = library->load(gssv, ui::catalogLanguage(),
                             [&] {
@@ -357,10 +379,16 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     // art and descriptions keep arriving while the user browses/plays. The
     // thread gets its own GssvClient copy.
     g_stopHydration = false;
-    platform::startThread(g_hydrationThread, [library, publish, owned = gssv] {
+    std::string xblAuth;
+    {
+        std::lock_guard<std::mutex> lock(g_argMutex);
+        xblAuth = g_xblAuth;
+    }
+    platform::startThread(g_hydrationThread, [library, publish, owned = gssv, xblAuth] {
         auto changed = [&] { publish(*library); };
         library->loadOwned(owned, changed, &g_stopHydration);
         library->loadCatalogNames(changed, &g_stopHydration);
+        library->loadPlatforms(xblAuth, changed, &g_stopHydration);
         library->hydrate(changed, &g_stopHydration);
     });
     if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH") {
@@ -413,12 +441,22 @@ void worker() {
                 std::string result = play(am, gssv, tile, failed, region);
                 XC_LOGI("%s", result.c_str());
                 // Some games fail to start in one region only (Dead Cells in
-                // Brazil South quits at once with 0x8027025B but runs in East
-                // US): with the region on automatic, try another one once.
+                // Brazil South quit at once with 0x8027025B, now and then, and
+                // ran in East US): with the region on automatic, try the
+                // nearest other one once.
                 if (failed && g_gameClosedOnServer && automatic && !g_cancel) {
+                    // The nearest other region: measured in past sessions, or
+                    // estimated from the distance (xcloud/regions.h).
                     std::string tried = gssv.region().name, next;
-                    for (const auto& r : gssv.session().regions)
-                        if (r.name != tried && (next.empty() || strcasecmp(r.name.c_str(), "EASTUS") == 0)) next = r.name;
+                    std::vector<std::string> names;
+                    for (const auto& r : gssv.session().regions) names.push_back(r.name);
+                    std::map<std::string, int> measured;
+                    {
+                        std::lock_guard<std::mutex> lock(g_settingsMutex);
+                        measured = g_settings.regionRtt;
+                    }
+                    auto order = xcloud::regionsByExpectedRtt(tried, names, measured);
+                    if (!order.empty()) next = order.front();
                     if (!next.empty()) {
                         XC_LOGI("%s closed on the server in %s; trying %s", tile.titleId.c_str(), tried.c_str(),
                                 next.c_str());
@@ -499,6 +537,7 @@ int main(int argc, char** argv) {
         choice.resolution = g_settings.resolution == "720p" ? 1 : g_settings.resolution == "1440p" ? 2 : 0;
         choice.region = g_settings.region;
         g_ui->setSettings(choice);
+        g_ui->setRegionLatency(g_settings.regionRtt);
     }
     ui::Canvas canvas(display::kWidth, display::kHeight);
 
@@ -552,7 +591,8 @@ int main(int argc, char** argv) {
         nav.options = pad.btnOptions && !prev.btnOptions;
         nav.l1 = pad.btnL1 && !prev.btnL1;
         nav.r1 = pad.btnR1 && !prev.btnR1;
-        nav.square = pad.btnX && !prev.btnX;  // Square (Xbox X)
+        nav.square = pad.btnX && !prev.btnX;    // Square (Xbox X)
+        nav.triangle = pad.btnY && !prev.btnY;  // Triangle (Xbox Y)
         nav.touchpad = pad.btnTouchpad;
         nav.nowMs = now;
         prev = pad;

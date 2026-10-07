@@ -111,6 +111,7 @@ bool AuthManager::xboxChain(xcloud::GssvClient& gssv, std::string& err) {
     if (xstsToken(user, rp::kXboxLive, profileXsts, perr)) {
         profile_.gamertag = profileXsts.gamertag;
         profile_.xuid = profileXsts.xuid;
+        profile_.xblAuthorization = profileXsts.authorizationHeader();
         fetchGamerpic(profileXsts);
     } else {
         XC_LOGW("profile XSTS: %s", perr.c_str());

@@ -66,6 +66,12 @@ enum class Str {
     GamesCount,       // "%s" = number
     KeyType,          // hint: press to type the focused key
     TryingRegion,     // "%s" = region name
+    AvailableToBuy,   // section of games that stream once bought
+    BuyBadge,         // short, on the card
+    BuyToPlay,
+    BuyHint,
+    ScanToBuy,
+    SearchIn,         // "%s" = tab name
     Count
 };
 

@@ -89,6 +89,12 @@ constexpr Column kEnglish = {
     "%s games",                                     // GamesCount
     "Type",                                         // KeyType
     "Trying another region: %s",                    // TryingRegion
+    "Available to buy",                              // AvailableToBuy
+    "BUY",                                           // BuyBadge
+    "Buy this game to play it in the cloud",         // BuyToPlay
+    "Buy it on xbox.com or in the Xbox app; it then shows up in Your games.", // BuyHint
+    "Scan to open the store page",                   // ScanToBuy
+    "Search in %s",                                  // SearchIn
 };
 
 constexpr Column kPortugueseBR = {
@@ -148,6 +154,12 @@ constexpr Column kPortugueseBR = {
     "%s jogos",
     "Digitar",
     "Tentando outra região: %s",
+    "Disponíveis para comprar",
+    "COMPRAR",
+    "Compre este jogo para jogá-lo na nuvem",
+    "Compre em xbox.com ou no app Xbox; depois ele aparece em Seus jogos.",
+    "Escaneie para abrir a página da loja",
+    "Pesquisar em %s",
 };
 
 constexpr Column kSpanish = {
@@ -207,6 +219,12 @@ constexpr Column kSpanish = {
     "%s juegos",
     "Escribir",
     "Probando otra región: %s",
+    "Disponibles para comprar",
+    "COMPRAR",
+    "Compra este juego para jugarlo en la nube",
+    "Cómpralo en xbox.com o en la app de Xbox; luego aparecerá en Tus juegos.",
+    "Escanea para abrir la página de la tienda",
+    "Buscar en %s",
 };
 
 constexpr Column kFrench = {
@@ -266,6 +284,12 @@ constexpr Column kFrench = {
     "%s jeux",
     "Taper",
     "Essai d'une autre région : %s",
+    "Disponibles à l'achat",
+    "ACHETER",
+    "Achetez ce jeu pour y jouer dans le cloud",
+    "Achetez-le sur xbox.com ou dans l'app Xbox ; il apparaîtra ensuite dans Vos jeux.",
+    "Scannez pour ouvrir la page du magasin",
+    "Rechercher dans %s",
 };
 
 constexpr Column kGerman = {
@@ -325,6 +349,12 @@ constexpr Column kGerman = {
     "%s Spiele",
     "Tippen",
     "Andere Region wird versucht: %s",
+    "Zum Kaufen verfügbar",
+    "KAUFEN",
+    "Kaufe dieses Spiel, um es in der Cloud zu spielen",
+    "Kaufe es auf xbox.com oder in der Xbox-App; danach erscheint es unter Deine Spiele.",
+    "Scannen, um die Store-Seite zu öffnen",
+    "Suchen in %s",
 };
 
 constexpr Column kItalian = {
@@ -384,6 +414,12 @@ constexpr Column kItalian = {
     "%s giochi",
     "Scrivi",
     "Provo un'altra regione: %s",
+    "Disponibili per l'acquisto",
+    "ACQUISTA",
+    "Acquista questo gioco per giocarci nel cloud",
+    "Acquistalo su xbox.com o nell'app Xbox; poi apparirà in I tuoi giochi.",
+    "Scansiona per aprire la pagina dello store",
+    "Cerca in %s",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

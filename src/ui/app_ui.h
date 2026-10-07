@@ -13,6 +13,7 @@
 #include "ui/image_cache.h"
 
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -31,6 +32,11 @@ struct GameTile {
     // False once the account's titles are known and this one isn't among
     // them (bought separately, or not in the subscription).
     bool playable = true;
+    // Not playable, but streams in the cloud once bought.
+    bool purchasable = false;
+    // Console it was made for: "360", "ONE", "XS" (xcloud/titlehub.h); empty
+    // while unknown.
+    std::string platform;
 };
 
 struct GameRow {
@@ -41,13 +47,13 @@ struct GameRow {
 
 enum class Screen { Splash, SignIn, Home, Details, Launching, Streaming, Error, Settings };
 
-// The home screen's tabs (L1 / R1).
-enum class Tab { GamePass, Library, Search };
+// The home screen's tabs (L1 / R1). Triangle searches the current one.
+enum class Tab { GamePass, Library };
 
 struct NavInput {
     bool up = false, down = false, left = false, right = false;
     bool accept = false, back = false, options = false;
-    bool l1 = false, r1 = false, square = false;
+    bool l1 = false, r1 = false, square = false, triangle = false;
     bool touchpad = false;  // held right now (sign out needs a 5 s hold)
     uint64_t nowMs = 0;
 };
@@ -80,10 +86,13 @@ public:
     void setProfile(const std::string& gamertag, const std::string& gamerpicUrl);
     // Replaces the rows, keeping the focus on the same game when possible.
     void setRows(std::vector<GameRow> rows);
-    // "Your games" grid; `known` false while the account's games load.
-    void setOwned(std::vector<GameTile> tiles, bool known);
-    // Everything the search looks through.
-    void setSearchPool(std::vector<GameTile> pool);
+    // "Your games": the account's games, then those to buy; `known` false
+    // while the account's games load.
+    void setOwned(std::vector<GameTile> owned, std::vector<GameTile> purchasable, bool known);
+    // What each tab's search looks through.
+    void setSearchPools(std::vector<GameTile> gamePass, std::vector<GameTile> library);
+    // Measured round trip to each region, ms (shown in Settings).
+    void setRegionLatency(std::map<std::string, int> ms);
     void showHome(const std::string& toast = {});
     void showLaunching(const GameTile& game, const std::string& status);
     void setLaunchStatus(const std::string& status);
@@ -123,9 +132,21 @@ private:
     void drawTabs(Canvas& c);
     void drawLibrary(Canvas& c, uint64_t nowMs);
     void drawSearch(Canvas& c, uint64_t nowMs);
+    void drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, bool gamePassBadge);
     // A grid of cards with names below; `focus` < 0: none highlighted.
     void drawGrid(Canvas& c, const std::vector<GameTile>& tiles, int x0, int y0, int cols, float scroll, int focus,
                   int clipTop);
+    // "Your games" as one grid of two sections: the tile index of `focus`,
+    // its row, and each section's first row and header position.
+    struct LibraryLayout {
+        int cols = 6;
+        std::vector<int> rowOf, colOf;  // per tile index (owned, then purchasable)
+        std::vector<int> rowY;          // per row, y relative to the grid top
+        std::vector<int> rowFirst;      // first tile index of each row
+        int headerY[2] = {0, 0};        // section headers, relative
+    };
+    LibraryLayout libraryLayout() const;
+    const GameTile* libraryTile(int index) const;
     void handleHome(const NavInput& in, UiEvent& ev);
     void handleSearchKeys(const NavInput& in);
     void runSearch();
@@ -153,11 +174,12 @@ private:
     std::vector<Anim> rowScroll_;
     Anim rowY_;
     Tab tab_ = Tab::GamePass;
-    std::vector<GameTile> owned_;
+    std::vector<GameTile> owned_, purchasable_;
     bool ownedKnown_ = false;
     int gridFocus_ = 0;
     Anim gridScroll_;
-    std::vector<GameTile> pool_, results_;
+    bool searching_ = false;  // the search of `tab_` is open
+    std::vector<GameTile> gamePassPool_, libraryPool_, results_;
     std::string query_;
     bool searchOnKeys_ = true;
     int keyRow_ = 0, keyCol_ = 0;
@@ -169,6 +191,7 @@ private:
     SettingsChoice settings_;
     std::vector<std::string> regions_;
     std::string defaultRegion_;
+    std::map<std::string, int> regionMs_;
     int settingsRow_ = 0;
     uint64_t signOutHoldStart_ = 0;  // TOUCHPAD hold in progress
     bool signOutLatched_ = false;    // fired; wait for release
