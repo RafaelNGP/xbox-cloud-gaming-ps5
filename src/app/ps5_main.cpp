@@ -695,6 +695,8 @@ int main(int argc, char** argv) {
         nav.square = pad.btnX && !prev.btnX;    // Square (Xbox X)
         nav.triangle = pad.btnY && !prev.btnY;  // Triangle (Xbox Y)
         nav.r3 = pad.btnR3 && !prev.btnR3;
+        nav.l2 = pad.triggerL2 > 0.5f && prev.triggerL2 <= 0.5f;
+        nav.r2 = pad.triggerR2 > 0.5f && prev.triggerR2 <= 0.5f;
         nav.touchpad = pad.btnTouchpad;
         nav.nowMs = now;
         prev = pad;

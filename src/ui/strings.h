@@ -89,6 +89,7 @@ enum class Str {
     FilterSale,
     FilterAllConsoles,
     OneGame,          // GamesCount for exactly one
+    Sections,         // hint for L2 / R2: jump between sections
     Count
 };
 

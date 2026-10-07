@@ -42,7 +42,7 @@ constexpr Color kGreen = rgba(16, 124, 16);
 constexpr Color kPanel = rgba(36, 36, 36);
 constexpr Color kPlaceholder = rgba(44, 44, 44);
 
-enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad, kIconSquare, kIconR3 };
+enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad, kIconSquare, kIconR3, kIconL2R2 };
 
 // The resolution list, lowest first: SettingsChoice::resolution value per
 // position (0 = 1080p, 1 = 720p, 2 = 1440p, as saved).
@@ -266,17 +266,24 @@ void AppUi::rebuild() {
     };
     owned_ = sorted(visible(allOwned_));
     purchasable_ = sorted(visible(allPurchasable_));
-    // Hidden games, from wherever they appear, once each, A-Z.
-    hiddenTiles_.clear();
+    // Hidden games stay in their tab, at its end: the account's games and
+    // games to buy in "Your games", Game Pass games in a last Game Pass row
+    // (a few rows away, not past ~2000 games to buy). Once each, A-Z.
     std::set<std::string> seen;
-    auto collect = [&](const GameTile& t) {
-        if (hidden_.count(t.productId) && seen.insert(t.productId).second) hiddenTiles_.push_back(t);
+    auto collect = [&](std::vector<GameTile>& into, const GameTile& t) {
+        if (hidden_.count(t.productId) && seen.insert(t.productId).second) into.push_back(t);
     };
-    for (const auto* list : {&allOwned_, &allPurchasable_, &gamePassPool_})
-        for (const auto& t : *list) collect(t);
-    for (const auto& row : allRows_)
-        for (const auto& t : row.tiles) collect(t);
+    hiddenTiles_.clear();
+    for (const auto* list : {&allOwned_, &allPurchasable_})
+        for (const auto& t : *list) collect(hiddenTiles_, t);
     std::stable_sort(hiddenTiles_.begin(), hiddenTiles_.end(), byName);
+    GameRow hiddenRow;
+    hiddenRow.title = tr(Str::HiddenSection);
+    hiddenRow.gamePassBadges = true;
+    for (const auto& row : allRows_)
+        for (const auto& t : row.tiles) collect(hiddenRow.tiles, t);
+    for (const auto& t : gamePassPool_) collect(hiddenRow.tiles, t);
+    std::stable_sort(hiddenRow.tiles.begin(), hiddenRow.tiles.end(), byName);
 
     std::vector<GameRow> rows;
     for (const auto& row : allRows_) {
@@ -284,6 +291,7 @@ void AppUi::rebuild() {
         r.tiles = visible(row.tiles);
         rows.push_back(std::move(r));
     }
+    if (!hiddenRow.tiles.empty()) rows.push_back(std::move(hiddenRow));
     setRowsLocked(std::move(rows));
 
     gridFocus_ = 0;
@@ -787,6 +795,37 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
                 GameTile t = *libraryTile(f);
                 toggleHidden(t, ev);
             }
+            if (in.l2 || in.r2) {
+                // Jump between sections: the account's games, games to buy,
+                // hidden games. L2 goes to the start of this section first.
+                int starts[3] = {0, static_cast<int>(owned_.size()),
+                                 static_cast<int>(owned_.size() + purchasable_.size())};
+                int total = starts[2] + static_cast<int>(hiddenTiles_.size());
+                int section = f >= starts[2] ? 2 : f >= starts[1] ? 1 : 0;
+                int target = f;
+                if (in.r2) {
+                    for (int k = section + 1; k < 3; ++k)
+                        if (starts[k] < total && (k == 2 ? !hiddenTiles_.empty() : starts[k] < starts[k + 1])) {
+                            target = starts[k];
+                            break;
+                        }
+                } else if (f != starts[section]) {
+                    target = starts[section];
+                } else {
+                    for (int k = section - 1; k >= 0; --k)
+                        if (starts[k] < starts[k + 1]) {
+                            target = starts[k];
+                            break;
+                        }
+                }
+                if (target != f) {
+                    gridFocus_ = target;
+                    int y = L.rowY[static_cast<size_t>(L.rowOf[static_cast<size_t>(target)])];
+                    // The section's heading in view.
+                    gridScroll_.target = static_cast<float>(std::max(0, y - (target ? kSectionHeaderH + 20 : 0)));
+                    dirty_ = true;
+                }
+            }
             if (in.r3) {  // next sort order
                 librarySort_ = static_cast<LibrarySort>((static_cast<int>(librarySort_) + 1) %
                                                          static_cast<int>(LibrarySort::Count));
@@ -995,7 +1034,13 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
         fonts_.semibold.draw(c, it->second, x, y, kPx, kGray);
         x -= 10 + 2 * kR;
         float cx = x + kR, cy = y + 13;
-        if (it->first == kIconR3) {
+        if (it->first == kIconL2R2) {
+            Rect pill{x - 40, static_cast<int>(cy) - 12, 2 * kR + 46, 24};
+            c.fillRect(pill, rgba(255, 255, 255, 40), 8);
+            fonts_.bold.draw(c, "L2 R2", pill.x + (pill.w - fonts_.bold.measure("L2 R2", 14)) / 2,
+                             fonts_.bold.centeredY(pill.y, pill.h, 14), 14, kGray);
+            x -= 34;
+        } else if (it->first == kIconR3) {
             Rect pill{x - 6, static_cast<int>(cy) - 12, 2 * kR + 12, 24};
             c.fillRect(pill, rgba(255, 255, 255, 40), 8);
             fonts_.bold.draw(c, "R3", pill.x + (pill.w - fonts_.bold.measure("R3", 14)) / 2,
@@ -1327,8 +1372,8 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
                   {kIconSquare, tr(focusHidden ? Str::Unhide : Str::Hide)},
                   {kIconTriangle, tr(Str::TabSearch)},
                   {kIconR3, tr(Str::SortHint)},
-                  {kIconOptions, tr(Str::Settings)},
-                  {kIconTouchpad, tr(Str::HoldSignOut)}});
+                  {kIconL2R2, tr(Str::Sections)},
+                  {kIconOptions, tr(Str::Settings)}});
     drawToast(c, nowMs);
 }
 
@@ -1460,13 +1505,14 @@ void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
             if (x + kCard < 0) continue;
             bool focused = static_cast<int>(r) == focusRow_ && static_cast<int>(col) == focusCol_[r];
             drawCard(c, row.tiles[col], x, cardY, focused, row.gamePassBadges);
+            if (hidden_.count(row.tiles[col].productId)) c.fillRect({x, cardY, kCard, kCard}, rgba(0, 0, 0, 120), 10);
         }
     }
     // Fade the rows out under the button hints.
     c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
     c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));
     drawHints(c, {{kIconCross, tr(Str::Select)},
-                  {kIconSquare, tr(Str::Hide)},
+                  {kIconSquare, tr(focus && hidden_.count(focus->productId) ? Str::Unhide : Str::Hide)},
                   {kIconTriangle, tr(Str::TabSearch)},
                   {kIconOptions, tr(Str::Settings)},
                   {kIconTouchpad, tr(Str::HoldSignOut)}});

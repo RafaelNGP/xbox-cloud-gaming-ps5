@@ -57,6 +57,7 @@ struct NavInput {
     bool up = false, down = false, left = false, right = false;
     bool accept = false, back = false, options = false;
     bool l1 = false, r1 = false, square = false, triangle = false, r3 = false;
+    bool l2 = false, r2 = false;  // pressed (triggers past halfway)
     bool touchpad = false;  // held right now (sign out needs a 5 s hold)
     uint64_t nowMs = 0;
 };

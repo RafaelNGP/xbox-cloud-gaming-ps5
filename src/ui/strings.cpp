@@ -100,7 +100,7 @@ constexpr Column kEnglish = {
     "Show",                                          // Unhide
     "Hidden",                                        // HiddenSection
     "Square shows a game again",                     // HiddenHint
-    "Hidden: find it in Your games > Hidden",        // HiddenToast
+    "Hidden: find it under Hidden, at the end of this tab", // HiddenToast
     "Shown again",                                   // UnhiddenToast
     "Sort: %s",                                      // SortLabel
     "Recent first",                                  // SortRecent
@@ -112,6 +112,7 @@ constexpr Column kEnglish = {
     "On sale",                                       // FilterSale
     "All consoles",                                  // FilterAllConsoles
     "1 game",                                        // OneGame
+    "Sections",                                      // Sections
 };
 
 constexpr Column kPortugueseBR = {
@@ -182,7 +183,7 @@ constexpr Column kPortugueseBR = {
     "Mostrar",
     "Ocultos",
     "\xE2\x96\xA1 mostra o jogo de novo",
-    "Oculto: veja em Seus jogos > Ocultos",
+    "Oculto: veja em Ocultos, no fim desta aba",
     "Visível de novo",
     "Ordenar: %s",
     "Recentes primeiro",
@@ -194,6 +195,7 @@ constexpr Column kPortugueseBR = {
     "Em promoção",
     "Todos os consoles",
     "1 jogo",
+    "Seções",
 };
 
 constexpr Column kSpanish = {
@@ -264,7 +266,7 @@ constexpr Column kSpanish = {
     "Mostrar",
     "Ocultos",
     "\xE2\x96\xA1 vuelve a mostrar un juego",
-    "Oculto: búscalo en Tus juegos > Ocultos",
+    "Oculto: está en Ocultos, al final de esta pestaña",
     "Visible de nuevo",
     "Ordenar: %s",
     "Recientes primero",
@@ -276,6 +278,7 @@ constexpr Column kSpanish = {
     "En oferta",
     "Todas las consolas",
     "1 juego",
+    "Secciones",
 };
 
 constexpr Column kFrench = {
@@ -346,7 +349,7 @@ constexpr Column kFrench = {
     "Afficher",
     "Masqués",
     "\xE2\x96\xA1 réaffiche un jeu",
-    "Masqué : voir Vos jeux > Masqués",
+    "Masqué : voir Masqués, à la fin de cet onglet",
     "De nouveau visible",
     "Trier : %s",
     "Récents d'abord",
@@ -358,6 +361,7 @@ constexpr Column kFrench = {
     "En promotion",
     "Toutes les consoles",
     "1 jeu",
+    "Sections",
 };
 
 constexpr Column kGerman = {
@@ -428,7 +432,7 @@ constexpr Column kGerman = {
     "Einblenden",
     "Ausgeblendet",
     "\xE2\x96\xA1 blendet ein Spiel wieder ein",
-    "Ausgeblendet: unter Deine Spiele > Ausgeblendet",
+    "Ausgeblendet: unter Ausgeblendet, am Ende dieses Tabs",
     "Wieder sichtbar",
     "Sortieren: %s",
     "Zuletzt gespielt",
@@ -440,6 +444,7 @@ constexpr Column kGerman = {
     "Im Angebot",
     "Alle Konsolen",
     "1 Spiel",
+    "Abschnitte",
 };
 
 constexpr Column kItalian = {
@@ -510,7 +515,7 @@ constexpr Column kItalian = {
     "Mostra",
     "Nascosti",
     "\xE2\x96\xA1 mostra di nuovo un gioco",
-    "Nascosto: lo trovi in I tuoi giochi > Nascosti",
+    "Nascosto: lo trovi in Nascosti, in fondo a questa scheda",
     "Di nuovo visibile",
     "Ordina: %s",
     "Recenti prima",
@@ -522,6 +527,7 @@ constexpr Column kItalian = {
     "In offerta",
     "Tutte le console",
     "1 gioco",
+    "Sezioni",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

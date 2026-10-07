@@ -645,6 +645,30 @@ int main(int argc, char** argv) {
         save("library_console");
         press([](ui::NavInput& n) { n.down = true; }, 3);  // down to "Hidden"
         save("library_hidden");
+        press([](ui::NavInput& n) { n.up = true; }, 6);  // back to the top of Your games
+        press([](ui::NavInput& n) { n.r2 = true; }, 2);  // jump: to buy, then Hidden
+        save("library_r2");
+        {
+            // Game Pass: hide the second game of the first row; it goes to a
+            // "Hidden" row at the end of that tab.
+            ui::GameRow row;
+            row.title = "Recently added";
+            for (int i = 0; i < 4; ++i) {
+                ui::GameTile t;
+                t.productId = "GP" + std::to_string(i);
+                t.titleId = t.productId;
+                t.name = "Game Pass game " + std::to_string(i);
+                t.platform = platforms[i % 3];
+                row.tiles.push_back(t);
+            }
+            app.setRows({row});
+            press([](ui::NavInput& n) { n.l1 = true; });
+            press([](ui::NavInput& n) { n.right = true; });
+            press([](ui::NavInput& n) { n.square = true; });
+            press([](ui::NavInput& n) { n.down = true; });
+            save("gamepass_hidden");
+            press([](ui::NavInput& n) { n.r1 = true; });
+        }
         press([](ui::NavInput& n) { n.triangle = true; });  // search "Your games"
         press([](ui::NavInput& n) { n.down = true; }, 7);   // the filter row
         press([](ui::NavInput& n) { n.right = true; });     // "Lowest price"
