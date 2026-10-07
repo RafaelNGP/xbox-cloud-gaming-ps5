@@ -66,13 +66,17 @@ struct SettingsChoice {
     std::string region;    // gssv region name; empty = automatic
 };
 
-enum class Action { None, Play, SignOut, Retry, CancelLaunch, SettingsChanged };
+enum class Action { None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, OpenUrl };
 
 struct UiEvent {
     Action action = Action::None;
     GameTile game;
     SettingsChoice settings;  // SettingsChanged
+    std::string url;          // OpenUrl
 };
+
+// The store page of a product, for the browser or a phone.
+std::string storeUrl(const std::string& productId);
 
 // "SOUTHCENTRALUS" -> "South Central US".
 std::string prettyRegion(const std::string& name);

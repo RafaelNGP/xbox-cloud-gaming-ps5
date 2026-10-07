@@ -86,5 +86,9 @@ bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err) {
 void probeNetworking() {}
 
 void notify(const std::string& text) { std::printf("\n>>> %s\n\n", text.c_str()); }
+bool openUrl(const std::string& url) {
+    std::printf("\n>>> open %s\n\n", url.c_str());
+    return true;
+}
 
 }  // namespace xc::platform

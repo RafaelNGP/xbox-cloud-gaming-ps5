@@ -99,6 +99,8 @@ constexpr uint64_t kSignOutHoldMs = 5000;
 
 }  // namespace
 
+std::string storeUrl(const std::string& productId) { return "https://www.xbox.com/games/store/p/" + productId; }
+
 std::string prettyRegion(const std::string& name) {
     static const char* kWords[] = {"SOUTHEAST", "NORTHEAST", "CENTRAL", "AUSTRALIA", "GERMANY", "EUROPE", "BRAZIL",
                                    "CANADA", "FRANCE", "MEXICO", "SWEDEN", "JAPAN",   "KOREA",  "INDIA", "NORTH",
@@ -646,6 +648,9 @@ UiEvent AppUi::handle(const NavInput& in) {
             if (in.accept && detail_.playable && !detail_.titleId.empty()) {
                 ev.action = Action::Play;
                 ev.game = detail_;
+            } else if (in.accept && detail_.purchasable) {  // to the store, in the browser
+                ev.action = Action::OpenUrl;
+                ev.url = storeUrl(detail_.productId);
             }
             if (in.back) {
                 screen_ = Screen::Home;
@@ -1189,14 +1194,16 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
                        static_cast<float>(ny - 42), 2, kDim);
             }
         }
+        // A button (focused, like Play): opens the store page in the browser.
         Rect note{kMargin, ny, 620, 76};
-        c.fillRect(note, rgba(16, 124, 16, 235), 38);
+        c.strokeRect({note.x - 7, note.y - 7, note.w + 14, note.h + 14}, kWhite, 4, 45);
+        c.fillRect(note, rgba(16, 124, 16, 255), 38);
         drawBag(c, note.x + 50, note.y + note.h / 2, kWhite);
         fonts_.semibold.draw(c, tr(Str::BuyToPlay), note.x + 86, note.y + 22, 26, kWhite);
         auto hint = fonts_.regular.wrap(tr(Str::BuyHint), 22, 760, 2);
         for (size_t i = 0; i < hint.size(); ++i)
             fonts_.regular.draw(c, hint[i], kMargin, ny + 100 + static_cast<int>(i) * 32, 22, kGray);
-        std::string url = "https://www.xbox.com/games/store/p/" + g->productId;
+        std::string url = storeUrl(g->productId);
         uint8_t qr[qrcodegen_BUFFER_LEN_MAX], tmp[qrcodegen_BUFFER_LEN_MAX];
         if (qrcodegen_encodeText(url.c_str(), tmp, qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN,
                                  qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true)) {
@@ -1215,7 +1222,7 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
                     if (qrcodegen_getModule(qr, xx, yy)) c.fillRect({ox + xx * module, oy + yy * module, module, module}, kBg);
             fonts_.regular.draw(c, tr(Str::ScanToBuy), panel.x + (panel.w - w) / 2, box.y + box.h + 12, 20, kGray);
         }
-        drawHints(c, {{kIconCircle, tr(Str::Back)}});
+        drawHints(c, {{kIconCross, tr(Str::OpenStore)}, {kIconCircle, tr(Str::Back)}});
         return;
     }
     if (!g->playable) {

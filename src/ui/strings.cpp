@@ -96,6 +96,7 @@ constexpr Column kEnglish = {
     "Scan to open the store page",                   // ScanToBuy
     "Search in %s",                                  // SearchIn
     "FREE",                                          // Free
+    "Open in the store",                             // OpenStore
 };
 
 constexpr Column kPortugueseBR = {
@@ -162,6 +163,7 @@ constexpr Column kPortugueseBR = {
     "Escaneie para abrir a página da loja",
     "Pesquisar em %s",
     "GRÁTIS",
+    "Abrir na loja",
 };
 
 constexpr Column kSpanish = {
@@ -228,6 +230,7 @@ constexpr Column kSpanish = {
     "Escanea para abrir la página de la tienda",
     "Buscar en %s",
     "GRATIS",
+    "Abrir en la tienda",
 };
 
 constexpr Column kFrench = {
@@ -294,6 +297,7 @@ constexpr Column kFrench = {
     "Scannez pour ouvrir la page du magasin",
     "Rechercher dans %s",
     "GRATUIT",
+    "Ouvrir dans le magasin",
 };
 
 constexpr Column kGerman = {
@@ -360,6 +364,7 @@ constexpr Column kGerman = {
     "Scannen, um die Store-Seite zu öffnen",
     "Suchen in %s",
     "KOSTENLOS",
+    "Im Store öffnen",
 };
 
 constexpr Column kItalian = {
@@ -426,6 +431,7 @@ constexpr Column kItalian = {
     "Scansiona per aprire la pagina dello store",
     "Cerca in %s",
     "GRATIS",
+    "Apri nello store",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

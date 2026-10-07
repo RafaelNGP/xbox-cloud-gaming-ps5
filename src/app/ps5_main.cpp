@@ -75,7 +75,8 @@ app::StreamPlayer* g_player = nullptr;
 // in, plays that title for that long (pressing A at 15 s and 20 s), saves
 // decoded frames and logs "AUTOPLAY END". Options, comma-separated: nosimd,
 // dump, repeat, idle (no A presses), threads=N (H.264 decoder threads),
-// rumbletest (rumbles the pad for 1.5 s at start).
+// rumbletest (rumbles the pad for 1.5 s at start), browsertest (opens a
+// store page in the browser).
 // The title "BENCH" decodes <dataDir>/sample.h264 instead.
 
 std::string g_autoplayTitle;
@@ -104,6 +105,7 @@ void loadAutoplay() {
         if (opt == "repeat") g_autoplayRuns = 2;
         if (opt == "idle") g_autoplayIdle = true;
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
+        if (opt == "browsertest") platform::openUrl(ui::storeUrl("BX3M8L83BBRW"));
         if (opt.rfind("threads=", 0) == 0) g_decodeThreads = std::atoi(opt.c_str() + 8);
     }
     g_autoplayTitle = title;
@@ -690,6 +692,9 @@ int main(int argc, char** argv) {
                 break;
             case ui::Action::Retry: g_command = kSignIn; break;
             case ui::Action::CancelLaunch: g_cancel = true; break;
+            case ui::Action::OpenUrl:
+                platform::openUrl(ev.url);  // the result is logged
+                break;
             case ui::Action::SettingsChanged: {
                 bool languageChanged;
                 {
