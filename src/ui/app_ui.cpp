@@ -1,5 +1,6 @@
 #include "ui/app_ui.h"
 
+#include "ui/brand.h"
 #include "ui/strings.h"
 
 #include "qrcodegen.h"
@@ -245,12 +246,7 @@ void AppUi::drawBackground(Canvas& c) {
     c.gradientV({0, 0, kW, kH}, rgba(24, 28, 24), kBg);
 }
 
-void AppUi::drawLogo(Canvas& c, float cx, float cy, float r) {
-    c.fillCircle(cx, cy, r, kWhite);
-    float k = r * 0.52f;
-    c.line(cx - k, cy - k, cx + k, cy + k, r * 0.34f, kBg);
-    c.line(cx + k, cy - k, cx - k, cy + k, r * 0.34f, kBg);
-}
+void AppUi::drawLogo(Canvas& c, float cx, float cy, float r) { drawBrandMark(c, cx, cy, r); }
 
 void AppUi::drawTopBar(Canvas& c) {
     drawLogo(c, kMargin + 22, 72, 22);

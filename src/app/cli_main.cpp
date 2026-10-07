@@ -11,6 +11,8 @@
 //   xcloud-cli bench-decode <file.h264> [threads]
 //                               decode speed of a dumped stream
 //   xcloud-cli ui-preview <dir>  render the menus to PNGs with live data
+//   xcloud-cli render-icon <out.png> [size]
+//                               the PS5 home-screen icon (icon0.png: 512)
 //   xcloud-cli logout
 #include "app/library.h"
 #include "auth/auth_manager.h"
@@ -20,6 +22,7 @@
 #include "platform/platform.h"
 #include "util/log.h"
 #include "ui/app_ui.h"
+#include "ui/brand.h"
 #include "ui/strings.h"
 #include "xcloud/gssv.h"
 
@@ -49,6 +52,7 @@ int usage() {
                  "  bench-decode <file.h264> [threads]\n"
                  "                        measure H.264 decode speed\n"
                  "  ui-preview <dir>      render every menu screen to <dir>/*.png\n"
+                 "  render-icon <out.png> [size]  draw the app icon (512 for icon0.png)\n"
                  "  logout                forget the stored account\n");
     return 2;
 }
@@ -314,6 +318,22 @@ int main(int argc, char** argv) {
     }
     if (argi >= argc) return usage();
     std::string cmd = argv[argi++];
+    if (cmd == "render-icon" && argi < argc) {
+        int size = argi + 1 < argc ? std::atoi(argv[argi + 1]) : 512;
+        ui::Fonts fonts;
+        if (!fonts.load("assets/fonts")) return 1;
+        ui::Canvas icon(size, size);
+        ui::drawAppIcon(icon, fonts);
+        // icon0.png is RGB: drop the alpha channel.
+        std::vector<uint8_t> rgb(static_cast<size_t>(size) * size * 3);
+        for (size_t i = 0; i < static_cast<size_t>(size) * size; ++i) {
+            uint32_t p = icon.data()[i];
+            rgb[i * 3] = p & 0xFF;
+            rgb[i * 3 + 1] = (p >> 8) & 0xFF;
+            rgb[i * 3 + 2] = (p >> 16) & 0xFF;
+        }
+        return stbi_write_png(argv[argi], size, size, 3, rgb.data(), size * 3) ? 0 : 1;
+    }
     if (cmd == "bench-decode" && argi < argc)
         return cmdBenchDecode(argv[argi], argi + 1 < argc ? std::atoi(argv[argi + 1]) : 1);
 

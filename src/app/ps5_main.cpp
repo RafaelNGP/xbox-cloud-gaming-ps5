@@ -371,7 +371,7 @@ int main(int argc, char** argv) {
 
     platform::init();
     log::setFile((platform::dataDir() + "/xcloud.log").c_str());
-    XC_LOGI("=== xCloud PS5 starting ===");
+    XC_LOGI("=== PSBox Cloud Gaming starting ===");
     loadAutoplay();
     sceSystemServiceHideSplashScreen();
 

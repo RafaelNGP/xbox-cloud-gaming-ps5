@@ -1,6 +1,10 @@
-# xCloud-PS5
+# PSBox Cloud Gaming
 
 Cliente nativo de Xbox Cloud Gaming (xCloud) para PS5 com homebrew.
+
+O ícone e o logo são arte original (`src/ui/brand.cpp`), inspirada no
+estilo do Xbox, sem usar o logotipo da Microsoft. Para regenerar o ícone da
+home do PS5: `build-host/xcloud-cli render-icon ps5/sce_sys/icon0.png 512`.
 
 ## Estado
 

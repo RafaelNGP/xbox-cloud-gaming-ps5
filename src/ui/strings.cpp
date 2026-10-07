@@ -9,8 +9,8 @@ namespace {
 Language g_language = Language::English;
 
 constexpr std::array<const char*, static_cast<size_t>(Str::Count)> kEnglish = {
-    "Xbox Cloud Gaming",                              // AppName
-    "CLOUD GAMING",                                   // CloudGaming
+    "PSBox Cloud Gaming",                             // AppName
+    "PSBOX CLOUD GAMING",                             // CloudGaming
     "Signing in...",                                  // SigningIn
     "Getting a sign-in code...",                      // RequestingCode
     "Loading your games...",                          // LoadingGames
