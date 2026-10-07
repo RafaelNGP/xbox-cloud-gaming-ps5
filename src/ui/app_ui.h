@@ -126,7 +126,9 @@ private:
     const GameTile* focusedTile() const;
     void retarget();
     void drawBackground(Canvas& c);
-    void drawHero(Canvas& c, uint64_t nowMs, const std::string& url, bool details);
+    // The game's backdrop; false (and nothing drawn) until its image is
+    // there: never another game's art in the meantime.
+    bool drawHero(Canvas& c, uint64_t nowMs, const std::string& url, bool details);
     void drawTopBar(Canvas& c);
     void drawLogo(Canvas& c, float cx, float cy, float r);
     void drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>& hints);
@@ -207,7 +209,8 @@ private:
     std::string toast_;
     uint64_t toastUntil_ = 0;
     std::string heroUrl_, prevHeroUrl_;
-    uint64_t heroSince_ = 0;
+    uint64_t heroSince_ = 0;    // when heroUrl_ became the wanted one
+    uint64_t heroShownAt_ = 0;  // when its image first drew (0: not yet)
     uint64_t lastRender_ = 0;
     bool animating_ = false;
 };

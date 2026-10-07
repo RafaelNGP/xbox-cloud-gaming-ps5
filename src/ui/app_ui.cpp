@@ -773,20 +773,29 @@ void AppUi::drawToast(Canvas& c, uint64_t nowMs) {
     fonts_.semibold.draw(c, toast_, r.x + 32, r.y + 14, 24, kWhite);
 }
 
-void AppUi::drawHero(Canvas& c, uint64_t nowMs, const std::string& url, bool details) {
+bool AppUi::drawHero(Canvas& c, uint64_t nowMs, const std::string& url, bool details) {
     if (url != heroUrl_) {
-        prevHeroUrl_ = heroUrl_;
+        // The previous art may only cross-fade into a new one that is already
+        // there; it is never kept up while the new one downloads.
+        prevHeroUrl_ = heroShownAt_ ? heroUrl_ : std::string();
         heroUrl_ = url;
         heroSince_ = nowMs;
+        heroShownAt_ = 0;
     }
-    auto current = images_.get(heroUrl_, kW, kH);
-    auto previous = prevHeroUrl_.empty() ? nullptr : images_.get(prevHeroUrl_, kW, kH);
-    uint64_t age = nowMs - heroSince_;
-    if (previous && (!current || age < kHeroFadeMs)) c.drawImage(*previous, 0, 0);
+    auto current = heroUrl_.empty() ? nullptr : images_.get(heroUrl_, kW, kH);
     if (current) {
-        uint8_t alpha = age >= kHeroFadeMs || !previous ? 255 : static_cast<uint8_t>(age * 255 / kHeroFadeMs);
+        if (!heroShownAt_) heroShownAt_ = nowMs;
+        uint64_t age = nowMs - heroShownAt_;
+        // Arrived at once (cached): cross-fade from the previous art. Arrived
+        // later: fade in from the plain background.
+        bool crossFade = heroShownAt_ - heroSince_ < 150 && !prevHeroUrl_.empty();
+        auto previous = crossFade && age < kHeroFadeMs ? images_.get(prevHeroUrl_, kW, kH) : nullptr;
+        if (previous) c.drawImage(*previous, 0, 0);
+        uint8_t alpha = age >= kHeroFadeMs ? 255 : static_cast<uint8_t>(age * 255 / kHeroFadeMs);
         c.drawImage(*current, 0, 0, alpha);
         if (alpha < 255) animating_ = true;
+    } else {
+        prevHeroUrl_.clear();  // nothing on screen to fade from any more
     }
     // Darken towards the left (text) and the bottom (rows).
     c.gradientH({0, 0, details ? 1400 : 1200, kH}, rgba(0, 0, 0, details ? 240 : 225), rgba(0, 0, 0, 0));
@@ -797,6 +806,7 @@ void AppUi::drawHero(Canvas& c, uint64_t nowMs, const std::string& url, bool det
         c.fillRect({0, 780, kW, kH - 780}, kBg);
     }
     c.gradientV({0, 0, kW, 160}, rgba(0, 0, 0, 150), rgba(0, 0, 0, 0));
+    return current != nullptr;
 }
 
 void AppUi::drawSplash(Canvas& c, uint64_t nowMs) {
@@ -1129,18 +1139,15 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     const GameTile* g = &detail_;
     c.clear(kBg);
     if (g->productId.empty()) return;
-    // Without hero art yet (games to buy, search results): the cover on the
-    // right instead of another game's backdrop.
+    // Without its hero art (games to buy, search results, or not downloaded
+    // yet): the cover on the right, never another game's backdrop.
     constexpr int kCover = 420;
     const Rect cover{kW - kMargin - kCover, 170, kCover, kCover};
-    if (g->heroUrl.empty()) {
+    if (!drawHero(c, nowMs, g->heroUrl, true)) {
+        // No hero art (yet): the cover, until the art arrives and fades in.
         drawBackground(c);
-        prevHeroUrl_.clear();
-        heroUrl_.clear();
         if (auto img = images_.get(g->tileUrl, kCover, kCover)) c.drawImage(*img, cover.x, cover.y, 255, 16);
         else c.fillRect(cover, kPlaceholder, 16);
-    } else {
-        drawHero(c, nowMs, g->heroUrl, true);
     }
     drawTopBar(c);
     int y = 260;
