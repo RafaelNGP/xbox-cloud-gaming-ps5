@@ -44,6 +44,10 @@ constexpr Color kPlaceholder = rgba(44, 44, 44);
 
 enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad, kIconSquare };
 
+// The resolution list, lowest first: SettingsChoice::resolution value per
+// position (0 = 1080p, 1 = 720p, 2 = 1440p, as saved).
+constexpr int kResolutionOrder[3] = {1, 0, 2};
+
 // Grids ("Your games", search results): cards with the name below.
 constexpr int kGridPitchY = 300;
 constexpr int kLibraryCols = 6;
@@ -445,7 +449,7 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
     if (row == 0) {
         for (int i = 0; i < static_cast<int>(Language::Count); ++i) out.push_back(languageName(static_cast<Language>(i)));
     } else if (row == 1) {
-        out = {tr(Str::Res1080), tr(Str::Res720), tr(Str::Res1440)};  // = SettingsChoice::resolution
+        out = {tr(Str::Res720), tr(Str::Res1080), tr(Str::Res1440)};  // kResolutionOrder
     } else {
         // Automatic first, then the regions in the login's order.
         out.push_back(withMs(trf(Str::RegionAuto, defaultRegion_.empty() ? "-" : prettyRegion(defaultRegion_)),
@@ -458,7 +462,9 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
 int AppUi::settingSelected(int row) const {
     // Caller holds mutex_.
     if (row == 0) return settings_.language;
-    if (row == 1) return settings_.resolution;
+    if (row == 1)
+        for (int i = 0; i < 3; ++i)
+            if (kResolutionOrder[i] == settings_.resolution) return i;
     for (size_t i = 0; i < regions_.size(); ++i)
         if (regions_[i] == settings_.region) return static_cast<int>(i) + 1;
     return 0;
@@ -470,7 +476,7 @@ void AppUi::applySetting(int row, int index) {
         settings_.language = index;
         setLanguage(static_cast<Language>(index));  // the UI switches right away
     } else if (row == 1) {
-        settings_.resolution = index;
+        settings_.resolution = kResolutionOrder[index];
     } else {
         settings_.region = index == 0 ? std::string() : regions_[static_cast<size_t>(index - 1)];
     }

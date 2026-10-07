@@ -581,6 +581,10 @@ int main(int argc, char** argv) {
         press([](ui::NavInput& n) { n.accept = true; });
         press([](ui::NavInput& n) { n.down = true; });
         save("settings_language");
+        press([](ui::NavInput& n) { n.back = true; });
+        press([](ui::NavInput& n) { n.down = true; });
+        press([](ui::NavInput& n) { n.accept = true; });
+        save("settings_resolution");
         return 0;
     } else if (cmd == "ui-badges" && argi < argc) {
         // Offline: cards with every badge, to check their layout.
