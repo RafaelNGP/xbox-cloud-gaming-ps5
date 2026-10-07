@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 PSBox Cloud Gaming contributors
+// Copyright (C) 2026 RafaelNGP
 // Thin platform layer: everything that differs between the Linux host build
 // and the PS5 build lives behind these functions (see src/platform/host and
 // src/platform/ps5).

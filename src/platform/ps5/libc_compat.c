@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 PSBox Cloud Gaming contributors
+// Copyright (C) 2026 RafaelNGP
 /* libc functions the console's libc does not export but deps use. */
 #include <errno.h>
 #include <pthread.h>

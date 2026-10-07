@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 PSBox Cloud Gaming contributors
+// Copyright (C) 2026 RafaelNGP
 // Minimal JSON value, parser and serializer.
 //
 // Self-contained on purpose: the PS5 payload SDK ships a bare libc++, and the

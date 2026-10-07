@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 PSBox Cloud Gaming contributors
+# Copyright (C) 2026 RafaelNGP
 # libavcodec/libswresample/libavutil (H.264 + Opus decoders) from deps/ffmpeg, built by
 # tools/build-ffmpeg.sh into <build>/ffmpeg; run here when missing.
 

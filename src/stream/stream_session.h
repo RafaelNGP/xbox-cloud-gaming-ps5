@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 PSBox Cloud Gaming contributors
+// Copyright (C) 2026 RafaelNGP
 // The WebRTC side of an xCloud session, once gssv reports it Provisioned:
 // SDP/ICE exchange through GssvClient, then the four data channels (message,
 // control, input, chat) and the audio/video tracks.

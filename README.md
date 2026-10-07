@@ -1,139 +1,96 @@
 # PSBox Cloud Gaming
 
-Cliente nativo de Xbox Cloud Gaming (xCloud) para PS5 com homebrew.
+A native Xbox Cloud Gaming (xCloud) client for jailbroken PS5 consoles. Sign in
+with your Microsoft account, browse the cloud catalog in a UI modeled on
+xbox.com/play, and stream games at 1080p60 with sound, using the DualSense as
+an Xbox controller.
 
-O ícone e o logo são arte original (`src/ui/brand.cpp`), inspirada no
-estilo do Xbox, sem usar o logotipo da Microsoft. Para regenerar o ícone da
-home do PS5: `build-host/xcloud-cli render-icon ps5/sce_sys/icon0.png 512`.
+- Sign-in with a device code (or QR code) shown on the TV; no password is
+  ever typed on the console.
+- Home screen with the same rows as xbox.com/play: Jump back in, Recently
+  added, Most popular on cloud, Leaving soon and All games.
+- WebRTC streaming (libdatachannel on Mbed TLS) with H.264 and Opus decoded by
+  FFmpeg on the CPU.
+- English UI; text is centralized in `src/ui/strings.cpp` for translation.
 
-## Estado
+Requires a homebrew-enabled PS5 that can run directory-style apps (for
+example through ShadowMountPlus) and a subscription that includes cloud
+gaming.
 
-| Parte | PC (`xcloud-cli`) | PS5 |
-| --- | --- | --- |
-| Interface estilo xbox.com/play (home, detalhes, login com QR) | preview em PNG | testado (renderiza em 5-7 ms) |
-| Login (conta salva), lista de jogos, sessão, fila | testado | testado |
-| WebRTC (SDP/ICE, DTLS-SRTP, canais de dados) | testado | testado |
-| Vídeo 1080p60 H.264 (FFmpeg, 3,1 ms/quadro no PS5) | testado | testado: 3 min, 99,6% dos quadros exibidos |
-| Áudio Opus → sceAudioOut | decodificação testada | testado (ouvido no console; também ao trocar de jogo) |
-| DualSense → controle Xbox no jogo | — | testado (autoplay aperta A no Balatro) |
+## Building
 
-## Teste automático no console
-
-`tools/ps5/autotest.sh` compila, faz o deploy, abre o app pelo agente
-`ps5vkctl` do PS5_Vulkan e espera o resultado. O app, ao achar
-`autoplay.txt`, entra no jogo sozinho, aperta A aos 15 s e 20 s, registra
-estatísticas por segundo e salva quadros em `frame.ppm`/`frame2.ppm`.
-
-```bash
-PS5_HOST=<ip> tools/ps5/autotest.sh BALATRO 60          # streaming
-PS5_HOST=<ip> tools/ps5/autotest.sh BALATRO 30 dump     # + grava stream.aus (H.264 recebido)
-PS5_HOST=<ip> tools/ps5/autotest.sh BALATRO 20 repeat   # duas sessões seguidas no mesmo processo
-XC_SAMPLE=amostra.h264 PS5_HOST=<ip> tools/ps5/autotest.sh BENCH 30   # só o decoder
-build-host/xcloud-cli bench-decode build-ps5/autotest/stream.aus      # reproduz no PC
-```
-
-Resultados em `build-ps5/autotest/`.
-
-## Particularidades do PS5 (sandbox do app)
-
-- `getaddrinfo` não funciona (e o link do PS5_Vulkan o troca por um stub que
-  sempre falha): `libc_compat.c` implementa `getaddrinfo`/`getnameinfo` com
-  `sceNetResolver`, e o `link.sh` remove o redirecionamento.
-- `ioctl(FIONBIO)`/`fcntl(O_NONBLOCK)` em sockets dão `EACCES`;
-  `setsockopt(SO_NBIO)` funciona (`ioctl` é embrulhado via `ps5/compat/ps5_lfs.h`).
-- O callback de log padrão do FFmpeg derruba o app: o log vai para o nosso logger.
-- `sceAudioOutInit` só pode ser chamado uma vez por processo (a segunda
-  chamada devolve `0x8026000E`); só a porta é aberta/fechada por jogo.
-- O depacketizador H.264 às vezes entrega unidades vazias, que o libavcodec
-  entende como fim de stream: são descartadas.
-
-## Build
+Clone with the submodules (Mbed TLS, libdatachannel, FFmpeg):
 
 ```bash
 git clone --recursive https://github.com/RafaelNGP/xbox-cloud-gaming-ps5.git
-
-# PC (validação do protocolo)
-cmake -S . -B build-host -G Ninja && ninja -C build-host
-XCLOUD_DATA_DIR=build-host/data build-host/xcloud-cli login
-XCLOUD_DATA_DIR=build-host/data build-host/xcloud-cli stream BALATRO 30 /tmp/out.h264
-
-# PS5 (depende de ../../WoW-PS5/deps/PS5_Vulkan: SDK, linker, ps5-native-tool)
-cmake -S . -B build-ps5 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/ps5.toolchain.cmake -DCMAKE_BUILD_TYPE=Release
-ninja -C build-ps5 xcloud_app
-tools/ps5/link.sh build-ps5 && tools/ps5/package.sh build-ps5
-PS5_HOST=<ip> tools/ps5/deploy.sh           # FTP para /data/homebrew/PPSA99810
-PS5_HOST=<ip> tools/ps5/deploy.sh --log     # baixa xcloud.log
+cd xbox-cloud-gaming-ps5
 ```
 
-O FFmpeg (`deps/ffmpeg`, só os decoders H.264/Opus) é compilado pelo
-`tools/build-ffmpeg.sh` na primeira configuração do CMake. O build roda em
-`~/.cache/xcloud-ps5` porque o FFmpeg não aceita espaços no caminho; o `nasm`
-também é compilado ali se não estiver instalado.
+Requirements: CMake 3.20+, Ninja, Clang/LLVM (clang, clang++, llvm-ar,
+llvm-ranlib), Python 3 and curl. NASM is built automatically if missing.
+FFmpeg is configured and built by `tools/build-ffmpeg.sh` the first time
+CMake runs.
 
-## Interface
+### Desktop build (Linux)
 
-Desenhada por software (`src/ui`): canvas RGBA, texto TrueType (Inter, OFL),
-imagens baixadas e redimensionadas em segundo plano. As fileiras vêm das
-mesmas listas do xbox.com/play (catalog.gamepass.com): Jump back in, Recently
-added, Most popular on cloud, Leaving soon e All games. Primeiro carrega a
-versão leve do catálogo (a home aparece em ~4 s) e depois, em segundo plano,
-as artes hero e as descrições.
-
-Todos os textos ficam em `src/ui/strings.cpp` (inglês por padrão; outros
-idiomas entram como uma nova coluna).
-
-Para ajustar o visual sem o console:
+Used to develop and check the protocol and the UI on a PC.
 
 ```bash
-XCLOUD_DATA_DIR=build-host/data build-host/xcloud-cli ui-preview /tmp/ui   # PNG de cada tela
+cmake -S . -B build-host -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+ninja -C build-host
+build-host/xcloud-tests                       # unit tests
+build-host/xcloud-cli login                   # sign in
+build-host/xcloud-cli stream BALATRO 30       # stream a title for 30 s
+build-host/xcloud-cli ui-preview /tmp/ui      # render every screen to PNG
 ```
 
-## No console
+### PS5 build
 
-- Na primeira vez, aparece um código: abra https://www.microsoft.com/link no
-  celular e digite o código. O `package.sh` copia o `build-host/data/account.json`
-  para o pacote se ele existir, e aí o app pula essa etapa. Esse arquivo tem o
-  seu token: não compartilhe o pacote.
-- Home: direcional ou analógico navega, X abre os detalhes, X de novo joga,
-  O volta, OPTIONS sai da conta.
-- No jogo: segure OPTIONS + TOUCHPAD por 1 s para sair. TOUCHPAD = View,
-  OPTIONS = Menu.
-- Log: `/data/homebrew/PPSA99810/xcloud.log`.
+The console build uses the toolchain of
+[PS5_Vulkan](https://github.com/mihawk-99/PS5_Vulkan) (the PS5 payload SDK, the PS5 linker
+recipe and `ps5-native-tool`). By default it is expected at
+`../../WoW-PS5/deps/PS5_Vulkan`; set `PS5_VULKAN` to point elsewhere.
 
-## Organização
+```bash
+cmake -S . -B build-ps5 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/ps5.toolchain.cmake -DCMAKE_BUILD_TYPE=Release
+ninja -C build-ps5 xcloud_app
+tools/ps5/link.sh build-ps5          # -> build-ps5/eboot.bin
+tools/ps5/package.sh build-ps5       # -> build-ps5/pkg/PPSA99810/
+```
 
-- `src/auth`, `src/xcloud`: login e API gssv (sessões, SDP, ICE).
-- `src/stream`: sessão WebRTC (libdatachannel) e formato do canal de input.
-- `src/media`: decodificação (libavcodec) e saída de áudio.
-- `src/ui`: interface (canvas, fontes, cache de imagens, telas, textos).
-- `src/display`, `src/input`: framebuffer do PS5 (sceVideoOut) e DualSense.
-- `src/app`: `cli_main.cpp` (PC), `ps5_main.cpp` + `stream_player.cpp` (PS5),
-  `library.cpp` (fileiras do catálogo).
-- `extern`: stb (truetype, image, resize, write), qrcodegen.
-- `deps`: mbedTLS (com DTLS-SRTP habilitado), libdatachannel e FFmpeg.
+## Release
 
-Protocolo baseado nos clientes open-source xbox-xcloud-player e Greenlight.
+1. Build the PS5 app as above. `tools/ps5/package.sh` produces the complete
+   app folder `build-ps5/pkg/PPSA99810/` (eboot, `sce_sys`, `sce_module`,
+   assets and the license texts under `licenses/`). It contains no account
+   data.
+2. Tag the release and attach a zip of that folder:
 
-## Licença
+   ```bash
+   git tag v0.1.0 && git push origin v0.1.0
+   (cd build-ps5/pkg && zip -r ../PSBox-Cloud-Gaming-v0.1.0.zip PPSA99810)
+   ```
 
-GPL-3.0-or-later (`LICENSE`). A escolha não é opcional: o `eboot.bin` linka
-estaticamente o runtime do PS5 (o `app_crt`/`app_cpp_runtime` do PS5_Vulkan e
-a camada de plataforma do payload SDK) e o pacote leva o `libc.prx`, todos
-GPL-3.0-or-later. As demais dependências (Mbed TLS, libdatachannel, FFmpeg
-em LGPL, stb, qrcodegen, fonte Inter, certificados da Mozilla) são
-compatíveis; a lista completa, com versões, está em `THIRD_PARTY_NOTICES.md`,
-e o pacote do app leva os textos das licenças em `licenses/`.
+3. To install, copy the whole `PPSA99810` folder to `/data/homebrew/` on the
+   console (or use `PS5_HOST=<console-ip> tools/ps5/deploy.sh`, which uploads
+   it over FTP) and launch it from the home screen once the loader has
+   registered it.
 
-Quem distribuir o binário precisa oferecer o código-fonte correspondente:
-este repositório na tag da release, com os submódulos.
+The binary is GPL-licensed, so every release must point to the source it was
+built from: the tagged commit of this repository with its submodules.
 
-## Aviso
+## License
 
-Projeto não oficial, sem afiliação, endosso ou patrocínio da Microsoft ou da
-Sony. Xbox, Xbox Cloud Gaming e Game Pass são marcas do grupo Microsoft;
-PlayStation e PS5 são marcas da Sony Interactive Entertainment. É preciso uma
-assinatura que inclua jogos na nuvem. O login usa o mesmo client id público
-dos clientes Xbox open-source (o do app Xbox), e o protocolo é o do cliente
-web do xbox.com: a Microsoft pode mudá-lo ou bloqueá-lo a qualquer momento.
-Nomes e artes dos jogos vêm do catálogo público da Microsoft em tempo de
-execução e não são distribuídos com o projeto.
+GPL-3.0-or-later; see `LICENSE`. The PS5 binary statically links the PS5 app
+runtime and payload SDK platform layer, which are GPL-3.0-or-later, so the
+project as distributed must be too. All other components are compatible
+(Mbed TLS, libdatachannel, FFmpeg under the LGPL, stb, qrcodegen, the Inter
+font, Mozilla's CA bundle); `THIRD_PARTY_NOTICES.md` lists each one with its
+version and license.
+
+This is an unofficial project, not affiliated with, endorsed or sponsored by
+Microsoft or Sony. Xbox, Xbox Cloud Gaming and Game Pass are trademarks of the
+Microsoft group of companies; PlayStation and PS5 are trademarks of Sony
+Interactive Entertainment. Game names and artwork are loaded from Microsoft's
+public catalog at runtime and are not distributed with this project.
+Microsoft may change or block the services this client relies on at any time.

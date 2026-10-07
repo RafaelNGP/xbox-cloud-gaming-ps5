@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 PSBox Cloud Gaming contributors
+# Copyright (C) 2026 RafaelNGP
 # Linker for third-party configure scripts (FFmpeg): links their test
 # programs as a PIE against the payload SDK's stub libraries, so a function
 # check passes only when the console really exports the symbol. The result

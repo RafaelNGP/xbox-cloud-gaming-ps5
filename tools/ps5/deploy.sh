@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 PSBox Cloud Gaming contributors
+# Copyright (C) 2026 RafaelNGP
 # Upload the packaged app to the console over FTP, or fetch its log.
 #
 #   PS5_HOST=<ip> tools/ps5/deploy.sh [build-dir]       upload <build-dir>/pkg/<TITLE_ID>

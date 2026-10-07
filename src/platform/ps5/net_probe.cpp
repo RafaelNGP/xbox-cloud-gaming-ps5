@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 PSBox Cloud Gaming contributors
+// Copyright (C) 2026 RafaelNGP
 // Logs which socket operations the app sandbox allows (autoplay runs only):
 // the WebRTC stack (libjuice) needs non-blocking UDP, pipes and poll.
 #include "util/log.h"

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 PSBox Cloud Gaming contributors
+# Copyright (C) 2026 RafaelNGP
 # mbedTLS compiled from source for both builds (without net_sockets, tests or
 # programs), with the DTLS-SRTP extension WebRTC needs.
 

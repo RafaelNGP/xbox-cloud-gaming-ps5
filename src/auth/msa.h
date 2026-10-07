@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 PSBox Cloud Gaming contributors
+// Copyright (C) 2026 RafaelNGP
 // Microsoft account (MSA) OAuth via login.live.com: device-code sign-in and
 // refresh. The device-code flow fits a console: the TV shows a short code
 // (and a QR code) and the user signs in with their real account on a phone.

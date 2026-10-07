@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 PSBox Cloud Gaming contributors
+// Copyright (C) 2026 RafaelNGP
 // Blocking HTTPS/1.1 client over BSD sockets + mbedTLS.
 //
 // One code path for the Linux host build and the PS5: the payload SDK exposes

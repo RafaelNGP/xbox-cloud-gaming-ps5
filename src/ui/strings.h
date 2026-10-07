@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 PSBox Cloud Gaming contributors
+// Copyright (C) 2026 RafaelNGP
 // User-facing text. English is the default; other languages add a column to
 // the table in strings.cpp and are picked with setLanguage().
 #pragma once

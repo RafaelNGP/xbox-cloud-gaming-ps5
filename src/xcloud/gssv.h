@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 PSBox Cloud Gaming contributors
+// Copyright (C) 2026 RafaelNGP
 // Client for the xCloud game-streaming service ("gssv"): login, title list,
 // and the session lifecycle (provision -> connect -> SDP/ICE -> keepalive).
 //

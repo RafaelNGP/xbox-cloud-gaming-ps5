@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 PSBox Cloud Gaming contributors
+# Copyright (C) 2026 RafaelNGP
 # One unattended console run: build, deploy, launch in autoplay mode, wait for
 # the result, close the app and fetch its log (and frame.ppm when present).
 #

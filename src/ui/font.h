@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 PSBox Cloud Gaming contributors
+// Copyright (C) 2026 RafaelNGP
 // TrueType text through stb_truetype, with a glyph cache per pixel size.
 // Coordinates are the top-left corner of the line box.
 #pragma once

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 PSBox Cloud Gaming contributors
+// Copyright (C) 2026 RafaelNGP
 // Offline unit tests for the portable core (no network).
 #include "net/http.h"
 #include "stream/input_packet.h"

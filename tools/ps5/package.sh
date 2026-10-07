@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Copyright (C) 2026 PSBox Cloud Gaming contributors
+# Copyright (C) 2026 RafaelNGP
 # Package the PS5 app folder (ShadowMountPlus directory title)
 #
 #   tools/ps5/package.sh <build-dir> [out-dir]     -> <out-dir>/<TITLE_ID>/

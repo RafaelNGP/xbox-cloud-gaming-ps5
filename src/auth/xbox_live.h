@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 PSBox Cloud Gaming contributors
+// Copyright (C) 2026 RafaelNGP
 // Xbox Live token exchange: MSA access token -> Xbox user token -> XSTS
 // token for a relying party (gssv for xCloud, xboxlive.com for profile data).
 #pragma once

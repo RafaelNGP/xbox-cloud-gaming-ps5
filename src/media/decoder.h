@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 PSBox Cloud Gaming contributors
+// Copyright (C) 2026 RafaelNGP
 // H.264 and Opus decoding through libavcodec (deps/ffmpeg, decoders only).
 #pragma once
 

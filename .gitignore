@@ -1,5 +1,9 @@
 # Build trees (CMake, FFmpeg install, linked eboot, packaged app)
 /build-*/
-# Sign-in tokens and logs: never commit
+# Never commit: sign-in tokens, logs, autotest captures and stream dumps
 account.json
 *.log
+*.ppm
+*.aus
+*.h264
+autoplay.txt
