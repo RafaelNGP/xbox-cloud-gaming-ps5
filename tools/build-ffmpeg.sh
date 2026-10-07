@@ -51,7 +51,7 @@ if [[ $target == ps5 ]]; then
     export PS5_SDK=$vk/.deps/native/ps5-payload-sdk
     cp "$root/ps5/compat/ps5_lfs.h" "$cache/ps5_lfs.h"
     ln -sfn "$root/tools/ps5/configure-ld.sh" "$cache/configure-ld.sh"
-    flags="-target x86_64-sie-ps5 -fPIC -march=znver2 -fvisibility-nodllstorageclass=default -fno-stack-protector -fno-plt -femulated-tls -fdenormal-fp-math=ieee -isysroot $PS5_SDK -isystem $PS5_SDK/target/include -D_GNU_SOURCE -include $cache/ps5_lfs.h"
+    flags="-target x86_64-sie-ps5 -fPIC -march=znver2 -fvisibility-nodllstorageclass=default -fno-stack-protector -fno-plt -femulated-tls -fdenormal-fp-math=ieee -isysroot $PS5_SDK -isystem $PS5_SDK/target/include -D_GNU_SOURCE -include $cache/ps5_lfs.h -ffile-prefix-map=$cache=ffmpeg -ffile-prefix-map=$HOME=~"
     "$src/configure" "${common[@]}" \
         --enable-cross-compile --target-os=freebsd --arch=x86_64 \
         --cc=clang --ar=llvm-ar --ranlib=llvm-ranlib --nm=llvm-nm \

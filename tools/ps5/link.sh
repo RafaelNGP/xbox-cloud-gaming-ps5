@@ -14,7 +14,8 @@ tool=$vk/build/host/ps5-native-tool
 work=$build/ps5-link
 
 mkdir -p "$work/obj" "$work/stubs"
-cc() { PS5_PAYLOAD_SDK="$sdk" sh "$vk/tooling/prospero-clang18" "$@"; }
+# Build-machine paths stay out of the binary.
+cc() { PS5_PAYLOAD_SDK="$sdk" sh "$vk/tooling/prospero-clang18" "-ffile-prefix-map=$HOME=~" "$@"; }
 
 cc -std=c++20 -O2 -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections \
     -c "$native/app_crt.cpp" -o "$work/obj/app_crt.o"

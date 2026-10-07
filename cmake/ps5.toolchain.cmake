@@ -36,8 +36,12 @@ set(CMAKE_CXX_COMPILER_TARGET x86_64-sie-ps5)
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
+# Keep build-machine paths (assert/log file names) out of the binary.
+get_filename_component(XC_SOURCE_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+set(XC_PATH_MAP "\"-ffile-prefix-map=${XC_SOURCE_ROOT}=.\" \"-ffile-prefix-map=$ENV{HOME}=~\"")
+
 set(PS5_COMMON_FLAGS
-    "-fPIC -ffunction-sections -fdata-sections -funwind-tables -fexceptions -march=znver2 -fvisibility-nodllstorageclass=default -fno-stack-protector -fno-plt -femulated-tls -fdenormal-fp-math=ieee -isysroot \"${PS5_SDK}\" -D_GNU_SOURCE -DXCLOUD_PS5=1 \"-include${CMAKE_CURRENT_LIST_DIR}/../ps5/compat/ps5_lfs.h\"")
+    "${XC_PATH_MAP} -fPIC -ffunction-sections -fdata-sections -funwind-tables -fexceptions -march=znver2 -fvisibility-nodllstorageclass=default -fno-stack-protector -fno-plt -femulated-tls -fdenormal-fp-math=ieee -isysroot \"${PS5_SDK}\" -D_GNU_SOURCE -DXCLOUD_PS5=1 \"-include${CMAKE_CURRENT_LIST_DIR}/../ps5/compat/ps5_lfs.h\"")
 set(CMAKE_C_FLAGS_INIT   "${PS5_COMMON_FLAGS} -isystem \"${PS5_SDK}/target/include\"")
 set(CMAKE_CXX_FLAGS_INIT "${PS5_COMMON_FLAGS} -fcxx-exceptions -frtti -isystem \"${PS5_SDK}/target/include/c++/v1\" -isystem \"${PS5_SDK}/target/include\"")
 
