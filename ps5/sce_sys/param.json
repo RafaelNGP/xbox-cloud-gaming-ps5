@@ -1,0 +1,41 @@
+{
+  "ageLevel": {
+    "default": 0
+  },
+  "applicationCategoryType": 0,
+  "applicationDrmType": "free",
+  "attribute": 0,
+  "attribute2": 0,
+  "attribute3": 0,
+  "conceptId": "99810",
+  "contentBadgeType": 1,
+  "contentId": "UP9000-PPSA99810_00-XCLOUDPS5CLI0000",
+  "contentVersion": "00.100.000",
+  "downloadDataSize": 256,
+  "gameIntent": {
+    "permittedIntents": [
+      {
+        "intentType": "launchActivity"
+      }
+    ]
+  },
+  "localizedParameters": {
+    "defaultLanguage": "en-US",
+    "en-US": {
+      "titleName": "Xbox Cloud Gaming"
+    },
+    "pt-BR": {
+      "titleName": "Xbox Cloud Gaming"
+    }
+  },
+  "masterVersion": "00.10",
+  "pubtools": {
+    "creationDate": "2026-10-06 00:00:00",
+    "loudnessSnd0": "-28.00",
+    "toolVersion": "2.00"
+  },
+  "requiredSystemSoftwareVersion": "0x0000000000000000",
+  "sdkVersion": "0x0000000000000000",
+  "titleId": "PPSA99810",
+  "versionFileUri": ""
+}

@@ -1,0 +1,5 @@
+# Build trees (CMake, FFmpeg install, linked eboot, packaged app)
+/build-*/
+# Sign-in tokens and logs: never commit
+account.json
+*.log
