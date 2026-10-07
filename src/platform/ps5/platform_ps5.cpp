@@ -23,7 +23,6 @@ int sceNetPoolCreate(const char* name, int size, int flags);
 int sceNetResolverCreate(const char* name, int memid, int flags);
 int sceNetResolverStartNtoa(int rid, const char* hostname, uint32_t* addr, int timeout, int retry, int flags);
 int sceNetResolverDestroy(int rid);
-int sceSystemServiceLaunchWebBrowser(const char* uri, void* param);
 }
 
 namespace xc::platform {
@@ -119,13 +118,6 @@ void notify(const std::string& text) {
     } req{};
     std::snprintf(req.message, sizeof req.message, "%s", text.c_str());
     sceKernelSendNotificationRequest(0, &req, sizeof req, 0);
-}
-
-bool openUrl(const std::string& url) {
-    // As PS5_PayloadSDK's samples/browser.
-    int rc = sceSystemServiceLaunchWebBrowser(url.c_str(), nullptr);
-    XC_LOGI("browser %s: 0x%08x", url.c_str(), rc);
-    return rc == 0;
 }
 
 } // namespace xc::platform

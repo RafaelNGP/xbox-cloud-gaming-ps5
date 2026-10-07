@@ -37,9 +37,6 @@ public:
 
     // The image scaled to w x h, or nullptr while it loads (or if it failed).
     std::shared_ptr<const Image> get(const std::string& url, int w, int h);
-    // Drops every decoded image (they reload from disk on demand): memory for
-    // another process, such as the web browser.
-    void clear();
 
 private:
     struct Entry {

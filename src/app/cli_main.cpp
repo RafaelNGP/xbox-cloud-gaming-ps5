@@ -360,6 +360,14 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
         }
         save("library_buy", 3000);
         press([](ui::NavInput& n) { n.accept = true; }, 1);
+        if (std::string id = app.detailWanted(); !id.empty()) {  // as the app's price thread does
+            std::map<std::string, xcloud::Product> full;
+            std::string e;
+            if (xcloud::fetchProducts({id}, gssv.session().market.empty() ? "US" : gssv.session().market,
+                                      ui::catalogLanguage(), full, e, true) &&
+                full.count(id))
+                app.setDetailInfo(id, full[id].description, full[id].publisher, full[id].categories);
+        }
         save("details_buy", 2000);
         press([](ui::NavInput& n) { n.back = true; }, 1);
         press([](ui::NavInput& n) { n.triangle = true; }, 1);  // "Your games" search

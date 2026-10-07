@@ -66,17 +66,13 @@ struct SettingsChoice {
     std::string region;    // gssv region name; empty = automatic
 };
 
-enum class Action { None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, OpenUrl };
+enum class Action { None, Play, SignOut, Retry, CancelLaunch, SettingsChanged };
 
 struct UiEvent {
     Action action = Action::None;
     GameTile game;
     SettingsChoice settings;  // SettingsChanged
-    std::string url;          // OpenUrl
 };
-
-// The store page of a product, for the browser or a phone.
-std::string storeUrl(const std::string& productId);
 
 // "SOUTHCENTRALUS" -> "South Central US".
 std::string prettyRegion(const std::string& name);
@@ -103,6 +99,12 @@ public:
     // Games to buy on screen (or about to be) whose price hasn't been asked
     // for yet; marks them asked.
     std::vector<std::string> pricesWanted(size_t max);
+    // The game whose page is open, if its description hasn't arrived: asked
+    // once per game (empty otherwise).
+    std::string detailWanted();
+    // Fills in the open page when it shows `productId`.
+    void setDetailInfo(const std::string& productId, const std::string& description, const std::string& publisher,
+                       const std::vector<std::string>& categories);
     void showHome(const std::string& toast = {});
     void showLaunching(const GameTile& game, const std::string& status);
     void setLaunchStatus(const std::string& status);
@@ -205,7 +207,7 @@ private:
     std::string defaultRegion_;
     std::map<std::string, int> regionMs_;
     std::map<std::string, std::pair<std::string, std::string>> prices_;
-    std::set<std::string> pricesAsked_;
+    std::set<std::string> pricesAsked_, detailsAsked_;
     int settingsRow_ = 0;
     uint64_t signOutHoldStart_ = 0;  // TOUCHPAD hold in progress
     bool signOutLatched_ = false;    // fired; wait for release

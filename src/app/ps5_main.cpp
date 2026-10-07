@@ -75,8 +75,7 @@ app::StreamPlayer* g_player = nullptr;
 // in, plays that title for that long (pressing A at 15 s and 20 s), saves
 // decoded frames and logs "AUTOPLAY END". Options, comma-separated: nosimd,
 // dump, repeat, idle (no A presses), threads=N (H.264 decoder threads),
-// rumbletest (rumbles the pad for 1.5 s at start), browsertest (opens a
-// store page in the browser).
+// rumbletest (rumbles the pad for 1.5 s at start).
 // The title "BENCH" decodes <dataDir>/sample.h264 instead.
 
 std::string g_autoplayTitle;
@@ -105,7 +104,6 @@ void loadAutoplay() {
         if (opt == "repeat") g_autoplayRuns = 2;
         if (opt == "idle") g_autoplayIdle = true;
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
-        if (opt == "browsertest") platform::openUrl(ui::storeUrl("BX3M8L83BBRW"));
         if (opt.rfind("threads=", 0) == 0) g_decodeThreads = std::atoi(opt.c_str() + 8);
     }
     g_autoplayTitle = title;
@@ -333,7 +331,8 @@ std::string g_xblAuth;
 
 // --- Store prices ---------------------------------------------------------------
 // Asked for the games to buy as they come on screen; kept a day in
-// <dataDir>/prices.json.
+// <dataDir>/prices.json. The same thread fetches the description of an
+// opened game that has none yet.
 std::mutex g_priceMutex;
 std::string g_priceMarket, g_priceLanguage;  // set by loadLibrary()
 platform::Thread g_priceThread;
@@ -373,6 +372,16 @@ void priceLoop() {
             std::lock_guard<std::mutex> lock(g_priceMutex);
             market = g_priceMarket;
             language = g_priceLanguage;
+        }
+        // The open page's description, for games that only have the light
+        // catalog data (games to buy, search results).
+        if (std::string id = market.empty() ? std::string() : g_ui->detailWanted(); !id.empty()) {
+            std::map<std::string, xcloud::Product> full;
+            std::string err;
+            if (xcloud::fetchProducts({id}, market, language, full, err, true) && full.count(id)) {
+                const auto& p = full[id];
+                g_ui->setDetailInfo(id, p.description, p.publisher, p.categories);
+            }
         }
         std::vector<std::string> ids = market.empty() ? std::vector<std::string>() : g_ui->pricesWanted(20);
         if (ids.empty()) {
@@ -692,12 +701,6 @@ int main(int argc, char** argv) {
                 break;
             case ui::Action::Retry: g_command = kSignIn; break;
             case ui::Action::CancelLaunch: g_cancel = true; break;
-            case ui::Action::OpenUrl:
-                // The browser is a heavy process next to this app: give it
-                // the decoded images (up to 160 MB; they come back from disk).
-                g_images->clear();
-                platform::openUrl(ev.url);  // the result is logged
-                break;
             case ui::Action::SettingsChanged: {
                 bool languageChanged;
                 {

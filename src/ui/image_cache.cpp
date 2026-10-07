@@ -103,15 +103,6 @@ std::shared_ptr<const Image> ImageCache::get(const std::string& url, int w, int 
     return e.image;
 }
 
-void ImageCache::clear() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    size_t freed = bytes_;
-    for (auto it = entries_.begin(); it != entries_.end();)
-        it = it->second.loading ? std::next(it) : entries_.erase(it);
-    bytes_ = 0;
-    XC_LOGI("image cache: %zu MB freed", freed >> 20);
-}
-
 void ImageCache::evict() {
     // Caller holds mutex_.
     while (bytes_ > budget_) {

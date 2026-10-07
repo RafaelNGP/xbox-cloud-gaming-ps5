@@ -99,8 +99,6 @@ constexpr uint64_t kSignOutHoldMs = 5000;
 
 }  // namespace
 
-std::string storeUrl(const std::string& productId) { return "https://www.xbox.com/games/store/p/" + productId; }
-
 std::string prettyRegion(const std::string& name) {
     static const char* kWords[] = {"SOUTHEAST", "NORTHEAST", "CENTRAL", "AUSTRALIA", "GERMANY", "EUROPE", "BRAZIL",
                                    "CANADA", "FRANCE", "MEXICO", "SWEDEN", "JAPAN",   "KOREA",  "INDIA", "NORTH",
@@ -267,6 +265,22 @@ std::vector<std::string> AppUi::pricesWanted(size_t max) {
         }
     }
     return out;
+}
+
+std::string AppUi::detailWanted() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (screen_ != Screen::Details || detail_.productId.empty() || !detail_.description.empty()) return {};
+    return detailsAsked_.insert(detail_.productId).second ? detail_.productId : std::string();
+}
+
+void AppUi::setDetailInfo(const std::string& productId, const std::string& description, const std::string& publisher,
+                          const std::vector<std::string>& categories) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (detail_.productId != productId) return;
+    if (!description.empty()) detail_.description = description;
+    if (!publisher.empty()) detail_.publisher = publisher;
+    if (!categories.empty()) detail_.categories = categories;
+    dirty_ = true;
 }
 
 const GameTile* AppUi::libraryTile(int index) const {
@@ -648,9 +662,6 @@ UiEvent AppUi::handle(const NavInput& in) {
             if (in.accept && detail_.playable && !detail_.titleId.empty()) {
                 ev.action = Action::Play;
                 ev.game = detail_;
-            } else if (in.accept && detail_.purchasable) {  // to the store, in the browser
-                ev.action = Action::OpenUrl;
-                ev.url = storeUrl(detail_.productId);
             }
             if (in.back) {
                 screen_ = Screen::Home;
@@ -1151,8 +1162,10 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     if (!drawHero(c, nowMs, g->heroUrl, true)) {
         // No hero art (yet): the cover, until the art arrives and fades in.
         drawBackground(c);
-        if (auto img = images_.get(g->tileUrl, kCover, kCover)) c.drawImage(*img, cover.x, cover.y, 255, 16);
-        else c.fillRect(cover, kPlaceholder, 16);
+        if (!g->purchasable) {  // a game to buy has its QR code there instead
+            if (auto img = images_.get(g->tileUrl, kCover, kCover)) c.drawImage(*img, cover.x, cover.y, 255, 16);
+            else c.fillRect(cover, kPlaceholder, 16);
+        }
     }
     drawTopBar(c);
     int y = 260;
@@ -1178,51 +1191,47 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         y += 34;
     }
     if (g->purchasable) {
-        // Streams once bought: say where to buy it, with a QR code of the
-        // store page for the phone.
+        // Streams once bought: the price and how to buy it on the left, a
+        // large QR code of the store page (for the phone) on the right. The
+        // console's browser can't run the xbox.com store, so no button.
+        int ty = y + 30;
         auto price = prices_.find(g->productId);
-        int ny = std::max(y + (price != prices_.end() ? 120 : 40), 600);
         if (price != prices_.end()) {
             // The price, and the regular one crossed out while on sale.
             int px = kMargin;
-            fonts_.bold.draw(c, price->second.first, px, ny - 70, 44, kWhite);
-            px += fonts_.bold.measure(price->second.first, 44) + 20;
+            fonts_.bold.draw(c, price->second.first, px, ty, 52, kWhite);
+            px += fonts_.bold.measure(price->second.first, 52) + 24;
             if (!price->second.second.empty()) {
-                int w = fonts_.semibold.measure(price->second.second, 28);
-                fonts_.semibold.draw(c, price->second.second, px, ny - 58, 28, kDim);
-                c.line(static_cast<float>(px), static_cast<float>(ny - 42), static_cast<float>(px + w),
-                       static_cast<float>(ny - 42), 2, kDim);
+                int w = fonts_.semibold.measure(price->second.second, 30);
+                fonts_.semibold.draw(c, price->second.second, px, ty + 14, 30, kDim);
+                c.line(static_cast<float>(px), static_cast<float>(ty + 32), static_cast<float>(px + w),
+                       static_cast<float>(ty + 32), 2, kDim);
             }
+            ty += 84;
         }
-        // A button (focused, like Play): opens the store page in the browser.
-        Rect note{kMargin, ny, 620, 76};
-        c.strokeRect({note.x - 7, note.y - 7, note.w + 14, note.h + 14}, kWhite, 4, 45);
-        c.fillRect(note, rgba(16, 124, 16, 255), 38);
-        drawBag(c, note.x + 50, note.y + note.h / 2, kWhite);
-        fonts_.semibold.draw(c, tr(Str::BuyToPlay), note.x + 86, note.y + 22, 26, kWhite);
-        auto hint = fonts_.regular.wrap(tr(Str::BuyHint), 22, 760, 2);
-        for (size_t i = 0; i < hint.size(); ++i)
-            fonts_.regular.draw(c, hint[i], kMargin, ny + 100 + static_cast<int>(i) * 32, 22, kGray);
-        std::string url = storeUrl(g->productId);
+        drawBag(c, kMargin + 12, ty + 16, kGreen);
+        fonts_.semibold.draw(c, tr(Str::BuyToPlay), kMargin + 36, ty, 28, kWhite);
+        ty += 48;
+        for (const auto& line : fonts_.regular.wrap(tr(Str::BuyHint), 24, 820, 3)) {
+            fonts_.regular.draw(c, line, kMargin, ty, 24, kGray);
+            ty += 34;
+        }
+        std::string url = "https://www.xbox.com/games/store/p/" + g->productId;
         uint8_t qr[qrcodegen_BUFFER_LEN_MAX], tmp[qrcodegen_BUFFER_LEN_MAX];
         if (qrcodegen_encodeText(url.c_str(), tmp, qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN,
                                  qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true)) {
-            // Under the cover, centred, on a dark panel with its caption.
             int n = qrcodegen_getSize(qr);
-            int module = 220 / (n + 2), size = module * (n + 2);
-            int w = fonts_.regular.measure(tr(Str::ScanToBuy), 20);
-            Rect panel{cover.x + (cover.w - std::max(size + 40, w + 40)) / 2, cover.y + cover.h + 24,
-                       std::max(size + 40, w + 40), size + 76};
-            c.fillRect(panel, rgba(20, 20, 20, 235), 18);
-            Rect box{panel.x + (panel.w - size - 20) / 2, panel.y + 14, size + 20, size + 20};
-            c.fillRect(box, kWhite, 12);
-            int ox = box.x + 10 + module, oy = box.y + 10 + module;
+            int module = 440 / (n + 2), size = module * (n + 2);
+            Rect box{kW - kMargin - size - 40, 190, size + 40, size + 40};
+            c.fillRect(box, kWhite, 20);
+            int ox = box.x + 20 + module, oy = box.y + 20 + module;
             for (int yy = 0; yy < n; ++yy)
                 for (int xx = 0; xx < n; ++xx)
                     if (qrcodegen_getModule(qr, xx, yy)) c.fillRect({ox + xx * module, oy + yy * module, module, module}, kBg);
-            fonts_.regular.draw(c, tr(Str::ScanToBuy), panel.x + (panel.w - w) / 2, box.y + box.h + 12, 20, kGray);
+            int w = fonts_.semibold.measure(tr(Str::ScanToBuy), 26);
+            fonts_.semibold.draw(c, tr(Str::ScanToBuy), box.x + (box.w - w) / 2, box.y + box.h + 22, 26, kWhite);
         }
-        drawHints(c, {{kIconCross, tr(Str::OpenStore)}, {kIconCircle, tr(Str::Back)}});
+        drawHints(c, {{kIconCircle, tr(Str::Back)}});
         return;
     }
     if (!g->playable) {

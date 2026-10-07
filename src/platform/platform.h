@@ -47,9 +47,6 @@ bool startThread(Thread& t, std::function<void()> fn, size_t stackBytes = 8u << 
 
 // Short on-screen message (PS5 system notification / host stdout).
 void notify(const std::string& text);
-// Opens `url` in the console's web browser (the app keeps running behind
-// it). False if the system refused.
-bool openUrl(const std::string& url);
 
 bool readFile(const std::string& path, std::string& out);
 bool writeFileAtomic(const std::string& path, const std::string& data);
