@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 // The menus, styled after xbox.com/play: a hero background of the focused
 // game, rows of box art, a details page with Play, plus the sign-in, loading
 // and error screens. Pure UI: it renders into a Canvas and turns pad input

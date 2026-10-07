@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 // Linux host build: used to develop and validate auth, catalog and streaming
 // on a PC before deploying to the console.
 #include "platform/platform.h"

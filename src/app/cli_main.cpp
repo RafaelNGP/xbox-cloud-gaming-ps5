@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 // Host (Linux) command-line front end, used to validate sign-in, the title
 // list and session provisioning on a PC before running on the console.
 //

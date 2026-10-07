@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 #include "media/audio_out.h"
 
 #include "util/log.h"

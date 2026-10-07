@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 PSBox Cloud Gaming contributors
 # libdatachannel (WebRTC: ICE via libjuice, DTLS-SRTP, SCTP data channels)
 # built static on top of the vendored mbedTLS. Include after mbedtls.cmake.
 

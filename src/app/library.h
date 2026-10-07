@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 // Builds the home screen rows: "Jump back in" (the account's recently played
 // cloud titles) followed by the Game Pass lists xbox.com/play shows.
 //

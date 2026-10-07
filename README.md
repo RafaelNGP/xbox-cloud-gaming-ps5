@@ -113,3 +113,27 @@ XCLOUD_DATA_DIR=build-host/data build-host/xcloud-cli ui-preview /tmp/ui   # PNG
 - `deps`: mbedTLS (com DTLS-SRTP habilitado), libdatachannel e FFmpeg.
 
 Protocolo baseado nos clientes open-source xbox-xcloud-player e Greenlight.
+
+## Licença
+
+GPL-3.0-or-later (`LICENSE`). A escolha não é opcional: o `eboot.bin` linka
+estaticamente o runtime do PS5 (o `app_crt`/`app_cpp_runtime` do PS5_Vulkan e
+a camada de plataforma do payload SDK) e o pacote leva o `libc.prx`, todos
+GPL-3.0-or-later. As demais dependências (Mbed TLS, libdatachannel, FFmpeg
+em LGPL, stb, qrcodegen, fonte Inter, certificados da Mozilla) são
+compatíveis; a lista completa, com versões, está em `THIRD_PARTY_NOTICES.md`,
+e o pacote do app leva os textos das licenças em `licenses/`.
+
+Quem distribuir o binário precisa oferecer o código-fonte correspondente:
+este repositório na tag da release, com os submódulos.
+
+## Aviso
+
+Projeto não oficial, sem afiliação, endosso ou patrocínio da Microsoft ou da
+Sony. Xbox, Xbox Cloud Gaming e Game Pass são marcas do grupo Microsoft;
+PlayStation e PS5 são marcas da Sony Interactive Entertainment. É preciso uma
+assinatura que inclua jogos na nuvem. O login usa o mesmo client id público
+dos clientes Xbox open-source (o do app Xbox), e o protocolo é o do cliente
+web do xbox.com: a Microsoft pode mudá-lo ou bloqueá-lo a qualquer momento.
+Nomes e artes dos jogos vêm do catálogo público da Microsoft em tempo de
+execução e não são distribuídos com o projeto.

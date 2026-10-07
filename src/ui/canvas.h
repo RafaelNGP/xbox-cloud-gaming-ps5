@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 // Software 2D drawing into a linear RGBA buffer, for the menus. Pixels are
 // uint32_t 0xAABBGGRR (bytes R, G, B, A in memory), the scan-out format of
 // the PS5 and of stb_image's RGBA output. The canvas itself is opaque.

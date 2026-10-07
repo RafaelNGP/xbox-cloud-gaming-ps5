@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 PSBox Cloud Gaming contributors
 # Builds the slice of FFmpeg the client needs (H.264 + Opus decoders,
 # libavcodec/libavutil only) as static libraries.
 #

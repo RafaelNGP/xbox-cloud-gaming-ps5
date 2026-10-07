@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 // Game Pass catalog (catalog.gamepass.com), the source xbox.com/play uses for
 // its rows: lists ("sigls") of product ids, and product details with names,
 // descriptions, art and the xCloud title id needed to start a session.

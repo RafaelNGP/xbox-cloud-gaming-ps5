@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 // Box art and hero images: downloaded and decoded on background threads,
 // scaled to exactly the size they are drawn at ("cover": fill and crop), and
 // kept in memory up to a byte budget (least recently used dropped first).

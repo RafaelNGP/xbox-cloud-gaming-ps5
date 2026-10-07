@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 // Ties sign-in together: stored refresh token (or a fresh device-code
 // sign-in) -> Xbox Live -> XSTS -> xCloud login. The UI only drives this and
 // shows the device code; it never sees passwords.

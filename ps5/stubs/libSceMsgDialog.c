@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 /* Host-link only: never packaged or executed. */
 int sceMsgDialogInitialize(void) { return -1; }
 int sceMsgDialogOpen(const void *param) { (void)param; return -1; }

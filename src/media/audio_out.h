@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 // Audio playback: 48 kHz interleaved float stereo pushed from any thread,
 // played by a dedicated thread in 256-frame grains (silence on underrun).
 #pragma once

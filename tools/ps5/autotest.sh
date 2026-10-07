@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 PSBox Cloud Gaming contributors
 # One unattended console run: build, deploy, launch in autoplay mode, wait for
 # the result, close the app and fetch its log (and frame.ppm when present).
 #
@@ -23,7 +25,7 @@ mkdir -p "$out"
 rm -f "$out"/*.ppm "$out"/xcloud.log "$out"/stream.aus
 ninja -C "$root/build-ps5" xcloud_app >/dev/null
 bash "$root/tools/ps5/link.sh" "$root/build-ps5" | tail -1
-bash "$root/tools/ps5/package.sh" "$root/build-ps5" >/dev/null
+XC_INCLUDE_ACCOUNT=1 bash "$root/tools/ps5/package.sh" "$root/build-ps5" >/dev/null
 
 ctl kill "$title_id" >/dev/null 2>&1 || true
 sleep 2

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 PSBox Cloud Gaming contributors
 # Resolves find_package(MbedTLS) inside deps/libdatachannel (and libSRTP) to
 # the in-tree mbedTLS from cmake/deps/mbedtls.cmake instead of a system copy.
 if(NOT TARGET xc_mbedtls)

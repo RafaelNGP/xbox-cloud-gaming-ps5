@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 PSBox Cloud Gaming contributors
 cmake_minimum_required(VERSION 3.20)
 project(xcloud_ps5 VERSION 0.1.0 LANGUAGES C CXX)
 

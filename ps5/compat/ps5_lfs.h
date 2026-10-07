@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 #pragma once
 /*
  * Forced into every PS5 translation unit. The PS4 toolchain's musl offered the

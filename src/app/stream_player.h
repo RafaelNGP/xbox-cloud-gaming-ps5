@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 // Plays a provisioned xCloud session on the console: WebRTC session, H.264
 // decode thread drawing to the screen, Opus to the audio output, and the
 // DualSense state forwarded as an Xbox controller.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 // PSBox Cloud Gaming's mark: a white sphere crossed by two curved swooshes
 // that pinch at the centre, on Xbox green. Original artwork (not the Xbox
 // logo); drawn with the Canvas so the in-app logo and the PS5 home-screen

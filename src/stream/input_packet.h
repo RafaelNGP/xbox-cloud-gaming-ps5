@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 PSBox Cloud Gaming contributors
 // Binary reports of the xCloud "input" data channel (protocol "1.0"), as
 // written by the xbox.com web client: a 14-byte header (report type, sequence,
 // timestamp) followed by the frames the report type announces.

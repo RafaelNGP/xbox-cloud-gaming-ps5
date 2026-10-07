@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 PSBox Cloud Gaming contributors
 # CMake toolchain file for building xCloud-PS5 as a native PlayStation 5 app.
 
 set(CMAKE_SYSTEM_NAME Generic)
