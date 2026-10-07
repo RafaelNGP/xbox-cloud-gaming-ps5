@@ -52,7 +52,8 @@ constexpr int kResolutionOrder[3] = {1, 0, 2};
 constexpr int kGridPitchY = 300;
 constexpr int kLibraryCols = 6;
 constexpr int kResultCols = 4;
-constexpr int kGridTop = 236;       // y of the first card row
+constexpr int kGridTop = 236;       // y of the first card row (search results)
+constexpr int kLibraryTop = 160;    // y where "Your games" starts (its first heading)
 constexpr int kResultsX = 760;
 constexpr int kSectionHeaderH = 96;  // "Available to buy" heading in the grid
 constexpr size_t kMaxResults = 60;
@@ -240,10 +241,17 @@ int consoleRank(const std::string& platform) {
 
 }  // namespace
 
-void AppUi::rebuild() {
+void AppUi::rebuild(bool keepPosition) {
     // Caller holds mutex_.
     const GameTile* was = libraryTile(gridFocus_);
     std::string focused = was ? was->productId : "";
+    // Where the cursor is: section of "Your games" and place in it; Game
+    // Pass row (by title) and column.
+    int oldStarts[3] = {0, static_cast<int>(owned_.size()), static_cast<int>(owned_.size() + purchasable_.size())};
+    int oldSection = gridFocus_ >= oldStarts[2] ? 2 : gridFocus_ >= oldStarts[1] ? 1 : 0;
+    int oldOffset = gridFocus_ - oldStarts[oldSection];
+    std::string oldRowTitle = focusRow_ < static_cast<int>(rows_.size()) ? rows_[static_cast<size_t>(focusRow_)].title : "";
+    int oldCol = focusRow_ < static_cast<int>(focusCol_.size()) ? focusCol_[static_cast<size_t>(focusRow_)] : 0;
     auto visible = [&](const std::vector<GameTile>& in) {
         std::vector<GameTile> out;
         for (const auto& t : in)
@@ -294,9 +302,27 @@ void AppUi::rebuild() {
     if (!hiddenRow.tiles.empty()) rows.push_back(std::move(hiddenRow));
     setRowsLocked(std::move(rows));
 
-    gridFocus_ = 0;
-    for (int i = 0; libraryTile(i); ++i)
-        if (libraryTile(i)->productId == focused) gridFocus_ = i;
+    if (keepPosition) {
+        // The same place in the same section (the next game slides into a
+        // hidden one's place); if that section is now empty, the nearest.
+        const std::vector<GameTile>* lists[3] = {&owned_, &purchasable_, &hiddenTiles_};
+        int starts[3] = {0, static_cast<int>(owned_.size()), static_cast<int>(owned_.size() + purchasable_.size())};
+        int section = oldSection;
+        while (section > 0 && lists[section]->empty()) --section;
+        while (section < 2 && lists[section]->empty()) ++section;
+        int size = static_cast<int>(lists[section]->size());
+        gridFocus_ = size ? starts[section] + std::min(oldOffset, size - 1) : 0;
+        for (size_t r = 0; r < rows_.size(); ++r)
+            if (rows_[r].title == oldRowTitle) {
+                focusRow_ = static_cast<int>(r);
+                focusCol_[r] = std::min(oldCol, static_cast<int>(rows_[r].tiles.size()) - 1);
+            }
+        retarget();
+    } else {
+        gridFocus_ = 0;
+        for (int i = 0; libraryTile(i); ++i)
+            if (libraryTile(i)->productId == focused) gridFocus_ = i;
+    }
     if (searching_) runSearch();
     refreshDetail();
     dirty_ = true;
@@ -324,7 +350,7 @@ void AppUi::toggleHidden(const GameTile& tile, UiEvent& ev) {
     else hidden_.erase(tile.productId);
     toast_ = tr(hide ? Str::HiddenToast : Str::UnhiddenToast);
     toastUntil_ = 0;
-    rebuild();
+    rebuild(true);  // the cursor stays put; the next game takes the place
     prefsEvent(ev);
 }
 
@@ -685,11 +711,9 @@ AppUi::LibraryLayout AppUi::libraryLayout() const {
     for (int section = 0; section < 3; ++section) {
         const auto& list = section == 0 ? owned_ : section == 1 ? purchasable_ : hiddenTiles_;
         if (list.empty()) continue;
-        if (section > 0) {
-            if (row > 0) y += 30;
-            L.headerY[section] = y;
-            y += kSectionHeaderH;
-        }
+        if (row > 0) y += 30;
+        L.headerY[section] = y;
+        y += kSectionHeaderH;
         for (size_t i = 0; i < list.size(); ++i, ++index) {
             int col = static_cast<int>(i) % L.cols;
             if (col == 0) {
@@ -827,19 +851,15 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
                 }
                 if (target != f) {
                     gridFocus_ = target;
-                    int y = L.rowY[static_cast<size_t>(L.rowOf[static_cast<size_t>(target)])];
-                    // The section's heading in view.
-                    gridScroll_.target = static_cast<float>(std::max(0, y - (target ? kSectionHeaderH + 20 : 0)));
+                    int section2 = target >= starts[2] ? 2 : target >= starts[1] ? 1 : 0;
+                    gridScroll_.target = static_cast<float>(L.headerY[section2]);  // its heading at the top
                     dirty_ = true;
                 }
             }
             if (in.r3) {  // next sort order
                 librarySort_ = static_cast<LibrarySort>((static_cast<int>(librarySort_) + 1) %
                                                          static_cast<int>(LibrarySort::Count));
-                gridFocus_ = 0;
-                gridScroll_.target = 0;
-                rebuild();
-                gridFocus_ = 0;
+                rebuild(true);  // same place on screen, not back to the top
                 prefsEvent(ev);
             }
             break;
@@ -1304,34 +1324,29 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
     drawBackground(c);
     constexpr int kGridW = kLibraryCols * kCardPitch - kCardGap;
     const int left = (kW - kGridW) / 2;
-    const int clipTop = kGridTop - 20;
+    const int clipTop = kLibraryTop - 10;
     LibraryLayout L = libraryLayout();
     int offset = static_cast<int>(std::lround(gridScroll_.value));
-    // "Available to buy": a heading with what it means, inside the grid.
-    if (!purchasable_.empty()) {
-        int hy = kGridTop + L.headerY[1] - offset;
-        if (hy > clipTop - 80 && hy < kH) {
+    // Each section has its heading in the grid: a title, the count, a line
+    // of explanation (the games to buy have a bag).
+    auto heading = [&](int section, const char* title, size_t count, const char* line, bool bag) {
+        int hy = kLibraryTop + L.headerY[section] - offset;
+        if (hy < clipTop - kSectionHeaderH || hy > kH) return;
+        int x = left;
+        if (bag) {
             drawBag(c, left + 14, hy + 30, kGreen);
-            fonts_.bold.draw(c, tr(Str::AvailableToBuy), left + 40, hy + 8, 34, kWhite);
-            int w = fonts_.bold.measure(tr(Str::AvailableToBuy), 34);
-            fonts_.semibold.draw(c, gamesCount(purchasable_.size()), left + 60 + w, hy + 20,
-                                 22, kDim);
-            fonts_.regular.draw(c, tr(Str::BuyToPlay), left + 40, hy + 52, 22, kGray);
+            x += 40;
         }
-    }
-    // "Hidden": the games hidden with Square, at the very end.
-    if (!hiddenTiles_.empty()) {
-        int hy = kGridTop + L.headerY[2] - offset;
-        if (hy > clipTop - 80 && hy < kH) {
-            fonts_.bold.draw(c, tr(Str::HiddenSection), left, hy + 8, 34, kWhite);
-            int w = fonts_.bold.measure(tr(Str::HiddenSection), 34);
-            fonts_.semibold.draw(c, gamesCount(hiddenTiles_.size()), left + 20 + w, hy + 20,
-                                 22, kDim);
-            fonts_.regular.draw(c, tr(Str::HiddenHint), left, hy + 52, 22, kGray);
-        }
-    }
+        fonts_.bold.draw(c, title, x, hy + 8, 34, kWhite);
+        int w = fonts_.bold.measure(title, 34);
+        fonts_.semibold.draw(c, gamesCount(count), x + w + 20, hy + 20, 22, kDim);
+        if (line) fonts_.regular.draw(c, line, x, hy + 52, 22, kGray);
+    };
+    if (!owned_.empty()) heading(0, tr(Str::YourGames), owned_.size(), nullptr, false);
+    if (!purchasable_.empty()) heading(1, tr(Str::AvailableToBuy), purchasable_.size(), tr(Str::BuyToPlay), true);
+    if (!hiddenTiles_.empty()) heading(2, tr(Str::HiddenSection), hiddenTiles_.size(), tr(Str::HiddenHint), false);
     for (size_t i = 0; i < L.rowOf.size(); ++i) {
-        int y = kGridTop + L.rowY[static_cast<size_t>(L.rowOf[i])] - offset;
+        int y = kLibraryTop + L.rowY[static_cast<size_t>(L.rowOf[i])] - offset;
         if (y + kCard + 40 < clipTop) continue;
         if (y > kH) break;
         int x = left + L.colOf[i] * kCardPitch;
@@ -1346,30 +1361,28 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
     c.gradientV({0, clipTop, kW, 12}, kBg, withAlpha(kBg, 0));
     drawTopBar(c);
     drawTabs(c);
-    fonts_.bold.draw(c, tr(Str::YourGames), left, 130, 40, kWhite);
-    if (!owned_.empty()) {
-        std::string count = gamesCount(owned_.size());
-        fonts_.semibold.draw(c, count, left + fonts_.bold.measure(tr(Str::YourGames), 40) + 24, 144, 24, kDim);
-    } else if (!ownedKnown_) {
-        drawSpinner(c, kW / 2.0f, 470, 26, nowMs);
-        drawCentered(c, fonts_.semibold, tr(Str::LoadingGames), 530, 28, kGray);
-        animating_ = true;
-    } else if (purchasable_.empty()) {
-        drawCentered(c, fonts_.semibold, tr(Str::NoGames), 500, 30, kGray);
+    if (owned_.empty() && purchasable_.empty() && hiddenTiles_.empty()) {
+        if (!ownedKnown_) {
+            drawSpinner(c, kW / 2.0f, 470, 26, nowMs);
+            drawCentered(c, fonts_.semibold, tr(Str::LoadingGames), 530, 28, kGray);
+            animating_ = true;
+        } else {
+            drawCentered(c, fonts_.semibold, tr(Str::NoGames), 500, 30, kGray);
+        }
     }
     {
-        // The order, right-aligned in the header, with its button.
+        // The order (the whole tab's), right-aligned under the tabs, with its button.
         Str sortName = librarySort_ == LibrarySort::AZ        ? Str::SortAZ
                        : librarySort_ == LibrarySort::Console ? Str::SortConsole
                                                               : Str::SortRecent;
         std::string label = trf(Str::SortLabel, tr(sortName));
-        int w = fonts_.semibold.measure(label, 24);
+        int w = fonts_.semibold.measure(label, 22);
         int right = left + kGridW;
-        Rect pill{right - 44, 138, 44, 30};
+        Rect pill{right - 44, 112, 44, 28};
         c.fillRect(pill, rgba(255, 255, 255, 40), 8);
         fonts_.bold.draw(c, "R3", pill.x + (pill.w - fonts_.bold.measure("R3", 16)) / 2,
                          fonts_.bold.centeredY(pill.y, pill.h, 16), 16, kGray);
-        fonts_.semibold.draw(c, label, pill.x - 14 - w, fonts_.semibold.centeredY(pill.y, pill.h, 24), 24, kGray);
+        fonts_.semibold.draw(c, label, pill.x - 14 - w, fonts_.semibold.centeredY(pill.y, pill.h, 22), 22, kGray);
     }
     c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
     c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));

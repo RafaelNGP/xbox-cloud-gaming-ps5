@@ -180,12 +180,14 @@ private:
         std::vector<int> rowOf, colOf;  // per tile index (owned, then purchasable)
         std::vector<int> rowY;          // per row, y relative to the grid top
         std::vector<int> rowFirst;      // first tile index of each row
-        int headerY[3] = {0, 0, 0};     // section headers, relative (1: to buy, 2: hidden)
+        int headerY[3] = {0, 0, 0};     // section headers, relative (0: yours, 1: to buy, 2: hidden)
     };
     LibraryLayout libraryLayout() const;
     const GameTile* libraryTile(int index) const;
     // Applies hiding and sorting to the received lists (caller holds mutex_).
-    void rebuild();
+    // `keepPosition`: the cursor stays where it is on screen (same section
+    // and place, same row and column) instead of following its game.
+    void rebuild(bool keepPosition = false);
     void setRowsLocked(std::vector<GameRow> rows);
     // Hides / shows a game; fills `ev` so the app saves it.
     void toggleHidden(const GameTile& tile, UiEvent& ev);

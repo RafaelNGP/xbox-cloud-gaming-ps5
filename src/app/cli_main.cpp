@@ -641,8 +641,10 @@ int main(int argc, char** argv) {
         };
         press([](ui::NavInput& n) { n.r1 = true; });
         save("badges");
-        press([](ui::NavInput& n) { n.square = true; });  // hide the first game
-        press([](ui::NavInput& n) { n.r3 = true; }, 2);    // Recent -> A-Z -> By console
+        press([](ui::NavInput& n) { n.right = true; }, 2);  // the third game
+        press([](ui::NavInput& n) { n.square = true; });    // hide it: the cursor stays there
+        save("library_hid_one");
+        press([](ui::NavInput& n) { n.r3 = true; }, 2);     // Recent -> A-Z -> By console, in place
         save("library_console");
         press([](ui::NavInput& n) { n.down = true; }, 3);  // down to "Hidden"
         save("library_hidden");
