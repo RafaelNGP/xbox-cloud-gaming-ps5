@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 RafaelNGP
 cmake_minimum_required(VERSION 3.20)
-project(xcloud_ps5 VERSION 0.1.0 LANGUAGES C CXX)
+project(xcloud_ps5 VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -40,6 +40,7 @@ include(cmake/deps/libdatachannel.cmake)
 add_library(xcloud_stream STATIC
     src/stream/h264_receiver.cpp
     src/stream/input_packet.cpp
+    src/stream/rtcp_reporter.cpp
     src/stream/stream_session.cpp
 )
 target_link_libraries(xcloud_stream PUBLIC xcloud_core PRIVATE datachannel-static)

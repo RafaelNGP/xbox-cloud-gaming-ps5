@@ -3,6 +3,7 @@
 #include "stream/stream_session.h"
 
 #include "stream/h264_receiver.h"
+#include "stream/rtcp_reporter.h"
 
 #include "platform/platform.h"
 #include "util/json.h"
@@ -125,6 +126,8 @@ struct StreamSession::Impl {
     uint64_t lastKeepaliveMs = 0;
     uint64_t lastKeyframeMs = 0;
     VideoReceiveStats videoStats;
+    std::shared_ptr<RtcpReporter> videoReporter;
+    std::atomic<int> otherInputReports{0};
 
     Impl(xcloud::GssvClient& g, StreamCallbacks c, StreamOptions o) : gssv(g), cb(std::move(c)), opt(o) {}
 
@@ -368,6 +371,8 @@ struct StreamSession::Impl {
                 if (cb.vibration) cb.vibration(v);
             } else if (parseServerMetadata(d, b->size(), w, h)) {
                 XC_LOGI("server video size %ux%u", w, h);
+            } else if (b->size() >= 2 && ++otherInputReports <= 5) {
+                XC_LOGI("input channel: report type %u, %zu bytes", d[0], b->size());
             }
         });
 
@@ -376,7 +381,7 @@ struct StreamSession::Impl {
         a.addOpusCodec(111, "minptime=10;useinbandfec=1;stereo=1");
         audio = pc->addTrack(a);
         auto audioDepacketizer = std::make_shared<rtc::OpusRtpDepacketizer>();
-        audioDepacketizer->addToChain(std::make_shared<rtc::RtcpReceivingSession>());
+        audioDepacketizer->addToChain(std::make_shared<RtcpReporter>(48000, 0));
         audio->setMediaHandler(audioDepacketizer);
         audio->onFrame([this](rtc::binary data, rtc::FrameInfo info) {
             if (cb.audio) cb.audio(reinterpret_cast<const uint8_t*>(data.data()), data.size(), info.timestamp);
@@ -403,7 +408,8 @@ struct StreamSession::Impl {
             },
             videoStats);
         videoReceiver->setSimulatedLoss(opt.simulatedVideoLoss);
-        videoReceiver->addToChain(std::make_shared<rtc::RtcpReceivingSession>());
+        videoReporter = std::make_shared<RtcpReporter>(90000, opt.maxBitrate);
+        videoReceiver->addToChain(videoReporter);
         video->setMediaHandler(videoReceiver);
         video->onFrame([this](rtc::binary data, rtc::FrameInfo info) {
             if (cb.video) cb.video(reinterpret_cast<const uint8_t*>(data.data()), data.size(), info.timestamp);
@@ -587,6 +593,12 @@ void StreamSession::requestKeyframe() {
 }
 void StreamSession::tick() { impl_->tick(); }
 void StreamSession::close() { impl_->close(); }
-const VideoReceiveStats& StreamSession::videoStats() const { return impl_->videoStats; }
+const VideoReceiveStats& StreamSession::videoStats() const {
+    if (impl_->videoReporter) {
+        impl_->videoStats.receiveRate = impl_->videoReporter->receiveRate();
+        impl_->videoStats.estimate = impl_->videoReporter->estimate();
+    }
+    return impl_->videoStats;
+}
 
 }  // namespace xc::stream

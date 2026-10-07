@@ -23,7 +23,9 @@ void drawRgba(const uint32_t* pixels);
 
 // Converts a BT.709 limited-range YUV 4:2:0 picture to the back buffer,
 // scaled to the full screen (multi-threaded). Call present() afterwards.
-void drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int strideY, int strideU, int strideV,
-                int width, int height);
+// With two flips still queued it waits for a vblank, or, without `wait`,
+// returns false and draws nothing.
+bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int strideY, int strideU, int strideV,
+                int width, int height, bool wait);
 
 } // namespace xc::display

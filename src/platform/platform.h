@@ -30,6 +30,7 @@ bool randomBytes(void* out, size_t len);
 // getaddrinfo. Returns false (with a message in `err`) on failure.
 bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err);
 uint64_t nowMs();  // monotonic
+uint64_t nowUs();  // monotonic
 void sleepMs(uint32_t ms);
 
 // Logs which socket operations work (PS5 diagnostics; no-op on the host).

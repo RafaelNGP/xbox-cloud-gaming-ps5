@@ -40,6 +40,8 @@ struct StreamOptions {
     // Test hook: drop this percentage of video RTP packets before the jitter
     // buffer, to exercise NACK / key frame recovery.
     int simulatedVideoLoss = 0;
+    // Ceiling of the bandwidth estimate sent to the server (REMB), bits/s.
+    uint32_t maxBitrate = 25000000;
 };
 
 // "a=candidate:..." with a Teredo (2001::/32) address -> the IPv4 address and

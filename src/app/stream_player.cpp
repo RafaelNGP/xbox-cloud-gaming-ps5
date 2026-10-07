@@ -23,7 +23,11 @@
 namespace xc::app {
 
 namespace {
-constexpr size_t kMaxQueuedFrames = 8;  // beyond this, decode without drawing
+// Beyond this, start over from a key frame. Generous: the jitter buffer
+// hands over several frames at once after waiting for a retransmission, and
+// decoding without drawing catches up with those in a few milliseconds.
+constexpr size_t kMaxQueuedFrames = 30;
+constexpr int kMaxFullStreak = 30;  // frames shown one refresh late before dropping one
 }
 
 struct StreamPlayer::Impl {
@@ -44,6 +48,15 @@ struct StreamPlayer::Impl {
     std::atomic<uint64_t> videoFrames{0}, decodedFrames{0}, droppedFrames{0}, audioPackets{0};
     std::atomic<uint64_t> decodeFailures{0}, queueResets{0}, keyframeRequests{0};
     std::atomic<bool> keyframeWanted{false};
+    std::atomic<uint64_t> vibrations{0}, lateFrames{0};
+    std::atomic<uint64_t> decodeUs{0}, decodeCalls{0}, decodeMaxUs{0}, drawUs{0}, drawCalls{0}, drawMaxUs{0};
+    int decodeThreads = 1;
+
+    static void atomicMax(std::atomic<uint64_t>& a, uint64_t v) {
+        uint64_t cur = a;
+        while (v > cur && !a.compare_exchange_weak(cur, v)) {
+        }
+    }
     bool loggedFirstDecode = false;
     FILE* dumpFile = nullptr;
     uint64_t dumpUntilMs = 0;
@@ -85,11 +98,12 @@ struct StreamPlayer::Impl {
 
     void videoLoop() {
         media::VideoDecoder decoder;
-        if (!decoder.init(1)) {
+        if (!decoder.init(decodeThreads)) {
             end("could not start the H.264 decoder");
             return;
         }
         std::vector<uint8_t> au;
+        int fullStreak = 0;
         while (running) {
             size_t backlog;
             {
@@ -114,7 +128,12 @@ struct StreamPlayer::Impl {
             media::Picture pic;
             const bool first = decodedFrames == 0 && !loggedFirstDecode;
             if (first) XC_LOGI("first video decode: %zu bytes", au.size());
+            uint64_t t0 = platform::nowUs();
             bool ok = decoder.decode(au.data(), au.size(), pic);
+            uint64_t t1 = platform::nowUs();
+            decodeUs += t1 - t0;
+            ++decodeCalls;
+            atomicMax(decodeMaxUs, t1 - t0);
             if (first) {
                 loggedFirstDecode = true;
                 XC_LOGI("first video decode done: ok=%d", ok);
@@ -122,7 +141,7 @@ struct StreamPlayer::Impl {
             if (decoder.needsKeyframe()) keyframeWanted = true;
             requestKeyframeIfWanted();
             if (!ok) {
-                ++decodeFailures;
+                if (!decoder.pending()) ++decodeFailures;
                 continue;
             }
             ++decodedFrames;
@@ -133,8 +152,31 @@ struct StreamPlayer::Impl {
             }
             std::lock_guard<std::mutex> lock(display::frameMutex());
             if (decodedFrames == 1) XC_LOGI("first draw %dx%d", pic.width, pic.height);
-            display::drawYuv420(pic.y, pic.u, pic.v, pic.strideY, pic.strideU, pic.strideV, pic.width, pic.height);
+            uint64_t t2 = platform::nowUs();
+            // Both flips queued means the picture shows a frame later than
+            // it could. Arrival jitter does that now and then; it is waited
+            // out (the queue then stays full: stream and display both run at
+            // 60 Hz). After half a second of that, a frame is dropped to get
+            // the latency back.
+            bool drawn = display::drawYuv420(pic.y, pic.u, pic.v, pic.strideY, pic.strideU, pic.strideV,
+                                             pic.width, pic.height, false);
+            if (drawn) {
+                fullStreak = 0;
+            } else if (++fullStreak < kMaxFullStreak) {
+                drawn = display::drawYuv420(pic.y, pic.u, pic.v, pic.strideY, pic.strideU, pic.strideV,
+                                            pic.width, pic.height, true);
+            } else {
+                fullStreak = 0;
+            }
+            if (!drawn) {
+                ++lateFrames;
+                continue;
+            }
             display::present();
+            uint64_t t3 = platform::nowUs();
+            drawUs += t3 - t2;
+            ++drawCalls;
+            atomicMax(drawMaxUs, t3 - t2);
             if (decodedFrames == 1) XC_LOGI("first frame presented");
         }
     }
@@ -169,7 +211,10 @@ struct StreamPlayer::Impl {
         // xCloud's motors are 0..100 percent, like the web client's
         // dual-rumble effect (left = strong, right = weak). The trigger
         // motors have no plain-rumble counterpart on the DualSense.
-        cb.vibration = [](const stream::Vibration& v) {
+        cb.vibration = [this](const stream::Vibration& v) {
+            if (++vibrations <= 5)
+                XC_LOGI("vibration %u/%u/%u/%u for %ums", v.leftMotor, v.rightMotor, v.leftTrigger, v.rightTrigger,
+                        v.durationMs);
             auto scale = [](uint8_t pct) { return static_cast<uint8_t>(std::min<int>(pct, 100) * 255 / 100); };
             input::setRumble(scale(v.leftMotor), scale(v.rightMotor), v.durationMs);
         };
@@ -179,6 +224,9 @@ struct StreamPlayer::Impl {
         // 1440p is asked for like the xbox.com client does; the service only
         // grants it where Microsoft has enabled it (not every market).
         if (gssv.resolution() == xcloud::Resolution::P1440) opts.resolutionAlias = "1440";
+        opts.maxBitrate = gssv.resolution() == xcloud::Resolution::P720    ? 12000000
+                          : gssv.resolution() == xcloud::Resolution::P1440 ? 40000000
+                                                                           : 25000000;
         if (const char* loss = std::getenv("XC_SIM_LOSS")) opts.simulatedVideoLoss = std::atoi(loss);
         session = std::make_unique<stream::StreamSession>(gssv, cb, opts);
         running = true;
@@ -302,6 +350,8 @@ void StreamPlayer::requestSnapshot(const std::string& path) {
 }
 void StreamPlayer::stop() { impl_->stop(); }
 
+void StreamPlayer::setDecodeThreads(int threads) { impl_->decodeThreads = std::max(1, threads); }
+
 StreamPlayer::Stats StreamPlayer::stats() const {
     Stats st;
     st.videoFrames = impl_->videoFrames;
@@ -311,6 +361,15 @@ StreamPlayer::Stats StreamPlayer::stats() const {
     st.decodeFailures = impl_->decodeFailures;
     st.queueResets = impl_->queueResets;
     st.keyframeRequests = impl_->keyframeRequests;
+    st.vibrations = impl_->vibrations;
+    st.lateFrames = impl_->lateFrames;
+    // Timings since the previous call.
+    uint64_t dc = impl_->decodeCalls.exchange(0), du = impl_->decodeUs.exchange(0);
+    uint64_t rc = impl_->drawCalls.exchange(0), ru = impl_->drawUs.exchange(0);
+    st.decodeAvgUs = dc ? du / dc : 0;
+    st.decodeMaxUs = impl_->decodeMaxUs.exchange(0);
+    st.drawAvgUs = rc ? ru / rc : 0;
+    st.drawMaxUs = impl_->drawMaxUs.exchange(0);
     if (impl_->session) {  // the caller's thread is the one that stops the player
         const auto& v = impl_->session->videoStats();
         st.rtpPackets = v.packets;
@@ -319,6 +378,8 @@ StreamPlayer::Stats StreamPlayer::stats() const {
         st.rtpNacks = v.nacks;
         st.rtpDroppedFrames = v.framesDropped;
         st.keyframeRequests += v.keyframeRequests;
+        st.rtpKbps = v.receiveRate / 1000;
+        st.rembKbps = v.estimate / 1000;
     }
     {
         std::lock_guard<std::mutex> lock(impl_->mutex);

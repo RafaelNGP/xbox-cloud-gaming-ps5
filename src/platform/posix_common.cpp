@@ -41,6 +41,12 @@ uint64_t nowMs() {
     return static_cast<uint64_t>(ts.tv_sec) * 1000u + static_cast<uint64_t>(ts.tv_nsec) / 1000000u;
 }
 
+uint64_t nowUs() {
+    timespec ts{};
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return static_cast<uint64_t>(ts.tv_sec) * 1000000u + static_cast<uint64_t>(ts.tv_nsec) / 1000u;
+}
+
 namespace {
 void* threadEntry(void* arg) {
     auto* fn = static_cast<std::function<void()>*>(arg);

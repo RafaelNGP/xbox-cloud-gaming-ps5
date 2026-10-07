@@ -70,6 +70,7 @@ struct ScePadVibrationParam {
     uint8_t smallMotor;
 };
 int scePadSetVibration(int32_t handle, const ScePadVibrationParam* param);
+int scePadSetVibrationMode(int32_t handle, int32_t mode);
 }
 
 namespace xc::input {
@@ -105,9 +106,11 @@ void applyRumble() {
     if (want == g_rumbleApplied) return;
     ScePadVibrationParam p{static_cast<uint8_t>(want >> 8), static_cast<uint8_t>(want)};
     int rc = scePadSetVibration(g_padHandle, &p);
-    if (rc != 0 && !g_rumbleErrorLogged) {
-        g_rumbleErrorLogged = true;
-        XC_LOGW("scePadSetVibration failed: 0x%08x", rc);
+    if (!g_rumbleErrorLogged) {  // the first call, and the first failure
+        g_rumbleErrorLogged = rc != 0;
+        static bool firstLogged = false;
+        if (!firstLogged || rc != 0) XC_LOGI("scePadSetVibration(%u, %u): 0x%08x", p.largeMotor, p.smallMotor, rc);
+        firstLogged = true;
     }
     g_rumbleApplied = want;
 }
@@ -141,7 +144,11 @@ bool init() {
         XC_LOGE("scePadOpen failed: 0x%08x", g_padHandle);
         return false;
     }
-    XC_LOGI("DualSense pad opened successfully (handle: %d, user: %d)", g_padHandle, g_userId);
+    // The DualSense starts in haptics mode, where scePadSetVibration succeeds
+    // and does nothing; mode 2 is classic two-motor rumble (as ProsperoEden).
+    int mode = scePadSetVibrationMode(g_padHandle, 2);
+    XC_LOGI("DualSense pad opened successfully (handle: %d, user: %d, rumble mode: 0x%08x)", g_padHandle, g_userId,
+            mode);
     return true;
 }
 

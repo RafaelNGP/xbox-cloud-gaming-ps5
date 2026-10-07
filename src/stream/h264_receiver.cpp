@@ -2,6 +2,8 @@
 // Copyright (C) 2026 RafaelNGP
 #include "stream/h264_receiver.h"
 
+#include "stream/rtcp_reporter.h"
+
 #include "platform/platform.h"
 #include "util/log.h"
 
@@ -16,7 +18,6 @@ namespace {
 constexpr uint64_t kWaitMs = 150;
 constexpr uint64_t kRenackMs = 40;
 constexpr int kMaxNacks = 3;
-constexpr uint32_t kOurSsrc = 0x50534278;  // "PSBx": RTCP sender SSRC
 constexpr size_t kMaxBuffered = 4000;      // packets (about 4 MB)
 
 constexpr uint8_t kStartCode[] = {0, 0, 0, 1};
@@ -68,7 +69,7 @@ void H264Receiver::sendNack(const std::vector<int64_t>& seqs, const rtc::message
     b.push_back(0x81);  // V=2, FMT=1
     b.push_back(205);   // RTPFB
     put16(b, static_cast<uint16_t>(2 + fci.size()));
-    put32(b, kOurSsrc);
+    put32(b, kReceiverSsrc);
     put32(b, mediaSsrc_);
     for (auto [pid, blp] : fci) {
         put16(b, pid);
@@ -91,7 +92,7 @@ void H264Receiver::sendPli(const rtc::message_callback& send) {
     b.push_back(0x81);  // V=2, FMT=1
     b.push_back(206);   // PSFB
     put16(b, 2);
-    put32(b, kOurSsrc);
+    put32(b, kReceiverSsrc);
     put32(b, mediaSsrc_);
     send(rtc::make_message(asBytes(b), asBytes(b) + b.size(), rtc::Message::Control));
 }

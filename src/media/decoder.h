@@ -46,12 +46,16 @@ public:
     bool decode(const uint8_t* data, size_t len, Picture& out);
     // True after a decode error: the caller should ask for a key frame.
     bool needsKeyframe() const { return needsKeyframe_; }
+    // The last decode() returned no picture without an error: the decoder
+    // wants more input (frame threads still busy, or no reference yet).
+    bool pending() const { return pending_; }
 
 private:
     AVCodecContext* ctx_ = nullptr;
     AVFrame* frame_ = nullptr;
     AVPacket* packet_ = nullptr;
     bool needsKeyframe_ = true;
+    bool pending_ = false;
     int failuresLogged_ = 0;
 };
 

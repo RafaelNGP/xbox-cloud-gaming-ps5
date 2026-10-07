@@ -68,13 +68,17 @@ app::StreamPlayer* g_player = nullptr;
 // --- Unattended test mode (tools/ps5/autotest.sh) ----------------------------
 // <dataDir>/autoplay.txt holds "<titleId> <seconds> [option]". The app signs
 // in, plays that title for that long (pressing A at 15 s and 20 s), saves
-// decoded frames and logs "AUTOPLAY END". Options: nosimd, dump, repeat.
+// decoded frames and logs "AUTOPLAY END". Options, comma-separated: nosimd,
+// dump, repeat, idle (no A presses), threads=N (H.264 decoder threads),
+// rumbletest (rumbles the pad for 1.5 s at start).
 // The title "BENCH" decodes <dataDir>/sample.h264 instead.
 
 std::string g_autoplayTitle;
 int g_autoplaySeconds = 0;
 bool g_autoplayDump = false;
 int g_autoplayRuns = 1;
+bool g_autoplayIdle = false;
+int g_decodeThreads = 1;
 std::atomic<bool> g_syntheticA{false};
 
 void loadAutoplay() {
@@ -84,10 +88,19 @@ void loadAutoplay() {
     char option[64] = {};
     int seconds = 0;
     if (std::sscanf(text.c_str(), "%127s %d %63s", title, &seconds, option) < 1) return;
-    std::string opt = option;
-    if (opt == "nosimd") media::disableSimd();
-    g_autoplayDump = opt == "dump";
-    if (opt == "repeat") g_autoplayRuns = 2;
+    std::string options = option;  // comma-separated
+    for (size_t start = 0; start <= options.size();) {
+        size_t comma = options.find(',', start);
+        if (comma == std::string::npos) comma = options.size();
+        std::string opt = options.substr(start, comma - start);
+        start = comma + 1;
+        if (opt == "nosimd") media::disableSimd();
+        if (opt == "dump") g_autoplayDump = true;
+        if (opt == "repeat") g_autoplayRuns = 2;
+        if (opt == "idle") g_autoplayIdle = true;
+        if (opt == "rumbletest") input::setRumble(200, 200, 1500);
+        if (opt.rfind("threads=", 0) == 0) g_decodeThreads = std::atoi(opt.c_str() + 8);
+    }
     g_autoplayTitle = title;
     g_autoplaySeconds = seconds > 0 ? seconds : 60;
     XC_LOGI("AUTOPLAY %s for %ds %s", title, g_autoplaySeconds, option);
@@ -139,6 +152,7 @@ std::string formatWait(int seconds) {
 std::string stream(xcloud::GssvClient& gssv) {
     app::StreamPlayer player(gssv);
     if (g_autoplayDump) player.dumpVideo(platform::dataDir() + "/stream.aus", 20);
+    player.setDecodeThreads(g_decodeThreads);
     std::string err;
     if (!player.start(err)) return "ERROR: " + ui::trf(ui::Str::StreamFailed, err);
     {
@@ -163,7 +177,7 @@ std::string stream(xcloud::GssvClient& gssv) {
                 snapshot1 = true;
                 player.requestSnapshot(platform::dataDir() + "/frame.ppm");
             }
-            bool press = (elapsed >= 15000 && elapsed < 15300) || (elapsed >= 20000 && elapsed < 20300);
+            bool press = !g_autoplayIdle && ((elapsed >= 15000 && elapsed < 15300) || (elapsed >= 20000 && elapsed < 20300));
             if (press != g_syntheticA.exchange(press)) XC_LOGI("autoplay: A %s", press ? "down" : "up");
             if (!snapshot2 && elapsed >= 26000) {
                 snapshot2 = true;
@@ -176,14 +190,17 @@ std::string stream(xcloud::GssvClient& gssv) {
             auto st = player.stats();
             XC_LOGI("stream: %llu frames, %llu decoded, %llu skipped, %llu failed, %llu resets, %llu kf req, "
                     "%llu queued, %llu audio; rtp %llu pkts, %llu lost, %llu recovered, %llu nacks, "
-                    "%llu frames dropped",
+                    "%llu frames dropped; %llu kbps (remb %llu); %llu rumble; decode %.1f/%.1f ms, draw %.1f/%.1f ms, %llu late",
                     static_cast<unsigned long long>(st.videoFrames), static_cast<unsigned long long>(st.decodedFrames),
                     static_cast<unsigned long long>(st.droppedFrames), static_cast<unsigned long long>(st.decodeFailures),
                     static_cast<unsigned long long>(st.queueResets), static_cast<unsigned long long>(st.keyframeRequests),
                     static_cast<unsigned long long>(st.queued), static_cast<unsigned long long>(st.audioPackets),
                     static_cast<unsigned long long>(st.rtpPackets), static_cast<unsigned long long>(st.rtpLost),
                     static_cast<unsigned long long>(st.rtpRecovered), static_cast<unsigned long long>(st.rtpNacks),
-                    static_cast<unsigned long long>(st.rtpDroppedFrames));
+                    static_cast<unsigned long long>(st.rtpDroppedFrames), static_cast<unsigned long long>(st.rtpKbps),
+                    static_cast<unsigned long long>(st.rembKbps), static_cast<unsigned long long>(st.vibrations),
+                    st.decodeAvgUs / 1000.0, st.decodeMaxUs / 1000.0, st.drawAvgUs / 1000.0, st.drawMaxUs / 1000.0,
+                    static_cast<unsigned long long>(st.lateFrames));
         }
         platform::sleepMs(100);
     }
@@ -561,7 +578,7 @@ int main(int argc, char** argv) {
             std::lock_guard<std::mutex> lock(display::frameMutex());
             if (g_ui->screen() != ui::Screen::Streaming) {
                 display::drawRgba(canvas.data());
-                display::present();  // waits for vblank
+                display::present();  // paced by the next draw waiting for a free buffer
             }
         } else {
             platform::sleepMs(8);
