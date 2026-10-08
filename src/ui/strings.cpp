@@ -146,6 +146,7 @@ constexpr Column kEnglish = {
     "Controller %s connected",                       // PadConnected
     "Controller %s disconnected",                    // PadDisconnected
     "Block smoothing",                               // MenuDeband
+    "On screen after",                               // StatOnScreen
 };
 
 constexpr Column kPortugueseBR = {
@@ -262,6 +263,7 @@ constexpr Column kPortugueseBR = {
     "Controle %s conectado",
     "Controle %s desconectado",
     "Suavização de blocos",
+    "Na tela após",
 };
 
 constexpr Column kSpanish = {
@@ -378,6 +380,7 @@ constexpr Column kSpanish = {
     "Mando %s conectado",
     "Mando %s desconectado",
     "Suavizado de bloques",
+    "En pantalla tras",
 };
 
 constexpr Column kFrench = {
@@ -494,6 +497,7 @@ constexpr Column kFrench = {
     "Manette %s connectée",
     "Manette %s déconnectée",
     "Lissage des blocs",
+    "À l'écran après",
 };
 
 constexpr Column kGerman = {
@@ -610,6 +614,7 @@ constexpr Column kGerman = {
     "Controller %s verbunden",
     "Controller %s getrennt",
     "Blockglättung",
+    "Auf dem Bildschirm nach",
 };
 
 constexpr Column kItalian = {
@@ -726,6 +731,7 @@ constexpr Column kItalian = {
     "Controller %s connesso",
     "Controller %s disconnesso",
     "Attenuazione blocchi",
+    "Sullo schermo dopo",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

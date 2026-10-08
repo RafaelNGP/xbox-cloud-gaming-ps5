@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstring>
 #include <mutex>
+#include <string>
 
 #include "display/shaders/easu.spv.h"
 #include "display/shaders/rcas.spv.h"
@@ -30,8 +31,10 @@ namespace {
 #define XC_VK_INSTANCE(X)                                                                                    \
     X(EnumeratePhysicalDevices) X(GetPhysicalDeviceProperties) X(GetPhysicalDeviceQueueFamilyProperties)     \
     X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceFeatures) X(CreateDevice) X(GetDeviceProcAddr)   \
+    X(EnumerateDeviceExtensionProperties)                                                                    \
     X(GetPhysicalDeviceDisplayPropertiesKHR) X(GetDisplayModePropertiesKHR) X(CreateDisplayPlaneSurfaceKHR)  \
-    X(GetPhysicalDeviceSurfaceSupportKHR) X(GetPhysicalDeviceSurfaceCapabilitiesKHR)
+    X(GetPhysicalDeviceSurfaceSupportKHR) X(GetPhysicalDeviceSurfaceCapabilitiesKHR)                         \
+    X(GetPhysicalDeviceSurfacePresentModesKHR)
 
 #define XC_VK_DEVICE(X)                                                                                      \
     X(GetDeviceQueue) X(DeviceWaitIdle) X(CreateSwapchainKHR) X(GetSwapchainImagesKHR)                       \
@@ -93,6 +96,8 @@ struct State {
     VkSemaphore acquired = VK_NULL_HANDLE, rendered = VK_NULL_HANDLE;
     VkFence fence = VK_NULL_HANDLE;
     bool fencePending = false;
+    bool presentId = false, presentWait = false;
+    uint64_t presented = 0;  // the last present id
 
     VkSampler nearest = VK_NULL_HANDLE, linear = VK_NULL_HANDLE;
     Pipeline yuv, easu, rcas;
@@ -120,6 +125,14 @@ bool g_overlayDirty = false, g_overlayShown = false;
 std::atomic<int> g_sharpness{0};
 std::atomic<int> g_deband{1};
 uint32_t g_frame = 0;
+uint32_t g_swapImages = 2;
+bool g_noPresentWait = false;
+PFN_vkWaitForPresentKHR vkWaitForPresentKHR = nullptr;
+// The last frame known on the screen: its present id and when (us).
+std::atomic<uint64_t> g_shownId{0}, g_shownAtUs{0};
+// How long acquiring waited for the display to free an image (FIFO: the
+// frame before went on screen), logged every 600 frames.
+uint64_t g_acquireWaitUs = 0, g_acquireWaitMaxUs = 0, g_acquires = 0;
 
 bool fail(const char* step, VkResult r) {
     XC_LOGE("gpu: %s failed (%d)", step, static_cast<int>(r));
@@ -171,6 +184,26 @@ bool createDevice() {
     VkQueueFamilyProperties families[8];
     n = 8;
     vkGetPhysicalDeviceQueueFamilyProperties(g.physical, &n, families);
+    // What the driver offers for hardware video decoding (Vulkan Video).
+    for (uint32_t i = 0; i < n; ++i)
+        XC_LOGI("gpu: queue family %u: flags 0x%x, %u queue(s)%s", i, families[i].queueFlags, families[i].queueCount,
+                (families[i].queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR) ? " (video decode)" : "");
+    {
+        static VkExtensionProperties ext[512];
+        uint32_t count = 512;
+        std::string video;
+        if (vkEnumerateDeviceExtensionProperties(g.physical, nullptr, &count, ext) < VK_SUCCESS) count = 0;
+        for (uint32_t i = 0; i < count; ++i) {
+            const char* name = ext[i].extensionName;
+            if (std::strcmp(name, VK_KHR_PRESENT_WAIT_EXTENSION_NAME) == 0) g.presentWait = true;
+            if (std::strcmp(name, VK_KHR_PRESENT_ID_EXTENSION_NAME) == 0) g.presentId = true;
+            if (std::strstr(name, "video") || std::strstr(name, "present") || std::strstr(name, "swapchain") ||
+                std::strstr(name, "display"))
+                video += std::string(" ") + name;
+        }
+        XC_LOGI("gpu: %u device extensions; video/present/swapchain/display:%s", count,
+                video.empty() ? " none" : video.c_str());
+    }
     g.family = UINT32_MAX;
     for (uint32_t i = 0; i < n && g.family == UINT32_MAX; ++i)
         if ((families[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) ==
@@ -195,12 +228,24 @@ bool createDevice() {
     v13.synchronization2 = VK_TRUE;
     VkPhysicalDeviceFeatures features{};
     features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
-    const char* const ext[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    // Present ids and waiting for them: frames are submitted only once the
+    // one before is on the screen (FIFO would otherwise queue two), and that
+    // moment is the frame's display time.
+    g.presentWait = g.presentWait && g.presentId;
+    VkPhysicalDevicePresentIdFeaturesKHR presentIdFeature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR};
+    presentIdFeature.presentId = VK_TRUE;
+    VkPhysicalDevicePresentWaitFeaturesKHR presentWaitFeature{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR};
+    presentWaitFeature.presentWait = VK_TRUE;
+    presentWaitFeature.pNext = &presentIdFeature;
+    if (g.presentWait) v13.pNext = &presentWaitFeature;
+    const char* const ext[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PRESENT_ID_EXTENSION_NAME,
+                               VK_KHR_PRESENT_WAIT_EXTENSION_NAME};
     VkDeviceCreateInfo info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     info.pNext = &v13;
     info.queueCreateInfoCount = 1;
     info.pQueueCreateInfos = &queue;
-    info.enabledExtensionCount = 1;
+    info.enabledExtensionCount = g.presentWait ? 3 : 1;
     info.ppEnabledExtensionNames = ext;
     info.pEnabledFeatures = &features;
     r = vkCreateDevice(g.physical, &info, nullptr, &g.device);
@@ -208,6 +253,12 @@ bool createDevice() {
 #define XC_VK_LOAD_DEVICE(name) vk##name = reinterpret_cast<PFN_vk##name>(vkGetDeviceProcAddr(g.device, "vk" #name));
     XC_VK_DEVICE(XC_VK_LOAD_DEVICE)
     vkGetDeviceQueue(g.device, g.family, 0, &g.queue);
+    if (g.presentWait) {
+        vkWaitForPresentKHR = reinterpret_cast<PFN_vkWaitForPresentKHR>(vkGetDeviceProcAddr(g.device, "vkWaitForPresentKHR"));
+        g.presentWait = vkWaitForPresentKHR != nullptr;
+    }
+    XC_LOGI("gpu: present wait %s%s", g.presentWait ? "on" : "off",
+            g.presentWait && g_noPresentWait ? " (measuring only)" : "");
     return true;
 }
 
@@ -235,6 +286,15 @@ bool createSwapchain() {
     vkGetPhysicalDeviceSurfaceSupportKHR(g.physical, g.family, g.surface, &supported);
     VkSurfaceCapabilitiesKHR caps;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(g.physical, g.surface, &caps);
+    {
+        VkPresentModeKHR modes[8];
+        uint32_t count = 8;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(g.physical, g.surface, &count, modes);
+        std::string list;
+        for (uint32_t i = 0; i < count; ++i) list += " " + std::to_string(static_cast<int>(modes[i]));
+        XC_LOGI("gpu: present modes:%s (0 immediate, 1 mailbox, 2 fifo, 3 fifo relaxed); %u..%u images",
+                list.c_str(), caps.minImageCount, caps.maxImageCount);
+    }
     const VkImageUsageFlags usage =
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     if (!supported || (caps.supportedUsageFlags & usage) != usage) {
@@ -244,7 +304,9 @@ bool createSwapchain() {
 
     VkSwapchainCreateInfoKHR info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     info.surface = g.surface;
-    info.minImageCount = 3;
+    // Two images: one on the screen, one being drawn. With three, FIFO kept
+    // two finished frames queued and the one shown was ~33 ms old.
+    info.minImageCount = std::max(caps.minImageCount, g_swapImages);
     info.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
     info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     info.imageExtent = g.extent;
@@ -558,9 +620,35 @@ bool beginFrame(bool wait) {
         g.fencePending = false;
     }
     if (g.frameOpen) return true;  // drawn twice without a present: draw over it
+    if (g.presentWait && g.presented) {
+        if (!g_noPresentWait) {
+            // The frame before on the screen first (at most 50 ms, then go on).
+            if (vkWaitForPresentKHR(g.device, g.swapchain, g.presented, 50'000'000ull) == VK_SUCCESS) {
+                g_shownAtUs = platform::nowUs();
+                g_shownId = g.presented;
+            }
+        } else {
+            // Not pacing (for comparison): the newest frame already shown.
+            for (uint64_t id = g.presented; id > g_shownId; --id)
+                if (vkWaitForPresentKHR(g.device, g.swapchain, id, 0) == VK_SUCCESS) {
+                    g_shownAtUs = platform::nowUs();
+                    g_shownId = id;
+                    break;
+                }
+        }
+    }
+    uint64_t t0 = platform::nowUs();
     VkResult r = vkAcquireNextImageKHR(g.device, g.swapchain, wait ? UINT64_MAX : 0, g.acquired, VK_NULL_HANDLE,
                                        &g.frameIndex);
     if (r == VK_NOT_READY || r == VK_TIMEOUT) return false;
+    uint64_t waited = platform::nowUs() - t0;
+    g_acquireWaitUs += waited;
+    g_acquireWaitMaxUs = std::max(g_acquireWaitMaxUs, waited);
+    if (++g_acquires == 600) {
+        XC_LOGI("gpu: %u-image swapchain, last 600 frames waited %.2f ms on average (max %.2f) for a free image",
+                g.imageCount, g_acquireWaitUs / 600000.0, g_acquireWaitMaxUs / 1000.0);
+        g_acquires = g_acquireWaitUs = g_acquireWaitMaxUs = 0;
+    }
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) return fail("vkAcquireNextImageKHR", r);
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -694,6 +782,11 @@ void present() {
     }
     g.fencePending = true;
     VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+    uint64_t id = g.presented + 1;
+    VkPresentIdKHR presentId{VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
+    presentId.swapchainCount = 1;
+    presentId.pPresentIds = &id;
+    if (g.presentWait) present.pNext = &presentId;
     present.waitSemaphoreCount = 1;
     present.pWaitSemaphores = &g.rendered;
     present.swapchainCount = 1;
@@ -702,6 +795,7 @@ void present() {
     r = vkQueuePresentKHR(g.queue, &present);
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) fail("vkQueuePresentKHR", r);
     g.lastPresented = g.frameIndex;
+    g.presented = id;
 }
 
 void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opacity) {
@@ -728,6 +822,18 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
 void setSharpness(int amount) { g_sharpness = std::clamp(amount, 0, 256); }
 
 void setDeband(int level) { g_deband = std::clamp(level, 0, 2); }
+
+void setPresentWait(bool on) { g_noPresentWait = !on; }
+
+uint64_t lastPresentId() { return g.presented; }
+
+bool lastShown(uint64_t& id, uint64_t& atUs) {
+    id = g_shownId;
+    atUs = g_shownAtUs;
+    return id != 0;
+}
+
+void setSwapImages(int count) { g_swapImages = static_cast<uint32_t>(std::clamp(count, 2, 5)); }
 
 bool readBack(std::vector<uint8_t>& rgb, int& width, int& height) {
     if (!g.ready || g.lastPresented == UINT32_MAX) return false;

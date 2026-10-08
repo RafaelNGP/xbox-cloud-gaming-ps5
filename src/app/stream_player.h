@@ -58,10 +58,15 @@ public:
         int width = 0, height = 0;  // of the last decoded picture
         // Since the previous stats() call (so call it from one place only).
         uint64_t decodeAvgUs = 0, decodeMaxUs = 0, drawAvgUs = 0, drawMaxUs = 0;
+        // Network arrival to on the screen (GPU path), since the last call.
+        uint64_t displayAvgUs = 0, displayMaxUs = 0;
     };
     Stats stats() const;
     // Before start(): H.264 decoder threads (more than 1 = frame threading).
     void setDecodeThreads(int threads);
+    // Before start(): also run every frame through the PS5's hardware
+    // decoder and log how it does (the picture still comes from FFmpeg).
+    void setHwDecodeProbe(bool on);
 
 private:
     struct Impl;

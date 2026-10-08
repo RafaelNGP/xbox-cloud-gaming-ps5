@@ -84,6 +84,7 @@ if(XCLOUD_PS5)
         src/app/stream_player.cpp
         src/display/display.cpp
         src/display/gpu.cpp
+        src/media/hw_decoder.cpp
         src/input/controller.cpp
     )
     target_include_directories(xcloud_app PRIVATE "${PS5_RADV}/include")

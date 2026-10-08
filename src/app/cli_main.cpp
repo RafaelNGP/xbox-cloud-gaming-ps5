@@ -609,6 +609,7 @@ int main(int argc, char** argv) {
         info.mbps = 12.4;
         info.lossPct = 0.2;
         info.decodeMs = 4.1;
+        info.onScreenMs = 23.2;
         info.width = 1920;
         info.height = 1080;
         auto save = [&](const std::string& name, const ui::Canvas& over, int ox, int oy, int alpha) {

@@ -159,7 +159,8 @@ bool g_autoplayIdle = false;
 bool g_autoplayDetailTest = false;  // open a game to buy far down the list, save its page
 bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25 s
 bool g_autoplayVkTest = false;       // the GPU presenting instead of the CPU display
-bool g_autoplayCpuDisplay = false;   // the CPU display even where the GPU comes up
+bool g_autoplayCpuDisplay = false;
+bool g_autoplayHwDecode = false;     // hwdecode: the hardware decoder alongside, logged   // the CPU display even where the GPU comes up
 bool g_autoplayVibeTest = false;     // each motor alone, with a notification
 bool g_autoplayImeTest = false;      // open the system keyboard on the home screen
 bool g_autoplayMenuTest = false;     // in the game: open the menu, switch to 720p
@@ -191,6 +192,9 @@ void loadAutoplay() {
         if (opt == "vibetest") g_autoplayVibeTest = true;
         if (opt == "vktest") g_autoplayVkTest = true;
         if (opt == "cpudisplay") g_autoplayCpuDisplay = true;
+        if (opt == "hwdecode") g_autoplayHwDecode = true;
+        if (opt.rfind("swap=", 0) == 0) display::gpu::setSwapImages(std::atoi(opt.c_str() + 5));
+        if (opt == "nopace") display::gpu::setPresentWait(false);
         if (opt == "detailtest") g_autoplayDetailTest = true;
         if (opt == "librarytest") g_autoplayLibraryTest = true;
         if (opt == "imetest") g_autoplayImeTest = true;
@@ -259,6 +263,7 @@ std::string stream(xcloud::GssvClient& gssv) {
     app::StreamPlayer player(gssv);
     if (g_autoplayDump) player.dumpVideo(platform::dataDir() + "/stream.aus", 20);
     player.setDecodeThreads(g_decodeThreads);
+    player.setHwDecodeProbe(g_autoplayHwDecode);
     std::string err;
     if (!player.start(err)) return "ERROR: " + ui::trf(ui::Str::StreamFailed, err);
     {
@@ -299,7 +304,7 @@ std::string stream(xcloud::GssvClient& gssv) {
             XC_LOGI("stream: %llu frames, %llu decoded, %llu skipped, %llu failed, %llu resets, %llu kf req, "
                     "%llu queued, %llu audio; rtp %llu pkts, %llu lost, %llu recovered, %llu nacks, "
                     "%llu frames dropped; %llu kbps (remb %llu); %llu rumble; decode %.1f/%.1f ms, draw %.1f/%.1f ms, %llu late; "
-                    "rtt %d ms; %dx%d",
+                    "rtt %d ms; %dx%d; on screen %.1f/%.1f ms after arrival",
                     static_cast<unsigned long long>(st.videoFrames), static_cast<unsigned long long>(st.decodedFrames),
                     static_cast<unsigned long long>(st.droppedFrames), static_cast<unsigned long long>(st.decodeFailures),
                     static_cast<unsigned long long>(st.queueResets), static_cast<unsigned long long>(st.keyframeRequests),
@@ -309,7 +314,8 @@ std::string stream(xcloud::GssvClient& gssv) {
                     static_cast<unsigned long long>(st.rtpDroppedFrames), static_cast<unsigned long long>(st.rtpKbps),
                     static_cast<unsigned long long>(st.rembKbps), static_cast<unsigned long long>(st.vibrations),
                     st.decodeAvgUs / 1000.0, st.decodeMaxUs / 1000.0, st.drawAvgUs / 1000.0, st.drawMaxUs / 1000.0,
-                    static_cast<unsigned long long>(st.lateFrames), st.rttMs, st.width, st.height);
+                    static_cast<unsigned long long>(st.lateFrames), st.rttMs, st.width, st.height,
+                    st.displayAvgUs / 1000.0, st.displayMaxUs / 1000.0);
             if (st.rttMs > 0 && (bestRtt < 0 || st.rttMs < bestRtt)) bestRtt = st.rttMs;
             {
                 ui::StreamInfo info;
@@ -320,6 +326,7 @@ std::string stream(xcloud::GssvClient& gssv) {
                 uint64_t lost = st.rtpLost - last.rtpLost, got = st.rtpPackets - last.rtpPackets;
                 info.lossPct = got + lost ? 100.0 * lost / (got + lost) : 0;
                 info.decodeMs = st.decodeAvgUs / 1000.0;
+                info.onScreenMs = st.displayAvgUs / 1000.0;
                 info.width = st.width;
                 info.height = st.height;
                 std::lock_guard<std::mutex> lock(g_infoMutex);

@@ -6,6 +6,7 @@
 #include "input/controller.h"
 #include "media/audio_out.h"
 #include "media/decoder.h"
+#include "media/hw_decoder.h"
 #include "platform/platform.h"
 #include "stream/stream_session.h"
 #include "ui/strings.h"
@@ -43,6 +44,7 @@ struct StreamPlayer::Impl {
         std::vector<uint8_t> data;
         uint32_t rtpTimestamp = 0;
         double arrivalMs = 0;  // StreamSession::clockMs()
+        uint64_t arrivalUs = 0;  // platform::nowUs(), for the display latency
     };
     std::deque<VideoFrame> frames;
     std::atomic<bool> running{false};
@@ -59,8 +61,10 @@ struct StreamPlayer::Impl {
     std::atomic<uint32_t> pictureSize{0};  // width << 16 | height
     std::atomic<uint64_t> vibrations{0}, lateFrames{0};
     std::atomic<uint64_t> triggerVibrations{0};
+    std::atomic<uint64_t> displayUs{0}, displayCount{0}, displayMaxUs{0};
     std::atomic<uint64_t> decodeUs{0}, decodeCalls{0}, decodeMaxUs{0}, drawUs{0}, drawCalls{0}, drawMaxUs{0};
     int decodeThreads = 1;
+    bool hwProbe = false;
 
     static void atomicMax(std::atomic<uint64_t>& a, uint64_t v) {
         uint64_t cur = a;
@@ -121,7 +125,15 @@ struct StreamPlayer::Impl {
         // Timings of the frames handed to the decoder, by RTP timestamp:
         // pictures can come out later than their input.
         std::deque<stream::FrameMetadata> inFlight;
+        media::HwDecoder hw;
+        bool hwOk = hwProbe && hw.init(1920, 1088);
+        if (hwProbe) XC_LOGI("hwdec: probe %s", hwOk ? "running" : "failed to start");
+        uint64_t hwUs = 0, hwMaxUs = 0, hwPictures = 0, hwCalls = 0, hwLogAt = platform::nowMs() + 1000;
         int fullStreak = 0;
+        int skippedInRow = 0;
+        constexpr uint64_t kShownRing = 8;
+        std::pair<uint64_t, uint64_t> inScreenQueue[kShownRing] = {};  // present id, arrival us
+        uint64_t lastShownId = 0;
         while (running) {
             size_t backlog;
             {
@@ -146,6 +158,22 @@ struct StreamPlayer::Impl {
             media::Picture pic;
             const bool first = decodedFrames == 0 && !loggedFirstDecode;
             if (first) XC_LOGI("first video decode: %zu bytes", au.size());
+            if (hwOk) {
+                media::HwDecoder::Picture hp;
+                uint64_t h0 = platform::nowUs();
+                if (hw.decode(au.data(), au.size(), frame.rtpTimestamp, hp)) ++hwPictures;
+                uint64_t took = platform::nowUs() - h0;
+                hwUs += took;
+                hwMaxUs = std::max(hwMaxUs, took);
+                ++hwCalls;
+                if (platform::nowMs() >= hwLogAt) {
+                    hwLogAt += 1000;
+                    XC_LOGI("hwdec: %llu calls, %llu pictures, %.2f/%.2f ms", static_cast<unsigned long long>(hwCalls),
+                            static_cast<unsigned long long>(hwPictures), hwCalls ? hwUs / 1000.0 / hwCalls : 0.0,
+                            hwMaxUs / 1000.0);
+                    hwUs = hwMaxUs = hwCalls = hwPictures = 0;
+                }
+            }
             stream::FrameMetadata meta;
             meta.serverDataKey = frame.rtpTimestamp;
             meta.firstPacketArrivalMs = frame.arrivalMs;
@@ -182,10 +210,15 @@ struct StreamPlayer::Impl {
             ++decodedFrames;
             pictureSize = (static_cast<uint32_t>(pic.width) << 16) | static_cast<uint32_t>(pic.height);
             bool screenshot = saveSnapshotIfAsked(pic);
-            if (backlog > 2) {  // behind: skip drawing to catch up
+            // A newer frame already waits: decode this one (the next needs it)
+            // but show the newer one, a frame sooner. At most two in a row, so
+            // the picture keeps moving when decoding runs behind.
+            if (backlog > 0 && skippedInRow < 2) {
+                ++skippedInRow;
                 ++droppedFrames;
                 continue;
             }
+            skippedInRow = 0;
             std::lock_guard<std::mutex> lock(display::frameMutex());
             if (decodedFrames == 1) XC_LOGI("first draw %dx%d", pic.width, pic.height);
             uint64_t t2 = platform::nowUs();
@@ -210,6 +243,22 @@ struct StreamPlayer::Impl {
             }
             display::present();
             uint64_t t3 = platform::nowUs();
+            // Display latency: network arrival to the TV, once the GPU says
+            // the frame is on the screen (a frame or so later).
+            if (uint64_t id = display::lastPresentId()) {
+                inScreenQueue[id % kShownRing] = {id, frame.arrivalUs};
+                uint64_t shownId = 0, shownAt = 0;
+                if (display::lastShown(shownId, shownAt) && shownId != lastShownId) {
+                    lastShownId = shownId;
+                    const auto& q = inScreenQueue[shownId % kShownRing];
+                    if (q.first == shownId && shownAt > q.second) {
+                        uint64_t lat = shownAt - q.second;
+                        displayUs += lat;
+                        ++displayCount;
+                        atomicMax(displayMaxUs, lat);
+                    }
+                }
+            }
             meta.renderedMs = session->clockMs();
             if (known) session->reportFrame(meta);
             if (decodedFrames % 600 == 1)
@@ -242,7 +291,7 @@ struct StreamPlayer::Impl {
                 frames.clear();
                 keyframeWanted = true;
             }
-            frames.push_back({std::vector<uint8_t>(d, d + n), rtpTimestamp, session->clockMs()});
+            frames.push_back({std::vector<uint8_t>(d, d + n), rtpTimestamp, session->clockMs(), platform::nowUs()});
             cv.notify_one();
         };
         cb.audio = [this](const uint8_t* d, size_t n, uint32_t) {
@@ -473,6 +522,8 @@ void StreamPlayer::requestSnapshot(const std::string& path) {
 }
 void StreamPlayer::stop() { impl_->stop(); }
 
+void StreamPlayer::setHwDecodeProbe(bool on) { impl_->hwProbe = on; }
+
 void StreamPlayer::setDecodeThreads(int threads) { impl_->decodeThreads = std::max(1, threads); }
 
 StreamPlayer::Stats StreamPlayer::stats() const {
@@ -495,6 +546,9 @@ StreamPlayer::Stats StreamPlayer::stats() const {
     st.decodeMaxUs = impl_->decodeMaxUs.exchange(0);
     st.drawAvgUs = rc ? ru / rc : 0;
     st.drawMaxUs = impl_->drawMaxUs.exchange(0);
+    uint64_t dn = impl_->displayCount.exchange(0), du2 = impl_->displayUs.exchange(0);
+    st.displayAvgUs = dn ? du2 / dn : 0;
+    st.displayMaxUs = impl_->displayMaxUs.exchange(0);
     if (impl_->session) {  // the caller's thread is the one that stops the player
         const auto& v = impl_->session->videoStats();
         st.rtpPackets = v.packets;

@@ -67,3 +67,12 @@ none are distributed with this project.
 `extern/fsr1/ffx_a.h` and `extern/fsr1/ffx_fsr1.h`, compiled into the shaders in
 `src/display/shaders/` (EASU upscaling, RCAS sharpening). MIT License,
 Copyright (c) 2021 Advanced Micro Devices, Inc.: see `extern/fsr1/LICENSE.txt`.
+
+## References
+
+- `src/media/hw_decoder.cpp` declares libSceVideodec2's structures as the PS5
+  lays them out, and sets the decoder up (sysmodule 207, memory type 12,
+  compute queue 0/0) after BlackBearReloaded's
+  [ProsperoLight](https://github.com/blackbearreloaded/ProsperoLight) and
+  [ps5-hardware-video-decoding-research](https://github.com/blackbearreloaded/ps5-hardware-video-decoding-research)
+  (both GPL-3.0-or-later).

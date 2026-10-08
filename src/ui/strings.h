@@ -123,6 +123,7 @@ enum class Str {
     PadConnected,     // "%s" = "2 (user name)"
     PadDisconnected,  // "%s" = "2 (user name)"
     MenuDeband,       // smoothing of compression blocks (deband)
+    StatOnScreen,     // network arrival to on the TV
     Count
 };
 

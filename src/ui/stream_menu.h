@@ -19,6 +19,7 @@ struct StreamInfo {
     std::string region;
     int rttMs = -1;
     double fps = 0, mbps = 0, lossPct = 0, decodeMs = 0;
+    double onScreenMs = 0;  // network arrival to on the TV (GPU path); 0 = unknown
     int width = 0, height = 0;  // of the decoded picture
 };
 
@@ -26,7 +27,7 @@ enum class MenuAction { None, Close, Leave, Refresh, Resolution, Stats, Sharpnes
 
 class StreamMenu {
 public:
-    static constexpr int kMenuW = 620, kMenuH = 1010;
+    static constexpr int kMenuW = 620, kMenuH = 1046;
     static constexpr int kMenuX = 80, kMenuY = (1080 - kMenuH) / 2;
     static constexpr int kStatsX = 32, kStatsY = 28;
 

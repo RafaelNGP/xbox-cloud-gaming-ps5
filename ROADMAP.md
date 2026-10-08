@@ -8,27 +8,32 @@ Last update: 2026-10-08, after v0.5.0.
 
 ## Now
 
-### 1. Lower input-to-picture latency — next
-A frame is shown 13-48 ms after it arrives (samples in `xcloud.log`): the
-swapchain holds up to two finished frames (3 images, FIFO) and the video queue
-keeps frames when decoding falls behind. In fast games (Fortnite aiming) that
-delay is what you feel.
+### 1. Lower input-to-picture latency — done (v0.6.0)
+Measured with `VK_KHR_present_wait`, from a frame's network arrival to the
+moment it is on the TV: **~23 ms on average** at 60 Hz (decode ~6 ms, GPU
+~3 ms, waiting for the next vblank ~8 ms on average). The earlier "13-48 ms"
+stopped at `present()`, not at the screen.
 
-- Present the newest frame as soon as it is drawn: fewer swapchain images or
-  mailbox presentation, and drop stale frames instead of queueing them.
-- Done when the median "shown after arrival" falls by ≥ 10 ms with no more
-  late or skipped frames than today (log sample every 600 frames, autotest).
+- Each frame is submitted once the one before is on the screen (no queued
+  frames: the wait for a free image fell from 1-3 ms to 0.01 ms), and a frame
+  is skipped when a newer one is already waiting. Skipped frames in a 50 s
+  run: 85 → 35.
+- The game menu shows "On screen after" (that measurement, live).
+- **Next step, 120 Hz output** (halves the vblank wait, ~4 ms): the title
+  declares it with `attribute3 = 0x80040`; on our console the display still
+  offered only 59.94 Hz. To check: the TV's 120 Hz support and the PS5's
+  120 Hz output setting, then re-registering the app.
 
-### 2. Hardware video decoding — next (probe first)
-H.264 is decoded by FFmpeg on the CPU (~6 ms a frame at 1080p). The PS5's GPU
-(Navi 21 class) has a video decoder that RADV exposes through Vulkan Video,
-if the PS5 port enables it.
+### 2. Hardware video decoding — works, parked
+RADV has no Vulkan Video on the PS5, but the system's own decoder
+(`libSceVideodec2`, sysmodule 207) works from the app: H.264 1080p decodes to
+NV12 (pitch 2048, coded 1088 rows) in **~6 ms**, the same as FFmpeg on the
+CPU, as BlackBearReloaded's research measured too. So no latency gain at
+1080p; it only frees a CPU core.
 
-- Probe: does the device report `VK_KHR_video_decode_queue` /
-  `VK_KHR_video_decode_h264` and a decode queue family? If not: dropped.
-- If yes: decode into GPU images, feed them straight to the deband / FSR
-  passes (no plane copies), CPU decoding kept as the fallback.
-- Done when decoding takes ≤ 2 ms a frame and 1440p would fit the frame budget.
+- Kept in `src/media/hw_decoder.*` (autoplay `hwdecode` runs it alongside and
+  logs it), with the PS5's own structure layouts and memory types.
+- Becomes the way to go if 1440p / 4K or HEVC streams are ever granted.
 
 ### 3. Reconnect after a network drop — next
 When the connection drops, the stream ends and the app returns home, though
