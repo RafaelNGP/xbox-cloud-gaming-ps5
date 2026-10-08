@@ -1972,7 +1972,7 @@ void AppUi::drawLaunching(Canvas& c, uint64_t nowMs) {
     drawCentered(c, fonts_.bold, launching_.name, 500, 48, kWhite);
     drawCentered(c, fonts_.semibold, tr(Str::GettingReady), 576, 30, kGray);
     drawCentered(c, fonts_.regular, status_, 630, 26, kDim);
-    drawCentered(c, fonts_.regular, tr(Str::LeaveHint), 900, 22, kDim);
+    drawCentered(c, fonts_.regular, tr(Str::GestureHint), 900, 22, kDim);
     drawHints(c, {{kIconCircle, tr(Str::Cancel)}});
 }
 

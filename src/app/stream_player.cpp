@@ -301,6 +301,22 @@ struct StreamPlayer::Impl {
                 return;
             }
             if (++videoFrames == 1) XC_LOGI("first video frame received: %zu bytes", n);
+            {
+                // The H.264 profile the server encodes with (from each new SPS).
+                static int lastProfile = -1, lastLevel = -1;
+                for (size_t i = 0; i + 6 < n; ++i)
+                    if (d[i] == 0 && d[i + 1] == 0 && d[i + 2] == 1 && (d[i + 3] & 0x1F) == 7) {
+                        int profile = d[i + 4], level = d[i + 6];
+                        if (profile != lastProfile || level != lastLevel) {
+                            lastProfile = profile;
+                            lastLevel = level;
+                            XC_LOGI("video: H.264 profile %d (%s), level %d.%d", profile,
+                                    profile == 66 ? "Baseline" : profile == 77 ? "Main" : profile == 100 ? "High" : "?",
+                                    level / 10, level % 10);
+                        }
+                        break;
+                    }
+            }
             std::lock_guard<std::mutex> lock(mutex);
             if (frames.size() >= kMaxQueuedFrames) {
                 // Hopelessly behind: start over from the next key frame.

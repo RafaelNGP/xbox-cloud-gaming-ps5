@@ -34,6 +34,7 @@ struct Settings {
     bool circleConfirms = false;
     // The DualSense light bar takes the colour of the game in focus.
     bool lightBar = true;
+    int gestureHints = 0;  // streams that showed the touchpad gestures' hint (three do)
 
     bool load(const std::string& path);
     bool save(const std::string& path) const;

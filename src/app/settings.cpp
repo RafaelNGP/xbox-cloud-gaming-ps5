@@ -30,6 +30,7 @@ bool Settings::load(const std::string& path) {
     triggerRumble = (*j)["triggerRumble"].asBool(triggerRumble);
     circleConfirms = (*j)["circleConfirms"].asBool(circleConfirms);
     lightBar = (*j)["lightBar"].asBool(lightBar);
+    gestureHints = static_cast<int>((*j)["gestureHints"].asInt(gestureHints));
     regionRtt.clear();
     for (const auto& [name, ms] : (*j)["regionRtt"].members())
         if (ms.asInt() > 0) regionRtt[name] = static_cast<int>(ms.asInt());
@@ -56,6 +57,7 @@ bool Settings::save(const std::string& path) const {
     v.set("triggerRumble", triggerRumble);
     v.set("circleConfirms", circleConfirms);
     v.set("lightBar", lightBar);
+    v.set("gestureHints", gestureHints);
     return platform::writeFileAtomic(path, v.dump());
 }
 

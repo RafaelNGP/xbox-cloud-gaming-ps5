@@ -287,8 +287,15 @@ std::string stream(xcloud::GssvClient& gssv) {
         g_player = &player;
     }
     g_ui->showStreaming();
-    platform::notify(ui::tr(ui::Str::LeaveHint));
-    if (gssv.isHome()) platform::notify(ui::tr(ui::Str::SwipeHint));
+    {
+        // The touchpad's gestures, in the first three streams only.
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        if (g_settings.gestureHints < 3) {
+            ++g_settings.gestureHints;
+            g_settings.save(settingsPath());
+            platform::notify(ui::tr(ui::Str::GestureHint));
+        }
+    }
 
     const uint64_t started = platform::nowMs();
     uint64_t nextTick = started;
@@ -955,6 +962,7 @@ int main(int argc, char** argv) {
         bool active = false, fired = false;
         float x = 0, y = 0;  // where the finger came down
     } swipe;
+    bool swipeMenu = false;  // a swipe asked for the game menu
     int sharpness = 0;  // 0..3, as Settings::sharpness
     int deband = 1;     // 0..2, as Settings::deband
     int upscaler = 0;   // as Settings::upscaler
@@ -1098,7 +1106,8 @@ int main(int argc, char** argv) {
                 updateTextInput(g_player);
                 // OPTIONS + TOUCHPAD opens the menu (and closes it again).
                 bool wasOpen = menu.isOpen();
-                if (!wasOpen && menuCombo && g_keyboardFor.empty()) {
+                if (!wasOpen && (menuCombo || swipeMenu) && g_keyboardFor.empty()) {
+                    swipeMenu = false;
                     menu.setCircleConfirms(g_settings.circleConfirms);
                     menu.open(streamResolution, showStats, sharpness, deband, upscaler, g_playingHome);
                     overlaySeq = 0;
@@ -1177,10 +1186,15 @@ int main(int argc, char** argv) {
                     if (!swipe.active) swipe = {true, false, pad.touchX, pad.touchY};
                     float dx = pad.touchX - swipe.x, dy = swipe.y - pad.touchY;  // dy > 0: up
                     bool right = dx > 0.30f && std::abs(dy) < 0.30f, up = dy > 0.40f && std::abs(dx) < 0.30f;
+                    bool left = dx < -0.30f && std::abs(dy) < 0.30f, down = dy < -0.40f && std::abs(dx) < 0.30f;
                     if (!swipe.fired && (right || up)) {
                         swipe.fired = true;
                         g_xboxButtonUntil = platform::nowMs() + 250;
                         XC_LOGI("touchpad swipe %s: Xbox button", right ? "right" : "up");
+                    } else if (!swipe.fired && (left || down)) {
+                        swipe.fired = true;
+                        swipeMenu = true;  // opened on the next pass, as by OPTIONS + TOUCHPAD
+                        XC_LOGI("touchpad swipe %s: game menu", left ? "left" : "down");
                     }
                 } else {
                     swipe.active = false;

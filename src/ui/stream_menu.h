@@ -28,7 +28,7 @@ enum class MenuAction { None, Close, Leave, Resolution, Stats, Sharpness, Deband
 
 class StreamMenu {
 public:
-    static constexpr int kMenuW = 620, kMenuH = 992;
+    static constexpr int kMenuW = 620, kMenuH = 1064;
     static constexpr int kMenuX = 80, kMenuY = (1080 - kMenuH) / 2;
     static constexpr int kStatsX = 32, kStatsY = 28;
 

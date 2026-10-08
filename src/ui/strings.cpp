@@ -54,7 +54,7 @@ constexpr Column kEnglish = {
     "You're in the queue. Estimated wait: %s",        // InQueue
     "Connecting...",                                  // Connecting
     "Starting the stream...",                         // StartingStream
-    "Press OPTIONS + TOUCHPAD for the game menu",      // LeaveHint
+    "Touchpad: ↓ this menu · ↑ Xbox button",            // MenuGestureHint
     "Stream ended",                                   // StreamEnded
     "Something went wrong",                           // ErrorTitle
     "Signed in as %s",                                // SignedInAs
@@ -175,7 +175,7 @@ constexpr Column kEnglish = {
     "Another device took over the stream",            // EndedByOtherDevice
     "The Xbox was turned off",                        // EndedXboxOff
     "%s got the request but its Remote Play didn't start. Restart it: hold the power button on the console for 10 seconds, turn it back on, then try again.", // StreamingStuck
-    "Swipe up or right on the touchpad for the Xbox button", // SwipeHint
+    "Touchpad: swipe ↓ for the menu, ↑ for the Xbox button", // GestureHint
 };
 
 constexpr Column kPortugueseBR = {
@@ -200,7 +200,7 @@ constexpr Column kPortugueseBR = {
     "Você está na fila. Espera estimada: %s",
     "Conectando...",
     "Iniciando o streaming...",
-    "Pressione OPTIONS + TOUCHPAD para abrir o menu do jogo",
+    "Touchpad: ↓ este menu · ↑ botão Xbox",
     "Streaming encerrado",
     "Algo deu errado",
     "Conectado como %s",
@@ -321,7 +321,7 @@ constexpr Column kPortugueseBR = {
     "Outro aparelho assumiu a transmissão",
     "O Xbox foi desligado",
     "%s recebeu o pedido, mas o jogo remoto dele não iniciou. Reinicie o console: segure o botão de ligar do Xbox por 10 segundos, ligue de novo e tente outra vez.",
-    "Deslize para cima ou para a direita no touchpad: botão Xbox",
+    "Touchpad: deslize ↓ para o menu, ↑ para o botão Xbox",
 };
 
 constexpr Column kSpanish = {
@@ -346,7 +346,7 @@ constexpr Column kSpanish = {
     "Estás en la cola. Espera estimada: %s",
     "Conectando...",
     "Iniciando el streaming...",
-    "Pulsa OPTIONS + TOUCHPAD para abrir el menú del juego",
+    "Panel táctil: ↓ este menú · ↑ botón Xbox",
     "Streaming finalizado",
     "Algo salió mal",
     "Sesión iniciada como %s",
@@ -467,7 +467,7 @@ constexpr Column kSpanish = {
     "Otro dispositivo tomó la transmisión",
     "La Xbox se apagó",
     "%s recibió la solicitud, pero su juego remoto no se inició. Reiníciala: mantén pulsado el botón de encendido de la consola 10 segundos, enciéndela de nuevo y vuelve a intentarlo.",
-    "Desliza hacia arriba o a la derecha en el panel táctil: botón Xbox",
+    "Panel táctil: desliza ↓ para el menú, ↑ para el botón Xbox",
 };
 
 constexpr Column kFrench = {
@@ -492,7 +492,7 @@ constexpr Column kFrench = {
     "Vous êtes dans la file d'attente. Attente estimée : %s",
     "Connexion...",
     "Démarrage du streaming...",
-    "Appuyez sur OPTIONS + PAVÉ TACTILE pour le menu du jeu",
+    "Pavé tactile : ↓ ce menu · ↑ bouton Xbox",
     "Streaming terminé",
     "Un problème est survenu",
     "Connecté en tant que %s",
@@ -613,7 +613,7 @@ constexpr Column kFrench = {
     "Un autre appareil a repris la diffusion",
     "La Xbox a été éteinte",
     "%s a reçu la demande, mais son jeu à distance n'a pas démarré. Redémarrez-la : maintenez le bouton d'alimentation de la console 10 secondes, rallumez-la, puis réessayez.",
-    "Glissez vers le haut ou la droite sur le pavé tactile : bouton Xbox",
+    "Pavé tactile : glissez ↓ pour le menu, ↑ pour le bouton Xbox",
 };
 
 constexpr Column kGerman = {
@@ -638,7 +638,7 @@ constexpr Column kGerman = {
     "Du bist in der Warteschlange. Geschätzte Wartezeit: %s",
     "Verbindung wird hergestellt...",
     "Streaming wird gestartet...",
-    "OPTIONS + TOUCHPAD drücken, um das Spielmenü zu öffnen",
+    "Touchpad: ↓ dieses Menü · ↑ Xbox-Taste",
     "Streaming beendet",
     "Etwas ist schiefgelaufen",
     "Angemeldet als %s",
@@ -759,7 +759,7 @@ constexpr Column kGerman = {
     "Ein anderes Gerät hat das Streaming übernommen",
     "Die Xbox wurde ausgeschaltet",
     "%s hat die Anfrage erhalten, aber Remote Play ist nicht gestartet. Starte sie neu: Halte die Ein/Aus-Taste der Konsole 10 Sekunden gedrückt, schalte sie wieder ein und versuche es erneut.",
-    "Wische auf dem Touchpad nach oben oder rechts: Xbox-Taste",
+    "Touchpad: ↓ wischen für das Menü, ↑ für die Xbox-Taste",
 };
 
 constexpr Column kItalian = {
@@ -784,7 +784,7 @@ constexpr Column kItalian = {
     "Sei in coda. Attesa stimata: %s",
     "Connessione...",
     "Avvio dello streaming...",
-    "Premi OPTIONS + TOUCHPAD per il menu di gioco",
+    "Touchpad: ↓ questo menu · ↑ pulsante Xbox",
     "Streaming terminato",
     "Si è verificato un problema",
     "Accesso effettuato come %s",
@@ -905,7 +905,7 @@ constexpr Column kItalian = {
     "Un altro dispositivo ha preso lo streaming",
     "La Xbox è stata spenta",
     "%s ha ricevuto la richiesta, ma il gioco remoto non è partito. Riavviala: tieni premuto il pulsante di accensione della console per 10 secondi, riaccendila e riprova.",
-    "Scorri verso l'alto o a destra sul touchpad: pulsante Xbox",
+    "Touchpad: scorri ↓ per il menu, ↑ per il pulsante Xbox",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,
