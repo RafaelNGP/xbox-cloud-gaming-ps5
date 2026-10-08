@@ -94,6 +94,20 @@ static void testInputPacket() {
     CHECK(p[30] == 1 && p[33] == 0);        // physicality LE
     CHECK(p[34] == 0 && p[37] == 1);        // virtual physicality BE
 
+    FrameMetadata fm;
+    fm.serverDataKey = 0x01020304;
+    fm.firstPacketArrivalMs = 100.0;
+    fm.submittedMs = 100.05;
+    fm.decodedMs = 102.5;
+    fm.renderedMs = 110.0;
+    auto md = metadataReport(9, 111.0, {fm});
+    CHECK(md.size() == 14 + 1 + 28);
+    CHECK(md[0] == 1 && md[1] == 0 && md[2] == 9 && md[14] == 1);
+    CHECK(md[15] == 0x04 && md[18] == 0x01);                  // RTP timestamp, little-endian
+    CHECK(md[19] == 0xE8 && md[20] == 0x03);                  // 100 ms = 1000 tenths
+    CHECK(md[27] == 0x01 && md[28] == 0x04);                  // 102.5 ms = 1025
+    CHECK(md[39] == 0x56 && md[40] == 0x04);                  // report time 111 ms = 1110
+
     uint8_t vib[13] = {128, 0, 0, 0, 50, 25, 0, 0, 0x10, 0x00, 0, 0, 1};
     Vibration v;
     CHECK(parseVibration(vib, sizeof vib, v) && v.leftMotor == 50 && v.rightMotor == 25 && v.durationMs == 16);

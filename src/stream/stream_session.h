@@ -78,6 +78,10 @@ public:
 
     void sendGamepad(const GamepadFrame& frame);
     void requestKeyframe();
+    // A frame shown: its timings go back to the server (see FrameMetadata).
+    void reportFrame(const FrameMetadata& frame);
+    // The clock FrameMetadata times are on, in ms.
+    double clockMs() const;
     void completeTextInput(const std::string& id, const std::string& text);
     void cancelTextInput(const std::string& id);
     // Another stream tier mid-session (StreamOptions::resolutionAlias).

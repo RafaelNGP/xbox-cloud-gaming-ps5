@@ -647,6 +647,13 @@ void StreamSession::requestKeyframe() {
         XC_LOGW("keyframe request: %s", e.what());
     }
 }
+void StreamSession::reportFrame(const FrameMetadata& frame) {
+    if (!impl_->open) return;
+    Impl::sendBinary(impl_->input, metadataReport(impl_->inputSequence++, impl_->nowMs(), {frame}));
+}
+
+double StreamSession::clockMs() const { return impl_->nowMs(); }
+
 void StreamSession::completeTextInput(const std::string& id, const std::string& text) {
     json::Value v = json::Value::object();
     v.set("Text", text);

@@ -22,6 +22,8 @@ struct Picture {
     const uint8_t* v = nullptr;
     int strideY = 0, strideU = 0, strideV = 0;
     int width = 0, height = 0;
+    // The `tag` the access unit it came from was decoded with.
+    uint32_t tag = 0;
 };
 
 // Splits an Annex-B H.264 stream into access units (offset, length): at AUD
@@ -43,7 +45,9 @@ public:
     bool init(int threads = 1);
     // One Annex-B access unit in; true with `out` filled when a picture is
     // ready. A false return without a picture is normal at stream start.
-    bool decode(const uint8_t* data, size_t len, Picture& out);
+    // `tag` travels with the access unit and comes back on its picture
+    // (a picture can come out later than its input).
+    bool decode(const uint8_t* data, size_t len, Picture& out, uint32_t tag = 0);
     // True after a decode error: the caller should ask for a key frame.
     bool needsKeyframe() const { return needsKeyframe_; }
     // The last decode() returned no picture without an error: the decoder

@@ -123,13 +123,14 @@ bool VideoDecoder::init(int threads) {
     return true;
 }
 
-bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out) {
+bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out, uint32_t tag) {
     // An empty packet means "end of stream" to libavcodec and would switch it
     // to draining for good; the RTP depacketizer emits them after packet loss.
     pending_ = false;
     if (!ctx_ || len == 0) return false;
     packet_->data = const_cast<uint8_t*>(data);
     packet_->size = static_cast<int>(len);
+    packet_->pts = tag;
     int rc = avcodec_send_packet(ctx_, packet_);
     if (rc == AVERROR_EOF) {
         // Drained anyway: reset and retry once.
@@ -171,6 +172,7 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out) {
     out.strideV = frame_->linesize[2];
     out.width = frame_->width;
     out.height = frame_->height;
+    out.tag = frame_->pts == AV_NOPTS_VALUE ? 0 : static_cast<uint32_t>(frame_->pts);
     return true;
 }
 

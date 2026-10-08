@@ -38,7 +38,13 @@ struct StreamPlayer::Impl {
 
     std::mutex mutex;
     std::condition_variable cv;
-    std::deque<std::vector<uint8_t>> frames;
+    // An access unit, with what the server wants to hear about it.
+    struct VideoFrame {
+        std::vector<uint8_t> data;
+        uint32_t rtpTimestamp = 0;
+        double arrivalMs = 0;  // StreamSession::clockMs()
+    };
+    std::deque<VideoFrame> frames;
     std::atomic<bool> running{false};
     std::string endReason;
     platform::Thread videoThread, audioThread;
@@ -109,7 +115,11 @@ struct StreamPlayer::Impl {
             end("could not start the H.264 decoder");
             return;
         }
-        std::vector<uint8_t> au;
+        VideoFrame frame;
+        std::vector<uint8_t>& au = frame.data;
+        // Timings of the frames handed to the decoder, by RTP timestamp:
+        // pictures can come out later than their input.
+        std::deque<stream::FrameMetadata> inFlight;
         int fullStreak = 0;
         while (running) {
             size_t backlog;
@@ -117,7 +127,7 @@ struct StreamPlayer::Impl {
                 std::unique_lock<std::mutex> lock(mutex);
                 cv.wait(lock, [&] { return !running || !frames.empty(); });
                 if (!running) break;
-                au = std::move(frames.front());
+                frame = std::move(frames.front());
                 frames.pop_front();
                 backlog = frames.size();
             }
@@ -135,9 +145,26 @@ struct StreamPlayer::Impl {
             media::Picture pic;
             const bool first = decodedFrames == 0 && !loggedFirstDecode;
             if (first) XC_LOGI("first video decode: %zu bytes", au.size());
+            stream::FrameMetadata meta;
+            meta.serverDataKey = frame.rtpTimestamp;
+            meta.firstPacketArrivalMs = frame.arrivalMs;
+            meta.submittedMs = session->clockMs();
+            inFlight.push_back(meta);
+            if (inFlight.size() > 16) inFlight.pop_front();
             uint64_t t0 = platform::nowUs();
-            bool ok = decoder.decode(au.data(), au.size(), pic);
+            bool ok = decoder.decode(au.data(), au.size(), pic, frame.rtpTimestamp);
             uint64_t t1 = platform::nowUs();
+            bool known = false;
+            if (ok) {
+                for (auto it = inFlight.begin(); it != inFlight.end(); ++it)
+                    if (it->serverDataKey == pic.tag) {
+                        meta = *it;
+                        inFlight.erase(inFlight.begin(), it + 1);  // and anything older: never coming
+                        known = true;
+                        break;
+                    }
+                meta.decodedMs = session->clockMs();
+            }
             decodeUs += t1 - t0;
             ++decodeCalls;
             atomicMax(decodeMaxUs, t1 - t0);
@@ -182,6 +209,12 @@ struct StreamPlayer::Impl {
             }
             display::present();
             uint64_t t3 = platform::nowUs();
+            meta.renderedMs = session->clockMs();
+            if (known) session->reportFrame(meta);
+            if (decodedFrames % 600 == 1)
+                XC_LOGI("frame %u: queued %.1f, decoded %.1f, shown %.1f ms after arrival", meta.serverDataKey,
+                        meta.submittedMs - meta.firstPacketArrivalMs, meta.decodedMs - meta.firstPacketArrivalMs,
+                        meta.renderedMs - meta.firstPacketArrivalMs);
             if (screenshot) saveScreen();
             drawUs += t3 - t2;
             ++drawCalls;
@@ -195,7 +228,7 @@ struct StreamPlayer::Impl {
         if (!media::audioStart()) XC_LOGW("no audio output: playing without sound");
 
         stream::StreamCallbacks cb;
-        cb.video = [this](const uint8_t* d, size_t n, uint32_t) {
+        cb.video = [this](const uint8_t* d, size_t n, uint32_t rtpTimestamp) {
             if (n == 0) {  // the depacketizer emits these after loss
                 keyframeWanted = true;
                 return;
@@ -208,7 +241,7 @@ struct StreamPlayer::Impl {
                 frames.clear();
                 keyframeWanted = true;
             }
-            frames.emplace_back(d, d + n);
+            frames.push_back({std::vector<uint8_t>(d, d + n), rtpTimestamp, session->clockMs()});
             cv.notify_one();
         };
         cb.audio = [this](const uint8_t* d, size_t n, uint32_t) {
