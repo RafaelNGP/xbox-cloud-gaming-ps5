@@ -122,6 +122,7 @@ enum class Str {
     Controllers,      // in-game menu: the pads in use
     PadConnected,     // "%s" = "2 (user name)"
     PadDisconnected,  // "%s" = "2 (user name)"
+    MenuDeband,       // smoothing of compression blocks (deband)
     Count
 };
 

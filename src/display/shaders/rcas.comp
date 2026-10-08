@@ -1,0 +1,43 @@
+#version 450
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RafaelNGP
+// FSR 1 RCAS (sharpening; off = a plain copy), then the menus laid over, into
+// the swapchain image.
+#extension GL_GOOGLE_include_directive : require
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0, rgba8) uniform readonly image2D upscaled;
+layout(binding = 1) uniform sampler2D overlayTex;  // linear, alpha = coverage
+layout(binding = 2) uniform writeonly image2D target;  // the swapchain's format
+layout(push_constant) uniform Constants {
+    uvec4 con;       // FsrRcasCon
+    uint sharpen;    // 0: plain copy
+    float overlayOpacity;
+} pc;
+
+#define A_GPU 1
+#define A_GLSL 1
+#include "ffx_a.h"
+#define FSR_RCAS_F 1
+AF4 FsrRcasLoadF(ASU2 p) {
+    ivec2 size = imageSize(upscaled);
+    return imageLoad(upscaled, clamp(p, ivec2(0), size - 1));
+}
+void FsrRcasInputF(inout AF1 r, inout AF1 g, inout AF1 b) {}
+#include "ffx_fsr1.h"
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(target);
+    if (p.x >= size.x || p.y >= size.y) return;
+    vec3 color;
+    if (pc.sharpen != 0u) {
+        FsrRcasF(color.r, color.g, color.b, uvec2(p), pc.con);
+    } else {
+        color = imageLoad(upscaled, p).rgb;
+    }
+    if (pc.overlayOpacity > 0.0) {
+        vec4 o = texture(overlayTex, (vec2(p) + 0.5) / vec2(size));
+        color = mix(color, o.rgb, o.a * pc.overlayOpacity);
+    }
+    imageStore(target, p, vec4(color, 1.0));
+}

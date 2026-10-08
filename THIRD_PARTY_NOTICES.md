@@ -60,3 +60,9 @@ Entertainment Inc. This project is not affiliated with, endorsed by or
 sponsored by Microsoft or Sony. Game names and box art shown in the app are
 loaded at runtime from Microsoft's public catalog and belong to their owners;
 none are distributed with this project.
+
+## AMD FidelityFX Super Resolution 1.0 (FSR 1)
+
+`extern/fsr1/ffx_a.h` and `extern/fsr1/ffx_fsr1.h`, compiled into the shaders in
+`src/display/shaders/` (EASU upscaling, RCAS sharpening). MIT License,
+Copyright (c) 2021 Advanced Micro Devices, Inc.: see `extern/fsr1/LICENSE.txt`.

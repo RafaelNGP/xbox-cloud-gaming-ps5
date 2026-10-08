@@ -23,6 +23,8 @@ struct Settings {
     bool streamStats = false;
     // Sharpening of the game picture: 0 off, 1..3 low, medium, high.
     int sharpness = 0;
+    // Smoothing of compression blocks (GPU display): 0 off, 1 low, 2 high.
+    int deband = 1;
     // Controller: stick dead zone (percent), vibration in the triggers,
     // Circle as the confirm button (Xbox A).
     int deadzone = 15;

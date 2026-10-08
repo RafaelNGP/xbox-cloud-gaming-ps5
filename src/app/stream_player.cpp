@@ -346,8 +346,9 @@ struct StreamPlayer::Impl {
     // The scan-out buffer just presented, at full resolution.
     void saveScreen() {
         std::vector<uint8_t> rgb;
-        if (!display::readBackRgb(rgb)) return;
-        std::string data = "P6\n" + std::to_string(display::kWidth) + " " + std::to_string(display::kHeight) + "\n255\n";
+        int w = 0, h = 0;
+        if (!display::readBackRgb(rgb, w, h)) return;
+        std::string data = "P6\n" + std::to_string(w) + " " + std::to_string(h) + "\n255\n";
         data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
         bool ok = platform::writeFileAtomic(screenPath, data);
         XC_LOGI("screen -> %s: %s", screenPath.c_str(), ok ? "ok" : "failed");

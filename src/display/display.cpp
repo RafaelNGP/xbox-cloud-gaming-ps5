@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 #include "display/display.h"
+#include "display/gpu.h"
 #include "platform/platform.h"
 #include "util/log.h"
 
@@ -96,7 +97,9 @@ void flushRange(void *address, size_t length) {
 }
 } // namespace
 
-bool init() {
+bool init(bool preferGpu) {
+    if (preferGpu && gpu::init()) return true;
+    if (preferGpu) XC_LOGW("display: the GPU didn't come up; drawing on the CPU");
     g_videoHandle = sceVideoOutOpen(0xff, 0, 0, nullptr);
     if (g_videoHandle < 0) {
         XC_LOGE("sceVideoOutOpen failed: %d", g_videoHandle);
@@ -185,6 +188,7 @@ bool acquireBuffer(bool wait = true) {
 }  // namespace
 
 void present() {
+    if (gpu::ready()) return gpu::present();
     if (g_videoHandle < 0 || !g_mappedMemory) return;
     uint8_t* base = static_cast<uint8_t*>(g_mappedMemory) + (g_currentBuffer * kFrameBytes);
     flushRange(base, kUsedBytes);
@@ -384,8 +388,11 @@ private:
 
 }  // namespace
 
-bool readBackRgb(std::vector<uint8_t>& rgb) {
+bool readBackRgb(std::vector<uint8_t>& rgb, int& width, int& height) {
+    if (gpu::ready()) return gpu::readBack(rgb, width, height);
     if (!g_mappedMemory) return false;
+    width = kWidth;
+    height = kHeight;
     const auto* base = static_cast<const uint8_t*>(g_mappedMemory) + (g_currentBuffer * kFrameBytes);
     rgb.resize(static_cast<size_t>(kWidth) * kHeight * 3);
     for (unsigned y = 0; y < kHeight; ++y)
@@ -406,6 +413,7 @@ TilePool& tilePool() {
 }
 
 void drawRgba(const uint32_t* pixels) {
+    if (gpu::ready()) return gpu::drawRgba(pixels);
     if (!g_mappedMemory) return;
     acquireBuffer();
     uint8_t* base = static_cast<uint8_t*>(g_mappedMemory) + (g_currentBuffer * kFrameBytes);
@@ -424,6 +432,7 @@ void drawRgba(const uint32_t* pixels) {
 
 bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int strideY, int strideU, int strideV,
                 int width, int height, bool wait) {
+    if (gpu::ready()) return gpu::drawYuv420(y, u, v, strideY, strideU, strideV, width, height, wait);
     if (!g_mappedMemory || width <= 0 || height <= 0) return false;
     if (!acquireBuffer(wait)) return false;
     static YuvJob job;
@@ -485,9 +494,15 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int stride
     return true;
 }
 
-void setSharpness(int amount) { g_sharpness = std::clamp(amount, 0, 256); }
+void setSharpness(int amount) {
+    g_sharpness = std::clamp(amount, 0, 256);
+    gpu::setSharpness(amount);
+}
+
+void setDeband(int level) { gpu::setDeband(level); }
 
 void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opacity) {
+    if (gpu::ready()) return gpu::setOverlay(pixels, x, y, w, h, opacity);
     std::shared_ptr<const Overlay> next;
     if (pixels && w > 0 && h > 0)
         next = std::make_shared<const Overlay>(
@@ -506,14 +521,15 @@ std::mutex& frameMutex() {
     static std::mutex m;
     return m;
 }
-bool init() { return true; }
+bool init(bool) { return true; }
 void shutdown() {}
 void present() {}
 bool drawYuv420(const uint8_t*, const uint8_t*, const uint8_t*, int, int, int, int, int, bool) { return true; }
 void drawRgba(const uint32_t*) {}
 void setOverlay(const uint32_t*, int, int, int, int, uint8_t) {}
 void setSharpness(int) {}
-bool readBackRgb(std::vector<uint8_t>&) { return false; }
+void setDeband(int) {}
+bool readBackRgb(std::vector<uint8_t>&, int&, int&) { return false; }
 } // namespace xc::display
 
 #endif
