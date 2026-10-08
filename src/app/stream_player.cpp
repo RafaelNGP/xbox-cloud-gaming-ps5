@@ -58,6 +58,7 @@ struct StreamPlayer::Impl {
     std::atomic<bool> keyframeWanted{false};
     std::atomic<uint32_t> pictureSize{0};  // width << 16 | height
     std::atomic<uint64_t> vibrations{0}, lateFrames{0};
+    std::atomic<uint64_t> triggerVibrations{0};
     std::atomic<uint64_t> decodeUs{0}, decodeCalls{0}, decodeMaxUs{0}, drawUs{0}, drawCalls{0}, drawMaxUs{0};
     int decodeThreads = 1;
 
@@ -254,9 +255,12 @@ struct StreamPlayer::Impl {
         // dual-rumble effect (left = strong, right = weak). The trigger
         // motors (impulse triggers) become the adaptive triggers vibrating.
         cb.vibration = [this](const stream::Vibration& v) {
-            if (++vibrations <= 5)
-                XC_LOGI("vibration %u/%u/%u/%u for %ums", v.leftMotor, v.rightMotor, v.leftTrigger, v.rightTrigger,
-                        v.durationMs);
+            // The first few, and the first few with the triggers (rarer: does
+            // the service send them at all for a game?).
+            bool triggers = v.leftTrigger || v.rightTrigger;
+            if (++vibrations <= 5 || (triggers && ++triggerVibrations <= 5))
+                XC_LOGI("vibration %u/%u/%u/%u for %ums (pad %u)", v.leftMotor, v.rightMotor, v.leftTrigger,
+                        v.rightTrigger, v.durationMs, v.gamepadIndex);
             auto scale = [](uint8_t pct) { return static_cast<uint8_t>(std::min<int>(pct, 100) * 255 / 100); };
             input::setRumble(scale(v.leftMotor), scale(v.rightMotor), v.durationMs, v.gamepadIndex);
             input::setTriggerRumble(scale(v.leftTrigger), scale(v.rightTrigger), v.durationMs, v.gamepadIndex);

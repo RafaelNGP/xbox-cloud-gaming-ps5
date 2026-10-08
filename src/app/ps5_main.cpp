@@ -143,7 +143,7 @@ void updateTextInput(app::StreamPlayer* player) {
 // decoded frames and logs "AUTOPLAY END". Options, comma-separated: nosimd,
 // dump, repeat, idle (no A presses), threads=N (H.264 decoder threads),
 // rumbletest (rumbles the pad for 1.5 s at start), triggertest (the triggers
-// for 3 s), detailtest (opens a game to
+// for 3 s), vibetest (each motor and trigger alone, announced, no game), detailtest (opens a game to
 // buy far down the list instead of playing, saves detail.ppm), imetest (opens
 // the system keyboard on the home screen), menutest (in the game: the menu,
 // 720p, back to 1080p), res=720p|1080p|1080p-hq|1440p and sharp=0..3 (instead
@@ -157,6 +157,7 @@ int g_autoplayRuns = 1;
 bool g_autoplayIdle = false;
 bool g_autoplayDetailTest = false;  // open a game to buy far down the list, save its page
 bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25 s
+bool g_autoplayVibeTest = false;     // each motor alone, with a notification
 bool g_autoplayImeTest = false;      // open the system keyboard on the home screen
 bool g_autoplayMenuTest = false;     // in the game: open the menu, switch to 720p
 int g_decodeThreads = 1;
@@ -183,6 +184,7 @@ void loadAutoplay() {
         if (opt == "idle") g_autoplayIdle = true;
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
         if (opt == "triggertest") input::setTriggerRumble(255, 128, 3000);
+        if (opt == "vibetest") g_autoplayVibeTest = true;
         if (opt == "detailtest") g_autoplayDetailTest = true;
         if (opt == "librarytest") g_autoplayLibraryTest = true;
         if (opt == "imetest") g_autoplayImeTest = true;
@@ -601,7 +603,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         library->hydrate(changed, &g_stopHydration);
     });
     if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH" && !g_autoplayDetailTest && !g_autoplayLibraryTest &&
-        !g_autoplayImeTest) {
+        !g_autoplayImeTest && !g_autoplayVibeTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
         tile.titleId = g_autoplayTitle;
@@ -1019,6 +1021,28 @@ int main(int argc, char** argv) {
                 saveCanvas("library2.ppm");
                 g_autoplayLibraryTest = false;
                 XC_LOGI("AUTOPLAY END: library test");
+            }
+        }
+        if (g_autoplayVibeTest) {
+            // 10 s to pick the pad up, then each motor alone for 6 s, 3 s apart.
+            static uint64_t since = 0;
+            static int step = -1;
+            if (!since) since = now;
+            int want = now - since < 10000 ? -1 : static_cast<int>((now - since - 10000) / 9000);
+            bool on = want >= 0 && (now - since - 10000) % 9000 < 6000;
+            static const char* const kSteps[] = {"1/5: large motor (left grip, strong)", "2/5: small motor (right grip, fine)",
+                                                 "3/5: left trigger (L2)", "4/5: right trigger (R2)",
+                                                 "5/5: both triggers"};
+            if (want != step && on && want < 5) {
+                step = want;
+                input::setRumble(step == 0 ? 255 : 0, step == 1 ? 255 : 0, 6000);
+                input::setTriggerRumble(step == 2 || step == 4 ? 255 : 0, step == 3 || step == 4 ? 255 : 0, 6000);
+                platform::notify(std::string("Vibration test ") + kSteps[step]);
+                XC_LOGI("vibetest %s", kSteps[step]);
+            }
+            if (want >= 5) {
+                g_autoplayVibeTest = false;
+                XC_LOGI("AUTOPLAY END: vibration test");
             }
         }
         if (g_autoplayImeTest && uiSaved) {
