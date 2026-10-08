@@ -11,7 +11,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-vk=${PS5_VULKAN:-$(cd "$root/../../WoW-PS5/deps/PS5_Vulkan" && pwd)}
+vk=${PS5_VULKAN:-$(cd "$root/../PS5_Vulkan" && pwd)}
 title_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["titleId"])' "$root/ps5/sce_sys/param.json")
 game=${1:-BALATRO}
 seconds=${2:-45}

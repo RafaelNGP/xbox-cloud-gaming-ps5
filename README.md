@@ -107,8 +107,8 @@ build-host/xcloud-cli ui-preview /tmp/ui      # render every screen to PNG
 
 The console build uses the toolchain of
 [PS5_Vulkan](https://github.com/mihawk-99/PS5_Vulkan) (the PS5 payload SDK, the PS5 linker
-recipe and `ps5-native-tool`). By default it is expected at
-`../../WoW-PS5/deps/PS5_Vulkan`; set `PS5_VULKAN` to point elsewhere.
+recipe and `ps5-native-tool`). Clone and build it next to this repository, as its
+README describes, so that it sits at `../PS5_Vulkan`; or set `PS5_VULKAN` to point elsewhere.
 
 ```bash
 cmake -S . -B build-ps5 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/ps5.toolchain.cmake -DCMAKE_BUILD_TYPE=Release

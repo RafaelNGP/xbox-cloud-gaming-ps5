@@ -8,7 +8,7 @@ set -euo pipefail
 
 build=$(cd "${1:?usage: package.sh <build-dir> [out-dir]}" && pwd)
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-vk=${PS5_VULKAN:-$(cd "$root/../../WoW-PS5/deps/PS5_Vulkan" && pwd)}
+vk=${PS5_VULKAN:-$(cd "$root/../PS5_Vulkan" && pwd)}
 param=$root/ps5/sce_sys/param.json
 title=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["titleId"])' "$param")
 out=${2:-$build/pkg}

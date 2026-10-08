@@ -72,7 +72,7 @@ bool audioStart() {
         }
         initialised = true;
     }
-    // The system user (0xFF), MAIN port, float stereo: as the WoW-PS5 port.
+    // The system user (0xFF), MAIN port, float stereo.
     g_handle = sceAudioOutOpen(0xFF, 0, 0, kGrain, kRate, 4);
     if (g_handle < 0) {
         XC_LOGE("sceAudioOutOpen: 0x%08x", static_cast<unsigned>(g_handle));

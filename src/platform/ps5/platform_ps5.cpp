@@ -38,7 +38,7 @@ bool init() {
     if (::stat(g_dataDir.c_str(), &st) != 0) {
         ::mkdir(g_dataDir.c_str(), 0777);
     }
-    // libSceNet's resolver (as the WoW-PS5 port): 32 KiB pool.
+    // libSceNet's resolver: 32 KiB pool.
     int rc = sceNetInit();
     if (rc < 0) XC_LOGW("sceNetInit: 0x%08x", static_cast<unsigned>(rc));
     int pool = sceNetPoolCreate("xcloud", 32 * 1024, 0);

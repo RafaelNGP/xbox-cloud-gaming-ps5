@@ -14,8 +14,8 @@
 #if defined(XCLOUD_PS5)
 
 extern "C" {
-// Layout of OpenOrbis's OrbisPadData, as used by the WoW-PS5 port on the
-// console (connected sits at offset 76).
+// Layout of OpenOrbis's OrbisPadData, as the console fills it (connected
+// sits at offset 76).
 struct ScePadStick {
     uint8_t x;
     uint8_t y;

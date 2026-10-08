@@ -10,7 +10,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-vk=${PS5_VULKAN:-$(cd "$root/../../WoW-PS5/deps/PS5_Vulkan" && pwd)}
+vk=${PS5_VULKAN:-$(cd "$root/../PS5_Vulkan" && pwd)}
 cli=${1:-$root/build-host}/xcloud-cli
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

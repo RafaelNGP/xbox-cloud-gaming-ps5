@@ -47,8 +47,11 @@ common+=(--x86asmexe="$nasm")
 mkdir -p "$work"
 cd "$work"
 if [[ $target == ps5 ]]; then
-    vk=${PS5_VULKAN:-$(cd "$root/../../WoW-PS5/deps/PS5_Vulkan" && pwd)}
-    export PS5_SDK=$vk/.deps/native/ps5-payload-sdk
+    vk=${PS5_VULKAN:-$(cd "$root/../PS5_Vulkan" && pwd)}
+    # FFmpeg's configure splits the flags on spaces: the SDK goes through a
+    # link in the cache, whose path has none.
+    ln -sfn "$vk/.deps/native/ps5-payload-sdk" "$cache/ps5-payload-sdk"
+    export PS5_SDK=$cache/ps5-payload-sdk
     cp "$root/ps5/compat/ps5_lfs.h" "$cache/ps5_lfs.h"
     ln -sfn "$root/tools/ps5/configure-ld.sh" "$cache/configure-ld.sh"
     flags="-target x86_64-sie-ps5 -fPIC -march=znver2 -fvisibility-nodllstorageclass=default -fno-stack-protector -fno-plt -femulated-tls -fdenormal-fp-math=ieee -isysroot $PS5_SDK -isystem $PS5_SDK/target/include -D_GNU_SOURCE -include $cache/ps5_lfs.h -ffile-prefix-map=$cache=ffmpeg -ffile-prefix-map=$HOME=~"

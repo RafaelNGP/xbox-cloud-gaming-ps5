@@ -6,7 +6,7 @@ set -euo pipefail
 
 build=$(cd "${1:?usage: link.sh <build-dir>}" && pwd)
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-vk=${PS5_VULKAN:-$(cd "$root/../../WoW-PS5/deps/PS5_Vulkan" && pwd)}
+vk=${PS5_VULKAN:-$(cd "$root/../PS5_Vulkan" && pwd)}
 sdk=$vk/.deps/native/ps5-payload-sdk
 archive=${RADV_ARCHIVE:-$vk/.deps/native/radv-release/lib/libvulkan_radeon.ps5.a}
 native=$vk/tooling/native
