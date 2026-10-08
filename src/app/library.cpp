@@ -395,7 +395,9 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
             ownedTitles.insert(t.titleId);
             if (t.productId.empty()) continue;
             ownedProducts.insert(t.productId);
-            if (!gamePass_.count(t.productId)) mine.emplace_back(t.productId, t.titleId);
+            // Game Pass games the account owns itself (free-to-play ones
+            // like Fortnite, without the subscription) are its games too.
+            if (!gamePass_.count(t.productId) || !t.viaSubscription) mine.emplace_back(t.productId, t.titleId);
         } else if (!t.productId.empty() && !gamePass_.count(t.productId)) {
             toBuy[t.productId] = t.titleId;
         }

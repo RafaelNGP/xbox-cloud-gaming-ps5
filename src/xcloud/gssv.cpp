@@ -284,6 +284,10 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
             title.hasEntitlement = t["details"]["hasEntitlement"].asBool();
             title.xboxTitleId = t["details"]["xboxTitleId"].str();
             title.isFreeInStore = t["details"]["isFreeInStore"].asBool();
+            // What lets this account play it: a subscription's program
+            // (CALLISTO for Game Pass in the cloud) or F2P; none when bought.
+            for (const auto& program : t["details"]["userPrograms"].items())
+                if (program.str() != "F2P") title.viaSubscription = true;
             if (!title.titleId.empty()) out.push_back(std::move(title));
         }
         continuation = recentOnly ? std::string() : (*j)["continuationToken"].str();
