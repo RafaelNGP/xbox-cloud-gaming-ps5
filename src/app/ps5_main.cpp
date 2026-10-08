@@ -177,6 +177,8 @@ int g_autoplayDeband = -1;            // deband=0..2: instead of the setting
 int g_autoplaySharpness = -1;         // sharp=0..3: instead of the setting
 std::string g_autoplayResolution;     // res=720p|1080p|1440p: instead of the setting
 std::atomic<bool> g_syntheticA{false};
+std::atomic<bool> g_playingHome{false};      // the stream is the user's own Xbox
+std::atomic<uint64_t> g_xboxButtonUntil{0};  // the game menu's Xbox button, held until then (ms)
 
 void loadAutoplay() {
     std::string text;
@@ -428,12 +430,27 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     }
     bool connected = false;
     std::string result = "timed out waiting for the session";
+    // A console that is off for good (not asleep) never comes out of
+    // Provisioning: give up after a minute (the cloud's queue may take long).
+    const uint64_t provisioningSince = platform::nowMs();
+    int pollErrors = 0;
     for (int i = 0; i < 900 && !g_cancel; ++i) {
+        if (gssv.isHome() && platform::nowMs() - provisioningSince > 60000) {
+            result = "ConsoleDidNotWake: no answer in 60 s";
+            break;
+        }
         xcloud::SessionStatus st;
         if (!gssv.sessionState(st, err)) {
+            // A network hiccup (a TLS timeout) is asked again; three in a row end it.
+            if (++pollErrors < 3) {
+                XC_LOGW("%s (asking again)", err.c_str());
+                platform::sleepMs(1000);
+                continue;
+            }
             result = err;
             break;
         }
+        pollErrors = 0;
         XC_LOGI("session state: %s", st.raw.c_str());
         if (st.state == xcloud::SessionState::WaitingForResources)
             g_ui->setLaunchStatus(ui::trf(ui::Str::InQueue, formatWait(gssv.waitTimeSeconds())));
@@ -556,6 +573,14 @@ void priceLoop() {
         }
     }
 }
+// The note on the home screen after a stream: who ended it, when known.
+std::string endedToast(const std::string& result) {
+    if (result.find("KickForStopCommand") != std::string::npos) return ui::tr(ui::Str::EndedOnXbox);
+    if (result.find("KickByNewSession") != std::string::npos) return ui::tr(ui::Str::EndedByOtherDevice);
+    if (result.find("KickForServerShutdown") != std::string::npos) return ui::tr(ui::Str::EndedXboxOff);
+    return ui::tr(ui::Str::StreamEnded);
+}
+
 // "My consoles": the account's own Xbox consoles (Remote Play, the xhome
 // offering, logged in with the same Xbox token).
 void loadConsoles(auth::AuthManager& am, xcloud::GssvClient& home) {
@@ -569,7 +594,9 @@ void loadConsoles(auth::AuthManager& am, xcloud::GssvClient& home) {
     }
     std::vector<ui::ConsoleTile> tiles;
     for (const auto& c : consoles) tiles.push_back({c.serverId, c.deviceName, c.consoleType, c.powerState});
-    XC_LOGI("consoles: %zu", tiles.size());  // not their names or ids
+    std::string states;
+    for (const auto& c : consoles) states += (states.empty() ? "" : ", ") + c.powerState;
+    XC_LOGI("consoles: %zu (%s)", tiles.size(), states.c_str());  // not their names or ids
     g_ui->setConsoles(std::move(tiles), true);
 }
 
@@ -737,6 +764,7 @@ void worker() {
                     // at once ("... State WaitingForServerToRegister"): asked
                     // again, it often wakes.
                     std::string result;
+                    g_playingHome = true;
                     for (int attempt = 0; attempt < 3 && !g_cancel; ++attempt) {
                         if (attempt) {
                             g_ui->setLaunchStatus(ui::tr(ui::Str::WakingConsole));
@@ -746,12 +774,14 @@ void worker() {
                         XC_LOGI("%s", result.c_str());
                         if (!failed || result.find("WaitingForServerToRegister") == std::string::npos) break;
                     }
-                    if (failed && result.find("WaitingForServerToRegister") != std::string::npos)
+                    if (failed && (result.find("WaitingForServerToRegister") != std::string::npos ||
+                                   result.find("ConsoleDidNotWake") != std::string::npos))
                         g_ui->showPlayError(ui::trf(ui::Str::WakeFailed, tile.name), tile);
                     else if (failed)
                         g_ui->showPlayError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result, tile);
                     else
-                        g_ui->showHome(ui::tr(ui::Str::StreamEnded));
+                        g_ui->showHome(endedToast(result));
+                    g_playingHome = false;
                     autoplayFinished(result);
                     loadConsoles(am, home);  // its state changed
                     break;
@@ -800,7 +830,7 @@ void worker() {
                     g_ui->showError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result);
                 }
                 else
-                    g_ui->showHome(ui::tr(ui::Str::StreamEnded));
+                    g_ui->showHome(endedToast(result));
                 autoplayFinished(result);
                 break;
             }
@@ -1049,11 +1079,16 @@ int main(int argc, char** argv) {
                 bool wasOpen = menu.isOpen();
                 if (!wasOpen && menuCombo && g_keyboardFor.empty()) {
                     menu.setCircleConfirms(g_settings.circleConfirms);
-                    menu.open(streamResolution, showStats, sharpness, deband, upscaler);
+                    menu.open(streamResolution, showStats, sharpness, deband, upscaler, g_playingHome);
                     overlaySeq = 0;
                 } else if (wasOpen) {
                     switch (menu.handle(nav)) {
                     case ui::MenuAction::Leave: g_cancel = true; break;
+                    case ui::MenuAction::XboxButton:
+                        // A short press, once the menu is gone: the Xbox guide opens.
+                        g_xboxButtonUntil = platform::nowMs() + 250;
+                        XC_LOGI("menu: Xbox button");
+                        break;
                     case ui::MenuAction::Refresh: g_player->requestKeyframe(); break;
                     case ui::MenuAction::Resolution:
                         streamResolution = menu.resolution();
@@ -1114,6 +1149,7 @@ int main(int argc, char** argv) {
                 if (menu.isOpen() || !g_keyboardFor.empty()) padReleased = false;
                 else if (!held) padReleased = true;
                 if (!padReleased || menuCombo) sent = input::ControllerState{};
+                if (platform::nowMs() < g_xboxButtonUntil) sent.btnNexus = true;
                 g_player->sendInput(sent);
                 // The other players' controllers, straight to the game.
                 for (int i = 1; i < input::kMaxPads; ++i) {

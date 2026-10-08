@@ -28,6 +28,7 @@ struct ControllerState {
 
     bool btnOptions = false; // Menu
     bool btnTouchpad = false; // View / Select
+    bool btnNexus = false;    // the Xbox button (from the game menu; the PS button stays the system's)
 
     // Analog axes [-1.0 .. 1.0]
     float leftStickX = 0.0f;

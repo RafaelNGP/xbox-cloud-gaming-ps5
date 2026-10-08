@@ -171,6 +171,11 @@ constexpr Column kEnglish = {
     "Settings > General > Power options: choose Sleep, so it wakes up by itself.", // ConsoleStep3
     "Scan for Microsoft's help",                     // ScanForHelp
     "Search again",                                  // SearchAgain
+    "Xbox button",                                   // MenuXboxButton
+    "End the stream",                                // MenuEndStream
+    "The stream was ended on the Xbox",               // EndedOnXbox
+    "Another device took over the stream",            // EndedByOtherDevice
+    "The Xbox was turned off",                        // EndedXboxOff
 };
 
 constexpr Column kPortugueseBR = {
@@ -312,6 +317,11 @@ constexpr Column kPortugueseBR = {
     "Configurações > Geral > Opções de energia: escolha Suspensão, para ele acordar sozinho.",
     "Escaneie para a ajuda da Microsoft",
     "Procurar de novo",
+    "Botão Xbox",
+    "Encerrar transmissão",
+    "A transmissão foi encerrada no Xbox",
+    "Outro aparelho assumiu a transmissão",
+    "O Xbox foi desligado",
 };
 
 constexpr Column kSpanish = {
@@ -453,6 +463,11 @@ constexpr Column kSpanish = {
     "Configuración > General > Opciones de energía: elige Suspensión, para que se encienda sola.",
     "Escanea para ver la ayuda de Microsoft",
     "Buscar de nuevo",
+    "Botón Xbox",
+    "Terminar la transmisión",
+    "La transmisión se terminó en la Xbox",
+    "Otro dispositivo tomó la transmisión",
+    "La Xbox se apagó",
 };
 
 constexpr Column kFrench = {
@@ -594,6 +609,11 @@ constexpr Column kFrench = {
     "Paramètres > Général > Options d'alimentation : choisissez Veille, pour qu'elle se réveille seule.",
     "Scannez pour l'aide de Microsoft",
     "Rechercher à nouveau",
+    "Bouton Xbox",
+    "Arrêter la diffusion",
+    "La diffusion a été arrêtée sur la Xbox",
+    "Un autre appareil a repris la diffusion",
+    "La Xbox a été éteinte",
 };
 
 constexpr Column kGerman = {
@@ -735,6 +755,11 @@ constexpr Column kGerman = {
     "Einstellungen > Allgemein > Energieoptionen: Ruhezustand wählen, damit sie von selbst aufwacht.",
     "Scannen für die Hilfe von Microsoft",
     "Erneut suchen",
+    "Xbox-Taste",
+    "Streaming beenden",
+    "Das Streaming wurde auf der Xbox beendet",
+    "Ein anderes Gerät hat das Streaming übernommen",
+    "Die Xbox wurde ausgeschaltet",
 };
 
 constexpr Column kItalian = {
@@ -876,6 +901,11 @@ constexpr Column kItalian = {
     "Impostazioni > Generale > Opzioni di alimentazione: scegli Sospensione, così si accende da sola.",
     "Scansiona per l'aiuto di Microsoft",
     "Cerca di nuovo",
+    "Pulsante Xbox",
+    "Termina lo streaming",
+    "Lo streaming è stato terminato sulla Xbox",
+    "Un altro dispositivo ha preso lo streaming",
+    "La Xbox è stata spenta",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

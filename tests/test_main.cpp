@@ -223,6 +223,11 @@ static void testStreamMenu() {
     menu.open(0, false);
     CHECK(menu.isOpen());
     press([](xc::ui::NavInput& n) { n.down = true; });
+    CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::XboxButton);  // and it closes
+    CHECK(!menu.isOpen());
+    menu.open(0, false);
+    press([](xc::ui::NavInput& n) { n.down = true; });
+    press([](xc::ui::NavInput& n) { n.down = true; });
     CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Stats);
     CHECK(menu.statsOn());
     press([](xc::ui::NavInput& n) { n.down = true; });
@@ -240,7 +245,7 @@ static void testStreamMenu() {
     press([](xc::ui::NavInput& n) { n.left = true; });  // wraps to 1440p
     CHECK(menu.resolution() == 2);
     CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Resolution);
-    for (int i = 0; i < 6; ++i) press([](xc::ui::NavInput& n) { n.up = true; });  // wraps to "Leave game"
+    for (int i = 0; i < 7; ++i) press([](xc::ui::NavInput& n) { n.up = true; });  // wraps to "Leave game"
     CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Leave);
     CHECK(!menu.isOpen());
     menu.open(1, true);

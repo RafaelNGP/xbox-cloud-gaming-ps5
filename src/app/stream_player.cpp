@@ -563,6 +563,7 @@ void StreamPlayer::sendInput(const input::ControllerState& p, int index) {
     set(p.btnR3, stream::kRightThumb);
     set(p.btnOptions, stream::kMenu);
     set(p.btnTouchpad, stream::kView);
+    set(p.btnNexus, stream::kNexus);
     f.leftX = p.leftStickX;
     f.leftY = -p.leftStickY;  // pad: +down; wire: +up
     f.rightX = p.rightStickX;
