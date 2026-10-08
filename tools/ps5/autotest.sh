@@ -37,7 +37,7 @@ import io, sys
 from ftplib import FTP, error_perm, error_reply
 host, port, d, line = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
 f = FTP(); f.connect(host, port, timeout=15); f.login(); f.cwd(d)
-for name in ("xcloud.log", "frame.ppm", "frame2.ppm", "stream.aus", "ui.ppm", "launch.ppm", "screen.ppm", "detail.ppm", "library.ppm", "library2.ppm"):
+for name in ("xcloud.log", "frame.ppm", "frame2.ppm", "stream.aus", "ui.ppm", "launch.ppm", "screen.ppm", "detail.ppm", "library.ppm", "library2.ppm", "error.ppm"):
     try: f.sendcmd(f"DELE {name}")
     except (error_perm, error_reply): pass
 f.storbinary("STOR autoplay.txt", io.BytesIO(line.encode() + b"\n"))
@@ -82,7 +82,7 @@ PY
         if [[ $status != *"$title_id"* ]]; then result=crashed; break; fi
     fi
 done
-fetch xcloud.log frame.ppm frame2.ppm stream.aus ui.ppm launch.ppm screen.ppm detail.ppm library.ppm library2.ppm || true
+fetch xcloud.log frame.ppm frame2.ppm stream.aus ui.ppm launch.ppm screen.ppm detail.ppm library.ppm library2.ppm error.ppm || true
 ctl kill "$title_id" >/dev/null 2>&1 || true
 # Remove the request so a manual launch behaves normally.
 python3 - "$PS5_HOST" "${FTP_PORT:-2121}" "/data/homebrew/$title_id" <<'PY'

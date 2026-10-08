@@ -701,8 +701,16 @@ void worker() {
                         if (!failed) g_regionFallback[tile.titleId] = next;
                     }
                 }
-                if (failed)
+                if (failed && result.find("NoEntitlement") != std::string::npos) {
+                    // Not on the account: a free game not got yet in the
+                    // store (it can be, on the phone, and tried again here),
+                    // or one outside the subscription.
+                    g_ui->showPlayError(ui::trf(tile.freeInStore ? ui::Str::NoEntitlementFree : ui::Str::NoEntitlement,
+                                                tile.name),
+                                        tile);
+                } else if (failed) {
                     g_ui->showError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result);
+                }
                 else
                     g_ui->showHome(ui::tr(ui::Str::StreamEnded));
                 autoplayFinished(result);
@@ -1153,12 +1161,21 @@ int main(int argc, char** argv) {
                 g_autoplayImeTest = false;
             }
         }
+        if (!g_autoplayTitle.empty() && g_ui->screen() == ui::Screen::Error) {
+            // The error the run ended on, as shown (error.ppm), once drawn.
+            static uint64_t errorSince = 0;
+            if (!errorSince) errorSince = now;
+            else if (errorSince != 1 && now - errorSince > 500) {
+                saveCanvas("error.ppm");
+                errorSince = 1;
+            }
+        }
         if (g_autoplayDetailTest && uiSaved) {
             // A game to buy far down the list (no prefetched details): its
-            // page must fill in on its own.
+            // page must fill in on its own. Or the game named, when known.
             static uint64_t openedAt = 0;
             ui::GameTile tile;
-            if (!openedAt && g_ui->purchasableAt(40, tile)) {
+            if (!openedAt && (g_ui->findTile(g_autoplayTitle, tile) || g_ui->purchasableAt(40, tile))) {
                 XC_LOGI("autoplay: opening %s (%s)", tile.name.c_str(), tile.productId.c_str());
                 g_ui->showDetails(tile);
                 openedAt = now;

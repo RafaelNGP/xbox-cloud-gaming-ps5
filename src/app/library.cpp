@@ -103,8 +103,10 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
     t.heroUrl = p.heroUrl;
     t.categories = p.categories;
     if (ownershipKnown_) t.playable = ownedTitles_.count(t.titleId) || ownedProducts_.count(t.productId);
-    t.purchasable = !t.playable && purchasableSet_.count(productId);
     t.freeInStore = freeInStore_.count(productId) > 0;
+    // A free-to-play game not on the account yet is got like one bought
+    // (the store page's QR code), only free.
+    t.purchasable = !t.playable && (purchasableSet_.count(productId) || t.freeInStore);
     if (siblingsFor_ != products_.size()) {
         seriesSiblings_.clear();
         for (const auto& [id, prod] : products_) {
@@ -321,6 +323,7 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
 
     const ListSpec lists[] = {{xcloud::sigl::kRecentlyAdded, 40},
                               {xcloud::sigl::kMostPopular, 40},
+                              {xcloud::sigl::kFreeToPlay, 40},
                               {xcloud::sigl::kLeavingSoon, 40},
                               {xcloud::sigl::kAllGames, 120}};
     for (const auto& spec : lists) {
@@ -335,7 +338,14 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
         // "Most popular on cloud" also lists games to buy first (Cuphead...):
         // those go to "Your games" (in this order), not to the Game Pass tab.
         if (spec.sigl == xcloud::sigl::kMostPopular) popular_ = list.productIds;
-        if (!gamePass_.empty()) {
+        // Free-to-play: no Game Pass needed, so not filtered; each one the
+        // account hasn't got yet shows as free to get (tile()).
+        bool freeToPlay = spec.sigl == xcloud::sigl::kFreeToPlay;
+        if (freeToPlay) {
+            freeInStore_.insert(list.productIds.begin(), list.productIds.end());
+            XC_LOGI("library: %s: %zu games", list.title.c_str(), list.productIds.size());
+        }
+        if (!gamePass_.empty() && !freeToPlay) {
             size_t before = list.productIds.size();
             list.productIds.erase(std::remove_if(list.productIds.begin(), list.productIds.end(),
                                                  [&](const std::string& id) { return !gamePass_.count(id); }),
@@ -353,7 +363,7 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
             lastErr = e;
             continue;
         }
-        RowIds r{list.title, true, {}};
+        RowIds r{list.title, !freeToPlay, {}};
         for (const auto& id : list.productIds) r.items.emplace_back(id, std::string());
         layout_.push_back(std::move(r));
         changed();

@@ -140,11 +140,16 @@ public:
     void showDetails(const GameTile& tile);
     // The `index`-th game to buy, if loaded (autoplay tests).
     bool purchasableAt(size_t index, GameTile& out) const;
+    // The game with this xCloud title id on the home screen or in Your games.
+    bool findTile(const std::string& titleId, GameTile& out) const;
     void showHome(const std::string& toast = {});
     void showLaunching(const GameTile& game, const std::string& status);
     void setLaunchStatus(const std::string& status);
     void showStreaming();
     void showError(const std::string& message);
+    // A game that could not start but may on another try (a free game got
+    // on the phone meanwhile): Cross plays it again, Circle opens its page.
+    void showPlayError(const std::string& message, const GameTile& game);
     void setSettings(const SettingsChoice& choice);
     // The confirm button in force (the hints show it); Settings may be
     // showing another choice not saved yet.
@@ -273,6 +278,7 @@ private:
     GameTile detail_;  // the game the details page shows
     GameTile launching_;
     std::string error_;
+    GameTile errorGame_;  // showPlayError()'s game; empty for other errors
     SettingsChoice settings_;
     bool circleConfirms_ = false;
     PadSlots pads_{};
