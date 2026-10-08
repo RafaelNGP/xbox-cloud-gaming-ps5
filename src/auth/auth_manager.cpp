@@ -117,9 +117,16 @@ bool AuthManager::xboxChain(xcloud::GssvClient& gssv, std::string& err) {
         XC_LOGW("profile XSTS: %s", perr.c_str());
     }
 
-    XblToken gssvXsts;
-    if (!xstsToken(user, rp::kGssv, gssvXsts, err)) return false;
-    return gssv.login(gssvXsts, err);
+    if (!xstsToken(user, rp::kGssv, gssvXsts_, err)) return false;
+    return gssv.login(gssvXsts_, err);
+}
+
+bool AuthManager::loginOffering(xcloud::GssvClient& other, std::string& err) const {
+    if (gssvXsts_.token.empty()) {
+        err = "not signed in";
+        return false;
+    }
+    return other.login(gssvXsts_, err);
 }
 
 void AuthManager::fetchGamerpic(const XblToken& xsts) {

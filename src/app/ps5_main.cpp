@@ -158,6 +158,7 @@ int g_autoplaySeconds = 0;
 bool g_autoplayDump = false;
 int g_autoplayRuns = 1;
 bool g_autoplayIdle = false;
+bool g_autoplayConsoles = false;  // autoplay "consoles": log the account's own consoles (xhome)
 bool g_autoplayPad = false;  // autoplay "pad": the physical pad stays in use, its buttons logged
 bool g_autoplayDetailTest = false;  // open a game to buy far down the list, save its page
 bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25 s
@@ -204,6 +205,7 @@ void loadAutoplay() {
         if (opt == "nopace") display::gpu::setPresentWait(false);
         if (opt == "detailtest") g_autoplayDetailTest = true;
         if (opt == "pad") g_autoplayPad = true;
+        if (opt == "consoles") g_autoplayConsoles = true;
         if (opt == "librarytest") g_autoplayLibraryTest = true;
         if (opt == "imetest") g_autoplayImeTest = true;
         if (opt == "menutest") g_autoplayMenuTest = true;
@@ -384,7 +386,9 @@ std::string stream(xcloud::GssvClient& gssv) {
 std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::GameTile& game, bool& failed,
                  const std::string& regionName = {}) {
     failed = true;
-    XC_LOGI("starting %s (%s)", game.name.c_str(), game.titleId.c_str());
+    // A home session's id is the console's: only its start in the log.
+    XC_LOGI("starting %s (%s)", game.name.c_str(),
+            gssv.isHome() ? (game.titleId.substr(0, 4) + "...").c_str() : game.titleId.c_str());
     g_ui->showLaunching(game, regionName.empty() ? ui::tr(ui::Str::Connecting)
                                                  : ui::trf(ui::Str::TryingRegion, ui::prettyRegion(regionName)));
     std::string err;
@@ -554,6 +558,33 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         XC_LOGE("sign-in failed: %s", err.c_str());
         g_ui->showError(ui::trf(ui::Str::SignInFailed, err));
         if (!g_autoplayTitle.empty()) XC_LOGI("AUTOPLAY END: sign-in failed");
+        return;
+    }
+    if (g_autoplayConsoles || g_autoplayTitle == "XHOME") {
+        // Remote Play probe: the user's own consoles. Not their names nor
+        // full ids in the log.
+        xcloud::GssvClient home("xhome");
+        std::vector<xcloud::Console> consoles;
+        if (!am.loginOffering(home, err) || !home.listConsoles(consoles, err)) {
+            XC_LOGI("AUTOPLAY END: consoles: %s", err.c_str());
+            return;
+        }
+        XC_LOGI("xhome: %zu console(s), region %s", consoles.size(), home.region().name.c_str());
+        for (const auto& c : consoles)
+            XC_LOGI("xhome console %.4s...: %s, power %s, path %s%s%s", c.serverId.c_str(), c.consoleType.c_str(),
+                    c.powerState.c_str(), c.playPath.c_str(), c.outOfHomeWarning ? ", out-of-home warning" : "",
+                    c.wirelessWarning ? ", wireless warning" : "");
+        if (g_autoplayTitle == "XHOME" && !consoles.empty()) {
+            // Remote Play probe: stream the first console.
+            ui::GameTile tile;
+            tile.titleId = consoles.front().serverId;
+            tile.name = "Xbox";
+            bool failed = false;
+            std::string result = play(am, home, tile, failed);
+            XC_LOGI("AUTOPLAY END: xhome: %s", result.c_str());
+            return;
+        }
+        XC_LOGI("AUTOPLAY END: consoles listed");
         return;
     }
     g_ui->setProfile(am.profile().gamertag, am.profile().gamerpicUrl);

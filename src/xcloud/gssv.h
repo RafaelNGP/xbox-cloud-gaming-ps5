@@ -44,6 +44,16 @@ struct Title {
     bool viaSubscription = false;
 };
 
+// One of the user's own consoles (xhome offering), from /v6/servers/home.
+struct Console {
+    std::string serverId;    // what a home session is started with
+    std::string deviceName;  // the name the user gave it
+    std::string consoleType;  // e.g. "XboxSeriesX"
+    std::string powerState;   // "On", "ConnectedStandby", "Off"...
+    std::string playPath;     // "Direct" (same network) or "Relay"...
+    bool outOfHomeWarning = false, wirelessWarning = false;
+};
+
 enum class SessionState { Unknown, Provisioning, WaitingForResources, ReadyToConnect, Provisioned, Failed };
 
 struct SessionStatus {
@@ -76,6 +86,7 @@ public:
     void setResolution(Resolution r) { resolution_ = r; }
     Resolution resolution() const { return resolution_; }
     const Region& region() const { return region_; }
+    bool isHome() const { return offering_ == "xhome"; }
 
     // Titles available to stream (entitled + Game Pass) and recently played.
     bool listTitles(std::vector<Title>& out, std::string& err, bool recentOnly = false);
@@ -83,7 +94,11 @@ public:
     bool hydrateTitles(std::vector<Title>& titles, const std::string& market, const std::string& lang,
                        std::string& err);
 
+    // The account's consoles that can stream (xhome offering).
+    bool listConsoles(std::vector<Console>& out, std::string& err);
+
     // --- Session lifecycle -------------------------------------------------
+    // `titleId` for a cloud game; for the xhome offering, the console's serverId.
     bool startSession(const std::string& titleId, const std::string& locale, std::string& err);
     bool hasSession() const { return !sessionPath_.empty(); }
     bool sessionState(SessionStatus& out, std::string& err);

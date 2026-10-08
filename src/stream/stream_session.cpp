@@ -487,9 +487,9 @@ struct StreamSession::Impl {
         while (!c.empty() && (c.back() == ' ' || c.back() == '\r' || c.back() == '\n')) c.pop_back();
         try {
             pc->addRemoteCandidate(rtc::Candidate(c, mid));
-            XC_LOGD("remote candidate %s", c.c_str());
+            XC_LOGD("remote candidate added");  // not its address
         } catch (const std::exception& e) {
-            XC_LOGW("ignoring remote candidate '%s': %s", c.c_str(), e.what());
+            XC_LOGW("ignoring a remote candidate: %s", e.what());
         }
     }
 
@@ -571,7 +571,8 @@ struct StreamSession::Impl {
             std::string ipv4;
             int port = 0;
             if (parts.size() > 4 && decodeTeredo(parts[4], ipv4, port)) {
-                XC_LOGI("teredo candidate -> %s:%d (and :9002)", ipv4.c_str(), port);
+                // The console's public address: not in the log.
+                XC_LOGI("teredo candidate -> port %d (and 9002)", port);
                 addRemoteCandidate("a=candidate:10 1 UDP 1 " + ipv4 + " 9002 typ host", mid);
                 addRemoteCandidate("a=candidate:11 1 UDP 1 " + ipv4 + " " + std::to_string(port) + " typ host", mid);
             }

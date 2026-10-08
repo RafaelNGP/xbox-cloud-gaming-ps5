@@ -43,6 +43,10 @@ public:
     // /connect step of cloud sessions.
     bool consoleTransferToken(std::string& out, std::string& err);
 
+    // After signIn(): logs `other` (another offering, such as "xhome" for
+    // the user's own consoles) in with the same Xbox token.
+    bool loginOffering(xcloud::GssvClient& other, std::string& err) const;
+
     void signOut();
     const Profile& profile() const { return profile_; }
 
@@ -57,6 +61,7 @@ private:
     MsaClient msa_;
     MsaTokens tokens_;
     Profile profile_;
+    XblToken gssvXsts_;  // in memory only, for loginOffering()
 };
 
 }  // namespace xc::auth

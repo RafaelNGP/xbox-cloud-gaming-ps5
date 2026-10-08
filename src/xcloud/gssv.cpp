@@ -347,6 +347,28 @@ bool GssvClient::hydrateTitles(std::vector<Title>& titles, const std::string& ma
     return true;
 }
 
+bool GssvClient::listConsoles(std::vector<Console>& out, std::string& err) {
+    out.clear();
+    auto r = net::perform(authed(resolution_, login_, "GET", url("/v6/servers/home")));
+    auto j = json::parse(r.body);
+    if (!r.ok() || !j) {
+        err = "console list failed: " + describe(r);
+        return false;
+    }
+    for (const auto& c : (*j)["results"].items()) {
+        Console con;
+        con.serverId = c["serverId"].str();
+        con.deviceName = c["deviceName"].str();
+        con.consoleType = c["consoleType"].str();
+        con.powerState = c["powerState"].str();
+        con.playPath = c["playPath"].str();
+        con.outOfHomeWarning = c["outOfHomeWarning"].asBool();
+        con.wirelessWarning = c["wirelessWarning"].asBool();
+        if (!con.serverId.empty()) out.push_back(std::move(con));
+    }
+    return true;
+}
+
 bool GssvClient::startSession(const std::string& titleId, const std::string& locale, std::string& err) {
     json::Value settings = json::Value::object();
     settings.set("nanoVersion", "V3;WebrtcTransport.dll");
@@ -361,11 +383,12 @@ bool GssvClient::startSession(const std::string& titleId, const std::string& loc
                                                                 : "windows");
 
     json::Value body = json::Value::object();
+    bool home = offering_ == "xhome";
     body.set("clientSessionId", "");
-    body.set("titleId", titleId);
+    body.set("titleId", home ? "" : titleId);
     body.set("systemUpdateGroup", "");
     body.set("settings", settings);
-    body.set("serverId", "");
+    body.set("serverId", home ? titleId : "");
     body.set("fallbackRegionNames", json::Value::array());
 
     std::string kind = offering_ == "xhome" ? "home" : "cloud";
