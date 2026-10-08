@@ -52,8 +52,29 @@ Menus:   D-pad or left stick to move, Cross to select, Circle to go back,
          OPTIONS for Settings, hold TOUCHPAD for 5 seconds to sign out.
 In game: the DualSense acts as an Xbox controller
          (Cross = A, Circle = B, Square = X, Triangle = Y,
-          OPTIONS = Menu, TOUCHPAD = View).
-         Hold OPTIONS + TOUCHPAD for one second to leave the game.
+          OPTIONS = Menu, TOUCHPAD = View); games that vibrate the
+         Xbox triggers vibrate the DualSense's triggers.
+         OPTIONS + TOUCHPAD opens the game menu (below).
+         When a game asks for text, the PS5 keyboard opens.
+
+
+Game menu
+---------
+OPTIONS + TOUCHPAD during a game: resume, the statistics line over the
+game, sharpness (off / low / medium / high: sharpens the picture's
+edges), stream resolution (720p / 1080p / 1440p, changed in a few
+seconds), refresh the picture, and leave the game. It also shows the
+connection (region, latency, bitrate, frame rate, packet loss) and the
+controllers in use.
+
+
+Local multiplayer
+-----------------
+Up to four players: turn on another DualSense and sign in to the PS5
+with another user; the game gets it as the next Xbox controller. The
+controllers in use are shown, numbered in their light-bar colours, at
+the bottom left of the home screen and in the game menu. Whether a game
+accepts a second player is up to the game.
 
 
 Settings
@@ -62,9 +83,14 @@ OPTIONS on the home screen; Cross opens a list of choices: language
 (English, Portugues (Brasil), Espanol, Francais, Deutsch, Italiano),
 stream resolution (720p for slower connections, 1080p, or 1440p -
 experimental, only granted where Microsoft offers it, otherwise you
-still get 1080p) and server region (Automatic, or a specific Azure
-region, with the latency measured in your past sessions). Saved in
+still get 1080p), server region (Automatic, or a specific Azure
+region, with the latency measured in your past sessions), the sticks'
+dead zone (raise it if a stick drifts), trigger vibration on or off,
+and the confirm button (Cross, or Circle as on Japanese consoles: it
+then acts as Xbox A in games too). Saved in
 /data/homebrew/@TITLE_ID@/settings.json.
+
+When a new version is out, a notification says so after sign-in.
 
 
 Your games
