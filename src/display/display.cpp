@@ -10,6 +10,7 @@
 #include <condition_variable>
 #include <cstring>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -210,6 +211,14 @@ const TileOrder& tileOrder() {
     return t;
 }
 
+struct Overlay {
+    std::vector<uint32_t> px;
+    int x, y, w, h;
+    uint32_t alpha;
+};
+std::mutex g_overlayMutex;
+std::shared_ptr<const Overlay> g_overlay;
+
 struct YuvJob {
     const uint8_t *y, *u, *v;
     int strideY, strideU, strideV;
@@ -222,6 +231,7 @@ struct YuvJob {
     // and halfway between two luma rows.
     std::vector<uint16_t> cx0, cx1, cy0, cy1;
     std::vector<uint8_t> wx, wy;
+    const Overlay* overlay = nullptr;
 };
 
 inline uint8_t clamp8(int v) { return static_cast<uint8_t>(v < 0 ? 0 : v > 255 ? 255 : v); }
@@ -231,6 +241,11 @@ void convertTiles(const YuvJob& job, unsigned first, unsigned last) {
     for (unsigned t = first; t < last; ++t) {
         unsigned tx = t % kTilesX, ty = t / kTilesX;
         auto* out = reinterpret_cast<uint32_t*>(job.base + static_cast<size_t>(t) * 0x10000);
+        // Only the tiles under the overlay look at it.
+        const Overlay* ov = job.overlay;
+        if (ov && (static_cast<int>(tx * 128) >= ov->x + ov->w || static_cast<int>(tx * 128 + 128) <= ov->x ||
+                   static_cast<int>(ty * 128) >= ov->y + ov->h || static_cast<int>(ty * 128 + 128) <= ov->y))
+            ov = nullptr;
         for (unsigned i = 0; i < 16384; ++i) {
             unsigned x = tx * 128 + order.dx[i];
             unsigned y = ty * 128 + order.dy[i];
@@ -253,6 +268,16 @@ void convertTiles(const YuvJob& job, unsigned first, unsigned last) {
             uint32_t r = clamp8((c + 1836 * e + 512) >> 10);
             uint32_t g = clamp8((c - 218 * d - 546 * e + 512) >> 10);
             uint32_t b = clamp8((c + 2163 * d + 512) >> 10);
+            if (ov) {
+                int ox = static_cast<int>(x) - ov->x, oy = static_cast<int>(y) - ov->y;
+                if (ox >= 0 && oy >= 0 && ox < ov->w && oy < ov->h) {
+                    uint32_t p = ov->px[static_cast<size_t>(oy) * ov->w + ox];
+                    uint32_t a = ov->alpha, na = 255 - a;
+                    r = ((p & 0xFF) * a + r * na) / 255;
+                    g = (((p >> 8) & 0xFF) * a + g * na) / 255;
+                    b = (((p >> 16) & 0xFF) * a + b * na) / 255;
+                }
+            }
             out[i] = 0xFF000000u | (b << 16) | (g << 8) | r;
         }
     }
@@ -398,8 +423,24 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int stride
     job.width = width;
     job.height = height;
     job.base = static_cast<uint8_t*>(g_mappedMemory) + (g_currentBuffer * kFrameBytes);
+    std::shared_ptr<const Overlay> overlay;
+    {
+        std::lock_guard<std::mutex> lock(g_overlayMutex);
+        overlay = g_overlay;
+    }
+    job.overlay = overlay.get();
     tilePool().run([](unsigned first, unsigned last) { convertTiles(job, first, last); });
+    job.overlay = nullptr;
     return true;
+}
+
+void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opacity) {
+    std::shared_ptr<const Overlay> next;
+    if (pixels && w > 0 && h > 0)
+        next = std::make_shared<const Overlay>(
+            Overlay{std::vector<uint32_t>(pixels, pixels + static_cast<size_t>(w) * h), x, y, w, h, opacity});
+    std::lock_guard<std::mutex> lock(g_overlayMutex);
+    g_overlay = std::move(next);
 }
 
 } // namespace xc::display
@@ -417,6 +458,7 @@ void shutdown() {}
 void present() {}
 bool drawYuv420(const uint8_t*, const uint8_t*, const uint8_t*, int, int, int, int, int, bool) { return true; }
 void drawRgba(const uint32_t*) {}
+void setOverlay(const uint32_t*, int, int, int, int, uint8_t) {}
 bool readBackRgb(std::vector<uint8_t>&) { return false; }
 } // namespace xc::display
 

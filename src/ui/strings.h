@@ -91,6 +91,21 @@ enum class Str {
     OneGame,          // GamesCount for exactly one
     Sections,         // hint for L2 / R2: jump between sections
     UpdatingList,     // the lists refresh in the background
+    MenuTitle,        // the in-game menu
+    MenuResume,
+    MenuStats,        // show the statistics over the game
+    On,
+    Off,
+    MenuResolution,
+    MenuRefresh,      // ask for a new picture (key frame)
+    MenuLeave,
+    StatLatency,
+    StatBitrate,
+    StatFrameRate,
+    StatLoss,
+    StatRegion,
+    StatDecode,
+    ResolutionNote,   // the server may not grant the tier asked for
     Count
 };
 

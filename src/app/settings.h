@@ -19,6 +19,8 @@ struct Settings {
     // ("recent", "az", "console").
     std::vector<std::string> hidden;
     std::string librarySort = "recent";
+    // The statistics line over the game (in-game menu).
+    bool streamStats = false;
 
     bool load(const std::string& path);
     bool save(const std::string& path) const;

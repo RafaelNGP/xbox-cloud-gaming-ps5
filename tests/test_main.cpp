@@ -5,6 +5,7 @@
 #include "stream/input_packet.h"
 #include "stream/stream_session.h"
 #include "ui/app_ui.h"
+#include "ui/stream_menu.h"
 #include "ui/strings.h"
 #include "util/json.h"
 #include "xcloud/prices.h"
@@ -166,7 +167,38 @@ static void testPrices() {
     CHECK(formatPrice(4, "XYZ") == "XYZ 4.00");
 }
 
+static void testStreamMenu() {
+    using xc::ui::MenuAction;
+    xc::ui::Fonts fonts;  // not loaded: handle() never draws
+    xc::ui::StreamMenu menu(fonts);
+    auto press = [&](void (*set)(xc::ui::NavInput&)) {
+        xc::ui::NavInput n;
+        set(n);
+        return menu.handle(n);
+    };
+    CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::None);  // closed
+    menu.open(0, false);
+    CHECK(menu.isOpen());
+    press([](xc::ui::NavInput& n) { n.down = true; });
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Stats);
+    CHECK(menu.statsOn());
+    press([](xc::ui::NavInput& n) { n.down = true; });
+    press([](xc::ui::NavInput& n) { n.left = true; });  // 1080p -> 720p
+    CHECK(menu.resolution() == 1);
+    press([](xc::ui::NavInput& n) { n.left = true; });  // wraps to 1440p
+    CHECK(menu.resolution() == 2);
+    CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Resolution);
+    press([](xc::ui::NavInput& n) { n.up = true; });
+    press([](xc::ui::NavInput& n) { n.up = true; });
+    press([](xc::ui::NavInput& n) { n.up = true; });  // wraps to "Leave game"
+    CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Leave);
+    CHECK(!menu.isOpen());
+    menu.open(1, true);
+    CHECK(press([](xc::ui::NavInput& n) { n.back = true; }) == MenuAction::Close);
+}
+
 int main() {
+    testStreamMenu();
     testStrings();
     testRegions();
     testPrices();

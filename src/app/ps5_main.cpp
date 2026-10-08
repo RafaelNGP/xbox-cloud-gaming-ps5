@@ -15,6 +15,7 @@
 #include "net/http.h"
 #include "platform/platform.h"
 #include "ui/app_ui.h"
+#include "ui/stream_menu.h"
 #include "ui/strings.h"
 #include "util/json.h"
 #include "util/log.h"
@@ -70,13 +71,63 @@ void stopHydration() {
 std::mutex g_playerMutex;
 app::StreamPlayer* g_player = nullptr;
 
+// The stream's numbers for the in-game menu, refreshed every second by the
+// worker; the sequence number tells the main thread something changed.
+std::mutex g_infoMutex;
+ui::StreamInfo g_streamInfo;
+std::atomic<uint32_t> g_infoSeq{0};
+
+// The console keyboard answering a game's text field (main thread): the
+// request it answers, and the stream that asked.
+std::string g_keyboardFor;
+const app::StreamPlayer* g_keyboardPlayer = nullptr;
+
+platform::KeyboardKind keyboardKind(int inputScope) {
+    switch (inputScope) {
+    case 1: return platform::KeyboardKind::Url;
+    case 5: return platform::KeyboardKind::Email;
+    case 29:
+    case 32: return platform::KeyboardKind::Number;
+    case 31: return platform::KeyboardKind::Password;
+    default: return platform::KeyboardKind::Text;
+    }
+}
+
+// Opens the keyboard for the game's next text request and sends back what
+// was typed. `player` null: the stream is gone, a keyboard still up is
+// closed by the player and its text dropped.
+void updateTextInput(app::StreamPlayer* player) {
+    if (!g_keyboardFor.empty()) {
+        std::string text;
+        platform::KeyboardStatus st = platform::pollSystemKeyboard(text);
+        if (st == platform::KeyboardStatus::Open) return;
+        if (player && player == g_keyboardPlayer)
+            player->answerTextInput(g_keyboardFor, st == platform::KeyboardStatus::Accepted, text);
+        g_keyboardFor.clear();
+        g_keyboardPlayer = nullptr;
+        return;
+    }
+    stream::TextInputRequest req;
+    if (!player || !player->takeTextInput(req)) return;
+    std::string title = req.title.empty() ? req.description : req.title;
+    size_t max = req.maxLength > 0 ? static_cast<size_t>(req.maxLength) : 256;
+    if (platform::openSystemKeyboard(title, req.defaultText, max, keyboardKind(req.inputScope))) {
+        g_keyboardFor = req.id;
+        g_keyboardPlayer = player;
+    } else {
+        player->answerTextInput(req.id, false, std::string());
+    }
+}
+
 // --- Unattended test mode (tools/ps5/autotest.sh) ----------------------------
 // <dataDir>/autoplay.txt holds "<titleId> <seconds> [option]". The app signs
 // in, plays that title for that long (pressing A at 15 s and 20 s), saves
 // decoded frames and logs "AUTOPLAY END". Options, comma-separated: nosimd,
 // dump, repeat, idle (no A presses), threads=N (H.264 decoder threads),
 // rumbletest (rumbles the pad for 1.5 s at start), detailtest (opens a game to
-// buy far down the list instead of playing, saves detail.ppm).
+// buy far down the list instead of playing, saves detail.ppm), imetest (opens
+// the system keyboard on the home screen), menutest (in the game: the menu,
+// 720p, back to 1080p).
 // The title "BENCH" decodes <dataDir>/sample.h264 instead.
 
 std::string g_autoplayTitle;
@@ -86,6 +137,8 @@ int g_autoplayRuns = 1;
 bool g_autoplayIdle = false;
 bool g_autoplayDetailTest = false;  // open a game to buy far down the list, save its page
 bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25 s
+bool g_autoplayImeTest = false;      // open the system keyboard on the home screen
+bool g_autoplayMenuTest = false;     // in the game: open the menu, switch to 720p
 int g_decodeThreads = 1;
 std::atomic<bool> g_syntheticA{false};
 
@@ -109,6 +162,8 @@ void loadAutoplay() {
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
         if (opt == "detailtest") g_autoplayDetailTest = true;
         if (opt == "librarytest") g_autoplayLibraryTest = true;
+        if (opt == "imetest") g_autoplayImeTest = true;
+        if (opt == "menutest") g_autoplayMenuTest = true;
         if (opt.rfind("threads=", 0) == 0) g_decodeThreads = std::atoi(opt.c_str() + 8);
     }
     g_autoplayTitle = title;
@@ -184,6 +239,7 @@ std::string stream(xcloud::GssvClient& gssv) {
     bool snapshot1 = false, snapshot2 = false;
     bool autoplayDone = false;
     int bestRtt = -1;  // lowest round trip seen: the region's latency
+    app::StreamPlayer::Stats last{};
     while (player.running() && !g_cancel) {
         uint64_t elapsed = platform::nowMs() - started;
         if (!g_autoplayTitle.empty()) {
@@ -209,7 +265,7 @@ std::string stream(xcloud::GssvClient& gssv) {
             XC_LOGI("stream: %llu frames, %llu decoded, %llu skipped, %llu failed, %llu resets, %llu kf req, "
                     "%llu queued, %llu audio; rtp %llu pkts, %llu lost, %llu recovered, %llu nacks, "
                     "%llu frames dropped; %llu kbps (remb %llu); %llu rumble; decode %.1f/%.1f ms, draw %.1f/%.1f ms, %llu late; "
-                    "rtt %d ms",
+                    "rtt %d ms; %dx%d",
                     static_cast<unsigned long long>(st.videoFrames), static_cast<unsigned long long>(st.decodedFrames),
                     static_cast<unsigned long long>(st.droppedFrames), static_cast<unsigned long long>(st.decodeFailures),
                     static_cast<unsigned long long>(st.queueResets), static_cast<unsigned long long>(st.keyframeRequests),
@@ -219,8 +275,24 @@ std::string stream(xcloud::GssvClient& gssv) {
                     static_cast<unsigned long long>(st.rtpDroppedFrames), static_cast<unsigned long long>(st.rtpKbps),
                     static_cast<unsigned long long>(st.rembKbps), static_cast<unsigned long long>(st.vibrations),
                     st.decodeAvgUs / 1000.0, st.decodeMaxUs / 1000.0, st.drawAvgUs / 1000.0, st.drawMaxUs / 1000.0,
-                    static_cast<unsigned long long>(st.lateFrames), st.rttMs);
+                    static_cast<unsigned long long>(st.lateFrames), st.rttMs, st.width, st.height);
             if (st.rttMs > 0 && (bestRtt < 0 || st.rttMs < bestRtt)) bestRtt = st.rttMs;
+            {
+                ui::StreamInfo info;
+                info.region = ui::prettyRegion(gssv.region().name);
+                info.rttMs = st.rttMs;
+                info.fps = static_cast<double>(st.decodedFrames - last.decodedFrames - (st.droppedFrames - last.droppedFrames));
+                info.mbps = st.rtpKbps / 1000.0;
+                uint64_t lost = st.rtpLost - last.rtpLost, got = st.rtpPackets - last.rtpPackets;
+                info.lossPct = got + lost ? 100.0 * lost / (got + lost) : 0;
+                info.decodeMs = st.decodeAvgUs / 1000.0;
+                info.width = st.width;
+                info.height = st.height;
+                std::lock_guard<std::mutex> lock(g_infoMutex);
+                g_streamInfo = info;
+                ++g_infoSeq;
+            }
+            last = st;
         }
         platform::sleepMs(100);
     }
@@ -492,7 +564,8 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         library->loadPlatforms(xblAuth, changed, &g_stopHydration);
         library->hydrate(changed, &g_stopHydration);
     });
-    if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH" && !g_autoplayDetailTest && !g_autoplayLibraryTest) {
+    if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH" && !g_autoplayDetailTest && !g_autoplayLibraryTest &&
+        !g_autoplayImeTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
         tile.titleId = g_autoplayTitle;
@@ -656,7 +729,13 @@ int main(int argc, char** argv) {
     // Never return from main: the app is closed from the home screen.
     input::ControllerState prev{}, pad{};
     Repeater up, down, left, right;
-    uint64_t exitHeldSince = 0;
+    // The in-game menu and what is laid over the game.
+    ui::StreamMenu menu(fonts);
+    const app::StreamPlayer* overlayPlayer = nullptr;
+    int streamResolution = 0;  // as SettingsChoice::resolution
+    bool showStats = false, overlayShown = false;
+    bool padReleased = true;  // false from the menu/keyboard until the buttons are let go
+    uint32_t overlaySeq = 0;  // g_infoSeq + 1 when drawn; 0 = redraw
     uint64_t homeSince = 0, launchSince = 0;
     bool uiSaved = false, launchSaved = false;
     for (;;) {
@@ -664,27 +743,7 @@ int main(int argc, char** argv) {
         // Autoplay runs unattended: the physical pad must not interfere.
         if (!g_autoplayTitle.empty()) pad = input::ControllerState{};
         uint64_t now = platform::nowMs();
-
-        if (g_ui->screen() == ui::Screen::Streaming) {
-            {
-                std::lock_guard<std::mutex> lock(g_playerMutex);
-                if (g_player) {
-                    input::ControllerState sent = pad;
-                    if (g_syntheticA) sent.btnA = true;
-                    g_player->sendInput(sent);
-                }
-            }
-            // OPTIONS + TOUCHPAD held for a second leaves the game.
-            if (pad.btnOptions && pad.btnTouchpad) {
-                if (!exitHeldSince) exitHeldSince = now;
-                if (now - exitHeldSince > 1000) g_cancel = true;
-            } else {
-                exitHeldSince = 0;
-            }
-            prev = pad;
-            platform::sleepMs(8);  // ~120 Hz input
-            continue;
-        }
+        if (!g_keyboardFor.empty() && g_ui->screen() != ui::Screen::Streaming) updateTextInput(nullptr);
 
         ui::NavInput nav;
         nav.up = up.update(pad.dpadUp || pad.leftStickY < -0.6f, now);
@@ -703,7 +762,105 @@ int main(int argc, char** argv) {
         nav.r2 = pad.triggerR2 > 0.5f && prev.triggerR2 <= 0.5f;
         nav.touchpad = pad.btnTouchpad;
         nav.nowMs = now;
+        bool menuCombo = pad.btnOptions && pad.btnTouchpad && !(prev.btnOptions && prev.btnTouchpad);
         prev = pad;
+        if (g_autoplayMenuTest && g_ui->screen() == ui::Screen::Streaming) {
+            // Menu, down twice to the resolution, left to 720p, accept; at
+            // 35 s right (back to 1080p) and accept.
+            static uint64_t since = 0;
+            static int step = 0;
+            if (!since) since = now;
+            const uint64_t at[] = {12000, 13000, 13500, 14000, 14500, 35000, 35500};
+            if (step < 7 && now - since >= at[step]) {
+                nav = ui::NavInput{};
+                if (step == 0) menuCombo = true;
+                if (step == 1 || step == 2) nav.down = true;
+                if (step == 3) nav.left = true;
+                if (step == 4 || step == 6) nav.accept = true;
+                if (step == 5) nav.right = true;
+                XC_LOGI("autoplay: menu step %d", step);
+                ++step;
+            }
+        }
+
+        if (g_ui->screen() == ui::Screen::Streaming) {
+            std::lock_guard<std::mutex> lock(g_playerMutex);
+            if (g_player != overlayPlayer) {  // a new stream
+                overlayPlayer = g_player;
+                menu.close();
+                std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                streamResolution = g_settings.resolution == "720p" ? 1 : g_settings.resolution == "1440p" ? 2 : 0;
+                showStats = g_settings.streamStats;
+                overlaySeq = 0;
+            }
+            if (g_player) {
+                updateTextInput(g_player);
+                // OPTIONS + TOUCHPAD opens the menu (and closes it again).
+                bool wasOpen = menu.isOpen();
+                if (!wasOpen && menuCombo && g_keyboardFor.empty()) {
+                    menu.open(streamResolution, showStats);
+                    overlaySeq = 0;
+                } else if (wasOpen) {
+                    switch (menu.handle(nav)) {
+                    case ui::MenuAction::Leave: g_cancel = true; break;
+                    case ui::MenuAction::Refresh: g_player->requestKeyframe(); break;
+                    case ui::MenuAction::Resolution:
+                        streamResolution = menu.resolution();
+                        g_player->requestResolution(streamResolution == 1   ? "720HQ"
+                                                    : streamResolution == 2 ? "1440"
+                                                                            : "1080HQ");
+                        break;
+                    case ui::MenuAction::Stats: {
+                        showStats = menu.statsOn();
+                        std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                        g_settings.streamStats = showStats;
+                        g_settings.save(settingsPath());
+                        break;
+                    }
+                    default: break;
+                    }
+                    overlaySeq = 0;
+                }
+                input::ControllerState sent = pad;
+                if (g_syntheticA) sent.btnA = true;
+                // The menu and the keyboard have the pad while they are up,
+                // and the buttons that closed them until they are let go.
+                bool held = pad.dpadUp || pad.dpadDown || pad.dpadLeft || pad.dpadRight || pad.btnA || pad.btnB ||
+                            pad.btnX || pad.btnY || pad.btnOptions || pad.btnTouchpad;
+                if (menu.isOpen() || !g_keyboardFor.empty()) padReleased = false;
+                else if (!held) padReleased = true;
+                if (!padReleased || menuCombo) sent = input::ControllerState{};
+                g_player->sendInput(sent);
+            }
+            // The overlay: the menu, else the statistics line, redrawn when
+            // the numbers or the menu change.
+            uint32_t seq = g_infoSeq;
+            if (overlaySeq != seq + 1) {
+                overlaySeq = seq + 1;
+                ui::StreamInfo info;
+                {
+                    std::lock_guard<std::mutex> infoLock(g_infoMutex);
+                    info = g_streamInfo;
+                }
+                if (menu.isOpen()) {
+                    ui::Canvas c = menu.renderMenu(info);
+                    display::setOverlay(c.data(), ui::StreamMenu::kMenuX, ui::StreamMenu::kMenuY, c.width(), c.height(), 235);
+                } else if (showStats && seq) {
+                    ui::Canvas c = menu.renderStats(info);
+                    display::setOverlay(c.data(), ui::StreamMenu::kStatsX, ui::StreamMenu::kStatsY, c.width(), c.height(), 200);
+                } else {
+                    display::setOverlay(nullptr, 0, 0, 0, 0, 0);
+                }
+                overlayShown = true;
+            }
+            platform::sleepMs(8);  // ~120 Hz input
+            continue;
+        }
+        if (overlayShown) {
+            display::setOverlay(nullptr, 0, 0, 0, 0, 0);
+            overlayShown = false;
+            menu.close();
+        }
 
         ui::UiEvent ev = g_ui->handle(nav);
         switch (ev.action) {
@@ -787,6 +944,20 @@ int main(int argc, char** argv) {
                 saveCanvas("library2.ppm");
                 g_autoplayLibraryTest = false;
                 XC_LOGI("AUTOPLAY END: library test");
+            }
+        }
+        if (g_autoplayImeTest && uiSaved) {
+            static uint64_t openedAt = 0;
+            std::string typed;
+            if (!openedAt) {
+                openedAt = now;
+                bool ok = platform::openSystemKeyboard("PSBox test", "hello", 64);
+                XC_LOGI("autoplay: system keyboard %s", ok ? "opened" : "unavailable");
+                if (!ok) g_autoplayImeTest = false;
+            } else if (auto st = platform::pollSystemKeyboard(typed); st != platform::KeyboardStatus::Open) {
+                XC_LOGI("AUTOPLAY END: keyboard %s, %zu bytes", st == platform::KeyboardStatus::Accepted ? "accepted" : "closed",
+                        typed.size());
+                g_autoplayImeTest = false;
             }
         }
         if (g_autoplayDetailTest && uiSaved) {

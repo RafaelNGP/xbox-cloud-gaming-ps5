@@ -87,4 +87,8 @@ void probeNetworking() {}
 
 void notify(const std::string& text) { std::printf("\n>>> %s\n\n", text.c_str()); }
 
+bool systemKeyboardAvailable() { return false; }
+bool openSystemKeyboard(const std::string&, const std::string&, size_t, KeyboardKind) { return false; }
+KeyboardStatus pollSystemKeyboard(std::string&) { return KeyboardStatus::Closed; }
+
 }  // namespace xc::platform

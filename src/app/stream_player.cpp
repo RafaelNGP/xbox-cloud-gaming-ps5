@@ -18,6 +18,7 @@
 #include <condition_variable>
 #include <deque>
 #include <mutex>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -49,6 +50,7 @@ struct StreamPlayer::Impl {
     std::atomic<uint64_t> videoFrames{0}, decodedFrames{0}, droppedFrames{0}, audioPackets{0};
     std::atomic<uint64_t> decodeFailures{0}, queueResets{0}, keyframeRequests{0};
     std::atomic<bool> keyframeWanted{false};
+    std::atomic<uint32_t> pictureSize{0};  // width << 16 | height
     std::atomic<uint64_t> vibrations{0}, lateFrames{0};
     std::atomic<uint64_t> decodeUs{0}, decodeCalls{0}, decodeMaxUs{0}, drawUs{0}, drawCalls{0}, drawMaxUs{0};
     int decodeThreads = 1;
@@ -65,6 +67,9 @@ struct StreamPlayer::Impl {
     std::string snapshotPath;
     std::string screenPath;  // video thread only
     uint64_t lastKeyframeRequestMs = 0;
+    // The game's text requests not yet taken, and those it withdrew (mutex).
+    std::deque<stream::TextInputRequest> textRequests;
+    std::set<std::string> textWithdrawn;
 
     explicit Impl(xcloud::GssvClient& g) : gssv(g) {}
 
@@ -147,6 +152,7 @@ struct StreamPlayer::Impl {
                 continue;
             }
             ++decodedFrames;
+            pictureSize = (static_cast<uint32_t>(pic.width) << 16) | static_cast<uint32_t>(pic.height);
             bool screenshot = saveSnapshotIfAsked(pic);
             if (backlog > 2) {  // behind: skip drawing to catch up
                 ++droppedFrames;
@@ -225,12 +231,24 @@ struct StreamPlayer::Impl {
             platform::notify(ui::trf(ui::Str::IdleWarning, std::to_string(seconds)));
         };
         cb.closed = [this](const std::string& reason) { end(reason); };
+        // With the console's keyboard, the game's text fields use it;
+        // otherwise the server draws the Xbox keyboard into the picture.
+        if (platform::systemKeyboardAvailable()) {
+            cb.textInput = [this](const stream::TextInputRequest& req) {
+                std::lock_guard<std::mutex> lock(mutex);
+                textRequests.push_back(req);
+            };
+            cb.textInputCancelled = [this](const std::string& id) {
+                std::lock_guard<std::mutex> lock(mutex);
+                textWithdrawn.insert(id);
+            };
+        }
 
         stream::StreamOptions opts;
         // Each setting asks for the best tier of its resolution, like the
         // xbox.com client: the HQ tiers (higher bitrate) and 1440p need Game
         // Pass Ultimate and a market where Microsoft enabled them; elsewhere
-        // the service ignores the request and streams the plain tier.
+        // the plain tier the session asks for first holds.
         switch (gssv.resolution()) {
         case xcloud::Resolution::P1440: opts.resolutionAlias = "1440"; break;
         case xcloud::Resolution::P1080: opts.resolutionAlias = "1080HQ"; break;
@@ -361,6 +379,36 @@ void StreamPlayer::sendInput(const input::ControllerState& p) {
     impl_->session->sendGamepad(f);
 }
 
+bool StreamPlayer::takeTextInput(stream::TextInputRequest& out) {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    while (!impl_->textRequests.empty()) {
+        out = std::move(impl_->textRequests.front());
+        impl_->textRequests.pop_front();
+        if (!impl_->textWithdrawn.count(out.id)) return true;
+    }
+    return false;
+}
+
+bool StreamPlayer::textInputWithdrawn(const std::string& id) {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    return impl_->textWithdrawn.count(id) != 0;
+}
+
+void StreamPlayer::answerTextInput(const std::string& id, bool accepted, const std::string& text) {
+    if (textInputWithdrawn(id) || !impl_->session) return;
+    XC_LOGI("text input %s", accepted ? "sent" : "cancelled");
+    if (accepted)
+        impl_->session->completeTextInput(id, text);
+    else
+        impl_->session->cancelTextInput(id);
+}
+
+void StreamPlayer::requestKeyframe() { impl_->keyframeWanted = true; }
+
+void StreamPlayer::requestResolution(const std::string& alias) {
+    if (impl_->session) impl_->session->requestResolution(alias);
+}
+
 void StreamPlayer::tick() { impl_->tick(); }
 
 void StreamPlayer::dumpVideo(const std::string& path, int seconds) {
@@ -389,6 +437,8 @@ StreamPlayer::Stats StreamPlayer::stats() const {
     st.keyframeRequests = impl_->keyframeRequests;
     st.vibrations = impl_->vibrations;
     st.lateFrames = impl_->lateFrames;
+    st.width = static_cast<int>(impl_->pictureSize >> 16);
+    st.height = static_cast<int>(impl_->pictureSize & 0xFFFF);
     // Timings since the previous call.
     uint64_t dc = impl_->decodeCalls.exchange(0), du = impl_->decodeUs.exchange(0);
     uint64_t rc = impl_->drawCalls.exchange(0), ru = impl_->drawUs.exchange(0);
