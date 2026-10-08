@@ -31,7 +31,7 @@ enum class Str {
     InQueue,       // "%s" = estimated wait
     Connecting,
     StartingStream,
-    LeaveHint,
+    MenuGestureHint,  // the game menu's footer: the touchpad gestures
     StreamEnded,
     ErrorTitle,
     SignedInAs,    // "%s" = gamertag
@@ -152,7 +152,7 @@ enum class Str {
     EndedByOtherDevice, // toast: another device took the stream over
     EndedXboxOff,       // toast: the Xbox was turned off during the stream
     StreamingStuck,     // "%s" = the console: its Remote Play service didn't start
-    SwipeHint,          // at the start of a stream from the user's own Xbox
+    GestureHint,        // at the start of a stream (the first three): the touchpad gestures
     Count
 };
 

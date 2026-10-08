@@ -211,6 +211,8 @@ struct StreamSession::Impl {
         // "720" switches in a few seconds, "720HQ" is ignored in Brazil.
         std::string base = alias == "1440" ? "1080" : alias;
         if (base.size() > 2 && base.compare(base.size() - 2, 2, "HQ") == 0) base.resize(base.size() - 2);
+        // The user's own Xbox offers every tier on any plan: just the one asked for.
+        if (gssv.isHome()) base = alias;
         auto send = [this](const std::string& a) {
             json::Value res = json::Value::object();
             res.set("message", "userRequestedResolutionUpdate");
@@ -248,15 +250,18 @@ struct StreamSession::Impl {
 
         sendText(message, messageEnvelope("/streaming/characteristics/clientdevicecapabilities", json::Value::object()));
 
+        // The picture's size, as the web client sends its video element's:
+        // a 1440p tier needs a 1440p one (the display itself is 4K).
+        int w = opt.resolutionAlias == "1440" ? 2560 : 1920, h = opt.resolutionAlias == "1440" ? 1440 : 1080;
         json::Value dims = json::Value::object();
-        dims.set("horizontal", 1920);
-        dims.set("vertical", 1080);
-        dims.set("preferredWidth", 1920);
-        dims.set("preferredHeight", 1080);
+        dims.set("horizontal", w);
+        dims.set("vertical", h);
+        dims.set("preferredWidth", w);
+        dims.set("preferredHeight", h);
         dims.set("safeAreaLeft", 0);
         dims.set("safeAreaTop", 0);
-        dims.set("safeAreaRight", 1920);
-        dims.set("safeAreaBottom", 1080);
+        dims.set("safeAreaRight", w);
+        dims.set("safeAreaBottom", h);
         dims.set("supportsCustomResolution", true);
         sendText(message, messageEnvelope("/streaming/characteristics/dimensionschanged", dims));
     }
