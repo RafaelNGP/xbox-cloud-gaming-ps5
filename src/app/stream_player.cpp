@@ -252,13 +252,14 @@ struct StreamPlayer::Impl {
         };
         // xCloud's motors are 0..100 percent, like the web client's
         // dual-rumble effect (left = strong, right = weak). The trigger
-        // motors have no plain-rumble counterpart on the DualSense.
+        // motors (impulse triggers) become the adaptive triggers vibrating.
         cb.vibration = [this](const stream::Vibration& v) {
             if (++vibrations <= 5)
                 XC_LOGI("vibration %u/%u/%u/%u for %ums", v.leftMotor, v.rightMotor, v.leftTrigger, v.rightTrigger,
                         v.durationMs);
             auto scale = [](uint8_t pct) { return static_cast<uint8_t>(std::min<int>(pct, 100) * 255 / 100); };
-            input::setRumble(scale(v.leftMotor), scale(v.rightMotor), v.durationMs);
+            input::setRumble(scale(v.leftMotor), scale(v.rightMotor), v.durationMs, v.gamepadIndex);
+            input::setTriggerRumble(scale(v.leftTrigger), scale(v.rightTrigger), v.durationMs, v.gamepadIndex);
         };
         cb.idleWarning = [](int seconds) {
             platform::notify(ui::trf(ui::Str::IdleWarning, std::to_string(seconds)));
@@ -370,7 +371,10 @@ struct StreamPlayer::Impl {
         if (audioThread.joinable()) audioThread.join();
         session.reset();
         media::audioStop();
-        input::setRumble(0, 0, 0);
+        for (int i = 0; i < input::kMaxPads; ++i) {
+            input::setRumble(0, 0, 0, i);
+            input::setTriggerRumble(0, 0, 0, i);
+        }
     }
 };
 
@@ -385,9 +389,10 @@ std::string StreamPlayer::endReason() const {
     return impl_->endReason;
 }
 
-void StreamPlayer::sendInput(const input::ControllerState& p) {
+void StreamPlayer::sendInput(const input::ControllerState& p, int index) {
     if (!impl_->session || !impl_->running) return;
     stream::GamepadFrame f;
+    f.index = static_cast<uint8_t>(index);
     auto set = [&](bool on, uint16_t bit) {
         if (on) f.buttons |= bit;
     };
@@ -412,6 +417,10 @@ void StreamPlayer::sendInput(const input::ControllerState& p) {
     f.leftTrigger = p.triggerL2;
     f.rightTrigger = p.triggerR2;
     impl_->session->sendGamepad(f);
+}
+
+void StreamPlayer::setPadConnected(int index, bool connected) {
+    if (impl_->session && impl_->running) impl_->session->setGamepadConnected(index, connected);
 }
 
 bool StreamPlayer::takeTextInput(stream::TextInputRequest& out) {

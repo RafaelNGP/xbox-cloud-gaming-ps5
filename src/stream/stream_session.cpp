@@ -643,6 +643,12 @@ void StreamSession::sendGamepad(const GamepadFrame& frame) {
     Impl::sendBinary(impl_->input, gamepadReport(impl_->inputSequence++, impl_->nowMs(), frame));
 }
 
+void StreamSession::setGamepadConnected(int index, bool connected) {
+    if (!impl_->open) return;
+    XC_LOGI("gamepad %d %s", index, connected ? "attached" : "detached");
+    impl_->sendGamepadChanged(index, connected);
+}
+
 void StreamSession::requestKeyframe() {
     try {
         impl_->requestKeyframe();

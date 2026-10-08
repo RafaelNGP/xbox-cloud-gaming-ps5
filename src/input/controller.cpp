@@ -57,9 +57,13 @@ static_assert(offsetof(ScePadData, connected) == 76, "ScePadData layout");
 struct SceUserServiceInitializeParams {
     uint32_t priority;
 };
+struct SceUserServiceLoginUserIdList {
+    int32_t userId[4];  // -1: none
+};
 
 int sceUserServiceInitialize(const SceUserServiceInitializeParams* param);
 int sceUserServiceGetInitialUser(int32_t* userId);
+int sceUserServiceGetLoginUserIdList(SceUserServiceLoginUserIdList* list);
 int scePadInit(void);
 int scePadOpen(int32_t userId, int32_t type, int32_t index, const void* param);
 int scePadClose(int32_t handle);
@@ -71,18 +75,66 @@ struct ScePadVibrationParam {
 };
 int scePadSetVibration(int32_t handle, const ScePadVibrationParam* param);
 int scePadSetVibrationMode(int32_t handle, int32_t mode);
+
+// Adaptive triggers (layout as ProsperoEden's ps5_pad.hpp).
+struct ScePadTriggerEffectCommand {
+    int32_t mode;  // 0 off, 3 vibration
+    int32_t reserved;
+    uint8_t data[48];  // vibration: position (0..9), amplitude (0..8), frequency (Hz)
+};
+struct ScePadTriggerEffectParam {
+    uint8_t triggerMask;  // 1 = L2, 2 = R2
+    uint8_t reserved[7];
+    ScePadTriggerEffectCommand command[2];
+};
+static_assert(sizeof(ScePadTriggerEffectParam) == 120, "ScePadTriggerEffectParam layout");
+int scePadSetTriggerEffect(int32_t handle, const ScePadTriggerEffectParam* param);
 }
 
 namespace xc::input {
 
 namespace {
-int32_t g_userId = -1;
-int32_t g_padHandle = -1;
+
+constexpr uint8_t kTriggerVibrationHz = 40;
+
+// A rumble request: packed as a << 8 | b, and when it ends (0 = never).
+struct Rumble {
+    std::atomic<uint32_t> wanted{0};
+    std::atomic<uint64_t> untilMs{0};
+    uint32_t applied = 0;
+
+    void set(uint8_t a, uint8_t b, uint32_t durationMs) {
+        untilMs = durationMs ? platform::nowMs() + durationMs : 0;
+        wanted = (uint32_t(a) << 8) | b;
+    }
+    // The value to apply now, or false when it hasn't changed.
+    bool due(uint32_t& out) {
+        uint32_t want = wanted;
+        uint64_t until = untilMs;
+        if (want && until && platform::nowMs() >= until) {
+            wanted.compare_exchange_strong(want, 0);
+            want = 0;
+        }
+        if (want == applied) return false;
+        applied = out = want;
+        return true;
+    }
+};
+
+struct Pad {
+    int32_t userId = -1;
+    int32_t handle = -1;
+    Rumble motors, triggers;
+};
+Pad g_pads[kMaxPads];
+std::atomic<float> g_deadzone{0.15f};
+std::atomic<bool> g_circleConfirms{false}, g_triggerRumble{true};
+bool g_rumbleLogged = false, g_triggerLogged = false;
 
 inline float normStick(uint8_t val) {
-    // 0..255 -> -1.0 .. 1.0 (deadzone 0.15)
+    // 0..255 -> -1.0 .. 1.0, nothing inside the dead zone
     float v = (static_cast<float>(val) - 128.0f) / 128.0f;
-    if (std::abs(v) < 0.15f) return 0.0f;
+    if (std::abs(v) < g_deadzone.load(std::memory_order_relaxed)) return 0.0f;
     return std::clamp(v, -1.0f, 1.0f);
 }
 
@@ -90,36 +142,80 @@ inline float normTrigger(uint8_t val) {
     return static_cast<float>(val) / 255.0f;
 }
 
-// Requested rumble, packed as large << 8 | small, and when it ends (0 = never).
-std::atomic<uint32_t> g_rumbleWanted{0};
-std::atomic<uint64_t> g_rumbleUntilMs{0};
-uint32_t g_rumbleApplied = 0;
-bool g_rumbleErrorLogged = false;
-
-void applyRumble() {
-    uint32_t want = g_rumbleWanted;
-    uint64_t until = g_rumbleUntilMs;
-    if (want && until && platform::nowMs() >= until) {
-        g_rumbleWanted.compare_exchange_strong(want, 0);
-        want = 0;
+bool openPad(Pad& pad, int32_t userId, int slot) {
+    int32_t h = scePadOpen(userId, 0, 0, nullptr);
+    if (h < 0) {
+        XC_LOGW("scePadOpen(user %d): 0x%08x", userId, static_cast<unsigned>(h));
+        return false;
     }
-    if (want == g_rumbleApplied) return;
-    ScePadVibrationParam p{static_cast<uint8_t>(want >> 8), static_cast<uint8_t>(want)};
-    int rc = scePadSetVibration(g_padHandle, &p);
-    if (!g_rumbleErrorLogged) {  // the first call, and the first failure
-        g_rumbleErrorLogged = rc != 0;
-        static bool firstLogged = false;
-        if (!firstLogged || rc != 0) XC_LOGI("scePadSetVibration(%u, %u): 0x%08x", p.largeMotor, p.smallMotor, rc);
-        firstLogged = true;
-    }
-    g_rumbleApplied = want;
+    // The DualSense starts in haptics mode, where scePadSetVibration succeeds
+    // and does nothing; mode 2 is classic two-motor rumble (as ProsperoEden).
+    int mode = scePadSetVibrationMode(h, 2);
+    pad.userId = userId;
+    pad.handle = h;
+    pad.motors.applied = pad.triggers.applied = 0;
+    XC_LOGI("pad %d opened (handle %d, user %d, rumble mode 0x%08x)", slot, h, userId, static_cast<unsigned>(mode));
+    return true;
 }
+
+void closePad(Pad& pad, int slot) {
+    if (pad.handle < 0) return;
+    ScePadVibrationParam off{0, 0};
+    scePadSetVibration(pad.handle, &off);
+    ScePadTriggerEffectParam none{};
+    none.triggerMask = 3;
+    scePadSetTriggerEffect(pad.handle, &none);
+    scePadClose(pad.handle);
+    XC_LOGI("pad %d closed (user %d)", slot, pad.userId);
+    pad.handle = -1;
+    pad.userId = -1;
+}
+
+void applyRumble(Pad& pad) {
+    uint32_t v;
+    if (pad.motors.due(v)) {
+        ScePadVibrationParam p{static_cast<uint8_t>(v >> 8), static_cast<uint8_t>(v)};
+        int rc = scePadSetVibration(pad.handle, &p);
+        if (!g_rumbleLogged || rc != 0) XC_LOGI("scePadSetVibration(%u, %u): 0x%08x", p.largeMotor, p.smallMotor, rc);
+        g_rumbleLogged = true;
+    }
+    if (pad.triggers.due(v)) {
+        ScePadTriggerEffectParam p{};
+        p.triggerMask = 3;
+        const uint8_t level[2] = {static_cast<uint8_t>(v >> 8), static_cast<uint8_t>(v)};
+        for (int t = 0; t < 2; ++t) {
+            if (!level[t]) continue;  // mode 0: off
+            p.command[t].mode = 3;
+            p.command[t].data[0] = 0;  // from the top of the travel
+            p.command[t].data[1] = static_cast<uint8_t>(std::max(1, (level[t] * 8 + 127) / 255));
+            p.command[t].data[2] = kTriggerVibrationHz;
+        }
+        int rc = scePadSetTriggerEffect(pad.handle, &p);
+        if (!g_triggerLogged || rc != 0) XC_LOGI("scePadSetTriggerEffect(%u, %u): 0x%08x", level[0], level[1], rc);
+        g_triggerLogged = true;
+    }
+}
+
 } // namespace
 
-void setRumble(uint8_t large, uint8_t small, uint32_t durationMs) {
-    g_rumbleUntilMs = durationMs ? platform::nowMs() + durationMs : 0;
-    g_rumbleWanted = (uint32_t(large) << 8) | small;
+void setRumble(uint8_t large, uint8_t small, uint32_t durationMs, int pad) {
+    if (pad >= 0 && pad < kMaxPads) g_pads[pad].motors.set(large, small, durationMs);
 }
+
+void setTriggerRumble(uint8_t left, uint8_t right, uint32_t durationMs, int pad) {
+    if (!g_triggerRumble) left = right = 0;
+    if (pad >= 0 && pad < kMaxPads) g_pads[pad].triggers.set(left, right, durationMs);
+}
+
+void setCircleConfirms(bool on) { g_circleConfirms = on; }
+
+void setTriggerRumbleEnabled(bool on) {
+    g_triggerRumble = on;
+    if (!on)
+        for (Pad& p : g_pads) p.triggers.set(0, 0, 0);
+}
+
+void setDeadzone(float deadzone) { g_deadzone = std::clamp(deadzone, 0.0f, 0.5f); }
 
 bool init() {
     int rc = scePadInit();
@@ -138,41 +234,51 @@ bool init() {
         XC_LOGE("sceUserServiceGetInitialUser failed: 0x%08x", rc);
         return false;
     }
-    g_userId = uid;
-    g_padHandle = scePadOpen(g_userId, 0, 0, nullptr);
-    if (g_padHandle < 0) {
-        XC_LOGE("scePadOpen failed: 0x%08x", g_padHandle);
-        return false;
-    }
-    // The DualSense starts in haptics mode, where scePadSetVibration succeeds
-    // and does nothing; mode 2 is classic two-motor rumble (as ProsperoEden).
-    int mode = scePadSetVibrationMode(g_padHandle, 2);
-    XC_LOGI("DualSense pad opened successfully (handle: %d, user: %d, rumble mode: 0x%08x)", g_padHandle, g_userId,
-            mode);
+    if (!openPad(g_pads[0], uid, 0)) return false;
+    refreshPads();
     return true;
 }
 
-void shutdown() {
-    if (g_padHandle >= 0) {
-        ScePadVibrationParam off{0, 0};
-        scePadSetVibration(g_padHandle, &off);
-        scePadClose(g_padHandle);
-        g_padHandle = -1;
+void refreshPads() {
+    SceUserServiceLoginUserIdList list;
+    std::memset(&list, 0xFF, sizeof list);
+    if (sceUserServiceGetLoginUserIdList(&list) != 0) return;
+    auto signedIn = [&](int32_t user) {
+        for (int32_t u : list.userId)
+            if (u == user) return true;
+        return false;
+    };
+    // Signed out: free the slot (pad 0 stays with the app's user).
+    for (int i = 1; i < kMaxPads; ++i)
+        if (g_pads[i].handle >= 0 && !signedIn(g_pads[i].userId)) closePad(g_pads[i], i);
+    // Signed in: the first free slot.
+    for (int32_t user : list.userId) {
+        if (user < 0) continue;
+        bool known = false;
+        for (const Pad& p : g_pads) known |= p.userId == user;
+        if (known) continue;
+        for (int i = 1; i < kMaxPads; ++i)
+            if (g_pads[i].handle < 0) {
+                openPad(g_pads[i], user, i);
+                break;
+            }
     }
 }
 
-bool poll(ControllerState& out) {
-    if (g_padHandle < 0) {
-        out = {};
-        return false;
-    }
-    applyRumble();
+void shutdown() {
+    for (int i = 0; i < kMaxPads; ++i) closePad(g_pads[i], i);
+}
+
+bool poll(ControllerState& out) { return pollPad(0, out); }
+
+bool pollPad(int index, ControllerState& out) {
+    out = {};
+    if (index < 0 || index >= kMaxPads || g_pads[index].handle < 0) return false;
+    Pad& slot = g_pads[index];
+    applyRumble(slot);
     ScePadData pad{};
-    int rc = scePadReadState(g_padHandle, &pad);
-    if (rc != 0 || !pad.connected) {
-        out.connected = false;
-        return false;
-    }
+    int rc = scePadReadState(slot.handle, &pad);
+    if (rc != 0 || !pad.connected) return false;
 
     out.connected = true;
     uint32_t b = pad.buttons;
@@ -188,6 +294,7 @@ bool poll(ControllerState& out) {
     out.btnB = (b & 0x2000) != 0; // Circle
     out.btnX = (b & 0x8000) != 0; // Square
     out.btnY = (b & 0x1000) != 0; // Triangle
+    if (g_circleConfirms) std::swap(out.btnA, out.btnB);
 
     // Shoulders & Sticks
     out.btnL1 = (b & 0x0400) != 0;
@@ -218,12 +325,18 @@ bool poll(ControllerState& out) {
 namespace xc::input {
 bool init() { return true; }
 void shutdown() {}
-bool poll(ControllerState& out) {
+bool poll(ControllerState& out) { return pollPad(0, out); }
+bool pollPad(int index, ControllerState& out) {
     out = {};
-    out.connected = true;
-    return true;
+    out.connected = index == 0;
+    return out.connected;
 }
-void setRumble(uint8_t, uint8_t, uint32_t) {}
+void refreshPads() {}
+void setRumble(uint8_t, uint8_t, uint32_t, int) {}
+void setTriggerRumble(uint8_t, uint8_t, uint32_t, int) {}
+void setDeadzone(float) {}
+void setCircleConfirms(bool) {}
+void setTriggerRumbleEnabled(bool) {}
 } // namespace xc::input
 
 #endif

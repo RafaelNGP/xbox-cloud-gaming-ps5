@@ -111,6 +111,14 @@ enum class Str {
     SharpLow,
     SharpMedium,
     SharpHigh,
+    Deadzone,         // settings: stick dead zone
+    TriggerRumble,    // settings: vibration in the triggers
+    ConfirmButton,    // settings: which button is Xbox A
+    Activated,        // feminine on/off where the language needs it
+    Deactivated,
+    ButtonCross,
+    ButtonCircle,
+    UpdateAvailable,  // "%s" = the new version
     Count
 };
 

@@ -23,8 +23,11 @@ public:
     bool start(std::string& err);
     bool running() const;
     std::string endReason() const;
-    // From the input thread, once per polled pad state.
-    void sendInput(const input::ControllerState& pad);
+    // From the input thread, once per polled pad state; `index` 0..3 is the
+    // controller's slot (input::pollPad).
+    void sendInput(const input::ControllerState& pad, int index = 0);
+    // Controllers 1..3 coming and going (0 is there from the start).
+    void setPadConnected(int index, bool connected);
     // The game's requests for text, oldest first (main thread): false when
     // none. Each one is answered once with answerTextInput() (accepted false
     // = cancelled); textInputWithdrawn() turns true when the game gave up

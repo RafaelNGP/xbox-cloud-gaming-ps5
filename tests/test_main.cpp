@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 // Offline unit tests for the portable core (no network).
+#include "app/update_check.h"
 #include "net/http.h"
 #include "stream/input_packet.h"
 #include "stream/stream_session.h"
@@ -181,6 +182,17 @@ static void testPrices() {
     CHECK(formatPrice(4, "XYZ") == "XYZ 4.00");
 }
 
+static void testVersions() {
+    using xc::app::isNewerVersion;
+    CHECK(isNewerVersion("v0.4.0", "0.3.0"));
+    CHECK(isNewerVersion("v0.3.1", "0.3.0"));
+    CHECK(isNewerVersion("1.0", "0.9.9"));
+    CHECK(!isNewerVersion("v0.3.0", "0.3.0"));
+    CHECK(!isNewerVersion("v0.2.9", "0.3.0"));
+    CHECK(!isNewerVersion("nightly", "0.3.0"));
+    CHECK(!isNewerVersion("", "0.3.0"));
+}
+
 static void testStreamMenu() {
     using xc::ui::MenuAction;
     xc::ui::Fonts fonts;  // not loaded: handle() never draws
@@ -213,6 +225,7 @@ static void testStreamMenu() {
 }
 
 int main() {
+    testVersions();
     testStreamMenu();
     testStrings();
     testRegions();

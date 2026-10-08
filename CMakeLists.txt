@@ -67,8 +67,10 @@ add_library(xcloud_ui STATIC
     src/ui/brand.cpp
     src/app/library.cpp
     src/app/settings.cpp
+    src/app/update_check.cpp
     extern/qrcodegen/qrcodegen.c
 )
+target_compile_definitions(xcloud_ui PUBLIC XC_APP_VERSION="${PROJECT_VERSION}")
 target_include_directories(xcloud_ui PUBLIC extern/stb extern/qrcodegen)
 target_link_libraries(xcloud_ui PUBLIC xcloud_core)
 

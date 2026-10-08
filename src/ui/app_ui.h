@@ -67,7 +67,14 @@ struct SettingsChoice {
     int language = 0;      // ui::Language
     int resolution = 0;    // 0 = 1080p, 1 = 720p, 2 = 1440p (experimental)
     std::string region;    // gssv region name; empty = automatic
+    int deadzone = 3;      // index into kDeadzonePercent (15 %)
+    bool triggerRumble = true;
+    bool circleConfirms = false;  // Circle is Xbox A (and Cross is B)
 };
+
+// The stick dead zones Settings offers, in percent of the travel.
+constexpr int kDeadzonePercent[] = {0, 5, 10, 15, 20, 25};
+constexpr int kSettingRows = 6;  // language, resolution, region, dead zone, triggers, confirm
 
 enum class Action { None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, PrefsChanged };
 
@@ -137,6 +144,9 @@ public:
     void showStreaming();
     void showError(const std::string& message);
     void setSettings(const SettingsChoice& choice);
+    // The confirm button in force (the hints show it); Settings may be
+    // showing another choice not saved yet.
+    void setCircleConfirms(bool on);
     // Regions offered by the account's xCloud login; `defaultRegion` is the
     // one "Automatic" picks.
     void setRegions(std::vector<std::string> regions, const std::string& defaultRegion);
@@ -256,6 +266,7 @@ private:
     GameTile launching_;
     std::string error_;
     SettingsChoice settings_;
+    bool circleConfirms_ = false;
     std::vector<std::string> regions_;
     std::string defaultRegion_;
     std::map<std::string, int> regionMs_;

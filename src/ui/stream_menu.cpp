@@ -136,14 +136,21 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     line(Str::StatLoss, fmt("%.1f %%", info.lossPct));
     line(Str::StatDecode, info.decodeMs > 0 ? fmt("%.1f ms", info.decodeMs) : none);
 
-    // Cross selects, Circle goes back to the game.
+    // Cross selects, Circle goes back to the game (swapped with Circle
+    // confirming).
     int hy = kMenuH - 56, x = kPad;
-    c.fillCircle(x + 14, hy + 13, 14, rgba(255, 255, 255, 40));
-    c.line(x + 8, hy + 7, x + 20, hy + 19, 2.5f, rgba(124, 178, 232));
-    c.line(x + 20, hy + 7, x + 8, hy + 19, 2.5f, rgba(124, 178, 232));
+    auto icon = [&](bool cross) {
+        c.fillCircle(x + 14, hy + 13, 14, rgba(255, 255, 255, 40));
+        if (cross) {
+            c.line(x + 8, hy + 7, x + 20, hy + 19, 2.5f, rgba(124, 178, 232));
+            c.line(x + 20, hy + 7, x + 8, hy + 19, 2.5f, rgba(124, 178, 232));
+        } else {
+            c.strokeArc(x + 14, hy + 13, 6.5f, 2.5f, 0, 6.2832f, rgba(255, 102, 102));
+        }
+    };
+    icon(!circleConfirms_);
     x = fonts_.semibold.draw(c, tr(Str::Select), x + 38, hy, 22, kGray) + 36;
-    c.fillCircle(x + 14, hy + 13, 14, rgba(255, 255, 255, 40));
-    c.strokeArc(x + 14, hy + 13, 6.5f, 2.5f, 0, 6.2832f, rgba(255, 102, 102));
+    icon(circleConfirms_);
     fonts_.semibold.draw(c, tr(Str::Back), x + 38, hy, 22, kGray);
     return c;
 }

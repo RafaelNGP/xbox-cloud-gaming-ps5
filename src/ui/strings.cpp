@@ -134,6 +134,14 @@ constexpr Column kEnglish = {
     "Low",                                           // SharpLow
     "Medium",                                        // SharpMedium
     "High",                                          // SharpHigh
+    "Stick dead zone",                               // Deadzone
+    "Trigger vibration",                             // TriggerRumble
+    "Confirm button",                                // ConfirmButton
+    "On",                                            // Activated
+    "Off",                                           // Deactivated
+    "Cross",                                     // ButtonCross
+    "Circle",                                    // ButtonCircle
+    "PSBox Cloud Gaming %s is out: get it on GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",// UpdateAvailable
 };
 
 constexpr Column kPortugueseBR = {
@@ -238,6 +246,14 @@ constexpr Column kPortugueseBR = {
     "Baixa",
     "Média",
     "Alta",
+    "Zona morta do analógico",
+    "Vibração nos gatilhos",
+    "Botão de confirmar",
+    "Ativada",
+    "Desativada",
+    "Xis",
+    "Círculo",
+    "Saiu o PSBox Cloud Gaming %s: baixe no GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
 };
 
 constexpr Column kSpanish = {
@@ -342,6 +358,14 @@ constexpr Column kSpanish = {
     "Baja",
     "Media",
     "Alta",
+    "Zona muerta del stick",
+    "Vibración en los gatillos",
+    "Botón de confirmar",
+    "Activada",
+    "Desactivada",
+    "Equis",
+    "Círculo",
+    "Ya está disponible PSBox Cloud Gaming %s: descárgalo en GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
 };
 
 constexpr Column kFrench = {
@@ -446,6 +470,14 @@ constexpr Column kFrench = {
     "Faible",
     "Moyenne",
     "Élevée",
+    "Zone morte du stick",
+    "Vibration des gâchettes",
+    "Bouton de validation",
+    "Activée",
+    "Désactivée",
+    "Croix",
+    "Rond",
+    "PSBox Cloud Gaming %s est disponible : téléchargez-le sur GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
 };
 
 constexpr Column kGerman = {
@@ -550,6 +582,14 @@ constexpr Column kGerman = {
     "Niedrig",
     "Mittel",
     "Hoch",
+    "Stick-Totzone",
+    "Trigger-Vibration",
+    "Bestätigungstaste",
+    "An",
+    "Aus",
+    "Kreuz",
+    "Kreis",
+    "PSBox Cloud Gaming %s ist da: auf GitHub herunterladen (RafaelNGP/xbox-cloud-gaming-ps5)",
 };
 
 constexpr Column kItalian = {
@@ -654,6 +694,14 @@ constexpr Column kItalian = {
     "Bassa",
     "Media",
     "Alta",
+    "Zona morta dello stick",
+    "Vibrazione dei grilletti",
+    "Tasto di conferma",
+    "Attivata",
+    "Disattivata",
+    "Croce",
+    "Cerchio",
+    "È disponibile PSBox Cloud Gaming %s: scaricalo da GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

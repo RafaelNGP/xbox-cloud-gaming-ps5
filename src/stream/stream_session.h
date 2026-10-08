@@ -77,6 +77,8 @@ public:
     bool isOpen() const;
 
     void sendGamepad(const GamepadFrame& frame);
+    // A controller at `index` (1..3; 0 is attached at the start) came or went.
+    void setGamepadConnected(int index, bool connected);
     void requestKeyframe();
     // A frame shown: its timings go back to the server (see FrameMetadata).
     void reportFrame(const FrameMetadata& frame);

@@ -40,6 +40,8 @@ public:
     int resolution() const { return resolution_; }
     bool statsOn() const { return stats_; }
     int sharpness() const { return sharpness_; }
+    // Circle confirms: the hints swap their buttons.
+    void setCircleConfirms(bool on) { circleConfirms_ = on; }
 
     Canvas renderMenu(const StreamInfo& info) const;
     Canvas renderStats(const StreamInfo& info) const;
@@ -53,6 +55,7 @@ private:
     int resolution_ = 0, applied_ = 0;
     int sharpness_ = 0;
     bool resolutionAsked_ = false;
+    bool circleConfirms_ = false;
 };
 
 }  // namespace xc::ui

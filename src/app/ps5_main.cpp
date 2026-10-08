@@ -8,6 +8,7 @@
 #include "app/library.h"
 #include "app/settings.h"
 #include "app/stream_player.h"
+#include "app/update_check.h"
 #include "auth/auth_manager.h"
 #include "display/display.h"
 #include "input/controller.h"
@@ -77,6 +78,23 @@ std::mutex g_infoMutex;
 ui::StreamInfo g_streamInfo;
 std::atomic<uint32_t> g_infoSeq{0};
 
+// The dead zone setting (percent) as an index into ui::kDeadzonePercent.
+int deadzoneIndex(int percent) {
+    int best = 0;
+    for (int i = 0; i < static_cast<int>(std::size(ui::kDeadzonePercent)); ++i)
+        if (std::abs(ui::kDeadzonePercent[i] - percent) < std::abs(ui::kDeadzonePercent[best] - percent)) best = i;
+    return best;
+}
+
+// Dead zone, trigger vibration and confirm button from g_settings.
+void applyControllerSettings() {
+    std::lock_guard<std::mutex> lock(g_settingsMutex);
+    input::setDeadzone(g_settings.deadzone / 100.0f);
+    input::setTriggerRumbleEnabled(g_settings.triggerRumble);
+    input::setCircleConfirms(g_settings.circleConfirms);
+    if (g_ui) g_ui->setCircleConfirms(g_settings.circleConfirms);
+}
+
 // The console keyboard answering a game's text field (main thread): the
 // request it answers, and the stream that asked.
 std::string g_keyboardFor;
@@ -124,7 +142,8 @@ void updateTextInput(app::StreamPlayer* player) {
 // in, plays that title for that long (pressing A at 15 s and 20 s), saves
 // decoded frames and logs "AUTOPLAY END". Options, comma-separated: nosimd,
 // dump, repeat, idle (no A presses), threads=N (H.264 decoder threads),
-// rumbletest (rumbles the pad for 1.5 s at start), detailtest (opens a game to
+// rumbletest (rumbles the pad for 1.5 s at start), triggertest (the triggers
+// for 3 s), detailtest (opens a game to
 // buy far down the list instead of playing, saves detail.ppm), imetest (opens
 // the system keyboard on the home screen), menutest (in the game: the menu,
 // 720p, back to 1080p), res=720p|1080p|1080p-hq|1440p and sharp=0..3 (instead
@@ -163,6 +182,7 @@ void loadAutoplay() {
         if (opt == "repeat") g_autoplayRuns = 2;
         if (opt == "idle") g_autoplayIdle = true;
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
+        if (opt == "triggertest") input::setTriggerRumble(255, 128, 3000);
         if (opt == "detailtest") g_autoplayDetailTest = true;
         if (opt == "librarytest") g_autoplayLibraryTest = true;
         if (opt == "imetest") g_autoplayImeTest = true;
@@ -513,6 +533,15 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         g_xblAuth = am.profile().xblAuthorization;
     }
     platform::notify(ui::trf(ui::Str::SignedInAs, am.profile().gamertag));
+    static bool updateChecked = false;
+    if (!updateChecked && g_autoplayTitle.empty()) {
+        updateChecked = true;
+        std::thread([] {
+            std::string tag = app::latestReleaseTag();
+            XC_LOGI("latest release: %s (this is %s)", tag.empty() ? "unknown" : tag.c_str(), XC_APP_VERSION);
+            if (app::isNewerVersion(tag, XC_APP_VERSION)) platform::notify(ui::trf(ui::Str::UpdateAvailable, tag));
+        }).detach();
+    }
     std::vector<std::string> regions;
     for (const auto& r : gssv.session().regions) regions.push_back(r.name);
     const xcloud::Region* def = gssv.session().defaultRegion();
@@ -718,7 +747,11 @@ int main(int argc, char** argv) {
         choice.language = static_cast<int>(ui::language());
         choice.resolution = g_settings.resolution == "720p" ? 1 : g_settings.resolution == "1440p" ? 2 : 0;
         choice.region = g_settings.region;
+        choice.deadzone = deadzoneIndex(g_settings.deadzone);
+        choice.triggerRumble = g_settings.triggerRumble;
+        choice.circleConfirms = g_settings.circleConfirms;
         g_ui->setSettings(choice);
+        applyControllerSettings();
         g_ui->setRegionLatency(g_settings.regionRtt);
         g_ui->setPrefs(g_settings.hidden, g_settings.librarySort == "az"        ? ui::LibrarySort::AZ
                                           : g_settings.librarySort == "console" ? ui::LibrarySort::Console
@@ -744,7 +777,9 @@ int main(int argc, char** argv) {
     int sharpness = 0;  // 0..3, as Settings::sharpness
     // How much CAS each sharpness level mixes in (display::setSharpness).
     static constexpr int kSharpAmount[] = {0, 96, 176, 256};
-    bool padReleased = true;  // false from the menu/keyboard until the buttons are let go
+    bool padReleased = true;
+    bool padAttached[input::kMaxPads] = {};  // controllers 1..3 announced to the stream
+    uint64_t padsCheckedAt = 0;  // false from the menu/keyboard until the buttons are let go
     uint32_t overlaySeq = 0;  // g_infoSeq + 1 when drawn; 0 = redraw
     uint64_t homeSince = 0, launchSince = 0;
     bool uiSaved = false, launchSaved = false;
@@ -753,6 +788,10 @@ int main(int argc, char** argv) {
         // Autoplay runs unattended: the physical pad must not interfere.
         if (!g_autoplayTitle.empty()) pad = input::ControllerState{};
         uint64_t now = platform::nowMs();
+        if (now - padsCheckedAt >= 1000) {  // other players signing in or out
+            padsCheckedAt = now;
+            input::refreshPads();
+        }
         if (!g_keyboardFor.empty() && g_ui->screen() != ui::Screen::Streaming) updateTextInput(nullptr);
 
         ui::NavInput nav;
@@ -797,6 +836,7 @@ int main(int argc, char** argv) {
             std::lock_guard<std::mutex> lock(g_playerMutex);
             if (g_player != overlayPlayer) {  // a new stream
                 overlayPlayer = g_player;
+                for (bool& a : padAttached) a = false;
                 menu.close();
                 std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
                 streamResolution = g_settings.resolution == "720p" ? 1 : g_settings.resolution == "1440p" ? 2 : 0;
@@ -810,6 +850,7 @@ int main(int argc, char** argv) {
                 // OPTIONS + TOUCHPAD opens the menu (and closes it again).
                 bool wasOpen = menu.isOpen();
                 if (!wasOpen && menuCombo && g_keyboardFor.empty()) {
+                    menu.setCircleConfirms(g_settings.circleConfirms);
                     menu.open(streamResolution, showStats, sharpness);
                     overlaySeq = 0;
                 } else if (wasOpen) {
@@ -851,6 +892,16 @@ int main(int argc, char** argv) {
                 else if (!held) padReleased = true;
                 if (!padReleased || menuCombo) sent = input::ControllerState{};
                 g_player->sendInput(sent);
+                // The other players' controllers, straight to the game.
+                for (int i = 1; i < input::kMaxPads; ++i) {
+                    input::ControllerState other;
+                    bool on = input::pollPad(i, other);
+                    if (on != padAttached[i]) {
+                        padAttached[i] = on;
+                        g_player->setPadConnected(i, on);
+                    }
+                    if (on) g_player->sendInput(other, i);
+                }
             }
             // The overlay: the menu, else the statistics line, redrawn when
             // the numbers or the menu change.
@@ -917,10 +968,14 @@ int main(int argc, char** argv) {
                                             : ev.settings.resolution == 2 ? "1440p"
                                                                           : "1080p";
                     g_settings.region = ev.settings.region;
+                    g_settings.deadzone = ui::kDeadzonePercent[ev.settings.deadzone];
+                    g_settings.triggerRumble = ev.settings.triggerRumble;
+                    g_settings.circleConfirms = ev.settings.circleConfirms;
                     if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
                     XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
                             g_settings.region.empty() ? "auto" : g_settings.region.c_str());
                 }
+                applyControllerSettings();
                 // Row titles and game details come from the catalog in the
                 // chosen language.
                 if (languageChanged) g_command = kReloadLibrary;
