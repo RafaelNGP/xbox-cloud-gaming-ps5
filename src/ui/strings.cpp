@@ -176,6 +176,7 @@ constexpr Column kEnglish = {
     "The stream was ended on the Xbox",               // EndedOnXbox
     "Another device took over the stream",            // EndedByOtherDevice
     "The Xbox was turned off",                        // EndedXboxOff
+    "%s got the request but its Remote Play didn't start. Restart the Xbox (Xbox button > Profile & system > Power > Restart console), then try again.", // StreamingStuck
 };
 
 constexpr Column kPortugueseBR = {
@@ -322,6 +323,7 @@ constexpr Column kPortugueseBR = {
     "A transmissão foi encerrada no Xbox",
     "Outro aparelho assumiu a transmissão",
     "O Xbox foi desligado",
+    "%s recebeu o pedido, mas o jogo remoto dele não iniciou. Reinicie o Xbox (botão Xbox > Perfil e sistema > Energia > Reiniciar o console) e tente de novo.",
 };
 
 constexpr Column kSpanish = {
@@ -468,6 +470,7 @@ constexpr Column kSpanish = {
     "La transmisión se terminó en la Xbox",
     "Otro dispositivo tomó la transmisión",
     "La Xbox se apagó",
+    "%s recibió la solicitud, pero su juego remoto no se inició. Reinicia la Xbox (botón Xbox > Perfil y sistema > Energía > Reiniciar la consola) y vuelve a intentarlo.",
 };
 
 constexpr Column kFrench = {
@@ -614,6 +617,7 @@ constexpr Column kFrench = {
     "La diffusion a été arrêtée sur la Xbox",
     "Un autre appareil a repris la diffusion",
     "La Xbox a été éteinte",
+    "%s a reçu la demande, mais son jeu à distance n'a pas démarré. Redémarrez la Xbox (bouton Xbox > Profil et système > Alimentation > Redémarrer la console), puis réessayez.",
 };
 
 constexpr Column kGerman = {
@@ -760,6 +764,7 @@ constexpr Column kGerman = {
     "Das Streaming wurde auf der Xbox beendet",
     "Ein anderes Gerät hat das Streaming übernommen",
     "Die Xbox wurde ausgeschaltet",
+    "%s hat die Anfrage erhalten, aber Remote Play ist nicht gestartet. Starte die Xbox neu (Xbox-Taste > Profil & System > Energie > Konsole neu starten) und versuche es erneut.",
 };
 
 constexpr Column kItalian = {
@@ -906,6 +911,7 @@ constexpr Column kItalian = {
     "Lo streaming è stato terminato sulla Xbox",
     "Un altro dispositivo ha preso lo streaming",
     "La Xbox è stata spenta",
+    "%s ha ricevuto la richiesta, ma il gioco remoto non è partito. Riavvia la Xbox (pulsante Xbox > Profilo e sistema > Alimentazione > Riavvia console) e riprova.",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

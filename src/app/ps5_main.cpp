@@ -774,8 +774,13 @@ void worker() {
                         XC_LOGI("%s", result.c_str());
                         if (!failed || result.find("WaitingForServerToRegister") == std::string::npos) break;
                     }
-                    if (failed && (result.find("WaitingForServerToRegister") != std::string::npos ||
-                                   result.find("ConsoleDidNotWake") != std::string::npos))
+                    if (failed && result.find("Cloud Streaming Service to be ready") != std::string::npos)
+                        // Reached the Xbox, but its streaming service is stuck
+                        // (after "Turn off" mid-stream, it stayed on and never
+                        // streamed again until restarted).
+                        g_ui->showPlayError(ui::trf(ui::Str::StreamingStuck, tile.name), tile);
+                    else if (failed && (result.find("WaitingForServerToRegister") != std::string::npos ||
+                                        result.find("ConsoleDidNotWake") != std::string::npos))
                         g_ui->showPlayError(ui::trf(ui::Str::WakeFailed, tile.name), tile);
                     else if (failed)
                         g_ui->showPlayError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result, tile);

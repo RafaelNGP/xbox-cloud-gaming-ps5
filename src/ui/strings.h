@@ -153,6 +153,7 @@ enum class Str {
     EndedOnXbox,        // toast: the Xbox ended the stream
     EndedByOtherDevice, // toast: another device took the stream over
     EndedXboxOff,       // toast: the Xbox was turned off during the stream
+    StreamingStuck,     // "%s" = the console: its Remote Play service didn't start
     Count
 };
 
