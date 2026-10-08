@@ -37,6 +37,11 @@ public:
     void answerTextInput(const std::string& id, bool accepted, const std::string& text);
     // A new key frame (a clean picture), as after packet loss.
     void requestKeyframe();
+    // How many times the stream reconnected after losing the connection (a
+    // new session: controllers 1..3 must be announced again).
+    uint32_t reconnects() const;
+    // Test hook: drops the connection as a network outage would.
+    void simulateDrop();
     // Another stream tier mid-session: "720", "720HQ", "1080", "1080HQ", "1440".
     void requestResolution(const std::string& alias);
     // Keepalives etc.; about once a second from the thread owning `gssv`.

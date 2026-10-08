@@ -144,7 +144,8 @@ void updateTextInput(app::StreamPlayer* player) {
 // decoded frames and logs "AUTOPLAY END". Options, comma-separated: nosimd,
 // dump, repeat, idle (no A presses), threads=N (H.264 decoder threads),
 // rumbletest (rumbles the pad for 1.5 s at start), triggertest (the triggers
-// for 3 s), vibetest (each motor and trigger alone, announced, no game), detailtest (opens a game to
+// for 3 s), vibetest (each motor and trigger alone, announced, no game),
+// droptest (the connection dropped at 20 s: the stream reconnects), detailtest (opens a game to
 // buy far down the list instead of playing, saves detail.ppm), imetest (opens
 // the system keyboard on the home screen), menutest (in the game: the menu,
 // 720p, back to 1080p), res=720p|1080p|1080p-hq|1440p, sharp=0..3 and
@@ -160,6 +161,7 @@ bool g_autoplayDetailTest = false;  // open a game to buy far down the list, sav
 bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25 s
 bool g_autoplayVkTest = false;       // the GPU presenting instead of the CPU display
 bool g_autoplayCpuDisplay = false;
+bool g_autoplayDropTest = false;     // droptest: the connection dropped at 20 s
 bool g_autoplayHwDecode = false;     // hwdecode: the hardware decoder alongside, logged   // the CPU display even where the GPU comes up
 bool g_autoplayVibeTest = false;     // each motor alone, with a notification
 bool g_autoplayImeTest = false;      // open the system keyboard on the home screen
@@ -193,6 +195,7 @@ void loadAutoplay() {
         if (opt == "vktest") g_autoplayVkTest = true;
         if (opt == "cpudisplay") g_autoplayCpuDisplay = true;
         if (opt == "hwdecode") g_autoplayHwDecode = true;
+        if (opt == "droptest") g_autoplayDropTest = true;
         if (opt.rfind("swap=", 0) == 0) display::gpu::setSwapImages(std::atoi(opt.c_str() + 5));
         if (opt == "nopace") display::gpu::setPresentWait(false);
         if (opt == "detailtest") g_autoplayDetailTest = true;
@@ -292,6 +295,11 @@ std::string stream(xcloud::GssvClient& gssv) {
             }
             bool press = !g_autoplayIdle && ((elapsed >= 15000 && elapsed < 15300) || (elapsed >= 20000 && elapsed < 20300));
             if (press != g_syntheticA.exchange(press)) XC_LOGI("autoplay: A %s", press ? "down" : "up");
+            static bool dropped = false;
+            if (g_autoplayDropTest && !dropped && elapsed >= 20000) {
+                dropped = true;
+                player.simulateDrop();
+            }
             if (!snapshot2 && elapsed >= 26000) {
                 snapshot2 = true;
                 player.requestSnapshot(platform::dataDir() + "/frame2.ppm");
@@ -802,6 +810,7 @@ int main(int argc, char** argv) {
     static constexpr int kSharpAmount[] = {0, 96, 176, 256};
     bool padReleased = true;
     bool padAttached[input::kMaxPads] = {};  // controllers 1..3 announced to the stream
+    uint32_t playerReconnects = 0;
     uint64_t padsCheckedAt = 0;
     unsigned padChecks = 0;  // false from the menu/keyboard until the buttons are let go
     uint32_t overlaySeq = 0;  // g_infoSeq + 1 when drawn; 0 = redraw
@@ -869,9 +878,14 @@ int main(int argc, char** argv) {
 
         if (g_ui->screen() == ui::Screen::Streaming) {
             std::lock_guard<std::mutex> lock(g_playerMutex);
+            if (g_player != overlayPlayer || (g_player && g_player->reconnects() != playerReconnects)) {
+                // A new stream, or a new session after a reconnection: the
+                // other controllers are announced again.
+                for (bool& a : padAttached) a = false;
+                playerReconnects = g_player ? g_player->reconnects() : 0;
+            }
             if (g_player != overlayPlayer) {  // a new stream
                 overlayPlayer = g_player;
-                for (bool& a : padAttached) a = false;
                 menu.close();
                 std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
                 streamResolution = g_settings.resolution == "720p" ? 1 : g_settings.resolution == "1440p" ? 2 : 0;

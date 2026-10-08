@@ -39,8 +39,10 @@ struct StreamCallbacks {
     // own); `textInputCancelled` when the game withdraws one.
     std::function<void(const TextInputRequest&)> textInput;
     std::function<void(const std::string& id)> textInputCancelled;
-    // The stream ended (server disconnect, connection lost). Called once.
-    std::function<void(const std::string& reason)> closed;
+    // The stream ended. Called once. `recoverable`: the connection was lost
+    // (the cloud session may still be there to reconnect to); false when
+    // the server ended it (idle kick, the game closed).
+    std::function<void(const std::string& reason, bool recoverable)> closed;
 };
 
 struct StreamOptions {
@@ -65,6 +67,10 @@ struct StreamOptions {
 // port it embeds. Returns false for anything else.
 bool decodeTeredo(const std::string& ipv6, std::string& ipv4, int& port);
 
+// Milliseconds on a clock shared by every session of the process (input and
+// frame reports carry it; it must not restart when a session reconnects).
+double clockMs();
+
 class StreamSession {
 public:
     StreamSession(xcloud::GssvClient& gssv, StreamCallbacks callbacks, StreamOptions options = {});
@@ -82,8 +88,10 @@ public:
     void requestKeyframe();
     // A frame shown: its timings go back to the server (see FrameMetadata).
     void reportFrame(const FrameMetadata& frame);
-    // The clock FrameMetadata times are on, in ms.
+    // The clock FrameMetadata times are on, in ms (stream::clockMs()).
     double clockMs() const;
+    // Test hook: drops the connection as a network outage would.
+    void simulateDrop();
     void completeTextInput(const std::string& id, const std::string& text);
     void cancelTextInput(const std::string& id);
     // Another stream tier mid-session (StreamOptions::resolutionAlias).

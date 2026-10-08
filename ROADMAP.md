@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-08, after v0.5.0.
+Last update: 2026-10-08, after v0.5.0 (items 1-3 on the way to v0.6.0).
 
 ## Now
 
@@ -35,14 +35,17 @@ CPU, as BlackBearReloaded's research measured too. So no latency gain at
   logs it), with the PS5's own structure layouts and memory types.
 - Becomes the way to go if 1440p / 4K or HEVC streams are ever granted.
 
-### 3. Reconnect after a network drop — next
-When the connection drops, the stream ends and the app returns home, though
-the cloud session stays alive on the server for a few minutes.
+### 3. Reconnect after a network drop — done (v0.6.0)
+As the xbox.com client does: when the connection drops (a data channel or
+WebRTC fails, or no video packet for 3 s), the stream tries again up to 20
+times a second apart; each time it checks that the cloud session is still
+`Provisioned` / `ReadyToConnect` and opens a new WebRTC connection on it.
+The game goes on where it was. The server ending the session (idle kick,
+the game closed) still ends the stream.
 
-- Detect the drop (data channels closed / no RTP for N seconds), show
-  "Reconnecting...", and connect to the same session again (new WebRTC
-  negotiation) without restarting the game.
-- Done when unplugging the network for ~10 s brings the same game back.
+- Console test (autoplay `droptest`, the connection dropped at 20 s):
+  reconnected on the first attempt, ~8 s of frozen picture, then 60 fps again.
+- To check by hand: a real outage (cable out / Wi-Fi off for ~10 s).
 
 ## Next
 

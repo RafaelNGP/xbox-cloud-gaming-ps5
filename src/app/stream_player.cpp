@@ -35,7 +35,23 @@ constexpr int kMaxFullStreak = 30;  // frames shown one refresh late before drop
 
 struct StreamPlayer::Impl {
     xcloud::GssvClient& gssv;
-    std::unique_ptr<stream::StreamSession> session;
+    // The WebRTC session: replaced when the connection drops and the stream
+    // reconnects (worker thread), read by the video, input and main threads.
+    mutable std::mutex sessionMutex;
+    std::shared_ptr<stream::StreamSession> session;
+    std::shared_ptr<stream::StreamSession> current() const {
+        std::lock_guard<std::mutex> lock(sessionMutex);
+        return session;
+    }
+    stream::StreamCallbacks callbacks;
+    stream::StreamOptions options;
+    // Reconnecting after a lost connection, as the xbox.com client does: up
+    // to 20 attempts a second apart while the cloud session is still there.
+    std::atomic<bool> reconnecting{false};
+    int reconnectAttempts = 0;
+    std::atomic<uint32_t> reconnects{0};
+    uint64_t lastRtpPackets = 0;
+    int silentTicks = 0;
 
     std::mutex mutex;
     std::condition_variable cv;
@@ -177,7 +193,7 @@ struct StreamPlayer::Impl {
             stream::FrameMetadata meta;
             meta.serverDataKey = frame.rtpTimestamp;
             meta.firstPacketArrivalMs = frame.arrivalMs;
-            meta.submittedMs = session->clockMs();
+            meta.submittedMs = stream::clockMs();
             inFlight.push_back(meta);
             if (inFlight.size() > 16) inFlight.pop_front();
             uint64_t t0 = platform::nowUs();
@@ -192,7 +208,7 @@ struct StreamPlayer::Impl {
                         known = true;
                         break;
                     }
-                meta.decodedMs = session->clockMs();
+                meta.decodedMs = stream::clockMs();
             }
             decodeUs += t1 - t0;
             ++decodeCalls;
@@ -259,8 +275,8 @@ struct StreamPlayer::Impl {
                     }
                 }
             }
-            meta.renderedMs = session->clockMs();
-            if (known) session->reportFrame(meta);
+            meta.renderedMs = stream::clockMs();
+            if (auto s = current(); s && known) s->reportFrame(meta);
             if (decodedFrames % 600 == 1)
                 XC_LOGI("frame %u: queued %.1f, decoded %.1f, shown %.1f ms after arrival", meta.serverDataKey,
                         meta.submittedMs - meta.firstPacketArrivalMs, meta.decodedMs - meta.firstPacketArrivalMs,
@@ -291,7 +307,7 @@ struct StreamPlayer::Impl {
                 frames.clear();
                 keyframeWanted = true;
             }
-            frames.push_back({std::vector<uint8_t>(d, d + n), rtpTimestamp, session->clockMs(), platform::nowUs()});
+            frames.push_back({std::vector<uint8_t>(d, d + n), rtpTimestamp, stream::clockMs(), platform::nowUs()});
             cv.notify_one();
         };
         cb.audio = [this](const uint8_t* d, size_t n, uint32_t) {
@@ -317,7 +333,15 @@ struct StreamPlayer::Impl {
         cb.idleWarning = [](int seconds) {
             platform::notify(ui::trf(ui::Str::IdleWarning, std::to_string(seconds)));
         };
-        cb.closed = [this](const std::string& reason) { end(reason); };
+        cb.closed = [this](const std::string& reason, bool recoverable) {
+            // A lost connection: the worker's tick() reconnects. The server
+            // ending the session (or no game left) ends the stream.
+            if (recoverable && running) {
+                if (!reconnecting.exchange(true)) XC_LOGW("connection lost (%s): reconnecting", reason.c_str());
+            } else {
+                end(reason);
+            }
+        };
         // With the console's keyboard, the game's text fields use it;
         // otherwise the server draws the Xbox keyboard into the picture.
         if (platform::systemKeyboardAvailable()) {
@@ -347,7 +371,12 @@ struct StreamPlayer::Impl {
                           : gssv.resolution() == xcloud::Resolution::P1080HQ ? 30000000
                                                                            : 25000000;
         if (const char* loss = std::getenv("XC_SIM_LOSS")) opts.simulatedVideoLoss = std::atoi(loss);
-        session = std::make_unique<stream::StreamSession>(gssv, cb, opts);
+        callbacks = cb;
+        options = opts;
+        {
+            std::lock_guard<std::mutex> lock(sessionMutex);
+            session = std::make_shared<stream::StreamSession>(gssv, cb, opts);
+        }
         running = true;
         if (!platform::startThread(videoThread, [this] { videoLoop(); }) ||
             !platform::startThread(audioThread, [this] { audioLoop(); }, 1u << 20)) {
@@ -355,11 +384,59 @@ struct StreamPlayer::Impl {
             running = false;
             return false;
         }
-        if (!session->start(err)) {
+        if (!current()->start(err)) {
             end(err);
             return false;
         }
         return true;
+    }
+
+    // One reconnection attempt (worker thread, from tick()).
+    void reconnect() {
+        if (reconnectAttempts == 0) platform::notify(ui::tr(ui::Str::Reconnecting));
+        if (++reconnectAttempts > 20) {
+            end("the connection was lost and couldn't be restored");
+            return;
+        }
+        // Only while the cloud session is still there to connect to.
+        xcloud::SessionStatus status;
+        std::string err;
+        if (!gssv.sessionState(status, err)) {
+            XC_LOGW("reconnect %d: no session state (%s)", reconnectAttempts, err.c_str());
+            return;  // the network may not be back yet
+        }
+        if (status.state != xcloud::SessionState::Provisioned && status.state != xcloud::SessionState::ReadyToConnect) {
+            end("the session ended on the server while reconnecting (" + status.raw + ")");
+            return;
+        }
+        std::shared_ptr<stream::StreamSession> old;
+        {
+            std::lock_guard<std::mutex> lock(sessionMutex);
+            old.swap(session);
+        }
+        if (old) old->close();
+        old.reset();
+        stream::StreamOptions opts = options;
+        opts.connectTimeoutMs = 8000;
+        auto next = std::make_shared<stream::StreamSession>(gssv, callbacks, opts);
+        // Cleared first: the new session's own failure must count again.
+        reconnecting = false;
+        if (!next->start(err)) {
+            XC_LOGW("reconnect %d failed: %s", reconnectAttempts, err.c_str());
+            reconnecting = true;
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(sessionMutex);
+            session = next;
+        }
+        XC_LOGI("reconnected after %d attempt(s)", reconnectAttempts);
+        reconnectAttempts = 0;
+        silentTicks = 0;
+        lastRtpPackets = 0;
+        ++reconnects;
+        keyframeWanted = true;
+        platform::notify(ui::tr(ui::Str::Reconnected));
     }
 
     // Returns true when a snapshot was taken: the caller then saves what the
@@ -406,24 +483,41 @@ struct StreamPlayer::Impl {
     // Video thread only (data channel sends are thread-safe).
     void requestKeyframeIfWanted() {
         uint64_t now = platform::nowMs();
-        if (keyframeWanted && now - lastKeyframeRequestMs > 500 && session) {
+        if (keyframeWanted && now - lastKeyframeRequestMs > 500) {
+            auto s = current();
+            if (!s) return;
             keyframeWanted = false;
             lastKeyframeRequestMs = now;
             ++keyframeRequests;
-            session->requestKeyframe();
+            s->requestKeyframe();
         }
     }
 
+    // About once a second (worker thread).
     void tick() {
-        if (session) session->tick();
+        if (!running) return;
+        if (reconnecting) return reconnect();
+        auto s = current();
+        if (!s) return;
+        s->tick();
+        // xCloud sends video all the time, even for a still picture: three
+        // seconds without a packet is a dead connection, long before WebRTC
+        // notices.
+        uint64_t packets = s->videoStats().packets;
+        silentTicks = packets == lastRtpPackets ? silentTicks + 1 : 0;
+        lastRtpPackets = packets;
+        if (silentTicks >= 3 && !reconnecting.exchange(true)) XC_LOGW("no video for 3 s: reconnecting");
     }
 
     void stop() {
         end("stopped");
-        if (session) session->close();
+        if (auto s = current()) s->close();
         if (videoThread.joinable()) videoThread.join();
         if (audioThread.joinable()) audioThread.join();
-        session.reset();
+        {
+            std::lock_guard<std::mutex> lock(sessionMutex);
+            session.reset();
+        }
         media::audioStop();
         for (int i = 0; i < input::kMaxPads; ++i) {
             input::setRumble(0, 0, 0, i);
@@ -444,7 +538,8 @@ std::string StreamPlayer::endReason() const {
 }
 
 void StreamPlayer::sendInput(const input::ControllerState& p, int index) {
-    if (!impl_->session || !impl_->running) return;
+    auto s = impl_->current();
+    if (!s || !impl_->running) return;
     stream::GamepadFrame f;
     f.index = static_cast<uint8_t>(index);
     auto set = [&](bool on, uint16_t bit) {
@@ -470,11 +565,11 @@ void StreamPlayer::sendInput(const input::ControllerState& p, int index) {
     f.rightY = -p.rightStickY;
     f.leftTrigger = p.triggerL2;
     f.rightTrigger = p.triggerR2;
-    impl_->session->sendGamepad(f);
+    s->sendGamepad(f);
 }
 
 void StreamPlayer::setPadConnected(int index, bool connected) {
-    if (impl_->session && impl_->running) impl_->session->setGamepadConnected(index, connected);
+    if (auto s = impl_->current(); s && impl_->running) s->setGamepadConnected(index, connected);
 }
 
 bool StreamPlayer::takeTextInput(stream::TextInputRequest& out) {
@@ -493,18 +588,25 @@ bool StreamPlayer::textInputWithdrawn(const std::string& id) {
 }
 
 void StreamPlayer::answerTextInput(const std::string& id, bool accepted, const std::string& text) {
-    if (textInputWithdrawn(id) || !impl_->session) return;
+    auto s = impl_->current();
+    if (textInputWithdrawn(id) || !s) return;
     XC_LOGI("text input %s", accepted ? "sent" : "cancelled");
     if (accepted)
-        impl_->session->completeTextInput(id, text);
+        s->completeTextInput(id, text);
     else
-        impl_->session->cancelTextInput(id);
+        s->cancelTextInput(id);
 }
 
 void StreamPlayer::requestKeyframe() { impl_->keyframeWanted = true; }
 
+uint32_t StreamPlayer::reconnects() const { return impl_->reconnects; }
+
+void StreamPlayer::simulateDrop() {
+    if (auto s = impl_->current()) s->simulateDrop();
+}
+
 void StreamPlayer::requestResolution(const std::string& alias) {
-    if (impl_->session) impl_->session->requestResolution(alias);
+    if (auto s = impl_->current()) s->requestResolution(alias);
 }
 
 void StreamPlayer::tick() { impl_->tick(); }
@@ -549,8 +651,8 @@ StreamPlayer::Stats StreamPlayer::stats() const {
     uint64_t dn = impl_->displayCount.exchange(0), du2 = impl_->displayUs.exchange(0);
     st.displayAvgUs = dn ? du2 / dn : 0;
     st.displayMaxUs = impl_->displayMaxUs.exchange(0);
-    if (impl_->session) {  // the caller's thread is the one that stops the player
-        const auto& v = impl_->session->videoStats();
+    if (auto s = impl_->current()) {
+        const auto& v = s->videoStats();
         st.rtpPackets = v.packets;
         st.rtpLost = v.lost;
         st.rtpRecovered = v.recovered;
@@ -558,7 +660,7 @@ StreamPlayer::Stats StreamPlayer::stats() const {
         st.rtpDroppedFrames = v.framesDropped;
         st.keyframeRequests += v.keyframeRequests;
         st.rtpKbps = v.receiveRate / 1000;
-        st.rttMs = impl_->session->rttMs();
+        st.rttMs = s->rttMs();
         st.rembKbps = v.estimate / 1000;
     }
     {

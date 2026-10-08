@@ -192,7 +192,7 @@ int cmdStream(auth::AuthManager& am, const std::string& titleId, int seconds, co
     cb.vibration = [](const stream::Vibration& v) {
         XC_LOGI("rumble %u/%u for %ums", v.leftMotor, v.rightMotor, v.durationMs);
     };
-    cb.closed = [&](const std::string&) { closed = true; };
+    cb.closed = [&](const std::string&, bool) { closed = true; };
 
     int rc = 1;
     {
