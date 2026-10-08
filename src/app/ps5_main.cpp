@@ -186,9 +186,10 @@ int g_autoplayDeband = -1;            // deband=0..3: instead of the setting
 
 // Block smoothing "auto": the level for a bitrate (Mbps) coming from `now`,
 // stronger as it falls (high below ~5 Mbps, off above ~10). A 1 Mbps margin
-// each way keeps a bitrate near a limit from flipping it; -1 = no measure.
+// each way keeps a bitrate near a limit from flipping it; -1 = no measure
+// (below 0.5 Mbps: the stream is starting, or the picture is standing still).
 int debandForMbps(double mbps, int now) {
-    if (mbps <= 0) return -1;
+    if (mbps < 0.5) return -1;
     if (now == 2) return mbps >= 6 ? (mbps >= 11 ? 0 : 1) : 2;
     if (now == 1) return mbps < 4 ? 2 : mbps >= 11 ? 0 : 1;
     return mbps < 4 ? 2 : mbps < 9 ? 1 : 0;
