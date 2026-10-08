@@ -307,6 +307,8 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
         app.setRows(library.rows());
         app.setOwned(library.owned(), library.purchasable(), library.ownedKnown());
         app.setSearchPools(library.gamePassSearchPool(), library.librarySearchPool());
+        auto p = library.progress();
+        app.setLoading(p.active, p.done, p.total);
     };
     if (!library.load(gssv, ui::catalogLanguage(), onRows, err)) {
         XC_LOGE("%s", err.c_str());
@@ -352,10 +354,11 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
             std::string e;
             xcloud::fetchPrices(app.pricesWanted(40), gssv.session().market.empty() ? "US" : gssv.session().market,
                                 ui::catalogLanguage(), got, e);
-            std::map<std::string, std::pair<std::string, std::string>> texts;
+            std::map<std::string, ui::PriceInfo> texts;
             for (const auto& [id, p] : got)
                 texts[id] = {p.list < 0.005 ? ui::tr(ui::Str::Free) : xcloud::formatPrice(p.list, p.currency),
-                             p.msrp > p.list + 0.005 ? xcloud::formatPrice(p.msrp, p.currency) : std::string()};
+                             p.msrp > p.list + 0.005 ? xcloud::formatPrice(p.msrp, p.currency) : std::string(), p.list,
+                             p.msrp};
             app.setPrices(texts);
         }
         save("library_buy", 3000);
@@ -587,7 +590,8 @@ int main(int argc, char** argv) {
         save("settings_resolution");
         return 0;
     } else if (cmd == "ui-badges" && argi < argc) {
-        // Offline: cards with every badge, to check their layout.
+        // Offline: "Your games" with every badge, hiding, sorting and the
+        // search filters, with made-up games. PNGs into the given directory.
         ui::Fonts fonts;
         if (!fonts.load("assets/fonts")) return 1;
         ui::ImageCache images([] {});
@@ -595,32 +599,86 @@ int main(int argc, char** argv) {
         ui::Canvas canvas(1920, 1080);
         std::vector<ui::GameTile> owned, buy;
         const char* platforms[] = {"XS", "ONE", "360"};
+        const char* names[] = {"Zeta", "Alpha", "Mango", "Bravo", "Kilo", "Delta"};
         for (int i = 0; i < 6; ++i) {
             ui::GameTile t;
             t.productId = "OWNED" + std::to_string(i);
             t.titleId = t.productId;
-            t.name = "Owned game " + std::to_string(i);
+            t.name = std::string(names[i]) + " owned";
             t.platform = platforms[i % 3];
             owned.push_back(t);
             t.productId = "BUY" + std::to_string(i);
             t.titleId = t.productId;
-            t.name = "Game to buy " + std::to_string(i);
+            t.name = std::string(names[i]) + " to buy";
             t.playable = false;
             t.purchasable = true;
+            t.freeInStore = i == 2;
             buy.push_back(t);
         }
+        std::vector<ui::GameTile> pool = owned;
+        pool.insert(pool.end(), buy.begin(), buy.end());
         app.setOwned(owned, buy, true);
-        app.setPrices({{"BUY0", {"R$ 56,98", "R$ 284,90"}}, {"BUY1", {"R$ 199,99", ""}}, {"BUY2", {"GR\xC3\x81TIS", ""}},
-                       {"BUY3", {"R$ 1.299,90", ""}}});
+        app.setSearchPools({}, pool);
+        app.setPrices({{"BUY0", {"R$ 56,98", "R$ 284,90", 56.98, 284.9}},
+                       {"BUY1", {"R$ 199,99", "", 199.99, 199.99}},
+                       {"BUY2", {"GR\xC3\x81TIS", "", 0, 0}},
+                       {"BUY3", {"R$ 1.299,90", "", 1299.9, 1299.9}},
+                       {"BUY4", {"R$ 20,00", "R$ 40,00", 20, 40}},
+                       {"BUY5", {"GR\xC3\x81TIS", "R$ 99,90", 0, 99.9}}});  // a giveaway
         app.showHome();
-        ui::NavInput r1;
-        r1.r1 = true;
-        app.handle(r1);
-        app.render(canvas, 1000);
-        app.render(canvas, 2000);
-        std::string path = argv[argi];
-        stbi_write_png(path.c_str(), canvas.width(), canvas.height(), 4, canvas.data(), canvas.width() * 4);
-        std::printf("wrote %s\n", path.c_str());
+        auto press = [&](auto set, int times = 1) {
+            for (int i = 0; i < times; ++i) {
+                ui::NavInput n;
+                set(n);
+                app.handle(n);
+            }
+        };
+        uint64_t clock = 1000;
+        auto save = [&](const std::string& name) {
+            app.render(canvas, clock += 1000);
+            app.render(canvas, clock += 1000);
+            std::string path = std::string(argv[argi]) + "/" + name + ".png";
+            stbi_write_png(path.c_str(), canvas.width(), canvas.height(), 4, canvas.data(), canvas.width() * 4);
+            std::printf("wrote %s\n", path.c_str());
+        };
+        press([](ui::NavInput& n) { n.r1 = true; });
+        save("badges");
+        press([](ui::NavInput& n) { n.right = true; }, 2);  // the third game
+        press([](ui::NavInput& n) { n.square = true; });    // hide it: the cursor stays there
+        save("library_hid_one");
+        press([](ui::NavInput& n) { n.r3 = true; }, 2);     // Recent -> A-Z -> By console, in place
+        save("library_console");
+        press([](ui::NavInput& n) { n.down = true; }, 3);  // down to "Hidden"
+        save("library_hidden");
+        press([](ui::NavInput& n) { n.up = true; }, 6);  // back to the top of Your games
+        press([](ui::NavInput& n) { n.r2 = true; }, 2);  // jump: to buy, then Hidden
+        save("library_r2");
+        {
+            // Game Pass: hide the second game of the first row; it goes to a
+            // "Hidden" row at the end of that tab.
+            ui::GameRow row;
+            row.title = "Recently added";
+            for (int i = 0; i < 4; ++i) {
+                ui::GameTile t;
+                t.productId = "GP" + std::to_string(i);
+                t.titleId = t.productId;
+                t.name = "Game Pass game " + std::to_string(i);
+                t.platform = platforms[i % 3];
+                row.tiles.push_back(t);
+            }
+            app.setRows({row});
+            press([](ui::NavInput& n) { n.l1 = true; });
+            press([](ui::NavInput& n) { n.right = true; });
+            press([](ui::NavInput& n) { n.square = true; });
+            press([](ui::NavInput& n) { n.down = true; });
+            save("gamepass_hidden");
+            press([](ui::NavInput& n) { n.r1 = true; });
+        }
+        press([](ui::NavInput& n) { n.triangle = true; });  // search "Your games"
+        press([](ui::NavInput& n) { n.down = true; }, 7);   // the filter row
+        press([](ui::NavInput& n) { n.right = true; });     // "Lowest price"
+        press([](ui::NavInput& n) { n.accept = true; });
+        save("search_cheapest");
         return 0;
     } else if (cmd == "ui-preview" && argi < argc) {
         rc = cmdUiPreview(am, argv[argi]);

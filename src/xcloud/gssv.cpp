@@ -236,6 +236,7 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
             title.productId = t["details"]["productId"].str();
             title.hasEntitlement = t["details"]["hasEntitlement"].asBool();
             title.xboxTitleId = t["details"]["xboxTitleId"].str();
+            title.isFreeInStore = t["details"]["isFreeInStore"].asBool();
             if (!title.titleId.empty()) out.push_back(std::move(title));
         }
         continuation = recentOnly ? std::string() : (*j)["continuationToken"].str();

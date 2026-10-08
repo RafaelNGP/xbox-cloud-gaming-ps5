@@ -37,6 +37,7 @@ struct Title {
     std::string imageUrl;   // box art / tile
     bool hasEntitlement = false;
     std::string xboxTitleId;  // Xbox Live title id (titlehub)
+    bool isFreeInStore = false;
 };
 
 enum class SessionState { Unknown, Provisioning, WaitingForResources, ReadyToConnect, Provisioned, Failed };

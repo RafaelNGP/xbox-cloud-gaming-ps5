@@ -85,6 +85,7 @@ bool g_autoplayDump = false;
 int g_autoplayRuns = 1;
 bool g_autoplayIdle = false;
 bool g_autoplayDetailTest = false;  // open a game to buy far down the list, save its page
+bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25 s
 int g_decodeThreads = 1;
 std::atomic<bool> g_syntheticA{false};
 
@@ -107,6 +108,7 @@ void loadAutoplay() {
         if (opt == "idle") g_autoplayIdle = true;
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
         if (opt == "detailtest") g_autoplayDetailTest = true;
+        if (opt == "librarytest") g_autoplayLibraryTest = true;
         if (opt.rfind("threads=", 0) == 0) g_decodeThreads = std::atoi(opt.c_str() + 8);
     }
     g_autoplayTitle = title;
@@ -344,10 +346,13 @@ constexpr int64_t kPriceTtlSeconds = 24 * 3600;
 
 std::string pricesPath() { return platform::dataDir() + "/prices.json"; }
 
-std::pair<std::string, std::string> priceTexts(const xcloud::Price& p) {
-    std::string now = p.list < 0.005 ? ui::tr(ui::Str::Free) : xcloud::formatPrice(p.list, p.currency);
-    std::string was = p.msrp > p.list + 0.005 ? xcloud::formatPrice(p.msrp, p.currency) : std::string();
-    return {now, was};
+ui::PriceInfo priceTexts(const xcloud::Price& p) {
+    ui::PriceInfo info;
+    info.now = p.list < 0.005 ? ui::tr(ui::Str::Free) : xcloud::formatPrice(p.list, p.currency);
+    info.was = p.msrp > p.list + 0.005 ? xcloud::formatPrice(p.msrp, p.currency) : std::string();
+    info.list = p.list;
+    info.msrp = p.msrp;
+    return info;
 }
 
 void priceLoop() {
@@ -359,7 +364,7 @@ void priceLoop() {
     }
     // Fresh cached prices to the UI right away.
     int64_t now = static_cast<int64_t>(std::time(nullptr));
-    std::map<std::string, std::pair<std::string, std::string>> shown;
+    std::map<std::string, ui::PriceInfo> shown;
     json::Value kept = json::Value::object();
     for (const auto& [id, v] : cache.members()) {
         if (now - v["t"].asInt() > kPriceTtlSeconds) continue;
@@ -388,7 +393,7 @@ void priceLoop() {
             }
             XC_LOGI("details of %s: %s", id.c_str(), ok ? "ok" : err.empty() ? "not in the catalog" : err.c_str());
         }
-        std::vector<std::string> ids = market.empty() ? std::vector<std::string>() : g_ui->pricesWanted(20);
+        std::vector<std::string> ids = market.empty() ? std::vector<std::string>() : g_ui->pricesWanted(20, true);
         if (ids.empty()) {
             platform::sleepMs(300);
             continue;
@@ -396,7 +401,7 @@ void priceLoop() {
         std::map<std::string, xcloud::Price> got;
         std::string err;
         if (!xcloud::fetchPrices(ids, market, language, got, err)) XC_LOGW("%s", err.c_str());
-        std::map<std::string, std::pair<std::string, std::string>> texts;
+        std::map<std::string, ui::PriceInfo> texts;
         now = static_cast<int64_t>(std::time(nullptr));
         for (const auto& [id, p] : got) {
             texts[id] = priceTexts(p);
@@ -453,6 +458,8 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         g_ui->setRows(lib.rows());
         g_ui->setOwned(lib.owned(), lib.purchasable(), lib.ownedKnown());
         g_ui->setSearchPools(lib.gamePassSearchPool(), lib.librarySearchPool());
+        auto p = lib.progress();
+        g_ui->setLoading(p.active, p.done, p.total);
     };
     bool ok = library->load(gssv, ui::catalogLanguage(),
                             [&] {
@@ -485,7 +492,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         library->loadPlatforms(xblAuth, changed, &g_stopHydration);
         library->hydrate(changed, &g_stopHydration);
     });
-    if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH" && !g_autoplayDetailTest) {
+    if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH" && !g_autoplayDetailTest && !g_autoplayLibraryTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
         tile.titleId = g_autoplayTitle;
@@ -633,6 +640,9 @@ int main(int argc, char** argv) {
         choice.region = g_settings.region;
         g_ui->setSettings(choice);
         g_ui->setRegionLatency(g_settings.regionRtt);
+        g_ui->setPrefs(g_settings.hidden, g_settings.librarySort == "az"        ? ui::LibrarySort::AZ
+                                          : g_settings.librarySort == "console" ? ui::LibrarySort::Console
+                                                                                : ui::LibrarySort::Recent);
     }
     ui::Canvas canvas(display::kWidth, display::kHeight);
 
@@ -688,6 +698,9 @@ int main(int argc, char** argv) {
         nav.r1 = pad.btnR1 && !prev.btnR1;
         nav.square = pad.btnX && !prev.btnX;    // Square (Xbox X)
         nav.triangle = pad.btnY && !prev.btnY;  // Triangle (Xbox Y)
+        nav.r3 = pad.btnR3 && !prev.btnR3;
+        nav.l2 = pad.triggerL2 > 0.5f && prev.triggerL2 <= 0.5f;
+        nav.r2 = pad.triggerR2 > 0.5f && prev.triggerR2 <= 0.5f;
         nav.touchpad = pad.btnTouchpad;
         nav.nowMs = now;
         prev = pad;
@@ -706,6 +719,16 @@ int main(int argc, char** argv) {
                 break;
             case ui::Action::Retry: g_command = kSignIn; break;
             case ui::Action::CancelLaunch: g_cancel = true; break;
+            case ui::Action::PrefsChanged: {
+                std::lock_guard<std::mutex> lock(g_settingsMutex);
+                g_settings.hidden = ev.hidden;
+                g_settings.librarySort = ev.librarySort == ui::LibrarySort::AZ        ? "az"
+                                         : ev.librarySort == ui::LibrarySort::Console ? "console"
+                                                                                       : "recent";
+                if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
+                XC_LOGI("prefs saved: %zu hidden, sort %s", g_settings.hidden.size(), g_settings.librarySort.c_str());
+                break;
+            }
             case ui::Action::SettingsChanged: {
                 bool languageChanged;
                 {
@@ -747,6 +770,23 @@ int main(int argc, char** argv) {
             if (now - launchSince > 8000) {
                 launchSaved = true;
                 saveCanvas("launch.ppm");
+            }
+        }
+        if (g_autoplayLibraryTest && uiSaved) {
+            static uint64_t openedAt = 0;
+            static int saved = 0;
+            if (!openedAt) {
+                ui::NavInput r1;
+                r1.r1 = true;
+                g_ui->handle(r1);
+                openedAt = now;
+            } else if (saved == 0 && now - openedAt > 4000) {
+                saveCanvas("library.ppm");
+                saved = 1;
+            } else if (saved == 1 && now - openedAt > 25000) {
+                saveCanvas("library2.ppm");
+                g_autoplayLibraryTest = false;
+                XC_LOGI("AUTOPLAY END: library test");
             }
         }
         if (g_autoplayDetailTest && uiSaved) {

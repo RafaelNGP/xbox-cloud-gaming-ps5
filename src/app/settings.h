@@ -5,6 +5,7 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 namespace xc::app {
 
@@ -14,6 +15,10 @@ struct Settings {
     std::string region;                // gssv region name; empty = automatic
     // Round trip to the stream server measured in past sessions, per region (ms).
     std::map<std::string, int> regionRtt;
+    // Games hidden with Square (product ids), and the "Your games" order
+    // ("recent", "az", "console").
+    std::vector<std::string> hidden;
+    std::string librarySort = "recent";
 
     bool load(const std::string& path);
     bool save(const std::string& path) const;

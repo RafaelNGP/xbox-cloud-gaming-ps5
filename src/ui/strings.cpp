@@ -96,6 +96,24 @@ constexpr Column kEnglish = {
     "Scan to open the store page",                   // ScanToBuy
     "Search in %s",                                  // SearchIn
     "FREE",                                          // Free
+    "Hide",                                          // Hide
+    "Show",                                          // Unhide
+    "Hidden",                                        // HiddenSection
+    "Square shows a game again",                     // HiddenHint
+    "Hidden: find it under Hidden, at the end of this tab", // HiddenToast
+    "Shown again",                                   // UnhiddenToast
+    "Sort: %s",                                      // SortLabel
+    "Recent first",                                  // SortRecent
+    "A-Z",                                           // SortAZ
+    "By console",                                    // SortConsole
+    "Sort",                                          // SortHint
+    "Free",                                          // FilterFree
+    "Lowest price",                                  // FilterCheapest
+    "On sale",                                       // FilterSale
+    "All consoles",                                  // FilterAllConsoles
+    "1 game",                                        // OneGame
+    "Sections",                                      // Sections
+    "Updating the game list...",                     // UpdatingList
 };
 
 constexpr Column kPortugueseBR = {
@@ -162,6 +180,24 @@ constexpr Column kPortugueseBR = {
     "Escaneie para abrir a página da loja",
     "Pesquisar em %s",
     "GRÁTIS",
+    "Ocultar",
+    "Mostrar",
+    "Ocultos",
+    "\xE2\x96\xA1 mostra o jogo de novo",
+    "Oculto: veja em Ocultos, no fim desta aba",
+    "Visível de novo",
+    "Ordenar: %s",
+    "Recentes primeiro",
+    "A-Z",
+    "Por console",
+    "Ordenar",
+    "Grátis",
+    "Menor preço",
+    "Em promoção",
+    "Todos os consoles",
+    "1 jogo",
+    "Seções",
+    "Atualizando a lista de jogos...",
 };
 
 constexpr Column kSpanish = {
@@ -228,6 +264,24 @@ constexpr Column kSpanish = {
     "Escanea para abrir la página de la tienda",
     "Buscar en %s",
     "GRATIS",
+    "Ocultar",
+    "Mostrar",
+    "Ocultos",
+    "\xE2\x96\xA1 vuelve a mostrar un juego",
+    "Oculto: está en Ocultos, al final de esta pestaña",
+    "Visible de nuevo",
+    "Ordenar: %s",
+    "Recientes primero",
+    "A-Z",
+    "Por consola",
+    "Ordenar",
+    "Gratis",
+    "Menor precio",
+    "En oferta",
+    "Todas las consolas",
+    "1 juego",
+    "Secciones",
+    "Actualizando la lista de juegos...",
 };
 
 constexpr Column kFrench = {
@@ -294,6 +348,24 @@ constexpr Column kFrench = {
     "Scannez pour ouvrir la page du magasin",
     "Rechercher dans %s",
     "GRATUIT",
+    "Masquer",
+    "Afficher",
+    "Masqués",
+    "\xE2\x96\xA1 réaffiche un jeu",
+    "Masqué : voir Masqués, à la fin de cet onglet",
+    "De nouveau visible",
+    "Trier : %s",
+    "Récents d'abord",
+    "A-Z",
+    "Par console",
+    "Trier",
+    "Gratuit",
+    "Prix croissant",
+    "En promotion",
+    "Toutes les consoles",
+    "1 jeu",
+    "Sections",
+    "Mise \xC3\xA0 jour de la liste des jeux...",
 };
 
 constexpr Column kGerman = {
@@ -360,6 +432,24 @@ constexpr Column kGerman = {
     "Scannen, um die Store-Seite zu öffnen",
     "Suchen in %s",
     "KOSTENLOS",
+    "Ausblenden",
+    "Einblenden",
+    "Ausgeblendet",
+    "\xE2\x96\xA1 blendet ein Spiel wieder ein",
+    "Ausgeblendet: unter Ausgeblendet, am Ende dieses Tabs",
+    "Wieder sichtbar",
+    "Sortieren: %s",
+    "Zuletzt gespielt",
+    "A-Z",
+    "Nach Konsole",
+    "Sortieren",
+    "Kostenlos",
+    "Niedrigster Preis",
+    "Im Angebot",
+    "Alle Konsolen",
+    "1 Spiel",
+    "Abschnitte",
+    "Spieleliste wird aktualisiert...",
 };
 
 constexpr Column kItalian = {
@@ -426,6 +516,24 @@ constexpr Column kItalian = {
     "Scansiona per aprire la pagina dello store",
     "Cerca in %s",
     "GRATIS",
+    "Nascondi",
+    "Mostra",
+    "Nascosti",
+    "\xE2\x96\xA1 mostra di nuovo un gioco",
+    "Nascosto: lo trovi in Nascosti, in fondo a questa scheda",
+    "Di nuovo visibile",
+    "Ordina: %s",
+    "Recenti prima",
+    "A-Z",
+    "Per console",
+    "Ordina",
+    "Gratis",
+    "Prezzo più basso",
+    "In offerta",
+    "Tutte le console",
+    "1 gioco",
+    "Sezioni",
+    "Aggiornamento dell'elenco dei giochi...",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

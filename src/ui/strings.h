@@ -73,6 +73,24 @@ enum class Str {
     ScanToBuy,
     SearchIn,         // "%s" = tab name
     Free,             // price 0 (free-to-play games still "bought" in the store)
+    Hide,
+    Unhide,
+    HiddenSection,    // section of hidden games in "Your games"
+    HiddenHint,
+    HiddenToast,
+    UnhiddenToast,
+    SortLabel,        // "%s" = sort name
+    SortRecent,
+    SortAZ,
+    SortConsole,
+    SortHint,         // hint for R3
+    FilterFree,
+    FilterCheapest,
+    FilterSale,
+    FilterAllConsoles,
+    OneGame,          // GamesCount for exactly one
+    Sections,         // hint for L2 / R2: jump between sections
+    UpdatingList,     // the lists refresh in the background
     Count
 };
 

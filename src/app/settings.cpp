@@ -16,6 +16,10 @@ bool Settings::load(const std::string& path) {
     resolution = (*j)["resolution"].str(resolution);
     region = (*j)["region"].str(region);
     if (resolution != "720p" && resolution != "1440p") resolution = "1080p";
+    hidden.clear();
+    for (const auto& id : (*j)["hidden"].items())
+        if (!id.str().empty()) hidden.push_back(id.str());
+    librarySort = (*j)["librarySort"].str(librarySort);
     regionRtt.clear();
     for (const auto& [name, ms] : (*j)["regionRtt"].members())
         if (ms.asInt() > 0) regionRtt[name] = static_cast<int>(ms.asInt());
@@ -30,6 +34,10 @@ bool Settings::save(const std::string& path) const {
     json::Value rtt = json::Value::object();
     for (const auto& [name, ms] : regionRtt) rtt.set(name, ms);
     v.set("regionRtt", rtt);
+    json::Value hiddenIds = json::Value::array();
+    for (const auto& id : hidden) hiddenIds.push(id);
+    v.set("hidden", hiddenIds);
+    v.set("librarySort", librarySort);
     return platform::writeFileAtomic(path, v.dump());
 }
 
