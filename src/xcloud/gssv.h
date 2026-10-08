@@ -57,7 +57,9 @@ struct IceCandidate {
 
 // Stream resolution the service is asked for. It decides from the device the
 // client claims to be: a Windows desktop gets 1080p, other devices 720p.
-enum class Resolution { P1080, P720, P1440 };
+// P1080HQ: 1080p as a Samsung TV (Tizen) asks for it, which the service
+// streams at a higher bitrate (Better xCloud's "1080p (HQ)").
+enum class Resolution { P1080, P720, P1440, P1080HQ };
 
 class GssvClient {
 public:

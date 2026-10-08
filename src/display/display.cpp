@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <atomic>
 #include <condition_variable>
 #include <cstring>
@@ -236,6 +237,50 @@ struct YuvJob {
 
 inline uint8_t clamp8(int v) { return static_cast<uint8_t>(v < 0 ? 0 : v > 255 ? 255 : v); }
 
+// Sharpening: AMD FidelityFX CAS on the luma, cross-shaped (Better xCloud's
+// "Clarity boost"). How much of it is mixed in, of 256; 0 = off.
+std::atomic<int> g_sharpness{0};
+
+// CAS per pixel, by "amplitude" (0..256: how far the neighbourhood is from
+// clipping): the neighbour weight w (negative, 12-bit fixed point) and
+// 1 / (1 + 4w) (14-bit). Peak 5.6 = contrast 0.8, as Better xCloud.
+struct CasTable {
+    int32_t weight[257], norm[257];  // 12-bit, 14-bit
+    uint32_t recip[256];  // 65536 / max
+    CasTable() {
+        for (int a = 0; a <= 256; ++a) {
+            double w = -std::sqrt(a / 256.0) / 5.6;
+            weight[a] = static_cast<int32_t>(std::lround(w * 4096));
+            norm[a] = static_cast<int32_t>(std::lround(16384 / (1 + 4 * w)));
+        }
+        recip[0] = 0;
+        for (int m = 1; m < 256; ++m) recip[m] = 65536u / m;
+    }
+};
+const CasTable& casTable() {
+    static const CasTable t;
+    return t;
+}
+
+// The luma at (sx, sy), sharpened.
+inline int sharpenedLuma(const YuvJob& job, unsigned sx, unsigned sy, int amount) {
+    const uint8_t* row = job.y + sy * job.strideY;
+    int e = row[sx];
+    int l = row[sx > 0 ? sx - 1 : sx];
+    int r = row[sx + 1 < static_cast<unsigned>(job.width) ? sx + 1 : sx];
+    int u = (sy > 0 ? row - job.strideY : row)[sx];
+    int d = (sy + 1 < static_cast<unsigned>(job.height) ? row + job.strideY : row)[sx];
+    int mn = std::min(std::min(std::min(l, r), std::min(u, d)), e);
+    int mx = std::max(std::max(std::max(l, r), std::max(u, d)), e);
+    if (mx == 0) return e;
+    const CasTable& cas = casTable();
+    int amp = static_cast<int>((static_cast<uint32_t>(std::min(mn, 255 - mx)) * 256u * cas.recip[mx]) >> 16);
+    if (amp > 256) amp = 256;
+    int num = (e << 12) + (l + r + u + d) * cas.weight[amp];  // (e + w * window), 12-bit
+    int sharp = ((num >> 6) * cas.norm[amp]) >> 20;
+    return e + (((sharp - e) * amount) >> 8);
+}
+
 void convertTiles(const YuvJob& job, unsigned first, unsigned last) {
     const TileOrder& order = tileOrder();
     for (unsigned t = first; t < last; ++t) {
@@ -246,6 +291,7 @@ void convertTiles(const YuvJob& job, unsigned first, unsigned last) {
         if (ov && (static_cast<int>(tx * 128) >= ov->x + ov->w || static_cast<int>(tx * 128 + 128) <= ov->x ||
                    static_cast<int>(ty * 128) >= ov->y + ov->h || static_cast<int>(ty * 128 + 128) <= ov->y))
             ov = nullptr;
+        const int sharpness = g_sharpness.load(std::memory_order_relaxed);
         for (unsigned i = 0; i < 16384; ++i) {
             unsigned x = tx * 128 + order.dx[i];
             unsigned y = ty * 128 + order.dy[i];
@@ -254,8 +300,9 @@ void convertTiles(const YuvJob& job, unsigned first, unsigned last) {
                 continue;
             }
             unsigned sx = job.srcX[x], sy = job.srcY[y];
+            int luma = sharpness ? sharpenedLuma(job, sx, sy, sharpness) : job.y[sy * job.strideY + sx];
             // BT.709 limited range, 10-bit fixed point.
-            int c = (static_cast<int>(job.y[sy * job.strideY + sx]) - 16) * 1192;
+            int c = (luma - 16) * 1192;
             const uint8_t* u0 = job.u + job.cy0[y] * job.strideU;
             const uint8_t* u1 = job.u + job.cy1[y] * job.strideU;
             const uint8_t* v0 = job.v + job.cy0[y] * job.strideV;
@@ -284,10 +331,14 @@ void convertTiles(const YuvJob& job, unsigned first, unsigned last) {
 }
 
 // A few persistent workers that split the tiles of one picture.
+// Half the cores, up to 8: with sharpening on, 4 couldn't keep up at 60 fps.
+constexpr unsigned kMaxWorkers = 8;
 class TilePool {
 public:
     TilePool() {
-        unsigned n = std::max(1u, std::min(4u, std::thread::hardware_concurrency() / 2));
+        unsigned cores = std::thread::hardware_concurrency();
+        unsigned n = std::max(1u, std::min(kMaxWorkers, cores / 2));
+        XC_LOGI("display: %u cores, %u conversion threads", cores, n);
         for (unsigned i = 0; i < n; ++i) {
             workers_.emplace_back();
             platform::startThread(workers_.back(), [this, i, n] { loop(i, n); }, 256u << 10);
@@ -434,6 +485,8 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int stride
     return true;
 }
 
+void setSharpness(int amount) { g_sharpness = std::clamp(amount, 0, 256); }
+
 void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opacity) {
     std::shared_ptr<const Overlay> next;
     if (pixels && w > 0 && h > 0)
@@ -459,6 +512,7 @@ void present() {}
 bool drawYuv420(const uint8_t*, const uint8_t*, const uint8_t*, int, int, int, int, int, bool) { return true; }
 void drawRgba(const uint32_t*) {}
 void setOverlay(const uint32_t*, int, int, int, int, uint8_t) {}
+void setSharpness(int) {}
 bool readBackRgb(std::vector<uint8_t>&) { return false; }
 } // namespace xc::display
 

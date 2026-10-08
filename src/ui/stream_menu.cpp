@@ -29,9 +29,10 @@ std::string fmt(const char* f, double v) {
 
 }  // namespace
 
-void StreamMenu::open(int resolution, bool stats) {
+void StreamMenu::open(int resolution, bool stats, int sharpness) {
     open_ = true;
     stats_ = stats;
+    sharpness_ = sharpness;
     selected_ = Resume;
     resolution_ = applied_ = resolution;
     resolutionAsked_ = false;
@@ -51,6 +52,10 @@ MenuAction StreamMenu::handle(const NavInput& in) {
             if (kResolutionOrder[i] == resolution_) pos = i;
         pos = in.left ? (pos + 2) % 3 : (pos + 1) % 3;
         resolution_ = kResolutionOrder[pos];
+    }
+    if ((selected_ == Sharpness && (in.left || in.right)) || (selected_ == Sharpness && in.accept)) {
+        sharpness_ = in.left ? (sharpness_ + 3) % 4 : (sharpness_ + 1) % 4;
+        return MenuAction::Sharpness;
     }
     if (selected_ == Stats && (in.left || in.right)) {
         stats_ = !stats_;
@@ -87,12 +92,18 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         int ty = fonts_.semibold.centeredY(row.y, row.h, kPx);
         const char* label = i == Resume       ? tr(Str::MenuResume)
                             : i == Stats      ? tr(Str::MenuStats)
+                            : i == Sharpness  ? tr(Str::MenuSharpness)
                             : i == Resolution ? tr(Str::MenuResolution)
                             : i == Refresh    ? tr(Str::MenuRefresh)
                                               : tr(Str::MenuLeave);
         fonts_.semibold.draw(c, label, row.x + 16, ty, kPx, fg);
         std::string value;
         if (i == Stats) value = tr(stats_ ? Str::On : Str::Off);
+        if (i == Sharpness) {
+            static constexpr Str kLevels[] = {Str::SharpOff, Str::SharpLow, Str::SharpMedium, Str::SharpHigh};
+            value = tr(kLevels[sharpness_]);
+            if (sel) value = "< " + value + " >";
+        }
         if (i == Resolution) {
             value = resolutionName(resolution_);
             if (sel) value = "< " + value + " >";

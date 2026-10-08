@@ -129,6 +129,11 @@ constexpr Column kEnglish = {
     "Region",                                        // StatRegion
     "Decoding",                                      // StatDecode
     "The server may keep the current quality",       // ResolutionNote
+    "Sharpness",                                     // MenuSharpness
+    "Off",                                           // SharpOff
+    "Low",                                           // SharpLow
+    "Medium",                                        // SharpMedium
+    "High",                                          // SharpHigh
 };
 
 constexpr Column kPortugueseBR = {
@@ -228,6 +233,11 @@ constexpr Column kPortugueseBR = {
     "Região",
     "Decodificação",
     "O servidor pode manter a qualidade atual",
+    "Nitidez",
+    "Desligada",
+    "Baixa",
+    "Média",
+    "Alta",
 };
 
 constexpr Column kSpanish = {
@@ -327,6 +337,11 @@ constexpr Column kSpanish = {
     "Región",
     "Decodificación",
     "El servidor puede mantener la calidad actual",
+    "Nitidez",
+    "Desactivada",
+    "Baja",
+    "Media",
+    "Alta",
 };
 
 constexpr Column kFrench = {
@@ -426,6 +441,11 @@ constexpr Column kFrench = {
     "Région",
     "Décodage",
     "Le serveur peut conserver la qualité actuelle",
+    "Netteté",
+    "Désactivée",
+    "Faible",
+    "Moyenne",
+    "Élevée",
 };
 
 constexpr Column kGerman = {
@@ -525,6 +545,11 @@ constexpr Column kGerman = {
     "Region",
     "Dekodierung",
     "Der Server behält eventuell die aktuelle Qualität bei",
+    "Schärfe",
+    "Aus",
+    "Niedrig",
+    "Mittel",
+    "Hoch",
 };
 
 constexpr Column kItalian = {
@@ -624,6 +649,11 @@ constexpr Column kItalian = {
     "Regione",
     "Decodifica",
     "Il server potrebbe mantenere la qualità attuale",
+    "Nitidezza",
+    "Disattivata",
+    "Bassa",
+    "Media",
+    "Alta",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

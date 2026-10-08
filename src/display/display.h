@@ -34,6 +34,9 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int stride
 // `opacity`. Null `pixels` removes it. Any thread.
 void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opacity);
 
+// Sharpening of the video (drawYuv420), 0 = off .. 256 = full CAS.
+void setSharpness(int amount);
+
 // The back buffer last drawn, untiled, as 8-bit RGB rows (diagnostics:
 // what the TV shows). False without a display.
 bool readBackRgb(std::vector<uint8_t>& rgb);

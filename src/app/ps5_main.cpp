@@ -127,7 +127,8 @@ void updateTextInput(app::StreamPlayer* player) {
 // rumbletest (rumbles the pad for 1.5 s at start), detailtest (opens a game to
 // buy far down the list instead of playing, saves detail.ppm), imetest (opens
 // the system keyboard on the home screen), menutest (in the game: the menu,
-// 720p, back to 1080p), res=720p|1080p|1440p (instead of the setting).
+// 720p, back to 1080p), res=720p|1080p|1080p-hq|1440p and sharp=0..3 (instead
+// of the settings).
 // The title "BENCH" decodes <dataDir>/sample.h264 instead.
 
 std::string g_autoplayTitle;
@@ -140,6 +141,7 @@ bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25
 bool g_autoplayImeTest = false;      // open the system keyboard on the home screen
 bool g_autoplayMenuTest = false;     // in the game: open the menu, switch to 720p
 int g_decodeThreads = 1;
+int g_autoplaySharpness = -1;         // sharp=0..3: instead of the setting
 std::string g_autoplayResolution;     // res=720p|1080p|1440p: instead of the setting
 std::atomic<bool> g_syntheticA{false};
 
@@ -166,6 +168,7 @@ void loadAutoplay() {
         if (opt == "imetest") g_autoplayImeTest = true;
         if (opt == "menutest") g_autoplayMenuTest = true;
         if (opt.rfind("res=", 0) == 0) g_autoplayResolution = opt.substr(4);
+        if (opt.rfind("sharp=", 0) == 0) g_autoplaySharpness = std::atoi(opt.c_str() + 6);
         if (opt.rfind("threads=", 0) == 0) g_decodeThreads = std::atoi(opt.c_str() + 8);
     }
     g_autoplayTitle = title;
@@ -339,9 +342,10 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         const std::string& res = g_autoplayResolution.empty() ? g_settings.resolution : g_autoplayResolution;
-        gssv.setResolution(res == "720p"    ? xcloud::Resolution::P720
-                           : res == "1440p" ? xcloud::Resolution::P1440
-                                            : xcloud::Resolution::P1080);
+        gssv.setResolution(res == "720p"       ? xcloud::Resolution::P720
+                           : res == "1440p"    ? xcloud::Resolution::P1440
+                           : res == "1080p-hq" ? xcloud::Resolution::P1080HQ
+                                               : xcloud::Resolution::P1080);
         const xcloud::Region* region = gssv.session().defaultRegion();
         const std::string& wanted = regionName.empty() ? g_settings.region : regionName;
         for (const auto& r : gssv.session().regions)
@@ -737,6 +741,9 @@ int main(int argc, char** argv) {
     const app::StreamPlayer* overlayPlayer = nullptr;
     int streamResolution = 0;  // as SettingsChoice::resolution
     bool showStats = false, overlayShown = false;
+    int sharpness = 0;  // 0..3, as Settings::sharpness
+    // How much CAS each sharpness level mixes in (display::setSharpness).
+    static constexpr int kSharpAmount[] = {0, 96, 176, 256};
     bool padReleased = true;  // false from the menu/keyboard until the buttons are let go
     uint32_t overlaySeq = 0;  // g_infoSeq + 1 when drawn; 0 = redraw
     uint64_t homeSince = 0, launchSince = 0;
@@ -768,19 +775,19 @@ int main(int argc, char** argv) {
         bool menuCombo = pad.btnOptions && pad.btnTouchpad && !(prev.btnOptions && prev.btnTouchpad);
         prev = pad;
         if (g_autoplayMenuTest && g_ui->screen() == ui::Screen::Streaming) {
-            // Menu, down twice to the resolution, left to 720p, accept; at
+            // Menu, down three times to the resolution, left to 720p, accept; at
             // 35 s right (back to 1080p) and accept.
             static uint64_t since = 0;
             static int step = 0;
             if (!since) since = now;
-            const uint64_t at[] = {12000, 13000, 13500, 14000, 14500, 35000, 35500};
-            if (step < 7 && now - since >= at[step]) {
+            const uint64_t at[] = {12000, 13000, 13300, 13600, 14000, 14500, 35000, 35500};
+            if (step < 8 && now - since >= at[step]) {
                 nav = ui::NavInput{};
                 if (step == 0) menuCombo = true;
-                if (step == 1 || step == 2) nav.down = true;
-                if (step == 3) nav.left = true;
-                if (step == 4 || step == 6) nav.accept = true;
-                if (step == 5) nav.right = true;
+                if (step >= 1 && step <= 3) nav.down = true;
+                if (step == 4) nav.left = true;
+                if (step == 5 || step == 7) nav.accept = true;
+                if (step == 6) nav.right = true;
                 XC_LOGI("autoplay: menu step %d", step);
                 ++step;
             }
@@ -794,6 +801,8 @@ int main(int argc, char** argv) {
                 std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
                 streamResolution = g_settings.resolution == "720p" ? 1 : g_settings.resolution == "1440p" ? 2 : 0;
                 showStats = g_settings.streamStats;
+                sharpness = g_autoplaySharpness >= 0 ? g_autoplaySharpness : g_settings.sharpness;
+                display::setSharpness(kSharpAmount[std::clamp(sharpness, 0, 3)]);
                 overlaySeq = 0;
             }
             if (g_player) {
@@ -801,7 +810,7 @@ int main(int argc, char** argv) {
                 // OPTIONS + TOUCHPAD opens the menu (and closes it again).
                 bool wasOpen = menu.isOpen();
                 if (!wasOpen && menuCombo && g_keyboardFor.empty()) {
-                    menu.open(streamResolution, showStats);
+                    menu.open(streamResolution, showStats, sharpness);
                     overlaySeq = 0;
                 } else if (wasOpen) {
                     switch (menu.handle(nav)) {
@@ -813,6 +822,14 @@ int main(int argc, char** argv) {
                                                     : streamResolution == 2 ? "1440"
                                                                             : "1080HQ");
                         break;
+                    case ui::MenuAction::Sharpness: {
+                        sharpness = menu.sharpness();
+                        display::setSharpness(kSharpAmount[sharpness]);
+                        std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                        g_settings.sharpness = sharpness;
+                        g_settings.save(settingsPath());
+                        break;
+                    }
                     case ui::MenuAction::Stats: {
                         showStats = menu.statsOn();
                         std::lock_guard<std::mutex> settingsLock(g_settingsMutex);

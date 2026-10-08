@@ -100,8 +100,55 @@ const std::string& deviceInfo(Resolution res) {
         v.set("dev", dev);
         return v.dump();
     }();
+    // 1080p HQ: the web client on a Tizen TV with a 4K panel, as Better
+    // xCloud sends it.
+    static const std::string tv = [] {
+        json::Value env = json::Value::object();
+        env.set("clientAppId", "www.xbox.com");
+        env.set("clientAppType", "browser");
+        env.set("clientAppVersion", "26.1.97");
+        env.set("clientSdkVersion", "10.3.7");
+        env.set("httpEnvironment", "prod");
+        env.set("sdkInstallId", "");
+        json::Value app = json::Value::object();
+        app.set("env", env);
+        json::Value os = json::Value::object();
+        os.set("name", "tizen");
+        os.set("ver", "22631.2715");
+        os.set("platform", "desktop");
+        json::Value hw = json::Value::object();
+        hw.set("make", "Microsoft");
+        hw.set("model", "unknown");
+        hw.set("sdktype", "web");
+        json::Value browser = json::Value::object();
+        browser.set("browserName", "chrome");
+        browser.set("browserVersion", "140.0.3485.54");
+        json::Value dims = json::Value::object();
+        dims.set("widthInPixels", 4096);
+        dims.set("heightInPixels", 2160);
+        json::Value dpi = json::Value::object();
+        dpi.set("dpiX", 1);
+        dpi.set("dpiY", 1);
+        json::Value display = json::Value::object();
+        display.set("dimensions", dims);
+        display.set("pixelDensity", dpi);
+        json::Value dev = json::Value::object();
+        dev.set("os", os);
+        dev.set("hw", hw);
+        dev.set("browser", browser);
+        dev.set("displayInfo", display);
+        json::Value v = json::Value::object();
+        v.set("appInfo", app);
+        v.set("dev", dev);
+        return v.dump();
+    }();
     static const std::string hd = build(true), sd = build(false);
-    return res == Resolution::P720 ? sd : res == Resolution::P1440 ? qhd : hd;
+    switch (res) {
+    case Resolution::P720: return sd;
+    case Resolution::P1440: return qhd;
+    case Resolution::P1080HQ: return tv;
+    default: return hd;
+    }
 }
 
 std::string describe(const net::Response& r) {
@@ -305,7 +352,9 @@ bool GssvClient::startSession(const std::string& titleId, const std::string& loc
     settings.set("useIceConnection", false);
     settings.set("timezoneOffsetMinutes", 0);
     settings.set("sdkType", "web");
-    settings.set("osName", resolution_ == Resolution::P720 ? "android" : "windows");
+    settings.set("osName", resolution_ == Resolution::P720       ? "android"
+                           : resolution_ == Resolution::P1080HQ ? "tizen"
+                                                                : "windows");
 
     json::Value body = json::Value::object();
     body.set("clientSessionId", "");

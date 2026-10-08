@@ -172,6 +172,10 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out, uint32_
     out.strideV = frame_->linesize[2];
     out.width = frame_->width;
     out.height = frame_->height;
+    if (!profileLogged_) {
+        profileLogged_ = true;
+        XC_LOGI("h264 stream: profile %d, level %d", ctx_->profile, ctx_->level);
+    }
     out.tag = frame_->pts == AV_NOPTS_VALUE ? 0 : static_cast<uint32_t>(frame_->pts);
     return true;
 }

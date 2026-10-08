@@ -622,12 +622,11 @@ int main(int argc, char** argv) {
             stbi_write_png(path.c_str(), 1920, 1080, 4, frame.data(), 1920 * 4);
             std::printf("wrote %s\n", path.c_str());
         };
-        menu.open(0, true);
+        menu.open(0, true, 2);
         save("menu", menu.renderMenu(info), ui::StreamMenu::kMenuX, ui::StreamMenu::kMenuY, 235);
         ui::NavInput n;
         n.down = true;
-        menu.handle(n);
-        menu.handle(n);
+        for (int i = 0; i < 3; ++i) menu.handle(n);
         n = {};
         n.right = true;
         menu.handle(n);  // 1080p -> 1440p

@@ -21,6 +21,8 @@ struct Settings {
     std::string librarySort = "recent";
     // The statistics line over the game (in-game menu).
     bool streamStats = false;
+    // Sharpening of the game picture: 0 off, 1..3 low, medium, high.
+    int sharpness = 0;
 
     bool load(const std::string& path);
     bool save(const std::string& path) const;

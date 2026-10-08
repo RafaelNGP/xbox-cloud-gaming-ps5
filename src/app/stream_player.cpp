@@ -284,11 +284,13 @@ struct StreamPlayer::Impl {
         // the plain tier the session asks for first holds.
         switch (gssv.resolution()) {
         case xcloud::Resolution::P1440: opts.resolutionAlias = "1440"; break;
-        case xcloud::Resolution::P1080: opts.resolutionAlias = "1080HQ"; break;
+        case xcloud::Resolution::P1080:
+        case xcloud::Resolution::P1080HQ: opts.resolutionAlias = "1080HQ"; break;
         case xcloud::Resolution::P720: opts.resolutionAlias = "720HQ"; break;
         }
         opts.maxBitrate = gssv.resolution() == xcloud::Resolution::P720    ? 12000000
                           : gssv.resolution() == xcloud::Resolution::P1440 ? 40000000
+                          : gssv.resolution() == xcloud::Resolution::P1080HQ ? 30000000
                                                                            : 25000000;
         if (const char* loss = std::getenv("XC_SIM_LOSS")) opts.simulatedVideoLoss = std::atoi(loss);
         session = std::make_unique<stream::StreamSession>(gssv, cb, opts);

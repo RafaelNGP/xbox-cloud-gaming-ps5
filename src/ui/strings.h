@@ -106,6 +106,11 @@ enum class Str {
     StatRegion,
     StatDecode,
     ResolutionNote,   // the server may not grant the tier asked for
+    MenuSharpness,    // sharpening filter over the video
+    SharpOff,
+    SharpLow,
+    SharpMedium,
+    SharpHigh,
     Count
 };
 

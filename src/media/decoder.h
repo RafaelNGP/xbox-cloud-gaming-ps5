@@ -59,6 +59,7 @@ private:
     AVFrame* frame_ = nullptr;
     AVPacket* packet_ = nullptr;
     bool needsKeyframe_ = true;
+    bool profileLogged_ = false;
     bool pending_ = false;
     int failuresLogged_ = 0;
 };
