@@ -56,8 +56,19 @@ struct Vibration {
     uint8_t repeat = 0;
 };
 
+// When one video frame arrived, was decoded and was shown, on the client's
+// clock (ms). The server matches it to the frame by `serverDataKey`, the
+// frame's RTP timestamp, and measures the stream's latency with it.
+struct FrameMetadata {
+    uint32_t serverDataKey = 0;
+    double firstPacketArrivalMs = 0, submittedMs = 0, decodedMs = 0, renderedMs = 0;
+};
+
 // The first report on the channel: announces the client (touch points).
 std::vector<uint8_t> clientMetadataReport(uint32_t sequence, double timestampMs, uint8_t maxTouchPoints = 1);
+// Frame timings, as the web client sends after each frame it shows (at most
+// 30 per report).
+std::vector<uint8_t> metadataReport(uint32_t sequence, double timestampMs, const std::vector<FrameMetadata>& frames);
 std::vector<uint8_t> gamepadReport(uint32_t sequence, double timestampMs, const GamepadFrame& frame);
 
 // Server -> client reports. Return false when `data` is another report type.

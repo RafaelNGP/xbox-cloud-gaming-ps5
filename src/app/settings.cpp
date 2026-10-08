@@ -5,6 +5,8 @@
 #include "platform/platform.h"
 #include "util/json.h"
 
+#include <algorithm>
+
 namespace xc::app {
 
 bool Settings::load(const std::string& path) {
@@ -20,6 +22,11 @@ bool Settings::load(const std::string& path) {
     for (const auto& id : (*j)["hidden"].items())
         if (!id.str().empty()) hidden.push_back(id.str());
     librarySort = (*j)["librarySort"].str(librarySort);
+    streamStats = (*j)["streamStats"].asBool(streamStats);
+    sharpness = static_cast<int>(std::clamp<int64_t>((*j)["sharpness"].asInt(sharpness), 0, 3));
+    deadzone = static_cast<int>(std::clamp<int64_t>((*j)["deadzone"].asInt(deadzone), 0, 50));
+    triggerRumble = (*j)["triggerRumble"].asBool(triggerRumble);
+    circleConfirms = (*j)["circleConfirms"].asBool(circleConfirms);
     regionRtt.clear();
     for (const auto& [name, ms] : (*j)["regionRtt"].members())
         if (ms.asInt() > 0) regionRtt[name] = static_cast<int>(ms.asInt());
@@ -38,6 +45,11 @@ bool Settings::save(const std::string& path) const {
     for (const auto& id : hidden) hiddenIds.push(id);
     v.set("hidden", hiddenIds);
     v.set("librarySort", librarySort);
+    v.set("streamStats", streamStats);
+    v.set("sharpness", sharpness);
+    v.set("deadzone", deadzone);
+    v.set("triggerRumble", triggerRumble);
+    v.set("circleConfirms", circleConfirms);
     return platform::writeFileAtomic(path, v.dump());
 }
 

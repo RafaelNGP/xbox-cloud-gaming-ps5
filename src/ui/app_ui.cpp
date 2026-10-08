@@ -625,6 +625,27 @@ void AppUi::setSettings(const SettingsChoice& choice) {
     dirty_ = true;
 }
 
+void AppUi::setCircleConfirms(bool on) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    circleConfirms_ = on;
+    dirty_ = true;
+}
+
+void AppUi::setPads(const PadSlots& pads) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    bool changed = false;
+    for (size_t i = 0; i < pads.size(); ++i)
+        changed |= pads[i].connected != pads_[i].connected || pads[i].name != pads_[i].name;
+    if (!changed) return;
+    pads_ = pads;
+    dirty_ = true;
+}
+
+void AppUi::drawPads(Canvas& c) {
+    // Bottom left, on the line of the button hints (which are right-aligned).
+    drawPadRow(c, fonts_.bold, kMargin, kH - 70, 54, 14, pads_);
+}
+
 void AppUi::setRegions(std::vector<std::string> regions, const std::string& defaultRegion) {
     std::lock_guard<std::mutex> lock(mutex_);
     regions_ = std::move(regions);
@@ -644,6 +665,12 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         for (int i = 0; i < static_cast<int>(Language::Count); ++i) out.push_back(languageName(static_cast<Language>(i)));
     } else if (row == 1) {
         out = {tr(Str::Res720), tr(Str::Res1080), tr(Str::Res1440)};  // kResolutionOrder
+    } else if (row == 3) {
+        for (int p : kDeadzonePercent) out.push_back(std::to_string(p) + " %");
+    } else if (row == 4) {
+        out = {tr(Str::Activated), tr(Str::Deactivated)};
+    } else if (row == 5) {
+        out = {tr(Str::ButtonCross), tr(Str::ButtonCircle)};
     } else {
         // Automatic first, then the regions in the login's order.
         out.push_back(withMs(trf(Str::RegionAuto, defaultRegion_.empty() ? "-" : prettyRegion(defaultRegion_)),
@@ -659,6 +686,9 @@ int AppUi::settingSelected(int row) const {
     if (row == 1)
         for (int i = 0; i < 3; ++i)
             if (kResolutionOrder[i] == settings_.resolution) return i;
+    if (row == 3) return settings_.deadzone;
+    if (row == 4) return settings_.triggerRumble ? 0 : 1;
+    if (row == 5) return settings_.circleConfirms ? 1 : 0;
     for (size_t i = 0; i < regions_.size(); ++i)
         if (regions_[i] == settings_.region) return static_cast<int>(i) + 1;
     return 0;
@@ -671,6 +701,12 @@ void AppUi::applySetting(int row, int index) {
         setLanguage(static_cast<Language>(index));  // the UI switches right away
     } else if (row == 1) {
         settings_.resolution = kResolutionOrder[index];
+    } else if (row == 3) {
+        settings_.deadzone = index;
+    } else if (row == 4) {
+        settings_.triggerRumble = index == 0;
+    } else if (row == 5) {
+        settings_.circleConfirms = index == 1;
     } else {
         settings_.region = index == 0 ? std::string() : regions_[static_cast<size_t>(index - 1)];
     }
@@ -987,7 +1023,7 @@ UiEvent AppUi::handle(const NavInput& in) {
                 dirty_ = true;
                 break;
             }
-            if (in.down && settingsRow_ < 2) ++settingsRow_, dirty_ = true;
+            if (in.down && settingsRow_ < kSettingRows - 1) ++settingsRow_, dirty_ = true;
             if (in.up && settingsRow_ > 0) --settingsRow_, dirty_ = true;
             if (in.right) changeSetting(+1);
             if (in.left) changeSetting(-1);
@@ -1086,38 +1122,43 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
     int x = kW - kMargin;
     const int y = kH - 64;
     for (auto it = hints.rbegin(); it != hints.rend(); ++it) {
+        // With Circle confirming, the pad reports it as Cross (and the
+        // other way round): the hints show the button to press.
+        int icon = it->first;
+        if (circleConfirms_ && (icon == kIconCross || icon == kIconCircle))
+            icon = icon == kIconCross ? kIconCircle : kIconCross;
         int w = fonts_.semibold.measure(it->second, kPx);
         x -= w;
         fonts_.semibold.draw(c, it->second, x, y, kPx, kGray);
         x -= 10 + 2 * kR;
         float cx = x + kR, cy = y + 13;
-        if (it->first == kIconL2R2) {
+        if (icon == kIconL2R2) {
             Rect pill{x - 40, static_cast<int>(cy) - 12, 2 * kR + 46, 24};
             c.fillRect(pill, rgba(255, 255, 255, 40), 8);
             fonts_.bold.draw(c, "L2 R2", pill.x + (pill.w - fonts_.bold.measure("L2 R2", 14)) / 2,
                              fonts_.bold.centeredY(pill.y, pill.h, 14), 14, kGray);
             x -= 34;
-        } else if (it->first == kIconR3) {
+        } else if (icon == kIconR3) {
             Rect pill{x - 6, static_cast<int>(cy) - 12, 2 * kR + 12, 24};
             c.fillRect(pill, rgba(255, 255, 255, 40), 8);
             fonts_.bold.draw(c, "R3", pill.x + (pill.w - fonts_.bold.measure("R3", 14)) / 2,
                              fonts_.bold.centeredY(pill.y, pill.h, 14), 14, kGray);
-        } else if (it->first == kIconTouchpad) {
+        } else if (icon == kIconTouchpad) {
             Rect pad{x - 18, static_cast<int>(cy) - 10, 2 * kR + 12, 20};
             c.fillRect(pad, rgba(255, 255, 255, 40), 6);
             c.strokeRect(pad, kGray, 2, 6);
             x -= 10;
-        } else if (it->first == kIconOptions) {
+        } else if (icon == kIconOptions) {
             c.fillRect({x - 4, static_cast<int>(cy) - 11, 2 * kR + 8, 22}, rgba(255, 255, 255, 40), 11);
             for (int k = -1; k <= 1; ++k) c.line(cx - 8, cy + k * 5, cx + 8, cy + k * 5, 2, kGray);
         } else {
             c.fillCircle(cx, cy, kR, rgba(255, 255, 255, 40));
-            if (it->first == kIconCross) {
+            if (icon == kIconCross) {
                 c.line(cx - 6, cy - 6, cx + 6, cy + 6, 2.5f, rgba(124, 178, 232));
                 c.line(cx + 6, cy - 6, cx - 6, cy + 6, 2.5f, rgba(124, 178, 232));
-            } else if (it->first == kIconCircle) {
+            } else if (icon == kIconCircle) {
                 c.strokeArc(cx, cy, 6.5f, 2.5f, 0, 6.2832f, rgba(255, 102, 102));
-            } else if (it->first == kIconSquare) {
+            } else if (icon == kIconSquare) {
                 c.strokeRect({static_cast<int>(cx) - 6, static_cast<int>(cy) - 6, 12, 12}, rgba(240, 130, 200), 2);
             } else {
                 c.line(cx, cy - 7, cx - 7, cy + 5, 2.5f, rgba(64, 226, 160));
@@ -1425,6 +1466,7 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
                   {kIconR3, tr(Str::SortHint)},
                   {kIconL2R2, tr(Str::Sections)},
                   {kIconOptions, tr(Str::Settings)}});
+    drawPads(c);
     drawToast(c, nowMs);
 }
 
@@ -1568,6 +1610,7 @@ void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
                   {kIconTriangle, tr(Str::TabSearch)},
                   {kIconOptions, tr(Str::Settings)},
                   {kIconTouchpad, tr(Str::HoldSignOut)}});
+    drawPads(c);
     drawToast(c, nowMs);
 }
 
@@ -1711,11 +1754,12 @@ void AppUi::drawSettings(Canvas& c) {
     drawBackground(c);
     drawTopBar(c);
     fonts_.bold.draw(c, tr(Str::Settings), kMargin, 170, 60, kWhite);
-    const char* labels[3] = {tr(Str::Language), tr(Str::Resolution), tr(Str::Region)};
-    constexpr int kRowW = 1200, kRowH = 92;
-    Rect rows[3];
-    int y = 290;
-    for (int i = 0; i < 3; ++i) {
+    const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
+                                        tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton)};
+    constexpr int kRowW = 1200, kRowH = 76;
+    Rect rows[kSettingRows];
+    int y = 270;
+    for (int i = 0; i < kSettingRows; ++i) {
         Rect r{kMargin, y, kRowW, kRowH};
         rows[i] = r;
         bool focused = i == settingsRow_;
@@ -1733,7 +1777,7 @@ void AppUi::drawSettings(Canvas& c) {
         int w = fonts_.regular.measure(value, 30);
         fonts_.regular.draw(c, value, r.x + r.w - 76 - w, fonts_.regular.centeredY(r.y, r.h, 30), 30,
                             focused ? kWhite : kGray);
-        y += kRowH + 22;
+        y += kRowH + 16;
     }
     for (const auto& line : fonts_.regular.wrap(tr(Str::SettingsNote), 24, kRowW, 2)) {
         fonts_.regular.draw(c, line, kMargin, y + 20, 24, kDim);

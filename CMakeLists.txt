@@ -63,16 +63,20 @@ add_library(xcloud_ui STATIC
     src/ui/font.cpp
     src/ui/image_cache.cpp
     src/ui/app_ui.cpp
+    src/ui/stream_menu.cpp
+    src/ui/pad_icons.cpp
     src/ui/brand.cpp
     src/app/library.cpp
     src/app/settings.cpp
+    src/app/update_check.cpp
     extern/qrcodegen/qrcodegen.c
 )
+target_compile_definitions(xcloud_ui PUBLIC XC_APP_VERSION="${PROJECT_VERSION}")
 target_include_directories(xcloud_ui PUBLIC extern/stb extern/qrcodegen)
 target_link_libraries(xcloud_ui PUBLIC xcloud_core)
 
 if(XCLOUD_PS5)
-    target_sources(xcloud_core PRIVATE src/platform/ps5/platform_ps5.cpp src/platform/ps5/libc_compat.c src/platform/ps5/net_probe.cpp)
+    target_sources(xcloud_core PRIVATE src/platform/ps5/platform_ps5.cpp src/platform/ps5/libc_compat.c src/platform/ps5/net_probe.cpp src/platform/ps5/keyboard_ps5.cpp)
 
     # The app itself: linked into eboot.bin by tools/ps5/link.sh.
     add_library(xcloud_app STATIC

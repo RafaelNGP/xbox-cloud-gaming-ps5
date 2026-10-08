@@ -91,6 +91,37 @@ enum class Str {
     OneGame,          // GamesCount for exactly one
     Sections,         // hint for L2 / R2: jump between sections
     UpdatingList,     // the lists refresh in the background
+    MenuTitle,        // the in-game menu
+    MenuResume,
+    MenuStats,        // show the statistics over the game
+    On,
+    Off,
+    MenuResolution,
+    MenuRefresh,      // ask for a new picture (key frame)
+    MenuLeave,
+    StatLatency,
+    StatBitrate,
+    StatFrameRate,
+    StatLoss,
+    StatRegion,
+    StatDecode,
+    ResolutionNote,   // the server may not grant the tier asked for
+    MenuSharpness,    // sharpening filter over the video
+    SharpOff,
+    SharpLow,
+    SharpMedium,
+    SharpHigh,
+    Deadzone,         // settings: stick dead zone
+    TriggerRumble,    // settings: vibration in the triggers
+    ConfirmButton,    // settings: which button is Xbox A
+    Activated,        // feminine on/off where the language needs it
+    Deactivated,
+    ButtonCross,
+    ButtonCircle,
+    UpdateAvailable,  // "%s" = the new version
+    Controllers,      // in-game menu: the pads in use
+    PadConnected,     // "%s" = "2 (user name)"
+    PadDisconnected,  // "%s" = "2 (user name)"
     Count
 };
 

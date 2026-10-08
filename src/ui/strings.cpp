@@ -54,7 +54,7 @@ constexpr Column kEnglish = {
     "You're in the queue. Estimated wait: %s",        // InQueue
     "Connecting...",                                  // Connecting
     "Starting the stream...",                         // StartingStream
-    "Hold OPTIONS + TOUCHPAD to leave the game",      // LeaveHint
+    "Press OPTIONS + TOUCHPAD for the game menu",      // LeaveHint
     "Stream ended",                                   // StreamEnded
     "Something went wrong",                           // ErrorTitle
     "Signed in as %s",                                // SignedInAs
@@ -114,6 +114,37 @@ constexpr Column kEnglish = {
     "1 game",                                        // OneGame
     "Sections",                                      // Sections
     "Updating the game list...",                     // UpdatingList
+    "Game menu",                                     // MenuTitle
+    "Resume",                                        // MenuResume
+    "Statistics",                                    // MenuStats
+    "On",                                            // On
+    "Off",                                           // Off
+    "Stream resolution",                             // MenuResolution
+    "Refresh the picture",                           // MenuRefresh
+    "Leave game",                                    // MenuLeave
+    "Latency",                                       // StatLatency
+    "Bitrate",                                       // StatBitrate
+    "Frame rate",                                    // StatFrameRate
+    "Packet loss",                                   // StatLoss
+    "Region",                                        // StatRegion
+    "Decoding",                                      // StatDecode
+    "The server may keep the current quality",       // ResolutionNote
+    "Sharpness",                                     // MenuSharpness
+    "Off",                                           // SharpOff
+    "Low",                                           // SharpLow
+    "Medium",                                        // SharpMedium
+    "High",                                          // SharpHigh
+    "Stick dead zone",                               // Deadzone
+    "Trigger vibration",                             // TriggerRumble
+    "Confirm button",                                // ConfirmButton
+    "On",                                            // Activated
+    "Off",                                           // Deactivated
+    "Cross",                                     // ButtonCross
+    "Circle",                                    // ButtonCircle
+    "PSBox Cloud Gaming %s is out: get it on GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",// UpdateAvailable
+    "Controllers",                                   // Controllers
+    "Controller %s connected",                       // PadConnected
+    "Controller %s disconnected",                    // PadDisconnected
 };
 
 constexpr Column kPortugueseBR = {
@@ -138,7 +169,7 @@ constexpr Column kPortugueseBR = {
     "Você está na fila. Espera estimada: %s",
     "Conectando...",
     "Iniciando o streaming...",
-    "Segure OPTIONS + TOUCHPAD para sair do jogo",
+    "Pressione OPTIONS + TOUCHPAD para abrir o menu do jogo",
     "Streaming encerrado",
     "Algo deu errado",
     "Conectado como %s",
@@ -198,6 +229,37 @@ constexpr Column kPortugueseBR = {
     "1 jogo",
     "Seções",
     "Atualizando a lista de jogos...",
+    "Menu do jogo",
+    "Continuar",
+    "Estatísticas",
+    "Ligado",
+    "Desligado",
+    "Resolução do stream",
+    "Atualizar a imagem",
+    "Sair do jogo",
+    "Latência",
+    "Taxa de bits",
+    "Quadros por segundo",
+    "Perda de pacotes",
+    "Região",
+    "Decodificação",
+    "O servidor pode manter a qualidade atual",
+    "Nitidez",
+    "Desligada",
+    "Baixa",
+    "Média",
+    "Alta",
+    "Zona morta do analógico",
+    "Vibração nos gatilhos",
+    "Botão de confirmar",
+    "Ativada",
+    "Desativada",
+    "Xis",
+    "Círculo",
+    "Saiu o PSBox Cloud Gaming %s: baixe no GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Controles",
+    "Controle %s conectado",
+    "Controle %s desconectado",
 };
 
 constexpr Column kSpanish = {
@@ -222,7 +284,7 @@ constexpr Column kSpanish = {
     "Estás en la cola. Espera estimada: %s",
     "Conectando...",
     "Iniciando el streaming...",
-    "Mantén OPTIONS + TOUCHPAD para salir del juego",
+    "Pulsa OPTIONS + TOUCHPAD para abrir el menú del juego",
     "Streaming finalizado",
     "Algo salió mal",
     "Sesión iniciada como %s",
@@ -282,6 +344,37 @@ constexpr Column kSpanish = {
     "1 juego",
     "Secciones",
     "Actualizando la lista de juegos...",
+    "Menú del juego",
+    "Continuar",
+    "Estadísticas",
+    "Activado",
+    "Desactivado",
+    "Resolución del stream",
+    "Actualizar la imagen",
+    "Salir del juego",
+    "Latencia",
+    "Tasa de bits",
+    "Fotogramas por segundo",
+    "Pérdida de paquetes",
+    "Región",
+    "Decodificación",
+    "El servidor puede mantener la calidad actual",
+    "Nitidez",
+    "Desactivada",
+    "Baja",
+    "Media",
+    "Alta",
+    "Zona muerta del stick",
+    "Vibración en los gatillos",
+    "Botón de confirmar",
+    "Activada",
+    "Desactivada",
+    "Equis",
+    "Círculo",
+    "Ya está disponible PSBox Cloud Gaming %s: descárgalo en GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Mandos",
+    "Mando %s conectado",
+    "Mando %s desconectado",
 };
 
 constexpr Column kFrench = {
@@ -306,7 +399,7 @@ constexpr Column kFrench = {
     "Vous êtes dans la file d'attente. Attente estimée : %s",
     "Connexion...",
     "Démarrage du streaming...",
-    "Maintenez OPTIONS + PAVÉ TACTILE pour quitter le jeu",
+    "Appuyez sur OPTIONS + PAVÉ TACTILE pour le menu du jeu",
     "Streaming terminé",
     "Un problème est survenu",
     "Connecté en tant que %s",
@@ -366,6 +459,37 @@ constexpr Column kFrench = {
     "1 jeu",
     "Sections",
     "Mise \xC3\xA0 jour de la liste des jeux...",
+    "Menu du jeu",
+    "Reprendre",
+    "Statistiques",
+    "Activé",
+    "Désactivé",
+    "Résolution du stream",
+    "Actualiser l'image",
+    "Quitter le jeu",
+    "Latence",
+    "Débit",
+    "Images par seconde",
+    "Perte de paquets",
+    "Région",
+    "Décodage",
+    "Le serveur peut conserver la qualité actuelle",
+    "Netteté",
+    "Désactivée",
+    "Faible",
+    "Moyenne",
+    "Élevée",
+    "Zone morte du stick",
+    "Vibration des gâchettes",
+    "Bouton de validation",
+    "Activée",
+    "Désactivée",
+    "Croix",
+    "Rond",
+    "PSBox Cloud Gaming %s est disponible : téléchargez-le sur GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Manettes",
+    "Manette %s connectée",
+    "Manette %s déconnectée",
 };
 
 constexpr Column kGerman = {
@@ -390,7 +514,7 @@ constexpr Column kGerman = {
     "Du bist in der Warteschlange. Geschätzte Wartezeit: %s",
     "Verbindung wird hergestellt...",
     "Streaming wird gestartet...",
-    "OPTIONS + TOUCHPAD gedrückt halten, um das Spiel zu verlassen",
+    "OPTIONS + TOUCHPAD drücken, um das Spielmenü zu öffnen",
     "Streaming beendet",
     "Etwas ist schiefgelaufen",
     "Angemeldet als %s",
@@ -450,6 +574,37 @@ constexpr Column kGerman = {
     "1 Spiel",
     "Abschnitte",
     "Spieleliste wird aktualisiert...",
+    "Spielmenü",
+    "Fortsetzen",
+    "Statistiken",
+    "An",
+    "Aus",
+    "Stream-Auflösung",
+    "Bild aktualisieren",
+    "Spiel verlassen",
+    "Latenz",
+    "Bitrate",
+    "Bilder pro Sekunde",
+    "Paketverlust",
+    "Region",
+    "Dekodierung",
+    "Der Server behält eventuell die aktuelle Qualität bei",
+    "Schärfe",
+    "Aus",
+    "Niedrig",
+    "Mittel",
+    "Hoch",
+    "Stick-Totzone",
+    "Trigger-Vibration",
+    "Bestätigungstaste",
+    "An",
+    "Aus",
+    "Kreuz",
+    "Kreis",
+    "PSBox Cloud Gaming %s ist da: auf GitHub herunterladen (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Controller",
+    "Controller %s verbunden",
+    "Controller %s getrennt",
 };
 
 constexpr Column kItalian = {
@@ -474,7 +629,7 @@ constexpr Column kItalian = {
     "Sei in coda. Attesa stimata: %s",
     "Connessione...",
     "Avvio dello streaming...",
-    "Tieni premuti OPTIONS + TOUCHPAD per uscire dal gioco",
+    "Premi OPTIONS + TOUCHPAD per il menu di gioco",
     "Streaming terminato",
     "Si è verificato un problema",
     "Accesso effettuato come %s",
@@ -534,6 +689,37 @@ constexpr Column kItalian = {
     "1 gioco",
     "Sezioni",
     "Aggiornamento dell'elenco dei giochi...",
+    "Menu di gioco",
+    "Riprendi",
+    "Statistiche",
+    "Attivo",
+    "Disattivo",
+    "Risoluzione dello stream",
+    "Aggiorna l'immagine",
+    "Esci dal gioco",
+    "Latenza",
+    "Bitrate",
+    "Fotogrammi al secondo",
+    "Perdita di pacchetti",
+    "Regione",
+    "Decodifica",
+    "Il server potrebbe mantenere la qualità attuale",
+    "Nitidezza",
+    "Disattivata",
+    "Bassa",
+    "Media",
+    "Alta",
+    "Zona morta dello stick",
+    "Vibrazione dei grilletti",
+    "Tasto di conferma",
+    "Attivata",
+    "Disattivata",
+    "Croce",
+    "Cerchio",
+    "È disponibile PSBox Cloud Gaming %s: scaricalo da GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Controller",
+    "Controller %s connesso",
+    "Controller %s disconnesso",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

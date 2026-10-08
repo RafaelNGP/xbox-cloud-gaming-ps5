@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 // Offline unit tests for the portable core (no network).
+#include "app/update_check.h"
 #include "net/http.h"
 #include "stream/input_packet.h"
 #include "stream/stream_session.h"
 #include "ui/app_ui.h"
+#include "ui/stream_menu.h"
 #include "ui/strings.h"
 #include "util/json.h"
 #include "xcloud/prices.h"
@@ -93,6 +95,20 @@ static void testInputPacket() {
     CHECK(p[30] == 1 && p[33] == 0);        // physicality LE
     CHECK(p[34] == 0 && p[37] == 1);        // virtual physicality BE
 
+    FrameMetadata fm;
+    fm.serverDataKey = 0x01020304;
+    fm.firstPacketArrivalMs = 100.0;
+    fm.submittedMs = 100.05;
+    fm.decodedMs = 102.5;
+    fm.renderedMs = 110.0;
+    auto md = metadataReport(9, 111.0, {fm});
+    CHECK(md.size() == 14 + 1 + 28);
+    CHECK(md[0] == 1 && md[1] == 0 && md[2] == 9 && md[14] == 1);
+    CHECK(md[15] == 0x04 && md[18] == 0x01);                  // RTP timestamp, little-endian
+    CHECK(md[19] == 0xE8 && md[20] == 0x03);                  // 100 ms = 1000 tenths
+    CHECK(md[27] == 0x01 && md[28] == 0x04);                  // 102.5 ms = 1025
+    CHECK(md[39] == 0x56 && md[40] == 0x04);                  // report time 111 ms = 1110
+
     uint8_t vib[13] = {128, 0, 0, 0, 50, 25, 0, 0, 0x10, 0x00, 0, 0, 1};
     Vibration v;
     CHECK(parseVibration(vib, sizeof vib, v) && v.leftMotor == 50 && v.rightMotor == 25 && v.durationMs == 16);
@@ -166,7 +182,51 @@ static void testPrices() {
     CHECK(formatPrice(4, "XYZ") == "XYZ 4.00");
 }
 
+static void testVersions() {
+    using xc::app::isNewerVersion;
+    CHECK(isNewerVersion("v0.4.0", "0.3.0"));
+    CHECK(isNewerVersion("v0.3.1", "0.3.0"));
+    CHECK(isNewerVersion("1.0", "0.9.9"));
+    CHECK(!isNewerVersion("v0.3.0", "0.3.0"));
+    CHECK(!isNewerVersion("v0.2.9", "0.3.0"));
+    CHECK(!isNewerVersion("nightly", "0.3.0"));
+    CHECK(!isNewerVersion("", "0.3.0"));
+}
+
+static void testStreamMenu() {
+    using xc::ui::MenuAction;
+    xc::ui::Fonts fonts;  // not loaded: handle() never draws
+    xc::ui::StreamMenu menu(fonts);
+    auto press = [&](void (*set)(xc::ui::NavInput&)) {
+        xc::ui::NavInput n;
+        set(n);
+        return menu.handle(n);
+    };
+    CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::None);  // closed
+    menu.open(0, false);
+    CHECK(menu.isOpen());
+    press([](xc::ui::NavInput& n) { n.down = true; });
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Stats);
+    CHECK(menu.statsOn());
+    press([](xc::ui::NavInput& n) { n.down = true; });
+    CHECK(press([](xc::ui::NavInput& n) { n.left = true; }) == MenuAction::Sharpness);  // off -> high
+    CHECK(menu.sharpness() == 3);
+    press([](xc::ui::NavInput& n) { n.down = true; });
+    press([](xc::ui::NavInput& n) { n.left = true; });  // 1080p -> 720p
+    CHECK(menu.resolution() == 1);
+    press([](xc::ui::NavInput& n) { n.left = true; });  // wraps to 1440p
+    CHECK(menu.resolution() == 2);
+    CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Resolution);
+    for (int i = 0; i < 4; ++i) press([](xc::ui::NavInput& n) { n.up = true; });  // wraps to "Leave game"
+    CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Leave);
+    CHECK(!menu.isOpen());
+    menu.open(1, true);
+    CHECK(press([](xc::ui::NavInput& n) { n.back = true; }) == MenuAction::Close);
+}
+
 int main() {
+    testVersions();
+    testStreamMenu();
     testStrings();
     testRegions();
     testPrices();

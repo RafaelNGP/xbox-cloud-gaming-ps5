@@ -18,6 +18,7 @@
 #include <condition_variable>
 #include <deque>
 #include <mutex>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -37,7 +38,13 @@ struct StreamPlayer::Impl {
 
     std::mutex mutex;
     std::condition_variable cv;
-    std::deque<std::vector<uint8_t>> frames;
+    // An access unit, with what the server wants to hear about it.
+    struct VideoFrame {
+        std::vector<uint8_t> data;
+        uint32_t rtpTimestamp = 0;
+        double arrivalMs = 0;  // StreamSession::clockMs()
+    };
+    std::deque<VideoFrame> frames;
     std::atomic<bool> running{false};
     std::string endReason;
     platform::Thread videoThread, audioThread;
@@ -49,7 +56,9 @@ struct StreamPlayer::Impl {
     std::atomic<uint64_t> videoFrames{0}, decodedFrames{0}, droppedFrames{0}, audioPackets{0};
     std::atomic<uint64_t> decodeFailures{0}, queueResets{0}, keyframeRequests{0};
     std::atomic<bool> keyframeWanted{false};
+    std::atomic<uint32_t> pictureSize{0};  // width << 16 | height
     std::atomic<uint64_t> vibrations{0}, lateFrames{0};
+    std::atomic<uint64_t> triggerVibrations{0};
     std::atomic<uint64_t> decodeUs{0}, decodeCalls{0}, decodeMaxUs{0}, drawUs{0}, drawCalls{0}, drawMaxUs{0};
     int decodeThreads = 1;
 
@@ -65,6 +74,9 @@ struct StreamPlayer::Impl {
     std::string snapshotPath;
     std::string screenPath;  // video thread only
     uint64_t lastKeyframeRequestMs = 0;
+    // The game's text requests not yet taken, and those it withdrew (mutex).
+    std::deque<stream::TextInputRequest> textRequests;
+    std::set<std::string> textWithdrawn;
 
     explicit Impl(xcloud::GssvClient& g) : gssv(g) {}
 
@@ -104,7 +116,11 @@ struct StreamPlayer::Impl {
             end("could not start the H.264 decoder");
             return;
         }
-        std::vector<uint8_t> au;
+        VideoFrame frame;
+        std::vector<uint8_t>& au = frame.data;
+        // Timings of the frames handed to the decoder, by RTP timestamp:
+        // pictures can come out later than their input.
+        std::deque<stream::FrameMetadata> inFlight;
         int fullStreak = 0;
         while (running) {
             size_t backlog;
@@ -112,7 +128,7 @@ struct StreamPlayer::Impl {
                 std::unique_lock<std::mutex> lock(mutex);
                 cv.wait(lock, [&] { return !running || !frames.empty(); });
                 if (!running) break;
-                au = std::move(frames.front());
+                frame = std::move(frames.front());
                 frames.pop_front();
                 backlog = frames.size();
             }
@@ -130,9 +146,26 @@ struct StreamPlayer::Impl {
             media::Picture pic;
             const bool first = decodedFrames == 0 && !loggedFirstDecode;
             if (first) XC_LOGI("first video decode: %zu bytes", au.size());
+            stream::FrameMetadata meta;
+            meta.serverDataKey = frame.rtpTimestamp;
+            meta.firstPacketArrivalMs = frame.arrivalMs;
+            meta.submittedMs = session->clockMs();
+            inFlight.push_back(meta);
+            if (inFlight.size() > 16) inFlight.pop_front();
             uint64_t t0 = platform::nowUs();
-            bool ok = decoder.decode(au.data(), au.size(), pic);
+            bool ok = decoder.decode(au.data(), au.size(), pic, frame.rtpTimestamp);
             uint64_t t1 = platform::nowUs();
+            bool known = false;
+            if (ok) {
+                for (auto it = inFlight.begin(); it != inFlight.end(); ++it)
+                    if (it->serverDataKey == pic.tag) {
+                        meta = *it;
+                        inFlight.erase(inFlight.begin(), it + 1);  // and anything older: never coming
+                        known = true;
+                        break;
+                    }
+                meta.decodedMs = session->clockMs();
+            }
             decodeUs += t1 - t0;
             ++decodeCalls;
             atomicMax(decodeMaxUs, t1 - t0);
@@ -147,6 +180,7 @@ struct StreamPlayer::Impl {
                 continue;
             }
             ++decodedFrames;
+            pictureSize = (static_cast<uint32_t>(pic.width) << 16) | static_cast<uint32_t>(pic.height);
             bool screenshot = saveSnapshotIfAsked(pic);
             if (backlog > 2) {  // behind: skip drawing to catch up
                 ++droppedFrames;
@@ -176,6 +210,12 @@ struct StreamPlayer::Impl {
             }
             display::present();
             uint64_t t3 = platform::nowUs();
+            meta.renderedMs = session->clockMs();
+            if (known) session->reportFrame(meta);
+            if (decodedFrames % 600 == 1)
+                XC_LOGI("frame %u: queued %.1f, decoded %.1f, shown %.1f ms after arrival", meta.serverDataKey,
+                        meta.submittedMs - meta.firstPacketArrivalMs, meta.decodedMs - meta.firstPacketArrivalMs,
+                        meta.renderedMs - meta.firstPacketArrivalMs);
             if (screenshot) saveScreen();
             drawUs += t3 - t2;
             ++drawCalls;
@@ -189,7 +229,7 @@ struct StreamPlayer::Impl {
         if (!media::audioStart()) XC_LOGW("no audio output: playing without sound");
 
         stream::StreamCallbacks cb;
-        cb.video = [this](const uint8_t* d, size_t n, uint32_t) {
+        cb.video = [this](const uint8_t* d, size_t n, uint32_t rtpTimestamp) {
             if (n == 0) {  // the depacketizer emits these after loss
                 keyframeWanted = true;
                 return;
@@ -202,7 +242,7 @@ struct StreamPlayer::Impl {
                 frames.clear();
                 keyframeWanted = true;
             }
-            frames.emplace_back(d, d + n);
+            frames.push_back({std::vector<uint8_t>(d, d + n), rtpTimestamp, session->clockMs()});
             cv.notify_one();
         };
         cb.audio = [this](const uint8_t* d, size_t n, uint32_t) {
@@ -213,31 +253,49 @@ struct StreamPlayer::Impl {
         };
         // xCloud's motors are 0..100 percent, like the web client's
         // dual-rumble effect (left = strong, right = weak). The trigger
-        // motors have no plain-rumble counterpart on the DualSense.
+        // motors (impulse triggers) become the adaptive triggers vibrating.
         cb.vibration = [this](const stream::Vibration& v) {
-            if (++vibrations <= 5)
-                XC_LOGI("vibration %u/%u/%u/%u for %ums", v.leftMotor, v.rightMotor, v.leftTrigger, v.rightTrigger,
-                        v.durationMs);
+            // The first few, and the first few with the triggers (rarer: does
+            // the service send them at all for a game?).
+            bool triggers = v.leftTrigger || v.rightTrigger;
+            if (++vibrations <= 5 || (triggers && ++triggerVibrations <= 5))
+                XC_LOGI("vibration %u/%u/%u/%u for %ums (pad %u)", v.leftMotor, v.rightMotor, v.leftTrigger,
+                        v.rightTrigger, v.durationMs, v.gamepadIndex);
             auto scale = [](uint8_t pct) { return static_cast<uint8_t>(std::min<int>(pct, 100) * 255 / 100); };
-            input::setRumble(scale(v.leftMotor), scale(v.rightMotor), v.durationMs);
+            input::setRumble(scale(v.leftMotor), scale(v.rightMotor), v.durationMs, v.gamepadIndex);
+            input::setTriggerRumble(scale(v.leftTrigger), scale(v.rightTrigger), v.durationMs, v.gamepadIndex);
         };
         cb.idleWarning = [](int seconds) {
             platform::notify(ui::trf(ui::Str::IdleWarning, std::to_string(seconds)));
         };
         cb.closed = [this](const std::string& reason) { end(reason); };
+        // With the console's keyboard, the game's text fields use it;
+        // otherwise the server draws the Xbox keyboard into the picture.
+        if (platform::systemKeyboardAvailable()) {
+            cb.textInput = [this](const stream::TextInputRequest& req) {
+                std::lock_guard<std::mutex> lock(mutex);
+                textRequests.push_back(req);
+            };
+            cb.textInputCancelled = [this](const std::string& id) {
+                std::lock_guard<std::mutex> lock(mutex);
+                textWithdrawn.insert(id);
+            };
+        }
 
         stream::StreamOptions opts;
         // Each setting asks for the best tier of its resolution, like the
         // xbox.com client: the HQ tiers (higher bitrate) and 1440p need Game
         // Pass Ultimate and a market where Microsoft enabled them; elsewhere
-        // the service ignores the request and streams the plain tier.
+        // the plain tier the session asks for first holds.
         switch (gssv.resolution()) {
         case xcloud::Resolution::P1440: opts.resolutionAlias = "1440"; break;
-        case xcloud::Resolution::P1080: opts.resolutionAlias = "1080HQ"; break;
+        case xcloud::Resolution::P1080:
+        case xcloud::Resolution::P1080HQ: opts.resolutionAlias = "1080HQ"; break;
         case xcloud::Resolution::P720: opts.resolutionAlias = "720HQ"; break;
         }
         opts.maxBitrate = gssv.resolution() == xcloud::Resolution::P720    ? 12000000
                           : gssv.resolution() == xcloud::Resolution::P1440 ? 40000000
+                          : gssv.resolution() == xcloud::Resolution::P1080HQ ? 30000000
                                                                            : 25000000;
         if (const char* loss = std::getenv("XC_SIM_LOSS")) opts.simulatedVideoLoss = std::atoi(loss);
         session = std::make_unique<stream::StreamSession>(gssv, cb, opts);
@@ -317,7 +375,10 @@ struct StreamPlayer::Impl {
         if (audioThread.joinable()) audioThread.join();
         session.reset();
         media::audioStop();
-        input::setRumble(0, 0, 0);
+        for (int i = 0; i < input::kMaxPads; ++i) {
+            input::setRumble(0, 0, 0, i);
+            input::setTriggerRumble(0, 0, 0, i);
+        }
     }
 };
 
@@ -332,9 +393,10 @@ std::string StreamPlayer::endReason() const {
     return impl_->endReason;
 }
 
-void StreamPlayer::sendInput(const input::ControllerState& p) {
+void StreamPlayer::sendInput(const input::ControllerState& p, int index) {
     if (!impl_->session || !impl_->running) return;
     stream::GamepadFrame f;
+    f.index = static_cast<uint8_t>(index);
     auto set = [&](bool on, uint16_t bit) {
         if (on) f.buttons |= bit;
     };
@@ -359,6 +421,40 @@ void StreamPlayer::sendInput(const input::ControllerState& p) {
     f.leftTrigger = p.triggerL2;
     f.rightTrigger = p.triggerR2;
     impl_->session->sendGamepad(f);
+}
+
+void StreamPlayer::setPadConnected(int index, bool connected) {
+    if (impl_->session && impl_->running) impl_->session->setGamepadConnected(index, connected);
+}
+
+bool StreamPlayer::takeTextInput(stream::TextInputRequest& out) {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    while (!impl_->textRequests.empty()) {
+        out = std::move(impl_->textRequests.front());
+        impl_->textRequests.pop_front();
+        if (!impl_->textWithdrawn.count(out.id)) return true;
+    }
+    return false;
+}
+
+bool StreamPlayer::textInputWithdrawn(const std::string& id) {
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    return impl_->textWithdrawn.count(id) != 0;
+}
+
+void StreamPlayer::answerTextInput(const std::string& id, bool accepted, const std::string& text) {
+    if (textInputWithdrawn(id) || !impl_->session) return;
+    XC_LOGI("text input %s", accepted ? "sent" : "cancelled");
+    if (accepted)
+        impl_->session->completeTextInput(id, text);
+    else
+        impl_->session->cancelTextInput(id);
+}
+
+void StreamPlayer::requestKeyframe() { impl_->keyframeWanted = true; }
+
+void StreamPlayer::requestResolution(const std::string& alias) {
+    if (impl_->session) impl_->session->requestResolution(alias);
 }
 
 void StreamPlayer::tick() { impl_->tick(); }
@@ -389,6 +485,8 @@ StreamPlayer::Stats StreamPlayer::stats() const {
     st.keyframeRequests = impl_->keyframeRequests;
     st.vibrations = impl_->vibrations;
     st.lateFrames = impl_->lateFrames;
+    st.width = static_cast<int>(impl_->pictureSize >> 16);
+    st.height = static_cast<int>(impl_->pictureSize & 0xFFFF);
     // Timings since the previous call.
     uint64_t dc = impl_->decodeCalls.exchange(0), du = impl_->decodeUs.exchange(0);
     uint64_t rc = impl_->drawCalls.exchange(0), ru = impl_->drawUs.exchange(0);

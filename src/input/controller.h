@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace xc::input {
 
@@ -39,11 +40,34 @@ struct ControllerState {
     float triggerR2 = 0.0f;
 };
 
+// Up to four DualSense: pad 0 belongs to the user who started the app, the
+// others to the other signed-in users (each PS5 controller is tied to a
+// user), in the order they appear.
+constexpr int kMaxPads = 4;
+
 bool init();
 void shutdown();
+// Pad 0 (the menus).
 bool poll(ControllerState& out);
+// Any pad; false (and `out` cleared) when there is none at `index`.
+bool pollPad(int index, ControllerState& out);
+// Looks for users who signed in or out since (about once a second).
+void refreshPads();
+// Whether the pad at `index` answered its last poll, and its user's name
+// (empty when the slot is free).
+bool padConnected(int index);
+std::string padUserName(int index);
 // Rumble, 0..255 per motor (large = low frequency, small = high frequency),
-// for `durationMs` (0 = until changed). Any thread; poll() applies it.
-void setRumble(uint8_t large, uint8_t small, uint32_t durationMs);
+// for `durationMs` (0 = until changed). Any thread; polling applies it.
+void setRumble(uint8_t large, uint8_t small, uint32_t durationMs, int pad = 0);
+// Vibration in the triggers (Xbox impulse triggers), 0..255 each; the
+// DualSense's adaptive triggers vibrate along their whole travel.
+void setTriggerRumble(uint8_t left, uint8_t right, uint32_t durationMs, int pad = 0);
+// Stick dead zone, 0..0.5 of the travel.
+void setDeadzone(float deadzone);
+// Circle reported as Cross (Xbox A) and Cross as Circle, everywhere.
+void setCircleConfirms(bool on);
+// Off: setTriggerRumble() is ignored.
+void setTriggerRumbleEnabled(bool on);
 
 } // namespace xc::input

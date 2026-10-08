@@ -26,6 +26,7 @@
 #include "util/log.h"
 #include "ui/app_ui.h"
 #include "ui/brand.h"
+#include "ui/stream_menu.h"
 #include "ui/strings.h"
 #include "xcloud/gssv.h"
 #include "xcloud/prices.h"
@@ -589,6 +590,60 @@ int main(int argc, char** argv) {
         press([](ui::NavInput& n) { n.accept = true; });
         save("settings_resolution");
         return 0;
+    } else if (cmd == "ui-menu" && argi < argc) {
+        // Offline: the in-game menu and the statistics line over a made-up
+        // game picture, blended as display::setOverlay() does.
+        ui::Fonts fonts;
+        if (!fonts.load("assets/fonts")) return 1;
+        ui::StreamMenu menu(fonts);
+        {
+            ui::PadSlots pads{};
+            pads[0] = {true, "RafaelNGP"};
+            pads[1] = {true, "A very long PS5 user name"};
+            menu.setPads(pads);
+        }
+        ui::StreamInfo info;
+        info.region = "Brazil South";
+        info.rttMs = 23;
+        info.fps = 60;
+        info.mbps = 12.4;
+        info.lossPct = 0.2;
+        info.decodeMs = 4.1;
+        info.width = 1920;
+        info.height = 1080;
+        auto save = [&](const std::string& name, const ui::Canvas& over, int ox, int oy, int alpha) {
+            ui::Canvas frame(1920, 1080);
+            frame.gradientH({0, 0, 1920, 1080}, ui::rgba(40, 90, 160), ui::rgba(200, 120, 40));
+            uint32_t* px = frame.data();
+            for (int y = 0; y < over.height(); ++y)
+                for (int x = 0; x < over.width(); ++x) {
+                    uint32_t& d = px[(oy + y) * 1920 + ox + x];
+                    uint32_t o = over.data()[y * over.width() + x];
+                    uint32_t out = 0xFF000000u;
+                    for (int sh = 0; sh < 24; sh += 8)
+                        out |= ((((o >> sh) & 0xFF) * alpha + ((d >> sh) & 0xFF) * (255 - alpha)) / 255) << sh;
+                    d = out;
+                }
+            std::string path = std::string(argv[argi]) + "/" + name + ".png";
+            stbi_write_png(path.c_str(), 1920, 1080, 4, frame.data(), 1920 * 4);
+            std::printf("wrote %s\n", path.c_str());
+        };
+        menu.open(0, true, 2);
+        save("menu", menu.renderMenu(info), ui::StreamMenu::kMenuX, ui::StreamMenu::kMenuY, 235);
+        ui::NavInput n;
+        n.down = true;
+        for (int i = 0; i < 3; ++i) menu.handle(n);
+        n = {};
+        n.right = true;
+        menu.handle(n);  // 1080p -> 1440p
+        n = {};
+        n.accept = true;
+        menu.handle(n);
+        save("menu_resolution", menu.renderMenu(info), ui::StreamMenu::kMenuX, ui::StreamMenu::kMenuY, 235);
+        save("stats", menu.renderStats(info), ui::StreamMenu::kStatsX, ui::StreamMenu::kStatsY, 200);
+        ui::setLanguage(ui::Language::PortugueseBR);
+        save("menu_pt", menu.renderMenu(info), ui::StreamMenu::kMenuX, ui::StreamMenu::kMenuY, 235);
+        return 0;
     } else if (cmd == "ui-badges" && argi < argc) {
         // Offline: "Your games" with every badge, hiding, sorting and the
         // search filters, with made-up games. PNGs into the given directory.
@@ -596,6 +651,12 @@ int main(int argc, char** argv) {
         if (!fonts.load("assets/fonts")) return 1;
         ui::ImageCache images([] {});
         ui::AppUi app(fonts, images);
+        {
+            ui::PadSlots pads{};
+            pads[0] = {true, "RafaelNGP"};
+            pads[1] = {true, "Player 2"};
+            app.setPads(pads);
+        }
         ui::Canvas canvas(1920, 1080);
         std::vector<ui::GameTile> owned, buy;
         const char* platforms[] = {"XS", "ONE", "360"};

@@ -30,6 +30,8 @@ namespace {
 constexpr const char* kControlAccessKey = "4BDB3609-C1F1-4195-9B37-FEFF45DA8B8E";
 constexpr const char* kHandshakeId = "be0bfc6d-1e83-4c8a-90ed-fa8601c5a179";
 constexpr const char* kClientAppInstallId = "c97d7ee0-73b2-4239-bf1d-9d805a338429";
+// SystemUiType of the system UIs this client draws itself.
+constexpr int kShowVirtualKeyboard = 10;
 
 std::string uuid4() {
     uint8_t b[16];
@@ -197,6 +199,32 @@ struct StreamSession::Impl {
         sendText(message, v.dump());
     }
 
+    void cancelTransaction(const std::string& id) {
+        json::Value v = json::Value::object();
+        v.set("type", "ReceiverCancel");
+        v.set("id", id);
+        v.set("cv", "");
+        sendText(message, v.dump());
+    }
+
+    void sendResolution(const std::string& alias) {
+        // The HQ tiers and 1440 need Game Pass Ultimate in a market where
+        // they're enabled; elsewhere the service ignores them and keeps what
+        // it had (1080 at the start). The plain tier first, then: measured,
+        // "720" switches in a few seconds, "720HQ" is ignored in Brazil.
+        std::string base = alias == "1440" ? "1080" : alias;
+        if (base.size() > 2 && base.compare(base.size() - 2, 2, "HQ") == 0) base.resize(base.size() - 2);
+        auto send = [this](const std::string& a) {
+            json::Value res = json::Value::object();
+            res.set("message", "userRequestedResolutionUpdate");
+            res.set("resolutionAlias", a);
+            sendText(control, res.dump());
+            XC_LOGI("requested stream resolution %s", a.c_str());
+        };
+        send(base);
+        if (alias != base) send(alias);
+    }
+
     void sendClientConfig() {
         json::Value ver = json::Value::array();
         ver.push(0);
@@ -204,7 +232,9 @@ struct StreamSession::Impl {
         ver.push(0);
         json::Value ui = json::Value::object();
         ui.set("version", ver);
-        ui.set("systemUis", json::Value::array());
+        json::Value systemUis = json::Value::array();
+        if (cb.textInput) systemUis.push(kShowVirtualKeyboard);
+        ui.set("systemUis", systemUis);
         sendText(message, messageEnvelope("/streaming/systemUi/configuration", ui));
 
         json::Value install = json::Value::object();
@@ -252,13 +282,8 @@ struct StreamSession::Impl {
         sendGamepadChanged(0, true);
         sendGamepadChanged(0, false);
         sendGamepadChanged(0, true);
-        if (!opt.resolutionAlias.empty()) {
-            json::Value res = json::Value::object();
-            res.set("message", "userRequestedResolutionUpdate");
-            res.set("resolutionAlias", opt.resolutionAlias);
-            sendText(control, res.dump());
-            XC_LOGI("requested stream resolution %s", opt.resolutionAlias.c_str());
-        }
+        if (!opt.resolutionAlias.empty()) sendResolution(opt.resolutionAlias);
+
 
         sendBinary(input, clientMetadataReport(0, nowMs(), static_cast<uint8_t>(std::getenv("XC_TOUCH_POINTS") ? std::atoi(std::getenv("XC_TOUCH_POINTS")) : 1)));
         sendClientConfig();
@@ -280,6 +305,11 @@ struct StreamSession::Impl {
         std::string type = (*j)["type"].str();
         if (type == "HandshakeAck") {
             onHandshakeAck();
+            return;
+        }
+        if (type == "SenderCancel") {
+            XC_LOGI("message channel: the server withdrew %s", (*j)["id"].str().c_str());
+            if (cb.textInputCancelled) cb.textInputCancelled((*j)["id"].str());
             return;
         }
         if (type != "Message" && type != "TransactionStart") {
@@ -307,6 +337,19 @@ struct StreamSession::Impl {
             } else {
                 fail(reason.empty() ? "the server ended the session" : "the server ended the session (" + reason + ")");
             }
+        } else if (target == "/streaming/systemUi/messages/ShowVirtualKeyboard" && cb.textInput) {
+            auto content = json::parse((*j)["content"].str());
+            TextInputRequest req;
+            req.id = id;
+            if (content) {
+                req.title = (*content)["TitleText"].str();
+                req.description = (*content)["DescriptionText"].str();
+                req.defaultText = (*content)["DefaultText"].str();
+                req.inputScope = static_cast<int>((*content)["InputScope"].asInt());
+                req.maxLength = static_cast<int>((*content)["MaxLength"].asInt());
+            }
+            XC_LOGI("the game asks for text (scope %d, up to %d characters)", req.inputScope, req.maxLength);
+            cb.textInput(req);
         } else if (target == "/streaming/systemUi/messages/ShowMessageDialog") {
             // No dialog UI yet: log it and pick the first (default) button.
             auto content = json::parse((*j)["content"].str());
@@ -472,6 +515,8 @@ struct StreamSession::Impl {
             return false;
         }
         XC_LOGD("remote answer:\n%s", answer.c_str());
+        for (size_t p = answer.find("a=rtpmap:"); p != std::string::npos; p = answer.find("a=rtpmap:", p + 1))
+            XC_LOGI("answer %s", answer.substr(p, answer.find_first_of("\r\n", p) - p).c_str());
         try {
             pc->setRemoteDescription(rtc::Description(answer, rtc::Description::Type::Answer));
         } catch (const std::exception& e) {
@@ -598,6 +643,12 @@ void StreamSession::sendGamepad(const GamepadFrame& frame) {
     Impl::sendBinary(impl_->input, gamepadReport(impl_->inputSequence++, impl_->nowMs(), frame));
 }
 
+void StreamSession::setGamepadConnected(int index, bool connected) {
+    if (!impl_->open) return;
+    XC_LOGI("gamepad %d %s", index, connected ? "attached" : "detached");
+    impl_->sendGamepadChanged(index, connected);
+}
+
 void StreamSession::requestKeyframe() {
     try {
         impl_->requestKeyframe();
@@ -605,6 +656,23 @@ void StreamSession::requestKeyframe() {
         XC_LOGW("keyframe request: %s", e.what());
     }
 }
+void StreamSession::reportFrame(const FrameMetadata& frame) {
+    if (!impl_->open) return;
+    Impl::sendBinary(impl_->input, metadataReport(impl_->inputSequence++, impl_->nowMs(), {frame}));
+}
+
+double StreamSession::clockMs() const { return impl_->nowMs(); }
+
+void StreamSession::completeTextInput(const std::string& id, const std::string& text) {
+    json::Value v = json::Value::object();
+    v.set("Text", text);
+    impl_->completeTransaction(id, v);
+}
+
+void StreamSession::cancelTextInput(const std::string& id) { impl_->cancelTransaction(id); }
+
+void StreamSession::requestResolution(const std::string& alias) { impl_->sendResolution(alias); }
+
 void StreamSession::tick() { impl_->tick(); }
 void StreamSession::close() { impl_->close(); }
 int StreamSession::rttMs() const {

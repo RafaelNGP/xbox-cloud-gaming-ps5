@@ -51,6 +51,28 @@ std::vector<uint8_t> clientMetadataReport(uint32_t sequence, double timestampMs,
     return b;
 }
 
+std::vector<uint8_t> metadataReport(uint32_t sequence, double timestampMs, const std::vector<FrameMetadata>& frames) {
+    size_t count = std::min<size_t>(frames.size(), 30);
+    auto b = header(kReportMetadata, sequence, timestampMs, kHeaderSize + 1 + count * 28);
+    size_t o = kHeaderSize;
+    put8(b, o++, static_cast<uint8_t>(count));
+    // Times in tenths of a millisecond, wrapping like the web client's
+    // DataView.setUint32.
+    auto tenths = [](double ms) { return static_cast<uint32_t>(static_cast<uint64_t>(ms * 10.0)); };
+    for (size_t i = frames.size() - count; i < frames.size(); ++i) {
+        const FrameMetadata& f = frames[i];
+        put32(b, o, f.serverDataKey);
+        put32(b, o + 4, tenths(f.firstPacketArrivalMs));
+        put32(b, o + 8, tenths(f.submittedMs));
+        put32(b, o + 12, tenths(f.decodedMs));
+        put32(b, o + 16, tenths(f.renderedMs));
+        put32(b, o + 20, tenths(timestampMs));
+        put32(b, o + 24, tenths(timestampMs));
+        o += 28;
+    }
+    return b;
+}
+
 std::vector<uint8_t> gamepadReport(uint32_t sequence, double timestampMs, const GamepadFrame& f) {
     auto b = header(kReportGamepad, sequence, timestampMs, kHeaderSize + 1 + 23);
     size_t o = kHeaderSize;

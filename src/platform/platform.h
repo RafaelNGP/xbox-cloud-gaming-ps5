@@ -48,6 +48,17 @@ bool startThread(Thread& t, std::function<void()> fn, size_t stackBytes = 8u << 
 // Short on-screen message (PS5 system notification / host stdout).
 void notify(const std::string& text);
 
+// The console's own on-screen keyboard (sceImeDialog), one at a time.
+// openSystemKeyboard() is false where there is none (the host, or a console
+// that refuses the module); pollSystemKeyboard() then reports Closed.
+enum class KeyboardStatus { Closed, Open, Accepted, Cancelled };
+enum class KeyboardKind { Text, Password, Number, Email, Url };
+bool systemKeyboardAvailable();
+bool openSystemKeyboard(const std::string& title, const std::string& text, size_t maxLength,
+                        KeyboardKind kind = KeyboardKind::Text);
+// Accepted/Cancelled once, when the player closes it; `text` (UTF-8) on Accepted.
+KeyboardStatus pollSystemKeyboard(std::string& text);
+
 bool readFile(const std::string& path, std::string& out);
 bool writeFileAtomic(const std::string& path, const std::string& data);
 

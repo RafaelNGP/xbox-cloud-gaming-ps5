@@ -29,6 +29,14 @@ void drawRgba(const uint32_t* pixels);
 bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int strideY, int strideU, int strideV,
                 int width, int height, bool wait);
 
+// A picture laid over every video frame drawYuv420() draws from now on (the
+// in-game menu, the statistics): `w` x `h` RGBA pixels at (x, y), blended at
+// `opacity`. Null `pixels` removes it. Any thread.
+void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opacity);
+
+// Sharpening of the video (drawYuv420), 0 = off .. 256 = full CAS.
+void setSharpness(int amount);
+
 // The back buffer last drawn, untiled, as 8-bit RGB rows (diagnostics:
 // what the TV shows). False without a display.
 bool readBackRgb(std::vector<uint8_t>& rgb);
