@@ -64,6 +64,7 @@ struct SceUserServiceLoginUserIdList {
 int sceUserServiceInitialize(const SceUserServiceInitializeParams* param);
 int sceUserServiceGetInitialUser(int32_t* userId);
 int sceUserServiceGetLoginUserIdList(SceUserServiceLoginUserIdList* list);
+int sceUserServiceGetUserName(int32_t userId, char* name, size_t size);
 int scePadInit(void);
 int scePadOpen(int32_t userId, int32_t type, int32_t index, const void* param);
 int scePadClose(int32_t handle);
@@ -134,6 +135,8 @@ struct Rumble {
 struct Pad {
     int32_t userId = -1;
     int32_t handle = -1;
+    std::atomic<bool> connected{false};  // the last poll's answer
+    char name[32] = {};                   // the user's, read when opened
     Rumble motors, triggers;
 };
 Pad g_pads[kMaxPads];
@@ -163,6 +166,7 @@ bool openPad(Pad& pad, int32_t userId, int slot) {
     int mode = scePadSetVibrationMode(h, 2);
     pad.userId = userId;
     pad.handle = h;
+    if (sceUserServiceGetUserName(userId, pad.name, sizeof pad.name) != 0) pad.name[0] = 0;
     pad.motors.applied = pad.triggers.applied = 0;
     XC_LOGI("pad %d opened (handle %d, user %d, rumble mode 0x%08x)", slot, h, userId, static_cast<unsigned>(mode));
     return true;
@@ -179,6 +183,8 @@ void closePad(Pad& pad, int slot) {
     XC_LOGI("pad %d closed (user %d)", slot, pad.userId);
     pad.handle = -1;
     pad.userId = -1;
+    pad.connected = false;
+    pad.name[0] = 0;
 }
 
 void applyRumble(Pad& pad) {
@@ -218,6 +224,13 @@ void setTriggerRumble(uint8_t left, uint8_t right, uint32_t durationMs, int pad)
 }
 
 void setCircleConfirms(bool on) { g_circleConfirms = on; }
+
+bool padConnected(int index) { return index >= 0 && index < kMaxPads && g_pads[index].connected; }
+
+std::string padUserName(int index) {
+    // Main thread, like refreshPads() which changes it.
+    return index >= 0 && index < kMaxPads && g_pads[index].handle >= 0 ? g_pads[index].name : "";
+}
 
 void setTriggerRumbleEnabled(bool on) {
     g_triggerRumble = on;
@@ -288,7 +301,8 @@ bool pollPad(int index, ControllerState& out) {
     applyRumble(slot);
     ScePadData pad{};
     int rc = scePadReadState(slot.handle, &pad);
-    if (rc != 0 || !pad.connected) return false;
+    slot.connected = rc == 0 && pad.connected;
+    if (!slot.connected) return false;
 
     out.connected = true;
     uint32_t b = pad.buttons;
@@ -346,6 +360,8 @@ void setRumble(uint8_t, uint8_t, uint32_t, int) {}
 void setTriggerRumble(uint8_t, uint8_t, uint32_t, int) {}
 void setDeadzone(float) {}
 void setCircleConfirms(bool) {}
+bool padConnected(int index) { return index == 0; }
+std::string padUserName(int index) { return index == 0 ? "Player" : ""; }
 void setTriggerRumbleEnabled(bool) {}
 } // namespace xc::input
 

@@ -136,6 +136,21 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     line(Str::StatLoss, fmt("%.1f %%", info.lossPct));
     line(Str::StatDecode, info.decodeMs > 0 ? fmt("%.1f ms", info.decodeMs) : none);
 
+    // The controllers: numbered pads, each connected one with its user.
+    y += 8;
+    fonts_.regular.draw(c, tr(Str::Controllers), kPad, y, 22, kGray);
+    y += 38;
+    const int slotW = (kMenuW - 2 * kPad) / static_cast<int>(pads_.size());
+    for (int i = 0; i < static_cast<int>(pads_.size()); ++i) {
+        int sx = kPad + i * slotW;
+        constexpr int kIconW = 60;
+        drawPadIcon(c, fonts_.bold, sx + (slotW - kIconW) / 2, y, kIconW, i, pads_[i].connected);
+        if (!pads_[i].connected || pads_[i].name.empty()) continue;
+        auto name = fonts_.regular.wrap(pads_[i].name, 16, slotW - 8, 1);
+        if (!name.empty())
+            fonts_.regular.draw(c, name[0], sx + (slotW - fonts_.regular.measure(name[0], 16)) / 2, y + 48, 16, kGray);
+    }
+
     // Cross selects, Circle goes back to the game (swapped with Circle
     // confirming).
     int hy = kMenuH - 56, x = kPad;

@@ -11,6 +11,7 @@
 #include "ui/canvas.h"
 #include "ui/font.h"
 #include "ui/image_cache.h"
+#include "ui/pad_icons.h"
 
 #include <cstdint>
 #include <map>
@@ -147,6 +148,8 @@ public:
     // The confirm button in force (the hints show it); Settings may be
     // showing another choice not saved yet.
     void setCircleConfirms(bool on);
+    // The controllers in use (bottom left of the home screen).
+    void setPads(const PadSlots& pads);
     // Regions offered by the account's xCloud login; `defaultRegion` is the
     // one "Automatic" picks.
     void setRegions(std::vector<std::string> regions, const std::string& defaultRegion);
@@ -176,6 +179,7 @@ private:
     void drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>& hints);
     void drawSpinner(Canvas& c, float cx, float cy, float r, uint64_t nowMs);
     void drawToast(Canvas& c, uint64_t nowMs);
+    void drawPads(Canvas& c);
     void drawSplash(Canvas& c, uint64_t nowMs);
     void drawSignIn(Canvas& c, uint64_t nowMs);
     void drawHome(Canvas& c, uint64_t nowMs);
@@ -267,6 +271,7 @@ private:
     std::string error_;
     SettingsChoice settings_;
     bool circleConfirms_ = false;
+    PadSlots pads_{};
     std::vector<std::string> regions_;
     std::string defaultRegion_;
     std::map<std::string, int> regionMs_;

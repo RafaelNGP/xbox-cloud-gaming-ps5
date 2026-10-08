@@ -142,6 +142,9 @@ constexpr Column kEnglish = {
     "Cross",                                     // ButtonCross
     "Circle",                                    // ButtonCircle
     "PSBox Cloud Gaming %s is out: get it on GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",// UpdateAvailable
+    "Controllers",                                   // Controllers
+    "Controller %s connected",                       // PadConnected
+    "Controller %s disconnected",                    // PadDisconnected
 };
 
 constexpr Column kPortugueseBR = {
@@ -254,6 +257,9 @@ constexpr Column kPortugueseBR = {
     "Xis",
     "Círculo",
     "Saiu o PSBox Cloud Gaming %s: baixe no GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Controles",
+    "Controle %s conectado",
+    "Controle %s desconectado",
 };
 
 constexpr Column kSpanish = {
@@ -366,6 +372,9 @@ constexpr Column kSpanish = {
     "Equis",
     "Círculo",
     "Ya está disponible PSBox Cloud Gaming %s: descárgalo en GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Mandos",
+    "Mando %s conectado",
+    "Mando %s desconectado",
 };
 
 constexpr Column kFrench = {
@@ -478,6 +487,9 @@ constexpr Column kFrench = {
     "Croix",
     "Rond",
     "PSBox Cloud Gaming %s est disponible : téléchargez-le sur GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Manettes",
+    "Manette %s connectée",
+    "Manette %s déconnectée",
 };
 
 constexpr Column kGerman = {
@@ -590,6 +602,9 @@ constexpr Column kGerman = {
     "Kreuz",
     "Kreis",
     "PSBox Cloud Gaming %s ist da: auf GitHub herunterladen (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Controller",
+    "Controller %s verbunden",
+    "Controller %s getrennt",
 };
 
 constexpr Column kItalian = {
@@ -702,6 +717,9 @@ constexpr Column kItalian = {
     "Croce",
     "Cerchio",
     "È disponibile PSBox Cloud Gaming %s: scaricalo da GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Controller",
+    "Controller %s connesso",
+    "Controller %s disconnesso",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

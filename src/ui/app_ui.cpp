@@ -631,6 +631,21 @@ void AppUi::setCircleConfirms(bool on) {
     dirty_ = true;
 }
 
+void AppUi::setPads(const PadSlots& pads) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    bool changed = false;
+    for (size_t i = 0; i < pads.size(); ++i)
+        changed |= pads[i].connected != pads_[i].connected || pads[i].name != pads_[i].name;
+    if (!changed) return;
+    pads_ = pads;
+    dirty_ = true;
+}
+
+void AppUi::drawPads(Canvas& c) {
+    // Bottom left, on the line of the button hints (which are right-aligned).
+    drawPadRow(c, fonts_.bold, kMargin, kH - 70, 54, 14, pads_);
+}
+
 void AppUi::setRegions(std::vector<std::string> regions, const std::string& defaultRegion) {
     std::lock_guard<std::mutex> lock(mutex_);
     regions_ = std::move(regions);
@@ -1451,6 +1466,7 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
                   {kIconR3, tr(Str::SortHint)},
                   {kIconL2R2, tr(Str::Sections)},
                   {kIconOptions, tr(Str::Settings)}});
+    drawPads(c);
     drawToast(c, nowMs);
 }
 
@@ -1594,6 +1610,7 @@ void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
                   {kIconTriangle, tr(Str::TabSearch)},
                   {kIconOptions, tr(Str::Settings)},
                   {kIconTouchpad, tr(Str::HoldSignOut)}});
+    drawPads(c);
     drawToast(c, nowMs);
 }
 

@@ -781,7 +781,8 @@ int main(int argc, char** argv) {
     static constexpr int kSharpAmount[] = {0, 96, 176, 256};
     bool padReleased = true;
     bool padAttached[input::kMaxPads] = {};  // controllers 1..3 announced to the stream
-    uint64_t padsCheckedAt = 0;  // false from the menu/keyboard until the buttons are let go
+    uint64_t padsCheckedAt = 0;
+    unsigned padChecks = 0;  // false from the menu/keyboard until the buttons are let go
     uint32_t overlaySeq = 0;  // g_infoSeq + 1 when drawn; 0 = redraw
     uint64_t homeSince = 0, launchSince = 0;
     bool uiSaved = false, launchSaved = false;
@@ -790,9 +791,20 @@ int main(int argc, char** argv) {
         // Autoplay runs unattended: the physical pad must not interfere.
         if (!g_autoplayTitle.empty()) pad = input::ControllerState{};
         uint64_t now = platform::nowMs();
-        if (now - padsCheckedAt >= 1000) {  // other players signing in or out
+        if (now - padsCheckedAt >= 500) {  // other players signing in or out
             padsCheckedAt = now;
-            input::refreshPads();
+            if (++padChecks % 2 == 0) input::refreshPads();
+            // Off the stream nobody reads pads 1..3: poll them for their state.
+            if (g_ui->screen() != ui::Screen::Streaming) {
+                input::ControllerState ignored;
+                for (int i = 1; i < input::kMaxPads; ++i) input::pollPad(i, ignored);
+            }
+            ui::PadSlots slots;
+            for (int i = 0; i < input::kMaxPads; ++i)
+                slots[static_cast<size_t>(i)] = {input::padConnected(i), input::padUserName(i)};
+            g_ui->setPads(slots);
+            menu.setPads(slots);
+            if (menu.isOpen()) overlaySeq = 0;
         }
         if (!g_keyboardFor.empty() && g_ui->screen() != ui::Screen::Streaming) updateTextInput(nullptr);
 
@@ -901,6 +913,10 @@ int main(int argc, char** argv) {
                     if (on != padAttached[i]) {
                         padAttached[i] = on;
                         g_player->setPadConnected(i, on);
+                        std::string who = std::to_string(i + 1);
+                        std::string name = input::padUserName(i);
+                        if (!name.empty()) who += " (" + name + ")";
+                        platform::notify(ui::trf(on ? ui::Str::PadConnected : ui::Str::PadDisconnected, who));
                     }
                     if (on) g_player->sendInput(other, i);
                 }

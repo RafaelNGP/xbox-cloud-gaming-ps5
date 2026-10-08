@@ -596,6 +596,12 @@ int main(int argc, char** argv) {
         ui::Fonts fonts;
         if (!fonts.load("assets/fonts")) return 1;
         ui::StreamMenu menu(fonts);
+        {
+            ui::PadSlots pads{};
+            pads[0] = {true, "RafaelNGP"};
+            pads[1] = {true, "A very long PS5 user name"};
+            menu.setPads(pads);
+        }
         ui::StreamInfo info;
         info.region = "Brazil South";
         info.rttMs = 23;
@@ -645,6 +651,12 @@ int main(int argc, char** argv) {
         if (!fonts.load("assets/fonts")) return 1;
         ui::ImageCache images([] {});
         ui::AppUi app(fonts, images);
+        {
+            ui::PadSlots pads{};
+            pads[0] = {true, "RafaelNGP"};
+            pads[1] = {true, "Player 2"};
+            app.setPads(pads);
+        }
         ui::Canvas canvas(1920, 1080);
         std::vector<ui::GameTile> owned, buy;
         const char* platforms[] = {"XS", "ONE", "360"};

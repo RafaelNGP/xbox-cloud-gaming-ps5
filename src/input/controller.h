@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace xc::input {
 
@@ -52,6 +53,10 @@ bool poll(ControllerState& out);
 bool pollPad(int index, ControllerState& out);
 // Looks for users who signed in or out since (about once a second).
 void refreshPads();
+// Whether the pad at `index` answered its last poll, and its user's name
+// (empty when the slot is free).
+bool padConnected(int index);
+std::string padUserName(int index);
 // Rumble, 0..255 per motor (large = low frequency, small = high frequency),
 // for `durationMs` (0 = until changed). Any thread; polling applies it.
 void setRumble(uint8_t large, uint8_t small, uint32_t durationMs, int pad = 0);

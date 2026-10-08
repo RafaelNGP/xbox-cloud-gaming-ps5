@@ -8,6 +8,7 @@
 #include "ui/app_ui.h"
 #include "ui/canvas.h"
 #include "ui/font.h"
+#include "ui/pad_icons.h"
 
 #include <string>
 
@@ -25,7 +26,7 @@ enum class MenuAction { None, Close, Leave, Refresh, Resolution, Stats, Sharpnes
 
 class StreamMenu {
 public:
-    static constexpr int kMenuW = 620, kMenuH = 840;
+    static constexpr int kMenuW = 620, kMenuH = 950;
     static constexpr int kMenuX = 80, kMenuY = (1080 - kMenuH) / 2;
     static constexpr int kStatsX = 32, kStatsY = 28;
 
@@ -42,6 +43,8 @@ public:
     int sharpness() const { return sharpness_; }
     // Circle confirms: the hints swap their buttons.
     void setCircleConfirms(bool on) { circleConfirms_ = on; }
+    // The controllers in use, under the connection.
+    void setPads(const PadSlots& pads) { pads_ = pads; }
 
     Canvas renderMenu(const StreamInfo& info) const;
     Canvas renderStats(const StreamInfo& info) const;
@@ -56,6 +59,7 @@ private:
     int sharpness_ = 0;
     bool resolutionAsked_ = false;
     bool circleConfirms_ = false;
+    PadSlots pads_{};
 };
 
 }  // namespace xc::ui

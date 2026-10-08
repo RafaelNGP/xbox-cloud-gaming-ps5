@@ -119,6 +119,9 @@ enum class Str {
     ButtonCross,
     ButtonCircle,
     UpdateAvailable,  // "%s" = the new version
+    Controllers,      // in-game menu: the pads in use
+    PadConnected,     // "%s" = "2 (user name)"
+    PadDisconnected,  // "%s" = "2 (user name)"
     Count
 };
 
