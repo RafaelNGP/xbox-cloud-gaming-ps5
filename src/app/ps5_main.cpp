@@ -11,6 +11,7 @@
 #include "app/update_check.h"
 #include "auth/auth_manager.h"
 #include "display/display.h"
+#include "display/gpu.h"
 #include "input/controller.h"
 #include "media/decoder.h"
 #include "net/http.h"
@@ -157,6 +158,8 @@ int g_autoplayRuns = 1;
 bool g_autoplayIdle = false;
 bool g_autoplayDetailTest = false;  // open a game to buy far down the list, save its page
 bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25 s
+bool g_autoplayVkTest = false;       // the GPU presenting instead of the CPU display
+bool g_autoplayCpuDisplay = false;   // the CPU display even where the GPU comes up
 bool g_autoplayVibeTest = false;     // each motor alone, with a notification
 bool g_autoplayImeTest = false;      // open the system keyboard on the home screen
 bool g_autoplayMenuTest = false;     // in the game: open the menu, switch to 720p
@@ -185,6 +188,8 @@ void loadAutoplay() {
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
         if (opt == "triggertest") input::setTriggerRumble(255, 128, 3000);
         if (opt == "vibetest") g_autoplayVibeTest = true;
+        if (opt == "vktest") g_autoplayVkTest = true;
+        if (opt == "cpudisplay") g_autoplayCpuDisplay = true;
         if (opt == "detailtest") g_autoplayDetailTest = true;
         if (opt == "librarytest") g_autoplayLibraryTest = true;
         if (opt == "imetest") g_autoplayImeTest = true;
@@ -732,7 +737,13 @@ int main(int argc, char** argv) {
             g_settings.region.empty() ? "auto" : g_settings.region.c_str());
     sceSystemServiceHideSplashScreen();
 
-    bool haveDisplay = display::init();
+    if (g_autoplayVkTest) {
+        bool ok = display::gpu::init();
+        if (ok) display::gpu::probe(300);
+        XC_LOGI("AUTOPLAY END: vktest %s", ok ? "ran" : "failed");
+        for (;;) platform::sleepMs(1000);
+    }
+    bool haveDisplay = display::init(!g_autoplayCpuDisplay);
     if (!input::init()) XC_LOGE("controller init failed");
 
     ui::Fonts fonts;

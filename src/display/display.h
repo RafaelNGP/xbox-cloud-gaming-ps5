@@ -12,7 +12,9 @@ namespace xc::display {
 constexpr unsigned kWidth = 1920;
 constexpr unsigned kHeight = 1080;
 
-bool init();
+// The GPU (display/gpu.h: FSR upscaling to the 4K display) when `preferGpu`
+// and it comes up, else the CPU path below.
+bool init(bool preferGpu = true);
 void shutdown();
 // Held by whoever draws a frame (UI thread or video thread).
 std::mutex& frameMutex();
@@ -38,7 +40,7 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
 void setSharpness(int amount);
 
 // The back buffer last drawn, untiled, as 8-bit RGB rows (diagnostics:
-// what the TV shows). False without a display.
-bool readBackRgb(std::vector<uint8_t>& rgb);
+// what the TV shows), and its size. False without a display.
+bool readBackRgb(std::vector<uint8_t>& rgb, int& width, int& height);
 
 } // namespace xc::display

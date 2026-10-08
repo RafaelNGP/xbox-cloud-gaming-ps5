@@ -83,8 +83,10 @@ if(XCLOUD_PS5)
         src/app/ps5_main.cpp
         src/app/stream_player.cpp
         src/display/display.cpp
+        src/display/gpu.cpp
         src/input/controller.cpp
     )
+    target_include_directories(xcloud_app PRIVATE "${PS5_RADV}/include")
     target_link_libraries(xcloud_app PUBLIC xcloud_stream xcloud_media xcloud_ui)
 else()
     target_link_libraries(xcloud_core PUBLIC Threads::Threads)
