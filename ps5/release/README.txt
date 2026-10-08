@@ -109,6 +109,12 @@ screen, games and apps, on the PS5. On the Xbox, turn on Settings >
 Devices & connections > Remote features, and choose the Sleep power
 mode so it wakes up by itself (it takes about ten seconds).
 
+In the game menu, "Xbox button" opens the Xbox's own guide. To stop,
+use "End the stream" in the game menu (or stop it from the guide).
+Turning the Xbox off from the guide in the middle of a stream can leave
+its Remote Play stuck: the app then says so, and holding the console's
+power button for 10 seconds, then turning it on, fixes it.
+
 
 Free-to-play games
 ------------------
