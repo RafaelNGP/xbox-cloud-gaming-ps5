@@ -193,7 +193,9 @@ void shutdownTls() {
     g.ready = false;
 }
 
-Response perform(const Request& req) {
+namespace {
+
+Response performOnce(const Request& req) {
     Response resp;
     Url url;
     if (!Url::parse(req.url, url)) {
@@ -333,6 +335,24 @@ Response perform(const Request& req) {
             resp.body.resize(static_cast<size_t>(contentLength));
     }
     return finish({});
+}
+
+}  // namespace
+
+Response perform(const Request& req) {
+    Response resp = performOnce(req);
+    // A GET that got no answer at all (the connection or the handshake
+    // failed, or timed out) is asked once more: they are seldom and
+    // passing, and a GET can be repeated safely.
+    if (resp.status == 0 && (req.method.empty() || req.method == "GET") && resp.error.rfind("bad URL", 0) != 0 &&
+        resp.error.rfind("only https", 0) != 0 && resp.error != "TLS not initialised") {
+        Url url;
+        Url::parse(req.url, url);
+        XC_LOGW("%s: %s; asking again", url.host.c_str(), resp.error.c_str());
+        platform::sleepMs(300);
+        resp = performOnce(req);
+    }
+    return resp;
 }
 
 std::string urlEncode(const std::string& s) {
