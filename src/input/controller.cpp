@@ -179,7 +179,7 @@ bool openPad(Pad& pad, int32_t userId, int slot) {
     pad.handle = h;
     if (sceUserServiceGetUserName(userId, pad.name, sizeof pad.name) != 0) pad.name[0] = 0;
     pad.motors.applied = pad.triggers.applied = 0;
-    XC_LOGI("pad %d opened (handle %d, user %d, rumble mode 0x%08x)", slot, h, userId, static_cast<unsigned>(mode));
+    XC_LOGI("pad %d opened (handle %d, rumble mode 0x%08x)", slot, h, static_cast<unsigned>(mode));
     return true;
 }
 

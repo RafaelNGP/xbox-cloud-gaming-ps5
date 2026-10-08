@@ -47,6 +47,9 @@ bool startThread(Thread& t, std::function<void()> fn, size_t stackBytes = 8u << 
 
 // Short on-screen message (PS5 system notification / host stdout).
 void notify(const std::string& text);
+// The same, with `forLog` written to the log instead of `text` (which may
+// name the user: the log gets attached to public bug reports).
+void notify(const std::string& text, const std::string& forLog);
 
 // The console's own on-screen keyboard (sceImeDialog), one at a time.
 // openSystemKeyboard() is false where there is none (the host, or a console

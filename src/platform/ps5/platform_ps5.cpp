@@ -109,8 +109,10 @@ extern "C" int xc_resolve_ipv4(const char* host, uint32_t* addr) {
 
 namespace xc::platform {
 
-void notify(const std::string& text) {
-    XC_LOGI("NOTIFY: %s", text.c_str());
+void notify(const std::string& text) { notify(text, text); }
+
+void notify(const std::string& text, const std::string& forLog) {
+    XC_LOGI("NOTIFY: %s", forLog.c_str());
     // Same request layout as PS5_Vulkan's demo renderer.
     struct NotificationRequest {
         uint8_t reserved[45];

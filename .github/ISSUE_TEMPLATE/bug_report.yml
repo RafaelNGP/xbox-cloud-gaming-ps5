@@ -7,6 +7,8 @@ body:
       value: |
         Thanks for testing! The log is the most useful thing you can send:
         it is at `/data/homebrew/PPSA99810/xcloud.log` on the PS5 (copy it over FTP).
+        Recent versions keep nothing that identifies you in it (no sign-in
+        code, gamertag or PS5 user names); still, have a look before posting it.
 
         **Never attach `account.json`**: it gives access to your Microsoft account.
         For security problems, use the private report link in SECURITY.md instead.

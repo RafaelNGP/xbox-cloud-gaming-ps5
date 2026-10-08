@@ -63,8 +63,8 @@ bool AuthManager::deviceCodeSignIn(const DeviceCodeCallback& onCode, std::string
                                    const std::atomic<bool>* cancel) {
     DeviceCode dc;
     if (!msa_.startDeviceCode(dc, err)) return false;
-    XC_LOGI("device code %s at %s (expires in %ds)", dc.userCode.c_str(), dc.verificationUri.c_str(),
-            dc.expiresInSec);
+    // The code itself stays on the screen: nothing of the sign-in goes to the log.
+    XC_LOGI("sign-in code shown (%s, expires in %ds)", dc.verificationUri.c_str(), dc.expiresInSec);
     if (onCode) onCode(dc);
 
     int interval = dc.intervalSec > 0 ? dc.intervalSec : 5;
@@ -164,7 +164,7 @@ bool AuthManager::signIn(xcloud::GssvClient& gssv, const DeviceCodeCallback& onC
         return false;
     }
     save();
-    XC_LOGI("signed in as %s", profile_.gamertag.empty() ? "(unknown gamertag)" : profile_.gamertag.c_str());
+    XC_LOGI("signed in%s", profile_.gamertag.empty() ? " (no gamertag)" : "");  // the gamertag isn't logged
     return true;
 }
 
