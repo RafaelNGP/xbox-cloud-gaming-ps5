@@ -515,6 +515,8 @@ struct StreamSession::Impl {
             return false;
         }
         XC_LOGD("remote answer:\n%s", answer.c_str());
+        for (size_t p = answer.find("a=rtpmap:"); p != std::string::npos; p = answer.find("a=rtpmap:", p + 1))
+            XC_LOGI("answer %s", answer.substr(p, answer.find_first_of("\r\n", p) - p).c_str());
         try {
             pc->setRemoteDescription(rtc::Description(answer, rtc::Description::Type::Answer));
         } catch (const std::exception& e) {
