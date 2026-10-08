@@ -30,7 +30,9 @@ an Xbox controller.
 - Every game shows the console it was made for: Xbox 360, Xbox One or
   Series X|S.
 - WebRTC streaming (libdatachannel on Mbed TLS) with H.264 and Opus decoded by
-  FFmpeg on the CPU.
+  FFmpeg on the CPU; the picture is drawn by the GPU (RADV through PS5_Vulkan):
+  compression blocks smoothed (deband), upscaled to the 4K display with AMD
+  FidelityFX FSR 1 (EASU + RCAS sharpening). Falls back to drawing on the CPU.
 - Settings (OPTIONS on the home screen): language (English, Português
   (Brasil), Español, Français, Deutsch, Italiano), stream resolution (1080p,
   720p for slower connections, or 1440p, experimental: only where Microsoft

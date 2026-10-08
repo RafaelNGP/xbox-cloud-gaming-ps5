@@ -39,6 +39,10 @@ cp "$root/THIRD_PARTY_NOTICES.md" "$app/licenses/"
 cp "$root/assets/fonts/OFL.txt" "$app/licenses/Inter-OFL.txt"
 cp "$root/deps/mbedtls/LICENSE" "$app/licenses/mbedtls-LICENSE.txt"
 cp "$root/extern/fsr1/LICENSE.txt" "$app/licenses/FidelityFX-FSR-MIT.txt"
+# RADV (Mesa), linked into eboot.bin: mostly MIT, per-file SPDX otherwise.
+mesa=${PS5_MESA:-$vk/../PS5_Mesa}
+cp "$mesa/licenses/MIT" "$app/licenses/Mesa-MIT.txt"
+cp "$mesa/docs/license.rst" "$app/licenses/Mesa-license.rst"
 cp "$root/deps/libdatachannel/LICENSE" "$app/licenses/libdatachannel-MPL-2.0.txt"
 cp "$root/deps/libdatachannel/deps/usrsctp/LICENSE.md" "$app/licenses/usrsctp-LICENSE.md"
 cp "$root/deps/libdatachannel/deps/libsrtp/LICENSE" "$app/licenses/libsrtp-LICENSE.txt"
