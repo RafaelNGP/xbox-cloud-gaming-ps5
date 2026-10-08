@@ -23,11 +23,12 @@ struct StreamInfo {
     int width = 0, height = 0;  // of the decoded picture
 };
 
-enum class MenuAction { None, Close, Leave, Refresh, Resolution, Stats, Sharpness, Deband, Upscaler, XboxButton };
+// Close: the menu went away (Circle, OPTIONS, or the Xbox button): a fresh key frame is asked for.
+enum class MenuAction { None, Close, Leave, Resolution, Stats, Sharpness, Deband, Upscaler, XboxButton };
 
 class StreamMenu {
 public:
-    static constexpr int kMenuW = 620, kMenuH = 1064;
+    static constexpr int kMenuW = 620, kMenuH = 992;
     static constexpr int kMenuX = 80, kMenuY = (1080 - kMenuH) / 2;
     static constexpr int kStatsX = 32, kStatsY = 28;
 
@@ -56,11 +57,11 @@ public:
     Canvas renderStats(const StreamInfo& info) const;
 
 private:
-    enum Item { Resume, XboxButton, Stats, Upscaler, Sharpness, Deband, Resolution, Refresh, Leave, ItemCount };
+    enum Item { XboxButton, Stats, Upscaler, Sharpness, Deband, Resolution, Leave, ItemCount };
 
     const Fonts& fonts_;
     bool open_ = false, stats_ = false;
-    int selected_ = Resume;
+    int selected_ = XboxButton;
     int resolution_ = 0, applied_ = 0;
     int sharpness_ = 0, deband_ = 1, upscaler_ = 0;
     bool resolutionAsked_ = false;

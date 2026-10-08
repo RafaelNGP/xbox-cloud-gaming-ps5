@@ -39,6 +39,10 @@ struct ControllerState {
     // Triggers [0.0 .. 1.0]
     float triggerL2 = 0.0f;
     float triggerR2 = 0.0f;
+
+    // A finger on the touchpad, at (touchX, touchY) in [0, 1] from the top left.
+    bool touching = false;
+    float touchX = 0.0f, touchY = 0.0f;
 };
 
 // Up to four DualSense: pad 0 belongs to the user who started the app, the

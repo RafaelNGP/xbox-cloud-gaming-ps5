@@ -115,12 +115,10 @@ constexpr Column kEnglish = {
     "Sections",                                      // Sections
     "Updating the game list...",                     // UpdatingList
     "Game menu",                                     // MenuTitle
-    "Resume",                                        // MenuResume
     "Statistics",                                    // MenuStats
     "On",                                            // On
     "Off",                                           // Off
     "Stream resolution",                             // MenuResolution
-    "Refresh the picture",                           // MenuRefresh
     "Leave game",                                    // MenuLeave
     "Latency",                                       // StatLatency
     "Bitrate",                                       // StatBitrate
@@ -177,6 +175,7 @@ constexpr Column kEnglish = {
     "Another device took over the stream",            // EndedByOtherDevice
     "The Xbox was turned off",                        // EndedXboxOff
     "%s got the request but its Remote Play didn't start. Restart it: hold the power button on the console for 10 seconds, turn it back on, then try again.", // StreamingStuck
+    "Swipe up or right on the touchpad for the Xbox button", // SwipeHint
 };
 
 constexpr Column kPortugueseBR = {
@@ -262,12 +261,10 @@ constexpr Column kPortugueseBR = {
     "Seções",
     "Atualizando a lista de jogos...",
     "Menu do jogo",
-    "Continuar",
     "Estatísticas",
     "Ligado",
     "Desligado",
     "Resolução do stream",
-    "Atualizar a imagem",
     "Sair do jogo",
     "Latência",
     "Taxa de bits",
@@ -324,6 +321,7 @@ constexpr Column kPortugueseBR = {
     "Outro aparelho assumiu a transmissão",
     "O Xbox foi desligado",
     "%s recebeu o pedido, mas o jogo remoto dele não iniciou. Reinicie o console: segure o botão de ligar do Xbox por 10 segundos, ligue de novo e tente outra vez.",
+    "Deslize para cima ou para a direita no touchpad: botão Xbox",
 };
 
 constexpr Column kSpanish = {
@@ -409,12 +407,10 @@ constexpr Column kSpanish = {
     "Secciones",
     "Actualizando la lista de juegos...",
     "Menú del juego",
-    "Continuar",
     "Estadísticas",
     "Activado",
     "Desactivado",
     "Resolución del stream",
-    "Actualizar la imagen",
     "Salir del juego",
     "Latencia",
     "Tasa de bits",
@@ -471,6 +467,7 @@ constexpr Column kSpanish = {
     "Otro dispositivo tomó la transmisión",
     "La Xbox se apagó",
     "%s recibió la solicitud, pero su juego remoto no se inició. Reiníciala: mantén pulsado el botón de encendido de la consola 10 segundos, enciéndela de nuevo y vuelve a intentarlo.",
+    "Desliza hacia arriba o a la derecha en el panel táctil: botón Xbox",
 };
 
 constexpr Column kFrench = {
@@ -556,12 +553,10 @@ constexpr Column kFrench = {
     "Sections",
     "Mise \xC3\xA0 jour de la liste des jeux...",
     "Menu du jeu",
-    "Reprendre",
     "Statistiques",
     "Activé",
     "Désactivé",
     "Résolution du stream",
-    "Actualiser l'image",
     "Quitter le jeu",
     "Latence",
     "Débit",
@@ -618,6 +613,7 @@ constexpr Column kFrench = {
     "Un autre appareil a repris la diffusion",
     "La Xbox a été éteinte",
     "%s a reçu la demande, mais son jeu à distance n'a pas démarré. Redémarrez-la : maintenez le bouton d'alimentation de la console 10 secondes, rallumez-la, puis réessayez.",
+    "Glissez vers le haut ou la droite sur le pavé tactile : bouton Xbox",
 };
 
 constexpr Column kGerman = {
@@ -703,12 +699,10 @@ constexpr Column kGerman = {
     "Abschnitte",
     "Spieleliste wird aktualisiert...",
     "Spielmenü",
-    "Fortsetzen",
     "Statistiken",
     "An",
     "Aus",
     "Stream-Auflösung",
-    "Bild aktualisieren",
     "Spiel verlassen",
     "Latenz",
     "Bitrate",
@@ -765,6 +759,7 @@ constexpr Column kGerman = {
     "Ein anderes Gerät hat das Streaming übernommen",
     "Die Xbox wurde ausgeschaltet",
     "%s hat die Anfrage erhalten, aber Remote Play ist nicht gestartet. Starte sie neu: Halte die Ein/Aus-Taste der Konsole 10 Sekunden gedrückt, schalte sie wieder ein und versuche es erneut.",
+    "Wische auf dem Touchpad nach oben oder rechts: Xbox-Taste",
 };
 
 constexpr Column kItalian = {
@@ -850,12 +845,10 @@ constexpr Column kItalian = {
     "Sezioni",
     "Aggiornamento dell'elenco dei giochi...",
     "Menu di gioco",
-    "Riprendi",
     "Statistiche",
     "Attivo",
     "Disattivo",
     "Risoluzione dello stream",
-    "Aggiorna l'immagine",
     "Esci dal gioco",
     "Latenza",
     "Bitrate",
@@ -912,6 +905,7 @@ constexpr Column kItalian = {
     "Un altro dispositivo ha preso lo streaming",
     "La Xbox è stata spenta",
     "%s ha ricevuto la richiesta, ma il gioco remoto non è partito. Riavviala: tieni premuto il pulsante di accensione della console per 10 secondi, riaccendila e riprova.",
+    "Scorri verso l'alto o a destra sul touchpad: pulsante Xbox",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

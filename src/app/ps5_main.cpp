@@ -288,6 +288,7 @@ std::string stream(xcloud::GssvClient& gssv) {
     }
     g_ui->showStreaming();
     platform::notify(ui::tr(ui::Str::LeaveHint));
+    if (gssv.isHome()) platform::notify(ui::tr(ui::Str::SwipeHint));
 
     const uint64_t started = platform::nowMs();
     uint64_t nextTick = started;
@@ -765,6 +766,7 @@ void worker() {
                     // again, it often wakes.
                     std::string result;
                     g_playingHome = true;
+                    int rejoins = 0;
                     for (int attempt = 0; attempt < 3 && !g_cancel; ++attempt) {
                         if (attempt) {
                             g_ui->setLaunchStatus(ui::tr(ui::Str::WakingConsole));
@@ -772,6 +774,16 @@ void worker() {
                         }
                         result = play(am, home, tile, failed);
                         XC_LOGI("%s", result.c_str());
+                        // The connection dropped mid-stream: a new session on
+                        // the same Xbox picks up where it was (twice at most).
+                        if (!failed && !g_cancel && result.find("couldn't be restored") != std::string::npos &&
+                            rejoins < 2) {
+                            ++rejoins;
+                            XC_LOGI("own Xbox: connection lost, new session (%d)", rejoins);
+                            platform::notify(ui::tr(ui::Str::Reconnecting));
+                            attempt = -1;  // a new start, not a wake-up retry
+                            continue;
+                        }
                         if (!failed || result.find("WaitingForServerToRegister") == std::string::npos) break;
                     }
                     if (failed && result.find("Cloud Streaming Service to be ready") != std::string::npos)
@@ -939,6 +951,10 @@ int main(int argc, char** argv) {
     int streamResolution = 0;  // as SettingsChoice::resolution
     bool showStats = false, overlayShown = false;
     bool touchEnabled = false;  // touch input announced on (StreamPlayer::setTouchEnabled)
+    struct {
+        bool active = false, fired = false;
+        float x = 0, y = 0;  // where the finger came down
+    } swipe;
     int sharpness = 0;  // 0..3, as Settings::sharpness
     int deband = 1;     // 0..2, as Settings::deband
     int upscaler = 0;   // as Settings::upscaler
@@ -1092,9 +1108,10 @@ int main(int argc, char** argv) {
                     case ui::MenuAction::XboxButton:
                         // A short press, once the menu is gone: the Xbox guide opens.
                         g_xboxButtonUntil = platform::nowMs() + 250;
+                        g_player->requestKeyframe();
                         XC_LOGI("menu: Xbox button");
                         break;
-                    case ui::MenuAction::Refresh: g_player->requestKeyframe(); break;
+                    case ui::MenuAction::Close: g_player->requestKeyframe(); break;  // a clean picture back in the game
                     case ui::MenuAction::Resolution:
                         streamResolution = menu.resolution();
                         g_player->requestResolution(streamResolution == 1   ? "720HQ"
@@ -1154,6 +1171,20 @@ int main(int argc, char** argv) {
                 if (menu.isOpen() || !g_keyboardFor.empty()) padReleased = false;
                 else if (!held) padReleased = true;
                 if (!padReleased || menuCombo) sent = input::ControllerState{};
+                // Swiping up or right on the touchpad is the Xbox button (once
+                // per swipe; the games never see the touchpad's touches).
+                if (pad.touching && !menu.isOpen() && g_keyboardFor.empty()) {
+                    if (!swipe.active) swipe = {true, false, pad.touchX, pad.touchY};
+                    float dx = pad.touchX - swipe.x, dy = swipe.y - pad.touchY;  // dy > 0: up
+                    bool right = dx > 0.30f && std::abs(dy) < 0.30f, up = dy > 0.40f && std::abs(dx) < 0.30f;
+                    if (!swipe.fired && (right || up)) {
+                        swipe.fired = true;
+                        g_xboxButtonUntil = platform::nowMs() + 250;
+                        XC_LOGI("touchpad swipe %s: Xbox button", right ? "right" : "up");
+                    }
+                } else {
+                    swipe.active = false;
+                }
                 if (platform::nowMs() < g_xboxButtonUntil) sent.btnNexus = true;
                 g_player->sendInput(sent);
                 // The other players' controllers, straight to the game.

@@ -51,7 +51,7 @@ struct StreamPlayer::Impl {
     std::atomic<bool> titleFocused{true};
     int reconnectAttempts = 0;
     std::atomic<uint32_t> reconnects{0};
-    uint64_t lastRtpPackets = 0;
+    uint64_t lastRtpPackets = 0, lastAudioPackets = 0;
     int silentTicks = 0;
 
     std::mutex mutex;
@@ -409,6 +409,15 @@ struct StreamPlayer::Impl {
             XC_LOGW("reconnect %d: no session state (%s)", reconnectAttempts, err.c_str());
             return;  // the network may not be back yet
         }
+        if (status.state == xcloud::SessionState::Provisioning ||
+            status.state == xcloud::SessionState::WaitingForResources) {
+            // Being set up again: wait. A home Xbox's session that dropped
+            // stays there for good: a new session is started instead (the
+            // caller does it; the game goes on on the console meanwhile).
+            XC_LOGI("reconnect %d: session %s, waiting", reconnectAttempts, status.raw.c_str());
+            if (gssv.isHome() && reconnectAttempts >= 4) end("the connection was lost and couldn't be restored");
+            return;
+        }
         if (status.state != xcloud::SessionState::Provisioned && status.state != xcloud::SessionState::ReadyToConnect) {
             end("the session ended on the server while reconnecting (" + status.raw + ")");
             return;
@@ -438,6 +447,7 @@ struct StreamPlayer::Impl {
         reconnectAttempts = 0;
         silentTicks = 0;
         lastRtpPackets = 0;
+        lastAudioPackets = 0;
         ++reconnects;
         keyframeWanted = true;
         platform::notify(ui::tr(ui::Str::Reconnected));
@@ -506,11 +516,18 @@ struct StreamPlayer::Impl {
         s->tick();
         // xCloud sends video all the time, even for a still picture: three
         // seconds without a packet is a dead connection, long before WebRTC
-        // notices.
+        // notices. With the sound still coming, the connection is alive and
+        // the picture only paused (a home Xbox does it while a game starts
+        // and switches display modes): up to 15 s then.
         uint64_t packets = s->videoStats().packets;
+        uint64_t audio = audioPackets;
+        bool audioAlive = audio != lastAudioPackets;
+        lastAudioPackets = audio;
         silentTicks = packets == lastRtpPackets ? silentTicks + 1 : 0;
         lastRtpPackets = packets;
-        if (silentTicks >= 3 && !reconnecting.exchange(true)) XC_LOGW("no video for 3 s: reconnecting");
+        int limit = audioAlive ? 15 : 3;
+        if (silentTicks >= limit && !reconnecting.exchange(true))
+            XC_LOGW("no video for %d s%s: reconnecting", silentTicks, audioAlive ? " (sound still coming)" : "");
     }
 
     void stop() {

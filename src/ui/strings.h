@@ -92,12 +92,10 @@ enum class Str {
     Sections,         // hint for L2 / R2: jump between sections
     UpdatingList,     // the lists refresh in the background
     MenuTitle,        // the in-game menu
-    MenuResume,
     MenuStats,        // show the statistics over the game
     On,
     Off,
     MenuResolution,
-    MenuRefresh,      // ask for a new picture (key frame)
     MenuLeave,
     StatLatency,
     StatBitrate,
@@ -154,6 +152,7 @@ enum class Str {
     EndedByOtherDevice, // toast: another device took the stream over
     EndedXboxOff,       // toast: the Xbox was turned off during the stream
     StreamingStuck,     // "%s" = the console: its Remote Play service didn't start
+    SwipeHint,          // at the start of a stream from the user's own Xbox
     Count
 };
 
