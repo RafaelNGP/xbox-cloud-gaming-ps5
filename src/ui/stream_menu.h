@@ -28,7 +28,7 @@ enum class MenuAction { None, Close, Leave, Resolution, Stats, Sharpness, Deband
 
 class StreamMenu {
 public:
-    static constexpr int kMenuW = 620, kMenuH = 992;
+    static constexpr int kMenuW = 620, kMenuH = 1064;
     static constexpr int kMenuX = 80, kMenuY = (1080 - kMenuH) / 2;
     static constexpr int kStatsX = 32, kStatsY = 28;
 
@@ -39,7 +39,9 @@ public:
     // low, high.
     // `upscaler` 0 = FSR, 1 = Anime4K.
     // `homeConsole`: the user's own Xbox ("End the stream" instead of "Leave the game").
-    void open(int resolution, bool stats, int sharpness = 0, int deband = 1, int upscaler = 0, bool homeConsole = false);
+    // `allow1440`: offered only once a stream delivered it.
+    void open(int resolution, bool stats, int sharpness = 0, int deband = 1, int upscaler = 0, bool homeConsole = false,
+              bool allow1440 = true);
     void close() { open_ = false; }
     bool isOpen() const { return open_; }
     MenuAction handle(const NavInput& in);
@@ -66,7 +68,7 @@ private:
     int sharpness_ = 0, deband_ = 1, upscaler_ = 0;
     bool resolutionAsked_ = false;
     bool circleConfirms_ = false;
-    bool homeConsole_ = false;
+    bool homeConsole_ = false, allow1440_ = true;
     PadSlots pads_{};
 };
 

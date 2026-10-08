@@ -61,14 +61,21 @@ the game closed) still ends the stream.
   own pad cursor. A touchpad pointer was tried and dropped (the page
   ignored the touches, and it got in the way of the account picker).
 
-### Remote Play (own Xbox) — v0.7.0
+### Remote Play (own Xbox) — done (v0.7.0)
 The xhome offering takes the same Xbox token: "My consoles" lists the
 account's consoles (`/v6/servers/home`), and a home session is started
 with the console's serverId; the stream is the cloud one. Series X on the
 same network: 1080p, 9-17 Mbps, 7-10 ms round trip. A sleeping Xbox wakes
 through the session itself (~10 s); one that doesn't answer
 (`WaitingForServerToRegister`) is asked again, then the app says what to
-check. To try: the 4K the console announces (3840x2160).
+check. Also in v0.7.0: the Xbox button (game menu, or a swipe up on the
+touchpad), "End the stream", a new session after a drop, and notes when
+the Xbox ends or turns off the stream.
+
+- Resolution: what each kind of stream delivers is measured (1080p for
+  both here; the browser gets 1080p from this Xbox too), and 1440p is only
+  offered once delivered. The own Xbox is always asked for its top tier:
+  ~15.7 Mbps instead of ~9.5.
 
 ## Next
 

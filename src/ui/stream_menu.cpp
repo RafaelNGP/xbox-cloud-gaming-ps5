@@ -29,9 +29,12 @@ std::string fmt(const char* f, double v) {
 
 }  // namespace
 
-void StreamMenu::open(int resolution, bool stats, int sharpness, int deband, int upscaler, bool homeConsole) {
+void StreamMenu::open(int resolution, bool stats, int sharpness, int deband, int upscaler, bool homeConsole,
+                      bool allow1440) {
     open_ = true;
     homeConsole_ = homeConsole;
+    allow1440_ = allow1440;
+    if (resolution == 2 && !allow1440) resolution = 0;
     stats_ = stats;
     sharpness_ = sharpness;
     deband_ = deband;
@@ -51,9 +54,10 @@ MenuAction StreamMenu::handle(const NavInput& in) {
     if (in.down) selected_ = (selected_ + 1) % ItemCount;
     if (selected_ == Resolution && (in.left || in.right)) {
         int pos = 0;
-        for (int i = 0; i < 3; ++i)
+        int n = allow1440_ ? 3 : 2;  // 720p, 1080p (, 1440p)
+        for (int i = 0; i < n; ++i)
             if (kResolutionOrder[i] == resolution_) pos = i;
-        pos = in.left ? (pos + 2) % 3 : (pos + 1) % 3;
+        pos = in.left ? (pos + n - 1) % n : (pos + 1) % n;
         resolution_ = kResolutionOrder[pos];
     }
     if ((selected_ == Sharpness && (in.left || in.right)) || (selected_ == Sharpness && in.accept)) {
@@ -176,6 +180,15 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     // Cross selects, Circle goes back to the game (swapped with Circle
     // confirming).
     int hy = kMenuH - 56, x = kPad;
+    {
+        // The touchpad's gestures, small, above the button hints.
+        auto lines = fonts_.regular.wrap(tr(Str::MenuGestureHint), 18, kMenuW - 2 * kPad, 2);
+        int gy = hy - 20 - static_cast<int>(lines.size()) * 26;
+        for (const auto& l : lines) {
+            fonts_.regular.draw(c, l, kPad, gy, 18, kDim);
+            gy += 26;
+        }
+    }
     auto icon = [&](bool cross) {
         c.fillCircle(x + 14, hy + 13, 14, rgba(255, 255, 255, 40));
         if (cross) {
