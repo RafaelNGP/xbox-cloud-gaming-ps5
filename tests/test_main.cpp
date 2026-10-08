@@ -6,6 +6,7 @@
 #include "stream/input_packet.h"
 #include "stream/stream_session.h"
 #include "ui/app_ui.h"
+#include "ui/accent_color.h"
 #include "ui/stream_menu.h"
 #include "ui/strings.h"
 #include "util/json.h"
@@ -182,6 +183,22 @@ static void testPrices() {
     CHECK(formatPrice(4, "XYZ") == "XYZ 4.00");
 }
 
+static void testAccentColor() {
+    using namespace xc::ui;
+    Image img;
+    img.w = img.h = 64;
+    img.px.assign(64 * 64, rgba(60, 60, 60));                            // grey background
+    for (int i = 0; i < 64 * 24; ++i) img.px[i] = rgba(200, 40, 30);    // a red third
+    for (int i = 64 * 60; i < 64 * 64; ++i) img.px[i] = rgba(30, 60, 200);  // a little blue
+    Color c = 0;
+    CHECK(dominantColor(img, c));
+    CHECK((c & 0xFF) == 255 && ((c >> 8) & 0xFF) < 90 && ((c >> 16) & 0xFF) < 90);  // red, at full
+    Image grey;
+    grey.w = grey.h = 16;
+    grey.px.assign(16 * 16, rgba(128, 128, 128));
+    CHECK(!dominantColor(grey, c));
+}
+
 static void testVersions() {
     using xc::app::isNewerVersion;
     CHECK(isNewerVersion("v0.4.0", "0.3.0"));
@@ -228,6 +245,7 @@ static void testStreamMenu() {
 }
 
 int main() {
+    testAccentColor();
     testVersions();
     testStreamMenu();
     testStrings();

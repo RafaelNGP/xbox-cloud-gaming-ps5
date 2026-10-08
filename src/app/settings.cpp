@@ -28,6 +28,7 @@ bool Settings::load(const std::string& path) {
     deadzone = static_cast<int>(std::clamp<int64_t>((*j)["deadzone"].asInt(deadzone), 0, 50));
     triggerRumble = (*j)["triggerRumble"].asBool(triggerRumble);
     circleConfirms = (*j)["circleConfirms"].asBool(circleConfirms);
+    lightBar = (*j)["lightBar"].asBool(lightBar);
     regionRtt.clear();
     for (const auto& [name, ms] : (*j)["regionRtt"].members())
         if (ms.asInt() > 0) regionRtt[name] = static_cast<int>(ms.asInt());
@@ -52,6 +53,7 @@ bool Settings::save(const std::string& path) const {
     v.set("deadzone", deadzone);
     v.set("triggerRumble", triggerRumble);
     v.set("circleConfirms", circleConfirms);
+    v.set("lightBar", lightBar);
     return platform::writeFileAtomic(path, v.dump());
 }
 

@@ -126,6 +126,7 @@ enum class Str {
     StatOnScreen,     // network arrival to on the TV
     Reconnecting,     // the connection dropped mid-game
     Reconnected,
+    LightBar,         // settings: the light bar takes the game's colour
     Count
 };
 

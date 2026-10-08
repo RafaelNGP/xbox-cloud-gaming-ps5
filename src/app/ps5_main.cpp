@@ -780,6 +780,7 @@ int main(int argc, char** argv) {
         choice.deadzone = deadzoneIndex(g_settings.deadzone);
         choice.triggerRumble = g_settings.triggerRumble;
         choice.circleConfirms = g_settings.circleConfirms;
+        choice.lightBar = g_settings.lightBar;
         g_ui->setSettings(choice);
         applyControllerSettings();
         g_ui->setRegionLatency(g_settings.regionRtt);
@@ -812,7 +813,9 @@ int main(int argc, char** argv) {
     bool padAttached[input::kMaxPads] = {};  // controllers 1..3 announced to the stream
     uint32_t playerReconnects = 0;
     uint64_t padsCheckedAt = 0;
-    unsigned padChecks = 0;  // false from the menu/keyboard until the buttons are let go
+    unsigned padChecks = 0;
+    uint64_t lightBarAt = 0;
+    bool lightBarSet = false;  // false from the menu/keyboard until the buttons are let go
     uint32_t overlaySeq = 0;  // g_infoSeq + 1 when drawn; 0 = redraw
     uint64_t homeSince = 0, launchSince = 0;
     bool uiSaved = false, launchSaved = false;
@@ -821,6 +824,22 @@ int main(int argc, char** argv) {
         // Autoplay runs unattended: the physical pad must not interfere.
         if (!g_autoplayTitle.empty()) pad = input::ControllerState{};
         uint64_t now = platform::nowMs();
+        if (now - lightBarAt >= 100) {  // the light bar follows the game in focus
+            lightBarAt = now;
+            bool on;
+            {
+                std::lock_guard<std::mutex> lock(g_settingsMutex);
+                on = g_settings.lightBar;
+            }
+            ui::Color c;
+            if (!on) {
+                if (lightBarSet) input::resetLightBar(0);
+                lightBarSet = false;
+            } else if (g_ui->accentColor(c)) {
+                input::setLightBar(static_cast<uint8_t>(c), static_cast<uint8_t>(c >> 8), static_cast<uint8_t>(c >> 16));
+                lightBarSet = true;
+            }
+        }
         if (now - padsCheckedAt >= 500) {  // other players signing in or out
             padsCheckedAt = now;
             if (++padChecks % 2 == 0) input::refreshPads();
@@ -1034,6 +1053,7 @@ int main(int argc, char** argv) {
                     g_settings.deadzone = ui::kDeadzonePercent[ev.settings.deadzone];
                     g_settings.triggerRumble = ev.settings.triggerRumble;
                     g_settings.circleConfirms = ev.settings.circleConfirms;
+                    g_settings.lightBar = ev.settings.lightBar;
                     if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
                     XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
                             g_settings.region.empty() ? "auto" : g_settings.region.c_str());

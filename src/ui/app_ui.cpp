@@ -2,6 +2,8 @@
 // Copyright (C) 2026 RafaelNGP
 #include "ui/app_ui.h"
 
+#include "ui/accent_color.h"
+
 #include "ui/brand.h"
 #include "ui/strings.h"
 
@@ -641,6 +643,37 @@ void AppUi::setPads(const PadSlots& pads) {
     dirty_ = true;
 }
 
+bool AppUi::accentColor(Color& out) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const GameTile* t = nullptr;
+    switch (screen_) {
+    case Screen::Details: t = &detail_; break;
+    case Screen::Launching:
+    case Screen::Streaming: t = &launching_; break;
+    case Screen::Home:
+        if (searching_) {
+            if (!searchOnKeys_ && resultFocus_ >= 0 && resultFocus_ < static_cast<int>(results_.size()))
+                t = &results_[static_cast<size_t>(resultFocus_)];
+        } else {
+            t = tab_ == Tab::Library ? libraryTile(gridFocus_) : focusedTile();
+        }
+        break;
+    default: break;
+    }
+    if (!t || t->tileUrl.empty()) return false;
+    auto it = accents_.find(t->tileUrl);
+    if (it == accents_.end()) {
+        auto img = images_.get(t->tileUrl, kCard, kCard);  // the card's own, already loaded
+        if (!img) return false;
+        Color c;
+        // No colour in the art (black and white): the Xbox green.
+        if (!dominantColor(*img, c)) c = rgba(40, 210, 40);
+        it = accents_.emplace(t->tileUrl, c).first;
+    }
+    out = it->second;
+    return true;
+}
+
 void AppUi::drawPads(Canvas& c) {
     // Bottom left, on the line of the button hints (which are right-aligned).
     drawPadRow(c, fonts_.bold, kMargin, kH - 70, 54, 14, pads_);
@@ -671,6 +704,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         out = {tr(Str::Activated), tr(Str::Deactivated)};
     } else if (row == 5) {
         out = {tr(Str::ButtonCross), tr(Str::ButtonCircle)};
+    } else if (row == 6) {
+        out = {tr(Str::Activated), tr(Str::Deactivated)};
     } else {
         // Automatic first, then the regions in the login's order.
         out.push_back(withMs(trf(Str::RegionAuto, defaultRegion_.empty() ? "-" : prettyRegion(defaultRegion_)),
@@ -689,6 +724,7 @@ int AppUi::settingSelected(int row) const {
     if (row == 3) return settings_.deadzone;
     if (row == 4) return settings_.triggerRumble ? 0 : 1;
     if (row == 5) return settings_.circleConfirms ? 1 : 0;
+    if (row == 6) return settings_.lightBar ? 0 : 1;
     for (size_t i = 0; i < regions_.size(); ++i)
         if (regions_[i] == settings_.region) return static_cast<int>(i) + 1;
     return 0;
@@ -707,6 +743,8 @@ void AppUi::applySetting(int row, int index) {
         settings_.triggerRumble = index == 0;
     } else if (row == 5) {
         settings_.circleConfirms = index == 1;
+    } else if (row == 6) {
+        settings_.lightBar = index == 0;
     } else {
         settings_.region = index == 0 ? std::string() : regions_[static_cast<size_t>(index - 1)];
     }
@@ -1755,10 +1793,11 @@ void AppUi::drawSettings(Canvas& c) {
     drawTopBar(c);
     fonts_.bold.draw(c, tr(Str::Settings), kMargin, 170, 60, kWhite);
     const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
-                                        tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton)};
-    constexpr int kRowW = 1200, kRowH = 76;
+                                        tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
+                                        tr(Str::LightBar)};
+    constexpr int kRowW = 1200, kRowH = 70;
     Rect rows[kSettingRows];
-    int y = 270;
+    int y = 262;
     for (int i = 0; i < kSettingRows; ++i) {
         Rect r{kMargin, y, kRowW, kRowH};
         rows[i] = r;
@@ -1777,7 +1816,7 @@ void AppUi::drawSettings(Canvas& c) {
         int w = fonts_.regular.measure(value, 30);
         fonts_.regular.draw(c, value, r.x + r.w - 76 - w, fonts_.regular.centeredY(r.y, r.h, 30), 30,
                             focused ? kWhite : kGray);
-        y += kRowH + 16;
+        y += kRowH + 14;
     }
     for (const auto& line : fonts_.regular.wrap(tr(Str::SettingsNote), 24, kRowW, 2)) {
         fonts_.regular.draw(c, line, kMargin, y + 20, 24, kDim);

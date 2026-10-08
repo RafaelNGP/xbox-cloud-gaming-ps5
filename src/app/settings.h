@@ -30,6 +30,8 @@ struct Settings {
     int deadzone = 15;
     bool triggerRumble = true;
     bool circleConfirms = false;
+    // The DualSense light bar takes the colour of the game in focus.
+    bool lightBar = true;
 
     bool load(const std::string& path);
     bool save(const std::string& path) const;

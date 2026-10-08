@@ -149,6 +149,7 @@ constexpr Column kEnglish = {
     "On screen after",                               // StatOnScreen
     "Connection lost: reconnecting...",              // Reconnecting
     "Reconnected",                                   // Reconnected
+    "Light bar in the game's colour",                // LightBar
 };
 
 constexpr Column kPortugueseBR = {
@@ -268,6 +269,7 @@ constexpr Column kPortugueseBR = {
     "Na tela após",
     "Conexão perdida: reconectando...",
     "Reconectado",
+    "Barra de luz com a cor do jogo",
 };
 
 constexpr Column kSpanish = {
@@ -387,6 +389,7 @@ constexpr Column kSpanish = {
     "En pantalla tras",
     "Conexión perdida: reconectando...",
     "Reconectado",
+    "Barra de luz con el color del juego",
 };
 
 constexpr Column kFrench = {
@@ -506,6 +509,7 @@ constexpr Column kFrench = {
     "À l'écran après",
     "Connexion perdue : reconnexion...",
     "Reconnecté",
+    "Barre lumineuse aux couleurs du jeu",
 };
 
 constexpr Column kGerman = {
@@ -625,6 +629,7 @@ constexpr Column kGerman = {
     "Auf dem Bildschirm nach",
     "Verbindung verloren: neu verbinden...",
     "Wieder verbunden",
+    "Lichtleiste in der Farbe des Spiels",
 };
 
 constexpr Column kItalian = {
@@ -744,6 +749,7 @@ constexpr Column kItalian = {
     "Sullo schermo dopo",
     "Connessione persa: riconnessione...",
     "Riconnesso",
+    "Barra luminosa con il colore del gioco",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,
