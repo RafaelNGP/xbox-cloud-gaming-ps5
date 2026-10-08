@@ -284,6 +284,7 @@ struct StreamSession::Impl {
         sendGamepadChanged(0, true);
         if (!opt.resolutionAlias.empty()) sendResolution(opt.resolutionAlias);
 
+
         sendBinary(input, clientMetadataReport(0, nowMs(), static_cast<uint8_t>(std::getenv("XC_TOUCH_POINTS") ? std::atoi(std::getenv("XC_TOUCH_POINTS")) : 1)));
         sendClientConfig();
         {

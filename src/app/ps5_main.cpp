@@ -127,7 +127,7 @@ void updateTextInput(app::StreamPlayer* player) {
 // rumbletest (rumbles the pad for 1.5 s at start), detailtest (opens a game to
 // buy far down the list instead of playing, saves detail.ppm), imetest (opens
 // the system keyboard on the home screen), menutest (in the game: the menu,
-// 720p, back to 1080p).
+// 720p, back to 1080p), res=720p|1080p|1440p (instead of the setting).
 // The title "BENCH" decodes <dataDir>/sample.h264 instead.
 
 std::string g_autoplayTitle;
@@ -140,6 +140,7 @@ bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25
 bool g_autoplayImeTest = false;      // open the system keyboard on the home screen
 bool g_autoplayMenuTest = false;     // in the game: open the menu, switch to 720p
 int g_decodeThreads = 1;
+std::string g_autoplayResolution;     // res=720p|1080p|1440p: instead of the setting
 std::atomic<bool> g_syntheticA{false};
 
 void loadAutoplay() {
@@ -164,6 +165,7 @@ void loadAutoplay() {
         if (opt == "librarytest") g_autoplayLibraryTest = true;
         if (opt == "imetest") g_autoplayImeTest = true;
         if (opt == "menutest") g_autoplayMenuTest = true;
+        if (opt.rfind("res=", 0) == 0) g_autoplayResolution = opt.substr(4);
         if (opt.rfind("threads=", 0) == 0) g_decodeThreads = std::atoi(opt.c_str() + 8);
     }
     g_autoplayTitle = title;
@@ -336,9 +338,10 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     std::string err;
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
-        gssv.setResolution(g_settings.resolution == "720p"    ? xcloud::Resolution::P720
-                           : g_settings.resolution == "1440p" ? xcloud::Resolution::P1440
-                                                              : xcloud::Resolution::P1080);
+        const std::string& res = g_autoplayResolution.empty() ? g_settings.resolution : g_autoplayResolution;
+        gssv.setResolution(res == "720p"    ? xcloud::Resolution::P720
+                           : res == "1440p" ? xcloud::Resolution::P1440
+                                            : xcloud::Resolution::P1080);
         const xcloud::Region* region = gssv.session().defaultRegion();
         const std::string& wanted = regionName.empty() ? g_settings.region : regionName;
         for (const auto& r : gssv.session().regions)
