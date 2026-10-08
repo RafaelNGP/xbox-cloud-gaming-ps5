@@ -76,3 +76,10 @@ Copyright (c) 2021 Advanced Micro Devices, Inc.: see `extern/fsr1/LICENSE.txt`.
   [ProsperoLight](https://github.com/blackbearreloaded/ProsperoLight) and
   [ps5-hardware-video-decoding-research](https://github.com/blackbearreloaded/ps5-hardware-video-decoding-research)
   (both GPL-3.0-or-later).
+
+## Anime4K
+
+`extern/anime4k/` (bloc97, MIT, see `extern/anime4k/LICENSE`): the
+Upscale_CNN_x2 networks; `tools/gen-anime4k.py` turns their passes, weights
+unchanged, into `src/display/shaders/a4k_*.comp`. Brought to our attention by
+sainsaji's EVO Player for PS5, which runs them in its own pipeline.

@@ -150,6 +150,8 @@ constexpr Column kEnglish = {
     "Connection lost: reconnecting...",              // Reconnecting
     "Reconnected",                                   // Reconnected
     "Light bar in the game's colour",                // LightBar
+    "Upscaling",                                     // MenuUpscaler
+    "AI (Anime4K)",                                  // UpscalerAi
 };
 
 constexpr Column kPortugueseBR = {
@@ -270,6 +272,8 @@ constexpr Column kPortugueseBR = {
     "Conexão perdida: reconectando...",
     "Reconectado",
     "Barra de luz com a cor do jogo",
+    "Ampliação",
+    "IA (Anime4K)",
 };
 
 constexpr Column kSpanish = {
@@ -390,6 +394,8 @@ constexpr Column kSpanish = {
     "Conexión perdida: reconectando...",
     "Reconectado",
     "Barra de luz con el color del juego",
+    "Escalado",
+    "IA (Anime4K)",
 };
 
 constexpr Column kFrench = {
@@ -510,6 +516,8 @@ constexpr Column kFrench = {
     "Connexion perdue : reconnexion...",
     "Reconnecté",
     "Barre lumineuse aux couleurs du jeu",
+    "Mise à l'échelle",
+    "IA (Anime4K)",
 };
 
 constexpr Column kGerman = {
@@ -630,6 +638,8 @@ constexpr Column kGerman = {
     "Verbindung verloren: neu verbinden...",
     "Wieder verbunden",
     "Lichtleiste in der Farbe des Spiels",
+    "Hochskalierung",
+    "KI (Anime4K)",
 };
 
 constexpr Column kItalian = {
@@ -750,6 +760,8 @@ constexpr Column kItalian = {
     "Connessione persa: riconnessione...",
     "Riconnesso",
     "Barra luminosa con il colore del gioco",
+    "Upscaling",
+    "IA (Anime4K)",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

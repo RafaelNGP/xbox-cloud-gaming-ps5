@@ -25,6 +25,7 @@ bool Settings::load(const std::string& path) {
     streamStats = (*j)["streamStats"].asBool(streamStats);
     sharpness = static_cast<int>(std::clamp<int64_t>((*j)["sharpness"].asInt(sharpness), 0, 3));
     deband = static_cast<int>(std::clamp<int64_t>((*j)["deband"].asInt(deband), 0, 2));
+    upscaler = static_cast<int>(std::clamp<int64_t>((*j)["upscaler"].asInt(upscaler), 0, 1));
     deadzone = static_cast<int>(std::clamp<int64_t>((*j)["deadzone"].asInt(deadzone), 0, 50));
     triggerRumble = (*j)["triggerRumble"].asBool(triggerRumble);
     circleConfirms = (*j)["circleConfirms"].asBool(circleConfirms);
@@ -50,6 +51,7 @@ bool Settings::save(const std::string& path) const {
     v.set("streamStats", streamStats);
     v.set("sharpness", sharpness);
     v.set("deband", deband);
+    v.set("upscaler", upscaler);
     v.set("deadzone", deadzone);
     v.set("triggerRumble", triggerRumble);
     v.set("circleConfirms", circleConfirms);

@@ -23,7 +23,7 @@ struct StreamInfo {
     int width = 0, height = 0;  // of the decoded picture
 };
 
-enum class MenuAction { None, Close, Leave, Refresh, Resolution, Stats, Sharpness, Deband };
+enum class MenuAction { None, Close, Leave, Refresh, Resolution, Stats, Sharpness, Deband, Upscaler };
 
 class StreamMenu {
 public:
@@ -36,7 +36,8 @@ public:
     // `resolution` as SettingsChoice::resolution (0 = 1080p, 1 = 720p, 2 = 1440p).
     // `sharpness` 0 = off, 1..3 = low, medium, high; `deband` 0..2 = off,
     // low, high.
-    void open(int resolution, bool stats, int sharpness = 0, int deband = 1);
+    // `upscaler` 0 = FSR, 1 = Anime4K.
+    void open(int resolution, bool stats, int sharpness = 0, int deband = 1, int upscaler = 0);
     void close() { open_ = false; }
     bool isOpen() const { return open_; }
     MenuAction handle(const NavInput& in);
@@ -44,6 +45,7 @@ public:
     bool statsOn() const { return stats_; }
     int sharpness() const { return sharpness_; }
     int deband() const { return deband_; }
+    int upscaler() const { return upscaler_; }
     // Circle confirms: the hints swap their buttons.
     void setCircleConfirms(bool on) { circleConfirms_ = on; }
     // The controllers in use, under the connection.
@@ -53,13 +55,13 @@ public:
     Canvas renderStats(const StreamInfo& info) const;
 
 private:
-    enum Item { Resume, Stats, Sharpness, Deband, Resolution, Refresh, Leave, ItemCount };
+    enum Item { Resume, Stats, Upscaler, Sharpness, Deband, Resolution, Refresh, Leave, ItemCount };
 
     const Fonts& fonts_;
     bool open_ = false, stats_ = false;
     int selected_ = Resume;
     int resolution_ = 0, applied_ = 0;
-    int sharpness_ = 0, deband_ = 1;
+    int sharpness_ = 0, deband_ = 1, upscaler_ = 0;
     bool resolutionAsked_ = false;
     bool circleConfirms_ = false;
     PadSlots pads_{};

@@ -127,6 +127,8 @@ enum class Str {
     Reconnecting,     // the connection dropped mid-game
     Reconnected,
     LightBar,         // settings: the light bar takes the game's colour
+    MenuUpscaler,     // game menu: how the picture is upscaled to 4K
+    UpscalerAi,       // the Anime4K network
     Count
 };
 

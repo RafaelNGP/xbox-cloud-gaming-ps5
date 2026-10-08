@@ -149,7 +149,7 @@ void updateTextInput(app::StreamPlayer* player) {
 // buy far down the list instead of playing, saves detail.ppm), imetest (opens
 // the system keyboard on the home screen), menutest (in the game: the menu,
 // 720p, back to 1080p), res=720p|1080p|1080p-hq|1440p, sharp=0..3 and
-// deband=0..2 (instead of the settings).
+// deband=0..2 and ai (Anime4K) instead of the settings.
 // The title "BENCH" decodes <dataDir>/sample.h264 instead.
 
 std::string g_autoplayTitle;
@@ -161,6 +161,7 @@ bool g_autoplayDetailTest = false;  // open a game to buy far down the list, sav
 bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25 s
 bool g_autoplayVkTest = false;       // the GPU presenting instead of the CPU display
 bool g_autoplayCpuDisplay = false;
+int g_autoplayUpscaler = -1;          // ai: Anime4K instead of the setting
 bool g_autoplayDropTest = false;     // droptest: the connection dropped at 20 s
 bool g_autoplayHwDecode = false;     // hwdecode: the hardware decoder alongside, logged   // the CPU display even where the GPU comes up
 bool g_autoplayVibeTest = false;     // each motor alone, with a notification
@@ -196,6 +197,7 @@ void loadAutoplay() {
         if (opt == "cpudisplay") g_autoplayCpuDisplay = true;
         if (opt == "hwdecode") g_autoplayHwDecode = true;
         if (opt == "droptest") g_autoplayDropTest = true;
+        if (opt == "ai") g_autoplayUpscaler = 1;
         if (opt.rfind("swap=", 0) == 0) display::gpu::setSwapImages(std::atoi(opt.c_str() + 5));
         if (opt == "nopace") display::gpu::setPresentWait(false);
         if (opt == "detailtest") g_autoplayDetailTest = true;
@@ -807,6 +809,7 @@ int main(int argc, char** argv) {
     bool showStats = false, overlayShown = false;
     int sharpness = 0;  // 0..3, as Settings::sharpness
     int deband = 1;     // 0..2, as Settings::deband
+    int upscaler = 0;   // as Settings::upscaler
     // How much CAS each sharpness level mixes in (display::setSharpness).
     static constexpr int kSharpAmount[] = {0, 96, 176, 256};
     bool padReleased = true;
@@ -877,19 +880,19 @@ int main(int argc, char** argv) {
         bool menuCombo = pad.btnOptions && pad.btnTouchpad && !(prev.btnOptions && prev.btnTouchpad);
         prev = pad;
         if (g_autoplayMenuTest && g_ui->screen() == ui::Screen::Streaming) {
-            // Menu, down four times to the resolution, left to 720p, accept; at
+            // Menu, down five times to the resolution, left to 720p, accept; at
             // 35 s right (back to 1080p) and accept.
             static uint64_t since = 0;
             static int step = 0;
             if (!since) since = now;
-            const uint64_t at[] = {12000, 13000, 13300, 13600, 13800, 14000, 14500, 35000, 35500};
-            if (step < 9 && now - since >= at[step]) {
+            const uint64_t at[] = {12000, 13000, 13200, 13400, 13600, 13800, 14000, 14500, 35000, 35500};
+            if (step < 10 && now - since >= at[step]) {
                 nav = ui::NavInput{};
                 if (step == 0) menuCombo = true;
-                if (step >= 1 && step <= 4) nav.down = true;
-                if (step == 5) nav.left = true;
-                if (step == 6 || step == 8) nav.accept = true;
-                if (step == 7) nav.right = true;
+                if (step >= 1 && step <= 5) nav.down = true;
+                if (step == 6) nav.left = true;
+                if (step == 7 || step == 9) nav.accept = true;
+                if (step == 8) nav.right = true;
                 XC_LOGI("autoplay: menu step %d", step);
                 ++step;
             }
@@ -913,6 +916,8 @@ int main(int argc, char** argv) {
                 display::setSharpness(kSharpAmount[std::clamp(sharpness, 0, 3)]);
                 deband = g_autoplayDeband >= 0 ? g_autoplayDeband : g_settings.deband;
                 display::setDeband(deband);
+                upscaler = g_autoplayUpscaler >= 0 ? g_autoplayUpscaler : g_settings.upscaler;
+                display::setUpscaler(upscaler);
                 overlaySeq = 0;
             }
             if (g_player) {
@@ -921,7 +926,7 @@ int main(int argc, char** argv) {
                 bool wasOpen = menu.isOpen();
                 if (!wasOpen && menuCombo && g_keyboardFor.empty()) {
                     menu.setCircleConfirms(g_settings.circleConfirms);
-                    menu.open(streamResolution, showStats, sharpness, deband);
+                    menu.open(streamResolution, showStats, sharpness, deband, upscaler);
                     overlaySeq = 0;
                 } else if (wasOpen) {
                     switch (menu.handle(nav)) {
@@ -938,6 +943,14 @@ int main(int argc, char** argv) {
                         display::setSharpness(kSharpAmount[sharpness]);
                         std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
                         g_settings.sharpness = sharpness;
+                        g_settings.save(settingsPath());
+                        break;
+                    }
+                    case ui::MenuAction::Upscaler: {
+                        upscaler = menu.upscaler();
+                        display::setUpscaler(upscaler);
+                        std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                        g_settings.upscaler = upscaler;
                         g_settings.save(settingsPath());
                         break;
                     }

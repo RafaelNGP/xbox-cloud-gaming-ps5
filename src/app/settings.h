@@ -25,6 +25,8 @@ struct Settings {
     int sharpness = 0;
     // Smoothing of compression blocks (GPU display): 0 off, 1 low, 2 high.
     int deband = 1;
+    // Upscaling to the 4K display (GPU): 0 FSR 1, 1 Anime4K.
+    int upscaler = 0;
     // Controller: stick dead zone (percent), vibration in the triggers,
     // Circle as the confirm button (Xbox A).
     int deadzone = 15;

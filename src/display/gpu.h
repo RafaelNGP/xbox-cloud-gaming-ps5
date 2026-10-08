@@ -36,6 +36,9 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
 void setSharpness(int amount);
 // Smoothing of compression blocks in flat areas: 0 off, 1 low, 2 high.
 void setDeband(int level);
+// The upscaler: 0 FSR 1 (EASU), 1 Anime4K x2 (1080p pictures only; others
+// keep FSR). RCAS sharpens after either.
+void setUpscaler(int mode);
 // Before init(): swapchain images (2 = lowest latency, the default).
 void setSwapImages(int count);
 // Before init(): waiting for each frame to reach the screen before the next

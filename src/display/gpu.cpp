@@ -15,6 +15,11 @@
 #include <mutex>
 #include <string>
 
+#include "display/shaders/a4k_d2s.spv.h"
+#include "display/shaders/a4k_s_conv0.spv.h"
+#include "display/shaders/a4k_s_conv1.spv.h"
+#include "display/shaders/a4k_s_conv2.spv.h"
+#include "display/shaders/a4k_s_conv3.spv.h"
 #include "display/shaders/easu.spv.h"
 #include "display/shaders/rcas.spv.h"
 #include "display/shaders/yuv2rgb.spv.h"
@@ -101,11 +106,17 @@ struct State {
 
     VkSampler nearest = VK_NULL_HANDLE, linear = VK_NULL_HANDLE;
     Pipeline yuv, easu, rcas;
+    // Anime4K x2 (S): four convolutions at the picture's size, then the
+    // depth-to-space into the 4K image; in place of EASU when chosen.
+    Pipeline a4kConv[4], a4kD2s;
+    VkDescriptorSet a4kConvSets[4]{}, a4kD2sSet = VK_NULL_HANDLE;
+    bool a4kReady = false;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkDescriptorSet yuvSet = VK_NULL_HANDLE, easuVideoSet = VK_NULL_HANDLE, easuUiSet = VK_NULL_HANDLE;
     VkDescriptorSet rcasSets[8]{};
 
     Image luma, chromaU, chromaV, rgb;  // the video picture, at its size
+    Image features[2];                  // Anime4K's feature maps, ping-ponged
     Image ui, upscaled, overlay;
     Buffer staging;         // this frame's planes or canvas
     Buffer overlayStaging;  // the overlay, when it changed
@@ -124,6 +135,7 @@ std::vector<uint32_t> g_overlayPixels(kUiW* kUiH, 0);
 bool g_overlayDirty = false, g_overlayShown = false;
 std::atomic<int> g_sharpness{0};
 std::atomic<int> g_deband{1};
+std::atomic<int> g_upscaler{0};  // 0 FSR (EASU), 1 Anime4K
 uint32_t g_frame = 0;
 uint32_t g_swapImages = 2;
 bool g_noPresentWait = false;
@@ -502,9 +514,19 @@ bool createPipelines() {
         XC_LOGE("gpu: the FSR pipelines");
         return false;
     }
+    {
+        const VkDescriptorSetLayoutBinding conv[] = {binding(0, storage), binding(1, storage)};
+        const VkDescriptorSetLayoutBinding d2s[] = {binding(0, storage), binding(1, sampled), binding(2, storage)};
+        const uint32_t* code[4] = {kShader_a4k_s_conv0, kShader_a4k_s_conv1, kShader_a4k_s_conv2, kShader_a4k_s_conv3};
+        const size_t bytes[4] = {sizeof kShader_a4k_s_conv0, sizeof kShader_a4k_s_conv1, sizeof kShader_a4k_s_conv2,
+                                 sizeof kShader_a4k_s_conv3};
+        g.a4kReady = createPipeline(g.a4kD2s, kShader_a4k_d2s, sizeof kShader_a4k_d2s, d2s, 3, 0);
+        for (int i = 0; i < 4 && g.a4kReady; ++i) g.a4kReady = createPipeline(g.a4kConv[i], code[i], bytes[i], conv, 2, 0);
+        if (!g.a4kReady) XC_LOGW("gpu: no Anime4K pipelines; FSR only");
+    }
     const VkDescriptorPoolSize sizes[] = {{sampled, 32}, {storage, 32}};
     VkDescriptorPoolCreateInfo pool{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    pool.maxSets = 16;
+    pool.maxSets = 24;
     pool.poolSizeCount = 2;
     pool.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(g.device, &pool, nullptr, &g.descriptors) != VK_SUCCESS) return false;
@@ -512,6 +534,10 @@ bool createPipelines() {
     g.easuVideoSet = allocateSet(g.easu);
     g.easuUiSet = allocateSet(g.easu);
     for (uint32_t i = 0; i < g.imageCount; ++i) g.rcasSets[i] = allocateSet(g.rcas);
+    if (g.a4kReady) {
+        for (int i = 0; i < 4; ++i) g.a4kConvSets[i] = allocateSet(g.a4kConv[i]);
+        g.a4kD2sSet = allocateSet(g.a4kD2s);
+    }
 
     // The images every frame uses; the video's come with its first picture.
     const VkImageUsageFlags upload = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -545,6 +571,8 @@ bool videoImages(uint32_t w, uint32_t h) {
     destroyImage(g.chromaU);
     destroyImage(g.chromaV);
     destroyImage(g.rgb);
+    destroyImage(g.features[0]);
+    destroyImage(g.features[1]);
     const VkImageUsageFlags upload = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     uint32_t cw = (w + 1) / 2, ch = (h + 1) / 2;
     if (!createImage(g.luma, VK_FORMAT_R8_UNORM, w, h, upload) ||
@@ -559,6 +587,25 @@ bool videoImages(uint32_t w, uint32_t h) {
     writeSampled(g.yuvSet, 2, g.chromaV.view, g.linear);
     writeStorage(g.yuvSet, 3, g.rgb.view);
     writeSampled(g.easuVideoSet, 0, g.rgb.view, g.linear);
+    if (g.a4kReady) {
+        if (!createImage(g.features[0], VK_FORMAT_R16G16B16A16_SFLOAT, w, h, VK_IMAGE_USAGE_STORAGE_BIT) ||
+            !createImage(g.features[1], VK_FORMAT_R16G16B16A16_SFLOAT, w, h, VK_IMAGE_USAGE_STORAGE_BIT)) {
+            XC_LOGW("gpu: no Anime4K feature maps; FSR only");
+            g.a4kReady = false;
+        } else {
+            // picture -> f0 -> f1 -> f0 -> f1 -> 4K
+            const VkImageView in[4] = {g.rgb.view, g.features[0].view, g.features[1].view, g.features[0].view};
+            const VkImageView out[4] = {g.features[0].view, g.features[1].view, g.features[0].view,
+                                        g.features[1].view};
+            for (int i = 0; i < 4; ++i) {
+                writeStorage(g.a4kConvSets[i], 0, in[i]);
+                writeStorage(g.a4kConvSets[i], 1, out[i]);
+            }
+            writeStorage(g.a4kD2sSet, 0, g.features[1].view);
+            writeSampled(g.a4kD2sSet, 1, g.rgb.view, g.linear);
+            writeStorage(g.a4kD2sSet, 2, g.upscaled.view);
+        }
+    }
     XC_LOGI("gpu: video images %ux%u", w, h);
     return true;
 }
@@ -660,7 +707,28 @@ bool beginFrame(bool wait) {
 
 // `input` (the RGB picture, w x h) upscaled with EASU, sharpened with RCAS,
 // the overlay on top, into the acquired image.
-void recordUpscale(VkDescriptorSet easuSet, uint32_t w, uint32_t h, int sharpness, bool overlay) {
+// Anime4K x2 into `upscaled`; false (nothing recorded) when it doesn't fit:
+// only the video, and only a picture of exactly half the display.
+bool recordAnime4K(uint32_t w, uint32_t h) {
+    if (!g.a4kReady || w * 2 != g.extent.width || h * 2 != g.extent.height || g.features[0].w != w) return false;
+    barrier(g.features[0].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    barrier(g.features[1].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    for (int i = 0; i < 4; ++i) {
+        vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.a4kConv[i].pipeline);
+        vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.a4kConv[i].layout, 0, 1, &g.a4kConvSets[i], 0,
+                                nullptr);
+        vkCmdDispatch(g.cmd, (w + 7) / 8, (h + 7) / 8, 1);
+        memoryBarrier();
+    }
+    barrier(g.upscaled.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.a4kD2s.pipeline);
+    vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.a4kD2s.layout, 0, 1, &g.a4kD2sSet, 0, nullptr);
+    vkCmdDispatch(g.cmd, (g.extent.width + 7) / 8, (g.extent.height + 7) / 8, 1);
+    memoryBarrier();
+    return true;
+}
+
+void recordUpscale(VkDescriptorSet easuSet, uint32_t w, uint32_t h, int sharpness, bool overlay, bool ai = false) {
     // EASU constants (FsrEasuCon), the picture filling the display.
     float ow = static_cast<float>(g.extent.width), oh = static_cast<float>(g.extent.height);
     float iw = static_cast<float>(w), ih = static_cast<float>(h);
@@ -668,12 +736,14 @@ void recordUpscale(VkDescriptorSet easuSet, uint32_t w, uint32_t h, int sharpnes
                          asBits(1.0f / iw), asBits(1.0f / ih), asBits(1.0f / iw), asBits(-1.0f / ih),
                          asBits(-1.0f / iw), asBits(2.0f / ih), asBits(1.0f / iw), asBits(2.0f / ih),
                          asBits(0.0f / iw), asBits(4.0f / ih), 0, 0};
-    barrier(g.upscaled.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-    vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.pipeline);
-    vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.layout, 0, 1, &easuSet, 0, nullptr);
-    vkCmdPushConstants(g.cmd, g.easu.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof easu, easu);
-    vkCmdDispatch(g.cmd, (g.extent.width + 7) / 8, (g.extent.height + 7) / 8, 1);
-    memoryBarrier();
+    if (!ai || !recordAnime4K(w, h)) {
+        barrier(g.upscaled.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.pipeline);
+        vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.layout, 0, 1, &easuSet, 0, nullptr);
+        vkCmdPushConstants(g.cmd, g.easu.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof easu, easu);
+        vkCmdDispatch(g.cmd, (g.extent.width + 7) / 8, (g.extent.height + 7) / 8, 1);
+        memoryBarrier();
+    }
 
     // RCAS (FsrRcasCon): sharpness in stops, 0 = the most.
     float stops = sharpness >= 256 ? 0.2f : sharpness >= 176 ? 0.5f : sharpness > 0 ? 1.0f : 2.0f;
@@ -748,7 +818,7 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int stride
     vkCmdPushConstants(g.cmd, g.yuv.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof yuvPc, &yuvPc);
     vkCmdDispatch(g.cmd, (g.rgb.w + 7) / 8, (g.rgb.h + 7) / 8, 1);
     memoryBarrier();
-    recordUpscale(g.easuVideoSet, g.rgb.w, g.rgb.h, g_sharpness, overlay);
+    recordUpscale(g.easuVideoSet, g.rgb.w, g.rgb.h, g_sharpness, overlay, g_upscaler == 1);
     return true;
 }
 
@@ -822,6 +892,8 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
 void setSharpness(int amount) { g_sharpness = std::clamp(amount, 0, 256); }
 
 void setDeband(int level) { g_deband = std::clamp(level, 0, 2); }
+
+void setUpscaler(int mode) { g_upscaler = std::clamp(mode, 0, 1); }
 
 void setPresentWait(bool on) { g_noPresentWait = !on; }
 
