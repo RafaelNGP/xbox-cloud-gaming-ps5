@@ -561,7 +561,7 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         std::lock_guard<std::mutex> lock(g_argMutex);
         g_xblAuth = am.profile().xblAuthorization;
     }
-    platform::notify(ui::trf(ui::Str::SignedInAs, am.profile().gamertag));
+    platform::notify(ui::trf(ui::Str::SignedInAs, am.profile().gamertag), "signed in (notification)");
     static bool updateChecked = false;
     if (!updateChecked && g_autoplayTitle.empty()) {
         updateChecked = true;
@@ -1040,7 +1040,10 @@ int main(int argc, char** argv) {
                         std::string who = std::to_string(i + 1);
                         std::string name = input::padUserName(i);
                         if (!name.empty()) who += " (" + name + ")";
-                        platform::notify(ui::trf(on ? ui::Str::PadConnected : ui::Str::PadDisconnected, who));
+                        // The PS5 user's name on the TV, not in the log.
+                        platform::notify(ui::trf(on ? ui::Str::PadConnected : ui::Str::PadDisconnected, who),
+                                         std::string("controller ") + std::to_string(i + 1) +
+                                             (on ? " connected" : " disconnected"));
                     }
                     if (on) g_player->sendInput(other, i);
                 }

@@ -106,8 +106,9 @@ on xbox.com / in the Xbox app) and it appears in Your games.
 
 Problems
 --------
-The app writes a log to /data/homebrew/@TITLE_ID@/xcloud.log (no
-passwords or tokens in it). Attach it when you report a problem:
+The app writes a log to /data/homebrew/@TITLE_ID@/xcloud.log. It holds
+nothing of your account: no password, token, sign-in code, gamertag or
+PS5 user name. Attach it when you report a problem:
 https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/issues
 
 
