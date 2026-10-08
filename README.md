@@ -39,6 +39,15 @@ an Xbox controller.
 - Lost video packets are re-requested (RTCP NACK) and damaged frames are
   never shown; DualSense rumble follows the game. A game that fails to start
   in one region is retried in the nearest other one.
+- In game, OPTIONS + TOUCHPAD opens a menu: statistics, sharpness (AMD CAS),
+  stream resolution (switched mid-session), refresh the picture, leave the
+  game, and the connection's numbers. Games' text fields open the PS5's own
+  keyboard.
+- The DualSense's adaptive triggers vibrate with the Xbox impulse triggers;
+  up to four controllers for local multiplayer (other signed-in PS5 users),
+  shown numbered in their light-bar colours.
+- Controller settings: stick dead zone, trigger vibration, Circle as the
+  confirm button. A notification tells when a new version is out.
 - Your games, art and prices are cached: the home screen is complete about
   a second after it appears.
 - Custom PS5 Home art (selection and launch backgrounds), generated from the
