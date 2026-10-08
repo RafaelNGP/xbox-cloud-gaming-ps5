@@ -27,6 +27,7 @@ the end.
 | PS5 app runtime: `app_crt.cpp`, `app_cpp_runtime.cpp` (BlackBearReloaded, ps5-native-app-boilerplate) | from PS5_Vulkan | GPL-3.0-or-later | PS5_Vulkan `tooling/native/` |
 | PS5 payload SDK platform layer (`libps5platform.a`) and headers | SDK v0.42 + PS5_Vulkan fork | GPL-3.0-or-later | <https://github.com/ps5-payload-dev/sdk> |
 | LLVM libc++, libc++abi, libunwind, compiler-rt builtins (from the payload SDK) | SDK v0.42 | Apache-2.0 WITH LLVM-exception | the payload SDK |
+| Mesa: RADV Vulkan driver with ACO and NIR, PS5 winsys (PS5_Mesa fork, built by PS5_Vulkan `tools/build-radv.sh`) | Mesa 26.2.0, PS5_Mesa 0b2d6d1 | MIT (individual files per their SPDX identifiers) | <https://github.com/mihawk-99/PS5_Mesa>, `docs/license.rst` and `licenses/` there |
 
 ## Shipped in the app package
 
