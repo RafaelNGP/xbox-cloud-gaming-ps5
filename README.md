@@ -19,6 +19,7 @@ controller.
 
 - **Sign in on your phone** with a code shown on the TV; no password on the console.
 - **Game Pass and Your games** tabs, search, and free-to-play games.
+- **My consoles**: play your own Xbox (Remote Play), its screen, games and apps.
 - **Sharp picture**: upscaled to 4K on the GPU (AMD FSR 1 or Anime4K), with
   compression blocks smoothed.
 - **DualSense**: rumble, adaptive-trigger vibration, light bar in the game's
