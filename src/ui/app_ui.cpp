@@ -2,6 +2,8 @@
 // Copyright (C) 2026 RafaelNGP
 #include "ui/app_ui.h"
 
+#include "ui/accent_color.h"
+
 #include "ui/brand.h"
 #include "ui/strings.h"
 
@@ -459,6 +461,21 @@ void AppUi::setDetailInfo(const std::string& productId, const std::string& descr
     dirty_ = true;
 }
 
+bool AppUi::findTile(const std::string& titleId, GameTile& out) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<const GameTile*> all;
+    for (const auto& row : rows_)
+        for (const auto& t : row.tiles) all.push_back(&t);
+    for (const auto* list : {&owned_, &purchasable_})
+        for (const auto& t : *list) all.push_back(&t);
+    for (const GameTile* t : all)
+        if (t->titleId == titleId) {
+            out = *t;
+            return true;
+        }
+    return false;
+}
+
 bool AppUi::purchasableAt(size_t index, GameTile& out) const {
     std::lock_guard<std::mutex> lock(mutex_);
     if (index >= purchasable_.size()) return false;
@@ -616,6 +633,15 @@ void AppUi::showError(const std::string& message) {
     std::lock_guard<std::mutex> lock(mutex_);
     screen_ = Screen::Error;
     error_ = message;
+    errorGame_ = {};
+    dirty_ = true;
+}
+
+void AppUi::showPlayError(const std::string& message, const GameTile& game) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    screen_ = Screen::Error;
+    error_ = message;
+    errorGame_ = game;
     dirty_ = true;
 }
 
@@ -639,6 +665,37 @@ void AppUi::setPads(const PadSlots& pads) {
     if (!changed) return;
     pads_ = pads;
     dirty_ = true;
+}
+
+bool AppUi::accentColor(Color& out) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const GameTile* t = nullptr;
+    switch (screen_) {
+    case Screen::Details: t = &detail_; break;
+    case Screen::Launching:
+    case Screen::Streaming: t = &launching_; break;
+    case Screen::Home:
+        if (searching_) {
+            if (!searchOnKeys_ && resultFocus_ >= 0 && resultFocus_ < static_cast<int>(results_.size()))
+                t = &results_[static_cast<size_t>(resultFocus_)];
+        } else {
+            t = tab_ == Tab::Library ? libraryTile(gridFocus_) : focusedTile();
+        }
+        break;
+    default: break;
+    }
+    if (!t || t->tileUrl.empty()) return false;
+    auto it = accents_.find(t->tileUrl);
+    if (it == accents_.end()) {
+        auto img = images_.get(t->tileUrl, kCard, kCard);  // the card's own, already loaded
+        if (!img) return false;
+        Color c;
+        // No colour in the art (black and white): the Xbox green.
+        if (!dominantColor(*img, c)) c = rgba(40, 210, 40);
+        it = accents_.emplace(t->tileUrl, c).first;
+    }
+    out = it->second;
+    return true;
 }
 
 void AppUi::drawPads(Canvas& c) {
@@ -671,6 +728,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         out = {tr(Str::Activated), tr(Str::Deactivated)};
     } else if (row == 5) {
         out = {tr(Str::ButtonCross), tr(Str::ButtonCircle)};
+    } else if (row == 6) {
+        out = {tr(Str::Activated), tr(Str::Deactivated)};
     } else {
         // Automatic first, then the regions in the login's order.
         out.push_back(withMs(trf(Str::RegionAuto, defaultRegion_.empty() ? "-" : prettyRegion(defaultRegion_)),
@@ -689,6 +748,7 @@ int AppUi::settingSelected(int row) const {
     if (row == 3) return settings_.deadzone;
     if (row == 4) return settings_.triggerRumble ? 0 : 1;
     if (row == 5) return settings_.circleConfirms ? 1 : 0;
+    if (row == 6) return settings_.lightBar ? 0 : 1;
     for (size_t i = 0; i < regions_.size(); ++i)
         if (regions_[i] == settings_.region) return static_cast<int>(i) + 1;
     return 0;
@@ -707,6 +767,8 @@ void AppUi::applySetting(int row, int index) {
         settings_.triggerRumble = index == 0;
     } else if (row == 5) {
         settings_.circleConfirms = index == 1;
+    } else if (row == 6) {
+        settings_.lightBar = index == 0;
     } else {
         settings_.region = index == 0 ? std::string() : regions_[static_cast<size_t>(index - 1)];
     }
@@ -1041,7 +1103,9 @@ UiEvent AppUi::handle(const NavInput& in) {
             }
             break;
         case Screen::Details:
-            if (in.accept && detail_.playable && !detail_.titleId.empty()) {
+            // A free game not on the account yet may already be (got on the
+            // phone a moment ago): Play tries, and the server says.
+            if (in.accept && (detail_.playable || detail_.freeInStore) && !detail_.titleId.empty()) {
                 ev.action = Action::Play;
                 ev.game = detail_;
             }
@@ -1055,7 +1119,16 @@ UiEvent AppUi::handle(const NavInput& in) {
             if (in.back) ev.action = Action::CancelLaunch;
             break;
         case Screen::Error:
-            if (in.accept) ev.action = Action::Retry;
+            if (!errorGame_.productId.empty()) {
+                if (in.accept) {
+                    ev.action = Action::Play;
+                    ev.game = errorGame_;
+                } else if (in.back) {
+                    openDetails(errorGame_);
+                }
+            } else if (in.accept) {
+                ev.action = Action::Retry;
+            }
             break;
         default: break;
     }
@@ -1345,7 +1418,9 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
     if (t.purchasable) {
         c.fillRect({x, y, kCard, kCard}, rgba(0, 0, 0, 70), 10);
         auto price = prices_.find(t.productId);
-        std::string label = price != prices_.end() ? price->second.now : tr(Str::BuyBadge);
+        std::string label = t.freeInStore          ? tr(Str::Free)
+                            : price != prices_.end() ? price->second.now
+                                                     : tr(Str::BuyBadge);
         int w = fonts_.bold.measure(label, 13) + 42;
         Rect badge{x + 10, y + kCard - 34, w, 24};
         c.fillRect(badge, rgba(16, 124, 16, 235), 4);
@@ -1649,7 +1724,9 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         y += 44;
     }
     y += 10;
-    for (const auto& line : fonts_.regular.wrap(g->description, 24, 880, 6)) {
+    // Shorter for a free game, whose page also has the hint and Play below.
+    int descLines = g->purchasable && g->freeInStore ? 4 : 6;
+    for (const auto& line : fonts_.regular.wrap(g->description, 24, 880, descLines)) {
         fonts_.regular.draw(c, line, kMargin, y, 24, kGray);
         y += 34;
     }
@@ -1659,7 +1736,25 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         // console's browser can't run the xbox.com store, so no button.
         int ty = y + 30;
         auto price = prices_.find(g->productId);
-        if (price != prices_.end()) {
+        if (g->freeInStore) {
+            // Free to play: got once in the store (the QR code), then Play.
+            fonts_.bold.draw(c, tr(Str::Free), kMargin, ty, 52, kWhite);
+            ty += 84;
+            fonts_.semibold.draw(c, tr(Str::FreeToPlay), kMargin, ty, 28, kWhite);
+            ty += 48;
+            for (const auto& line : fonts_.regular.wrap(tr(Str::FreeHint), 24, 820, 3)) {
+                fonts_.regular.draw(c, line, kMargin, ty, 24, kGray);
+                ty += 34;
+            }
+            Rect play{kMargin, ty + 30, 300, 76};
+            c.strokeRect({play.x - 7, play.y - 7, play.w + 14, play.h + 14}, kWhite, 4, 45);
+            c.fillRect(play, kGreen, 38);
+            float tx = play.x + 70, my = play.y + play.h / 2.0f;
+            c.line(tx - 8, my - 13, tx - 8, my + 13, 4, kWhite);
+            c.line(tx - 8, my - 13, tx + 13, my, 4, kWhite);
+            c.line(tx - 8, my + 13, tx + 13, my, 4, kWhite);
+            fonts_.semibold.draw(c, tr(Str::Play), play.x + 108, play.y + 20, 32, kWhite);
+        } else if (price != prices_.end()) {
             // The price, and the regular one crossed out while on sale.
             int px = kMargin;
             fonts_.bold.draw(c, price->second.now, px, ty, 52, kWhite);
@@ -1672,12 +1767,14 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
             }
             ty += 84;
         }
-        drawBag(c, kMargin + 12, ty + 16, kGreen);
-        fonts_.semibold.draw(c, tr(Str::BuyToPlay), kMargin + 36, ty, 28, kWhite);
-        ty += 48;
-        for (const auto& line : fonts_.regular.wrap(tr(Str::BuyHint), 24, 820, 3)) {
-            fonts_.regular.draw(c, line, kMargin, ty, 24, kGray);
-            ty += 34;
+        if (!g->freeInStore) {
+            drawBag(c, kMargin + 12, ty + 16, kGreen);
+            fonts_.semibold.draw(c, tr(Str::BuyToPlay), kMargin + 36, ty, 28, kWhite);
+            ty += 48;
+            for (const auto& line : fonts_.regular.wrap(tr(Str::BuyHint), 24, 820, 3)) {
+                fonts_.regular.draw(c, line, kMargin, ty, 24, kGray);
+                ty += 34;
+            }
         }
         std::string url = "https://www.xbox.com/games/store/p/" + g->productId;
         uint8_t qr[qrcodegen_BUFFER_LEN_MAX], tmp[qrcodegen_BUFFER_LEN_MAX];
@@ -1691,10 +1788,17 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
             for (int yy = 0; yy < n; ++yy)
                 for (int xx = 0; xx < n; ++xx)
                     if (qrcodegen_getModule(qr, xx, yy)) c.fillRect({ox + xx * module, oy + yy * module, module, module}, kBg);
-            int w = fonts_.semibold.measure(tr(Str::ScanToBuy), 26);
-            fonts_.semibold.draw(c, tr(Str::ScanToBuy), box.x + (box.w - w) / 2, box.y + box.h + 22, 26, kWhite);
+            const char* scan = tr(g->freeInStore ? Str::ScanToGet : Str::ScanToBuy);
+            int w = fonts_.semibold.measure(scan, 26);
+            fonts_.semibold.draw(c, scan, box.x + (box.w - w) / 2, box.y + box.h + 22, 26, kWhite);
         }
-        drawHints(c, {{kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)}, {kIconCircle, tr(Str::Back)}});
+        if (g->freeInStore)
+            drawHints(c, {{kIconCross, tr(Str::Play)},
+                          {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
+                          {kIconCircle, tr(Str::Back)}});
+        else
+            drawHints(c, {{kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
+                          {kIconCircle, tr(Str::Back)}});
         drawToast(c, nowMs);
         return;
     }
@@ -1747,7 +1851,10 @@ void AppUi::drawError(Canvas& c) {
         fonts_.regular.draw(c, line, panel.x + 56, y, 26, kGray);
         y += 38;
     }
-    drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
+    if (!errorGame_.productId.empty())
+        drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconCircle, tr(Str::Back)}});
+    else
+        drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
 }
 
 void AppUi::drawSettings(Canvas& c) {
@@ -1755,10 +1862,11 @@ void AppUi::drawSettings(Canvas& c) {
     drawTopBar(c);
     fonts_.bold.draw(c, tr(Str::Settings), kMargin, 170, 60, kWhite);
     const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
-                                        tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton)};
-    constexpr int kRowW = 1200, kRowH = 76;
+                                        tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
+                                        tr(Str::LightBar)};
+    constexpr int kRowW = 1200, kRowH = 70;
     Rect rows[kSettingRows];
-    int y = 270;
+    int y = 262;
     for (int i = 0; i < kSettingRows; ++i) {
         Rect r{kMargin, y, kRowW, kRowH};
         rows[i] = r;
@@ -1777,7 +1885,7 @@ void AppUi::drawSettings(Canvas& c) {
         int w = fonts_.regular.measure(value, 30);
         fonts_.regular.draw(c, value, r.x + r.w - 76 - w, fonts_.regular.centeredY(r.y, r.h, 30), 30,
                             focused ? kWhite : kGray);
-        y += kRowH + 16;
+        y += kRowH + 14;
     }
     for (const auto& line : fonts_.regular.wrap(tr(Str::SettingsNote), 24, kRowW, 2)) {
         fonts_.regular.draw(c, line, kMargin, y + 20, 24, kDim);

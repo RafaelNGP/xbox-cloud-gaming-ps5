@@ -40,6 +40,13 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
 void setSharpness(int amount);
 // Smoothing of compression blocks in flat areas (GPU only): 0 off, 1 low, 2 high.
 void setDeband(int level);
+// GPU only: 0 FSR 1, 1 Anime4K (gpu::setUpscaler).
+void setUpscaler(int mode);
+
+// GPU only: the id of the last present(), and the last frame known to be on
+// the screen (its id, and platform::nowUs() then). False on the CPU path.
+uint64_t lastPresentId();
+bool lastShown(uint64_t& id, uint64_t& atUs);
 
 // The back buffer last drawn, untiled, as 8-bit RGB rows (diagnostics:
 // what the TV shows), and its size. False without a display.

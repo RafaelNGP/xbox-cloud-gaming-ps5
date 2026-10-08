@@ -323,7 +323,7 @@ void convertTiles(const YuvJob& job, unsigned first, unsigned last) {
                 int ox = static_cast<int>(x) - ov->x, oy = static_cast<int>(y) - ov->y;
                 if (ox >= 0 && oy >= 0 && ox < ov->w && oy < ov->h) {
                     uint32_t p = ov->px[static_cast<size_t>(oy) * ov->w + ox];
-                    uint32_t a = ov->alpha, na = 255 - a;
+                    uint32_t a = (p >> 24) * ov->alpha / 255, na = 255 - a;
                     r = ((p & 0xFF) * a + r * na) / 255;
                     g = (((p >> 8) & 0xFF) * a + g * na) / 255;
                     b = (((p >> 16) & 0xFF) * a + b * na) / 255;
@@ -500,6 +500,10 @@ void setSharpness(int amount) {
 }
 
 void setDeband(int level) { gpu::setDeband(level); }
+void setUpscaler(int mode) { gpu::setUpscaler(mode); }
+
+uint64_t lastPresentId() { return gpu::ready() ? gpu::lastPresentId() : 0; }
+bool lastShown(uint64_t& id, uint64_t& atUs) { return gpu::ready() && gpu::lastShown(id, atUs); }
 
 void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opacity) {
     if (gpu::ready()) return gpu::setOverlay(pixels, x, y, w, h, opacity);
@@ -529,6 +533,9 @@ void drawRgba(const uint32_t*) {}
 void setOverlay(const uint32_t*, int, int, int, int, uint8_t) {}
 void setSharpness(int) {}
 void setDeband(int) {}
+void setUpscaler(int) {}
+uint64_t lastPresentId() { return 0; }
+bool lastShown(uint64_t&, uint64_t&) { return false; }
 bool readBackRgb(std::vector<uint8_t>&, int&, int&) { return false; }
 } // namespace xc::display
 

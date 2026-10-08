@@ -13,7 +13,13 @@
 #include <cmath>
 #include <cstring>
 #include <mutex>
+#include <string>
 
+#include "display/shaders/a4k_d2s.spv.h"
+#include "display/shaders/a4k_s_conv0.spv.h"
+#include "display/shaders/a4k_s_conv1.spv.h"
+#include "display/shaders/a4k_s_conv2.spv.h"
+#include "display/shaders/a4k_s_conv3.spv.h"
 #include "display/shaders/easu.spv.h"
 #include "display/shaders/rcas.spv.h"
 #include "display/shaders/yuv2rgb.spv.h"
@@ -30,8 +36,10 @@ namespace {
 #define XC_VK_INSTANCE(X)                                                                                    \
     X(EnumeratePhysicalDevices) X(GetPhysicalDeviceProperties) X(GetPhysicalDeviceQueueFamilyProperties)     \
     X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceFeatures) X(CreateDevice) X(GetDeviceProcAddr)   \
+    X(EnumerateDeviceExtensionProperties)                                                                    \
     X(GetPhysicalDeviceDisplayPropertiesKHR) X(GetDisplayModePropertiesKHR) X(CreateDisplayPlaneSurfaceKHR)  \
-    X(GetPhysicalDeviceSurfaceSupportKHR) X(GetPhysicalDeviceSurfaceCapabilitiesKHR)
+    X(GetPhysicalDeviceSurfaceSupportKHR) X(GetPhysicalDeviceSurfaceCapabilitiesKHR)                         \
+    X(GetPhysicalDeviceSurfacePresentModesKHR)
 
 #define XC_VK_DEVICE(X)                                                                                      \
     X(GetDeviceQueue) X(DeviceWaitIdle) X(CreateSwapchainKHR) X(GetSwapchainImagesKHR)                       \
@@ -93,14 +101,22 @@ struct State {
     VkSemaphore acquired = VK_NULL_HANDLE, rendered = VK_NULL_HANDLE;
     VkFence fence = VK_NULL_HANDLE;
     bool fencePending = false;
+    bool presentId = false, presentWait = false;
+    uint64_t presented = 0;  // the last present id
 
     VkSampler nearest = VK_NULL_HANDLE, linear = VK_NULL_HANDLE;
     Pipeline yuv, easu, rcas;
+    // Anime4K x2 (S): four convolutions at the picture's size, then the
+    // depth-to-space into the 4K image; in place of EASU when chosen.
+    Pipeline a4kConv[4], a4kD2s;
+    VkDescriptorSet a4kConvSets[4]{}, a4kD2sSet = VK_NULL_HANDLE;
+    bool a4kReady = false;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkDescriptorSet yuvSet = VK_NULL_HANDLE, easuVideoSet = VK_NULL_HANDLE, easuUiSet = VK_NULL_HANDLE;
     VkDescriptorSet rcasSets[8]{};
 
     Image luma, chromaU, chromaV, rgb;  // the video picture, at its size
+    Image features[2];                  // Anime4K's feature maps, ping-ponged
     Image ui, upscaled, overlay;
     Buffer staging;         // this frame's planes or canvas
     Buffer overlayStaging;  // the overlay, when it changed
@@ -119,7 +135,16 @@ std::vector<uint32_t> g_overlayPixels(kUiW* kUiH, 0);
 bool g_overlayDirty = false, g_overlayShown = false;
 std::atomic<int> g_sharpness{0};
 std::atomic<int> g_deband{1};
+std::atomic<int> g_upscaler{0};  // 0 FSR (EASU), 1 Anime4K
 uint32_t g_frame = 0;
+uint32_t g_swapImages = 2;
+bool g_noPresentWait = false;
+PFN_vkWaitForPresentKHR vkWaitForPresentKHR = nullptr;
+// The last frame known on the screen: its present id and when (us).
+std::atomic<uint64_t> g_shownId{0}, g_shownAtUs{0};
+// How long acquiring waited for the display to free an image (FIFO: the
+// frame before went on screen), logged every 600 frames.
+uint64_t g_acquireWaitUs = 0, g_acquireWaitMaxUs = 0, g_acquires = 0;
 
 bool fail(const char* step, VkResult r) {
     XC_LOGE("gpu: %s failed (%d)", step, static_cast<int>(r));
@@ -171,6 +196,26 @@ bool createDevice() {
     VkQueueFamilyProperties families[8];
     n = 8;
     vkGetPhysicalDeviceQueueFamilyProperties(g.physical, &n, families);
+    // What the driver offers for hardware video decoding (Vulkan Video).
+    for (uint32_t i = 0; i < n; ++i)
+        XC_LOGI("gpu: queue family %u: flags 0x%x, %u queue(s)%s", i, families[i].queueFlags, families[i].queueCount,
+                (families[i].queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR) ? " (video decode)" : "");
+    {
+        static VkExtensionProperties ext[512];
+        uint32_t count = 512;
+        std::string video;
+        if (vkEnumerateDeviceExtensionProperties(g.physical, nullptr, &count, ext) < VK_SUCCESS) count = 0;
+        for (uint32_t i = 0; i < count; ++i) {
+            const char* name = ext[i].extensionName;
+            if (std::strcmp(name, VK_KHR_PRESENT_WAIT_EXTENSION_NAME) == 0) g.presentWait = true;
+            if (std::strcmp(name, VK_KHR_PRESENT_ID_EXTENSION_NAME) == 0) g.presentId = true;
+            if (std::strstr(name, "video") || std::strstr(name, "present") || std::strstr(name, "swapchain") ||
+                std::strstr(name, "display"))
+                video += std::string(" ") + name;
+        }
+        XC_LOGI("gpu: %u device extensions; video/present/swapchain/display:%s", count,
+                video.empty() ? " none" : video.c_str());
+    }
     g.family = UINT32_MAX;
     for (uint32_t i = 0; i < n && g.family == UINT32_MAX; ++i)
         if ((families[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) ==
@@ -195,12 +240,24 @@ bool createDevice() {
     v13.synchronization2 = VK_TRUE;
     VkPhysicalDeviceFeatures features{};
     features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
-    const char* const ext[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    // Present ids and waiting for them: frames are submitted only once the
+    // one before is on the screen (FIFO would otherwise queue two), and that
+    // moment is the frame's display time.
+    g.presentWait = g.presentWait && g.presentId;
+    VkPhysicalDevicePresentIdFeaturesKHR presentIdFeature{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR};
+    presentIdFeature.presentId = VK_TRUE;
+    VkPhysicalDevicePresentWaitFeaturesKHR presentWaitFeature{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR};
+    presentWaitFeature.presentWait = VK_TRUE;
+    presentWaitFeature.pNext = &presentIdFeature;
+    if (g.presentWait) v13.pNext = &presentWaitFeature;
+    const char* const ext[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PRESENT_ID_EXTENSION_NAME,
+                               VK_KHR_PRESENT_WAIT_EXTENSION_NAME};
     VkDeviceCreateInfo info{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     info.pNext = &v13;
     info.queueCreateInfoCount = 1;
     info.pQueueCreateInfos = &queue;
-    info.enabledExtensionCount = 1;
+    info.enabledExtensionCount = g.presentWait ? 3 : 1;
     info.ppEnabledExtensionNames = ext;
     info.pEnabledFeatures = &features;
     r = vkCreateDevice(g.physical, &info, nullptr, &g.device);
@@ -208,6 +265,12 @@ bool createDevice() {
 #define XC_VK_LOAD_DEVICE(name) vk##name = reinterpret_cast<PFN_vk##name>(vkGetDeviceProcAddr(g.device, "vk" #name));
     XC_VK_DEVICE(XC_VK_LOAD_DEVICE)
     vkGetDeviceQueue(g.device, g.family, 0, &g.queue);
+    if (g.presentWait) {
+        vkWaitForPresentKHR = reinterpret_cast<PFN_vkWaitForPresentKHR>(vkGetDeviceProcAddr(g.device, "vkWaitForPresentKHR"));
+        g.presentWait = vkWaitForPresentKHR != nullptr;
+    }
+    XC_LOGI("gpu: present wait %s%s", g.presentWait ? "on" : "off",
+            g.presentWait && g_noPresentWait ? " (measuring only)" : "");
     return true;
 }
 
@@ -235,6 +298,15 @@ bool createSwapchain() {
     vkGetPhysicalDeviceSurfaceSupportKHR(g.physical, g.family, g.surface, &supported);
     VkSurfaceCapabilitiesKHR caps;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(g.physical, g.surface, &caps);
+    {
+        VkPresentModeKHR modes[8];
+        uint32_t count = 8;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(g.physical, g.surface, &count, modes);
+        std::string list;
+        for (uint32_t i = 0; i < count; ++i) list += " " + std::to_string(static_cast<int>(modes[i]));
+        XC_LOGI("gpu: present modes:%s (0 immediate, 1 mailbox, 2 fifo, 3 fifo relaxed); %u..%u images",
+                list.c_str(), caps.minImageCount, caps.maxImageCount);
+    }
     const VkImageUsageFlags usage =
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     if (!supported || (caps.supportedUsageFlags & usage) != usage) {
@@ -244,7 +316,9 @@ bool createSwapchain() {
 
     VkSwapchainCreateInfoKHR info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     info.surface = g.surface;
-    info.minImageCount = 3;
+    // Two images: one on the screen, one being drawn. With three, FIFO kept
+    // two finished frames queued and the one shown was ~33 ms old.
+    info.minImageCount = std::max(caps.minImageCount, g_swapImages);
     info.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
     info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
     info.imageExtent = g.extent;
@@ -440,9 +514,19 @@ bool createPipelines() {
         XC_LOGE("gpu: the FSR pipelines");
         return false;
     }
+    {
+        const VkDescriptorSetLayoutBinding conv[] = {binding(0, storage), binding(1, storage)};
+        const VkDescriptorSetLayoutBinding d2s[] = {binding(0, storage), binding(1, sampled), binding(2, storage)};
+        const uint32_t* code[4] = {kShader_a4k_s_conv0, kShader_a4k_s_conv1, kShader_a4k_s_conv2, kShader_a4k_s_conv3};
+        const size_t bytes[4] = {sizeof kShader_a4k_s_conv0, sizeof kShader_a4k_s_conv1, sizeof kShader_a4k_s_conv2,
+                                 sizeof kShader_a4k_s_conv3};
+        g.a4kReady = createPipeline(g.a4kD2s, kShader_a4k_d2s, sizeof kShader_a4k_d2s, d2s, 3, 0);
+        for (int i = 0; i < 4 && g.a4kReady; ++i) g.a4kReady = createPipeline(g.a4kConv[i], code[i], bytes[i], conv, 2, 0);
+        if (!g.a4kReady) XC_LOGW("gpu: no Anime4K pipelines; FSR only");
+    }
     const VkDescriptorPoolSize sizes[] = {{sampled, 32}, {storage, 32}};
     VkDescriptorPoolCreateInfo pool{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    pool.maxSets = 16;
+    pool.maxSets = 24;
     pool.poolSizeCount = 2;
     pool.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(g.device, &pool, nullptr, &g.descriptors) != VK_SUCCESS) return false;
@@ -450,6 +534,10 @@ bool createPipelines() {
     g.easuVideoSet = allocateSet(g.easu);
     g.easuUiSet = allocateSet(g.easu);
     for (uint32_t i = 0; i < g.imageCount; ++i) g.rcasSets[i] = allocateSet(g.rcas);
+    if (g.a4kReady) {
+        for (int i = 0; i < 4; ++i) g.a4kConvSets[i] = allocateSet(g.a4kConv[i]);
+        g.a4kD2sSet = allocateSet(g.a4kD2s);
+    }
 
     // The images every frame uses; the video's come with its first picture.
     const VkImageUsageFlags upload = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -483,6 +571,8 @@ bool videoImages(uint32_t w, uint32_t h) {
     destroyImage(g.chromaU);
     destroyImage(g.chromaV);
     destroyImage(g.rgb);
+    destroyImage(g.features[0]);
+    destroyImage(g.features[1]);
     const VkImageUsageFlags upload = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     uint32_t cw = (w + 1) / 2, ch = (h + 1) / 2;
     if (!createImage(g.luma, VK_FORMAT_R8_UNORM, w, h, upload) ||
@@ -497,6 +587,25 @@ bool videoImages(uint32_t w, uint32_t h) {
     writeSampled(g.yuvSet, 2, g.chromaV.view, g.linear);
     writeStorage(g.yuvSet, 3, g.rgb.view);
     writeSampled(g.easuVideoSet, 0, g.rgb.view, g.linear);
+    if (g.a4kReady) {
+        if (!createImage(g.features[0], VK_FORMAT_R16G16B16A16_SFLOAT, w, h, VK_IMAGE_USAGE_STORAGE_BIT) ||
+            !createImage(g.features[1], VK_FORMAT_R16G16B16A16_SFLOAT, w, h, VK_IMAGE_USAGE_STORAGE_BIT)) {
+            XC_LOGW("gpu: no Anime4K feature maps; FSR only");
+            g.a4kReady = false;
+        } else {
+            // picture -> f0 -> f1 -> f0 -> f1 -> 4K
+            const VkImageView in[4] = {g.rgb.view, g.features[0].view, g.features[1].view, g.features[0].view};
+            const VkImageView out[4] = {g.features[0].view, g.features[1].view, g.features[0].view,
+                                        g.features[1].view};
+            for (int i = 0; i < 4; ++i) {
+                writeStorage(g.a4kConvSets[i], 0, in[i]);
+                writeStorage(g.a4kConvSets[i], 1, out[i]);
+            }
+            writeStorage(g.a4kD2sSet, 0, g.features[1].view);
+            writeSampled(g.a4kD2sSet, 1, g.rgb.view, g.linear);
+            writeStorage(g.a4kD2sSet, 2, g.upscaled.view);
+        }
+    }
     XC_LOGI("gpu: video images %ux%u", w, h);
     return true;
 }
@@ -558,9 +667,35 @@ bool beginFrame(bool wait) {
         g.fencePending = false;
     }
     if (g.frameOpen) return true;  // drawn twice without a present: draw over it
+    if (g.presentWait && g.presented) {
+        if (!g_noPresentWait) {
+            // The frame before on the screen first (at most 50 ms, then go on).
+            if (vkWaitForPresentKHR(g.device, g.swapchain, g.presented, 50'000'000ull) == VK_SUCCESS) {
+                g_shownAtUs = platform::nowUs();
+                g_shownId = g.presented;
+            }
+        } else {
+            // Not pacing (for comparison): the newest frame already shown.
+            for (uint64_t id = g.presented; id > g_shownId; --id)
+                if (vkWaitForPresentKHR(g.device, g.swapchain, id, 0) == VK_SUCCESS) {
+                    g_shownAtUs = platform::nowUs();
+                    g_shownId = id;
+                    break;
+                }
+        }
+    }
+    uint64_t t0 = platform::nowUs();
     VkResult r = vkAcquireNextImageKHR(g.device, g.swapchain, wait ? UINT64_MAX : 0, g.acquired, VK_NULL_HANDLE,
                                        &g.frameIndex);
     if (r == VK_NOT_READY || r == VK_TIMEOUT) return false;
+    uint64_t waited = platform::nowUs() - t0;
+    g_acquireWaitUs += waited;
+    g_acquireWaitMaxUs = std::max(g_acquireWaitMaxUs, waited);
+    if (++g_acquires == 600) {
+        XC_LOGI("gpu: %u-image swapchain, last 600 frames waited %.2f ms on average (max %.2f) for a free image",
+                g.imageCount, g_acquireWaitUs / 600000.0, g_acquireWaitMaxUs / 1000.0);
+        g_acquires = g_acquireWaitUs = g_acquireWaitMaxUs = 0;
+    }
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) return fail("vkAcquireNextImageKHR", r);
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -572,7 +707,28 @@ bool beginFrame(bool wait) {
 
 // `input` (the RGB picture, w x h) upscaled with EASU, sharpened with RCAS,
 // the overlay on top, into the acquired image.
-void recordUpscale(VkDescriptorSet easuSet, uint32_t w, uint32_t h, int sharpness, bool overlay) {
+// Anime4K x2 into `upscaled`; false (nothing recorded) when it doesn't fit:
+// only the video, and only a picture of exactly half the display.
+bool recordAnime4K(uint32_t w, uint32_t h) {
+    if (!g.a4kReady || w * 2 != g.extent.width || h * 2 != g.extent.height || g.features[0].w != w) return false;
+    barrier(g.features[0].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    barrier(g.features[1].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    for (int i = 0; i < 4; ++i) {
+        vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.a4kConv[i].pipeline);
+        vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.a4kConv[i].layout, 0, 1, &g.a4kConvSets[i], 0,
+                                nullptr);
+        vkCmdDispatch(g.cmd, (w + 7) / 8, (h + 7) / 8, 1);
+        memoryBarrier();
+    }
+    barrier(g.upscaled.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.a4kD2s.pipeline);
+    vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.a4kD2s.layout, 0, 1, &g.a4kD2sSet, 0, nullptr);
+    vkCmdDispatch(g.cmd, (g.extent.width + 7) / 8, (g.extent.height + 7) / 8, 1);
+    memoryBarrier();
+    return true;
+}
+
+void recordUpscale(VkDescriptorSet easuSet, uint32_t w, uint32_t h, int sharpness, bool overlay, bool ai = false) {
     // EASU constants (FsrEasuCon), the picture filling the display.
     float ow = static_cast<float>(g.extent.width), oh = static_cast<float>(g.extent.height);
     float iw = static_cast<float>(w), ih = static_cast<float>(h);
@@ -580,12 +736,14 @@ void recordUpscale(VkDescriptorSet easuSet, uint32_t w, uint32_t h, int sharpnes
                          asBits(1.0f / iw), asBits(1.0f / ih), asBits(1.0f / iw), asBits(-1.0f / ih),
                          asBits(-1.0f / iw), asBits(2.0f / ih), asBits(1.0f / iw), asBits(2.0f / ih),
                          asBits(0.0f / iw), asBits(4.0f / ih), 0, 0};
-    barrier(g.upscaled.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-    vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.pipeline);
-    vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.layout, 0, 1, &easuSet, 0, nullptr);
-    vkCmdPushConstants(g.cmd, g.easu.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof easu, easu);
-    vkCmdDispatch(g.cmd, (g.extent.width + 7) / 8, (g.extent.height + 7) / 8, 1);
-    memoryBarrier();
+    if (!ai || !recordAnime4K(w, h)) {
+        barrier(g.upscaled.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+        vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.pipeline);
+        vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.layout, 0, 1, &easuSet, 0, nullptr);
+        vkCmdPushConstants(g.cmd, g.easu.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof easu, easu);
+        vkCmdDispatch(g.cmd, (g.extent.width + 7) / 8, (g.extent.height + 7) / 8, 1);
+        memoryBarrier();
+    }
 
     // RCAS (FsrRcasCon): sharpness in stops, 0 = the most.
     float stops = sharpness >= 256 ? 0.2f : sharpness >= 176 ? 0.5f : sharpness > 0 ? 1.0f : 2.0f;
@@ -660,7 +818,7 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int stride
     vkCmdPushConstants(g.cmd, g.yuv.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof yuvPc, &yuvPc);
     vkCmdDispatch(g.cmd, (g.rgb.w + 7) / 8, (g.rgb.h + 7) / 8, 1);
     memoryBarrier();
-    recordUpscale(g.easuVideoSet, g.rgb.w, g.rgb.h, g_sharpness, overlay);
+    recordUpscale(g.easuVideoSet, g.rgb.w, g.rgb.h, g_sharpness, overlay, g_upscaler == 1);
     return true;
 }
 
@@ -694,6 +852,11 @@ void present() {
     }
     g.fencePending = true;
     VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+    uint64_t id = g.presented + 1;
+    VkPresentIdKHR presentId{VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
+    presentId.swapchainCount = 1;
+    presentId.pPresentIds = &id;
+    if (g.presentWait) present.pNext = &presentId;
     present.waitSemaphoreCount = 1;
     present.pWaitSemaphores = &g.rendered;
     present.swapchainCount = 1;
@@ -702,6 +865,7 @@ void present() {
     r = vkQueuePresentKHR(g.queue, &present);
     if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) fail("vkQueuePresentKHR", r);
     g.lastPresented = g.frameIndex;
+    g.presented = id;
 }
 
 void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opacity) {
@@ -709,16 +873,16 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
     std::fill(g_overlayPixels.begin(), g_overlayPixels.end(), 0u);
     g_overlayShown = pixels && w > 0 && h > 0;
     if (g_overlayShown) {
-        // Alpha carries the opacity: RCAS mixes by it.
-        uint32_t alpha = static_cast<uint32_t>(opacity) << 24;
+        // Alpha carries the opacity (times the pixel's own): RCAS mixes by it.
         for (int row = 0; row < h; ++row) {
             int sy = y + row;
             if (sy < 0 || sy >= static_cast<int>(kUiH)) continue;
             for (int col = 0; col < w; ++col) {
                 int sx = x + col;
                 if (sx < 0 || sx >= static_cast<int>(kUiW)) continue;
-                g_overlayPixels[static_cast<size_t>(sy) * kUiW + sx] =
-                    (pixels[static_cast<size_t>(row) * w + col] & 0x00FFFFFFu) | alpha;
+                uint32_t p = pixels[static_cast<size_t>(row) * w + col];
+                uint32_t alpha = (p >> 24) * opacity / 255;
+                g_overlayPixels[static_cast<size_t>(sy) * kUiW + sx] = (p & 0x00FFFFFFu) | (alpha << 24);
             }
         }
     }
@@ -728,6 +892,20 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
 void setSharpness(int amount) { g_sharpness = std::clamp(amount, 0, 256); }
 
 void setDeband(int level) { g_deband = std::clamp(level, 0, 2); }
+
+void setUpscaler(int mode) { g_upscaler = std::clamp(mode, 0, 1); }
+
+void setPresentWait(bool on) { g_noPresentWait = !on; }
+
+uint64_t lastPresentId() { return g.presented; }
+
+bool lastShown(uint64_t& id, uint64_t& atUs) {
+    id = g_shownId;
+    atUs = g_shownAtUs;
+    return id != 0;
+}
+
+void setSwapImages(int count) { g_swapImages = static_cast<uint32_t>(std::clamp(count, 2, 5)); }
 
 bool readBack(std::vector<uint8_t>& rgb, int& width, int& height) {
     if (!g.ready || g.lastPresented == UINT32_MAX) return false;

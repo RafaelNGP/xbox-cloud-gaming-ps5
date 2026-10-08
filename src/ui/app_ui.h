@@ -71,11 +71,12 @@ struct SettingsChoice {
     int deadzone = 3;      // index into kDeadzonePercent (15 %)
     bool triggerRumble = true;
     bool circleConfirms = false;  // Circle is Xbox A (and Cross is B)
+    bool lightBar = true;         // the light bar takes the game's colour
 };
 
 // The stick dead zones Settings offers, in percent of the travel.
 constexpr int kDeadzonePercent[] = {0, 5, 10, 15, 20, 25};
-constexpr int kSettingRows = 6;  // language, resolution, region, dead zone, triggers, confirm
+constexpr int kSettingRows = 7;  // language, resolution, region, dead zone, triggers, confirm, light bar
 
 enum class Action { None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, PrefsChanged };
 
@@ -139,17 +140,25 @@ public:
     void showDetails(const GameTile& tile);
     // The `index`-th game to buy, if loaded (autoplay tests).
     bool purchasableAt(size_t index, GameTile& out) const;
+    // The game with this xCloud title id on the home screen or in Your games.
+    bool findTile(const std::string& titleId, GameTile& out) const;
     void showHome(const std::string& toast = {});
     void showLaunching(const GameTile& game, const std::string& status);
     void setLaunchStatus(const std::string& status);
     void showStreaming();
     void showError(const std::string& message);
+    // A game that could not start but may on another try (a free game got
+    // on the phone meanwhile): Cross plays it again, Circle opens its page.
+    void showPlayError(const std::string& message, const GameTile& game);
     void setSettings(const SettingsChoice& choice);
     // The confirm button in force (the hints show it); Settings may be
     // showing another choice not saved yet.
     void setCircleConfirms(bool on);
     // The controllers in use (bottom left of the home screen).
     void setPads(const PadSlots& pads);
+    // The colour of the game in focus (or being played), from its art, for
+    // the DualSense light bar; false while there is none to show.
+    bool accentColor(Color& out);
     // Regions offered by the account's xCloud login; `defaultRegion` is the
     // one "Automatic" picks.
     void setRegions(std::vector<std::string> regions, const std::string& defaultRegion);
@@ -269,9 +278,11 @@ private:
     GameTile detail_;  // the game the details page shows
     GameTile launching_;
     std::string error_;
+    GameTile errorGame_;  // showPlayError()'s game; empty for other errors
     SettingsChoice settings_;
     bool circleConfirms_ = false;
     PadSlots pads_{};
+    std::map<std::string, Color> accents_;  // tile art url -> its colour
     std::vector<std::string> regions_;
     std::string defaultRegion_;
     std::map<std::string, int> regionMs_;

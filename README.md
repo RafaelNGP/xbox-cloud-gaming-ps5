@@ -8,56 +8,29 @@
 <p align="center">
   <a href="https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/RafaelNGP/xbox-cloud-gaming-ps5?color=brightgreen"></a>
   <a href="#installation"><img alt="platform: PS5 homebrew" src="https://img.shields.io/badge/platform-PS5%20homebrew-003791"></a>
-  <a href="https://www.xbox.com/xbox-game-pass"><img alt="requires: Game Pass Ultimate" src="https://img.shields.io/badge/requires-Game%20Pass%20Ultimate-107c10"></a>
   <img alt="stream: 1080p60" src="https://img.shields.io/badge/stream-1080p60%20H.264-5c2d91">
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/RafaelNGP/xbox-cloud-gaming-ps5"></a>
   <a href="https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/issues/new?template=bug_report.yml"><img alt="issues: report a problem" src="https://img.shields.io/badge/issues-report%20a%20problem-ff0000"></a>
 </p>
 
-A native Xbox Cloud Gaming (xCloud) client for jailbroken PS5 consoles. Sign in
-with your Microsoft account, browse the cloud catalog in a UI modeled on
-xbox.com/play, and stream games at 1080p60 with sound, using the DualSense as
-an Xbox controller.
+A native Xbox Cloud Gaming client for jailbroken PS5 consoles: browse the
+cloud catalog and stream games at 1080p60, with the DualSense as an Xbox
+controller.
 
-- Sign-in with a device code (or QR code) shown on the TV; no password is
-  ever typed on the console.
-- Two tabs (L1 / R1): **Game Pass**, with the xbox.com/play rows (Jump back
-  in, Recently added, Most popular on cloud, Leaving soon, All games), and
-  **Your games**: what your account owns outside Game Pass, then the games
-  that stream in the cloud once bought, with their store price and a QR code
-  of their store page.
-- Search (Triangle) in either tab, with an on-screen keyboard.
-- Every game shows the console it was made for: Xbox 360, Xbox One or
-  Series X|S.
-- WebRTC streaming (libdatachannel on Mbed TLS) with H.264 and Opus decoded by
-  FFmpeg on the CPU; the picture is drawn by the GPU (RADV through PS5_Vulkan):
-  compression blocks smoothed (deband), upscaled to the 4K display with AMD
-  FidelityFX FSR 1 (EASU + RCAS sharpening). Falls back to drawing on the CPU.
-- Settings (OPTIONS on the home screen): language (English, Português
-  (Brasil), Español, Français, Deutsch, Italiano), stream resolution (1080p,
-  720p for slower connections, or 1440p, experimental: only where Microsoft
-  offers it) and server region, with the latency measured in your sessions.
-  Hold TOUCHPAD for 5 seconds to sign out.
-- Lost video packets are re-requested (RTCP NACK) and damaged frames are
-  never shown; DualSense rumble follows the game. A game that fails to start
-  in one region is retried in the nearest other one.
-- In game, OPTIONS + TOUCHPAD opens a menu: statistics, sharpness (AMD CAS),
-  stream resolution (switched mid-session), refresh the picture, leave the
-  game, and the connection's numbers. Games' text fields open the PS5's own
-  keyboard.
-- The DualSense's adaptive triggers vibrate with the Xbox impulse triggers;
-  up to four controllers for local multiplayer (other signed-in PS5 users),
-  shown numbered in their light-bar colours.
-- Controller settings: stick dead zone, trigger vibration, Circle as the
-  confirm button. A notification tells when a new version is out.
-- Your games, art and prices are cached: the home screen is complete about
-  a second after it appears.
-- Custom PS5 Home art (selection and launch backgrounds), generated from the
-  same code as the icon by `tools/ps5/home-art.sh`.
+- **Sign in on your phone** with a code shown on the TV; no password on the console.
+- **Game Pass and Your games** tabs, search, and free-to-play games.
+- **Sharp picture**: upscaled to 4K on the GPU (AMD FSR 1 or Anime4K), with
+  compression blocks smoothed.
+- **DualSense**: rumble, adaptive-trigger vibration, light bar in the game's
+  colour, up to four controllers.
+- **In-game menu** (OPTIONS + TOUCHPAD): statistics, picture options, stream
+  resolution; the PS5 keyboard for games' text fields.
+- **Reconnects** by itself after a short network drop.
+- Six languages.
 
 Requires a homebrew-enabled PS5 that can run directory-style apps (for
-example through ShadowMountPlus) and a subscription that includes cloud
-gaming.
+example through ShadowMountPlus), and a Microsoft account with Game Pass
+Ultimate for most of the catalog.
 
 ## Installation
 
@@ -107,8 +80,8 @@ build-host/xcloud-cli ui-preview /tmp/ui      # render every screen to PNG
 
 The console build uses the toolchain of
 [PS5_Vulkan](https://github.com/mihawk-99/PS5_Vulkan) (the PS5 payload SDK, the PS5 linker
-recipe and `ps5-native-tool`). By default it is expected at
-`../../WoW-PS5/deps/PS5_Vulkan`; set `PS5_VULKAN` to point elsewhere.
+recipe and `ps5-native-tool`). Clone and build it next to this repository, as its
+README describes, so that it sits at `../PS5_Vulkan`; or set `PS5_VULKAN` to point elsewhere.
 
 ```bash
 cmake -S . -B build-ps5 -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/ps5.toolchain.cmake -DCMAKE_BUILD_TYPE=Release

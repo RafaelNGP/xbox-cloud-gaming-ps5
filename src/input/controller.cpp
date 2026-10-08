@@ -14,8 +14,8 @@
 #if defined(XCLOUD_PS5)
 
 extern "C" {
-// Layout of OpenOrbis's OrbisPadData, as used by the WoW-PS5 port on the
-// console (connected sits at offset 76).
+// Layout of OpenOrbis's OrbisPadData, as the console fills it (connected
+// sits at offset 76).
 struct ScePadStick {
     uint8_t x;
     uint8_t y;
@@ -90,6 +90,11 @@ struct ScePadTriggerEffectParam {
 };
 static_assert(sizeof(ScePadTriggerEffectParam) == 120, "ScePadTriggerEffectParam layout");
 int scePadSetTriggerEffect(int32_t handle, const ScePadTriggerEffectParam* param);
+struct ScePadColor {
+    uint8_t r, g, b, reserved;
+};
+int scePadSetLightBar(int32_t handle, const ScePadColor* color);
+int scePadResetLightBar(int32_t handle);
 }
 
 namespace xc::input {
@@ -138,6 +143,12 @@ struct Pad {
     std::atomic<bool> connected{false};  // the last poll's answer
     char name[32] = {};                   // the user's, read when opened
     Rumble motors, triggers;
+    // Light bar: wanted colour (r << 16 | g << 8 | b, bit 24 = set) and the
+    // one shown, easing towards it.
+    std::atomic<uint32_t> lightWanted{0};
+    uint32_t lightApplied = 0;
+    float light[3] = {0, 0, 0};
+    bool lightStarted = false;
 };
 Pad g_pads[kMaxPads];
 std::atomic<float> g_deadzone{0.15f};
@@ -179,12 +190,44 @@ void closePad(Pad& pad, int slot) {
     ScePadTriggerEffectParam none{};
     none.triggerMask = 3;
     scePadSetTriggerEffect(pad.handle, &none);
+    if (pad.lightApplied) scePadResetLightBar(pad.handle);
+    pad.lightApplied = 0;
+    pad.lightStarted = false;
     scePadClose(pad.handle);
     XC_LOGI("pad %d closed (user %d)", slot, pad.userId);
     pad.handle = -1;
     pad.userId = -1;
     pad.connected = false;
     pad.name[0] = 0;
+}
+
+void applyLightBar(Pad& pad) {
+    uint32_t want = pad.lightWanted;
+    if (!(want & (1u << 24))) {
+        if (pad.lightApplied) {  // reset: the system's colour again
+            scePadResetLightBar(pad.handle);
+            pad.lightApplied = 0;
+            pad.lightStarted = false;
+        }
+        return;
+    }
+    const float target[3] = {static_cast<float>((want >> 16) & 0xFF), static_cast<float>((want >> 8) & 0xFF),
+                             static_cast<float>(want & 0xFF)};
+    if (!pad.lightStarted) {
+        std::copy(target, target + 3, pad.light);
+        pad.lightStarted = true;
+    }
+    // ~120 polls a second: 4 % of the way each, most of it in ~0.4 s.
+    for (int i = 0; i < 3; ++i) pad.light[i] += (target[i] - pad.light[i]) * 0.04f;
+    ScePadColor c{static_cast<uint8_t>(std::lround(pad.light[0])), static_cast<uint8_t>(std::lround(pad.light[1])),
+                  static_cast<uint8_t>(std::lround(pad.light[2])), 0};
+    uint32_t shown = (1u << 24) | (uint32_t(c.r) << 16) | (uint32_t(c.g) << 8) | c.b;
+    if (shown == pad.lightApplied) return;
+    int rc = scePadSetLightBar(pad.handle, &c);
+    static bool logged = false;
+    if (!logged || rc != 0) XC_LOGI("scePadSetLightBar(%u, %u, %u): 0x%08x", c.r, c.g, c.b, static_cast<unsigned>(rc));
+    logged = true;
+    pad.lightApplied = shown;
 }
 
 void applyRumble(Pad& pad) {
@@ -224,6 +267,14 @@ void setTriggerRumble(uint8_t left, uint8_t right, uint32_t durationMs, int pad)
 }
 
 void setCircleConfirms(bool on) { g_circleConfirms = on; }
+
+void setLightBar(uint8_t r, uint8_t g, uint8_t b, int pad) {
+    if (pad >= 0 && pad < kMaxPads) g_pads[pad].lightWanted = (1u << 24) | (uint32_t(r) << 16) | (uint32_t(g) << 8) | b;
+}
+
+void resetLightBar(int pad) {
+    if (pad >= 0 && pad < kMaxPads) g_pads[pad].lightWanted = 0;
+}
 
 bool padConnected(int index) { return index >= 0 && index < kMaxPads && g_pads[index].connected; }
 
@@ -299,6 +350,7 @@ bool pollPad(int index, ControllerState& out) {
     if (index < 0 || index >= kMaxPads || g_pads[index].handle < 0) return false;
     Pad& slot = g_pads[index];
     applyRumble(slot);
+    applyLightBar(slot);
     ScePadData pad{};
     int rc = scePadReadState(slot.handle, &pad);
     slot.connected = rc == 0 && pad.connected;
@@ -360,6 +412,8 @@ void setRumble(uint8_t, uint8_t, uint32_t, int) {}
 void setTriggerRumble(uint8_t, uint8_t, uint32_t, int) {}
 void setDeadzone(float) {}
 void setCircleConfirms(bool) {}
+void setLightBar(uint8_t, uint8_t, uint8_t, int) {}
+void resetLightBar(int) {}
 bool padConnected(int index) { return index == 0; }
 std::string padUserName(int index) { return index == 0 ? "Player" : ""; }
 void setTriggerRumbleEnabled(bool) {}

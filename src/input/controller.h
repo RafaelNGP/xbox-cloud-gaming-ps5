@@ -69,5 +69,9 @@ void setDeadzone(float deadzone);
 void setCircleConfirms(bool on);
 // Off: setTriggerRumble() is ignored.
 void setTriggerRumbleEnabled(bool on);
+// The light bar eases (~0.4 s) to this colour; reset gives it back to the
+// system (the player's colour). Any thread; polling applies it.
+void setLightBar(uint8_t r, uint8_t g, uint8_t b, int pad = 0);
+void resetLightBar(int pad = 0);
 
 } // namespace xc::input

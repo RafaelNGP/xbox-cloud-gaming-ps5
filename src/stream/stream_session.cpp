@@ -124,7 +124,6 @@ struct StreamSession::Impl {
     std::atomic<bool> open{false};
     std::atomic<bool> closedNotified{false};
     std::atomic<uint32_t> inputSequence{1};
-    std::chrono::steady_clock::time_point epoch = std::chrono::steady_clock::now();
     uint64_t lastKeepaliveMs = 0;
     uint64_t lastKeyframeMs = 0;
     VideoReceiveStats videoStats;
@@ -133,11 +132,9 @@ struct StreamSession::Impl {
 
     Impl(xcloud::GssvClient& g, StreamCallbacks c, StreamOptions o) : gssv(g), cb(std::move(c)), opt(o) {}
 
-    double nowMs() const {
-        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - epoch).count();
-    }
+    double nowMs() const { return stream::clockMs(); }
 
-    void fail(const std::string& reason) {
+    void fail(const std::string& reason, bool recoverable = true) {
         {
             std::lock_guard<std::mutex> lock(mutex);
             if (!failed) {
@@ -149,7 +146,7 @@ struct StreamSession::Impl {
         open = false;
         if (!closedNotified.exchange(true)) {
             XC_LOGW("stream closed: %s", reason.c_str());
-            if (cb.closed) cb.closed(reason);
+            if (cb.closed) cb.closed(reason, recoverable);
         }
     }
 
@@ -285,6 +282,8 @@ struct StreamSession::Impl {
         if (!opt.resolutionAlias.empty()) sendResolution(opt.resolutionAlias);
 
 
+        // One touch point, as the web client announces (touch is then turned
+        // on only while a touch screen is up: setTouchEnabled()).
         sendBinary(input, clientMetadataReport(0, nowMs(), static_cast<uint8_t>(std::getenv("XC_TOUCH_POINTS") ? std::atoi(std::getenv("XC_TOUCH_POINTS")) : 1)));
         sendClientConfig();
         {
@@ -319,6 +318,10 @@ struct StreamSession::Impl {
         std::string target = (*j)["target"].str();
         std::string id = (*j)["id"].str();
         XC_LOGI("message %s %s", type.c_str(), target.c_str());
+        if (target == "/streaming/properties/titleinfo") {
+            auto info = json::parse((*j)["content"].str());
+            if (info && cb.titleFocus) cb.titleFocus((*info)["focused"].asBool());
+        }
         if (target == "/streaming/sessionLifetimeManagement/serverInitiatedDisconnect") {
             std::string body = (*j)["content"].str();
             XC_LOGW("server disconnect: %s", body.substr(0, 300).c_str());
@@ -333,9 +336,10 @@ struct StreamSession::Impl {
                 // The game itself quit (or failed to start) on the server.
                 char hr[16];
                 std::snprintf(hr, sizeof hr, "0x%08X", static_cast<unsigned>((*content)["hr"].asInt()));
-                fail(std::string("the game closed on the server (") + hr + ")");
+                fail(std::string("the game closed on the server (") + hr + ")", false);
             } else {
-                fail(reason.empty() ? "the server ended the session" : "the server ended the session (" + reason + ")");
+                fail(reason.empty() ? "the server ended the session" : "the server ended the session (" + reason + ")",
+                     false);
             }
         } else if (target == "/streaming/systemUi/messages/ShowVirtualKeyboard" && cb.textInput) {
             auto content = json::parse((*j)["content"].str());
@@ -643,6 +647,13 @@ void StreamSession::sendGamepad(const GamepadFrame& frame) {
     Impl::sendBinary(impl_->input, gamepadReport(impl_->inputSequence++, impl_->nowMs(), frame));
 }
 
+void StreamSession::setTouchEnabled(bool on) {
+    if (!impl_->open) return;
+    json::Value touch = json::Value::object();
+    touch.set("touchInputEnabled", on);
+    Impl::sendText(impl_->message, impl_->messageEnvelope("/streaming/characteristics/touchinputenabledchanged", touch));
+}
+
 void StreamSession::setGamepadConnected(int index, bool connected) {
     if (!impl_->open) return;
     XC_LOGI("gamepad %d %s", index, connected ? "attached" : "detached");
@@ -661,7 +672,17 @@ void StreamSession::reportFrame(const FrameMetadata& frame) {
     Impl::sendBinary(impl_->input, metadataReport(impl_->inputSequence++, impl_->nowMs(), {frame}));
 }
 
-double StreamSession::clockMs() const { return impl_->nowMs(); }
+double StreamSession::clockMs() const { return stream::clockMs(); }
+
+void StreamSession::simulateDrop() {
+    XC_LOGW("test: dropping the connection");
+    if (impl_->pc) impl_->pc->close();
+}
+
+double clockMs() {
+    static const auto epoch = std::chrono::steady_clock::now();
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - epoch).count();
+}
 
 void StreamSession::completeTextInput(const std::string& id, const std::string& text) {
     json::Value v = json::Value::object();

@@ -192,7 +192,7 @@ int cmdStream(auth::AuthManager& am, const std::string& titleId, int seconds, co
     cb.vibration = [](const stream::Vibration& v) {
         XC_LOGI("rumble %u/%u for %ums", v.leftMotor, v.rightMotor, v.durationMs);
     };
-    cb.closed = [&](const std::string&) { closed = true; };
+    cb.closed = [&](const std::string&, bool) { closed = true; };
 
     int rc = 1;
     {
@@ -609,6 +609,7 @@ int main(int argc, char** argv) {
         info.mbps = 12.4;
         info.lossPct = 0.2;
         info.decodeMs = 4.1;
+        info.onScreenMs = 23.2;
         info.width = 1920;
         info.height = 1080;
         auto save = [&](const std::string& name, const ui::Canvas& over, int ox, int oy, int alpha) {
@@ -632,7 +633,7 @@ int main(int argc, char** argv) {
         save("menu", menu.renderMenu(info), ui::StreamMenu::kMenuX, ui::StreamMenu::kMenuY, 235);
         ui::NavInput n;
         n.down = true;
-        for (int i = 0; i < 4; ++i) menu.handle(n);
+        for (int i = 0; i < 5; ++i) menu.handle(n);
         n = {};
         n.right = true;
         menu.handle(n);  // 1080p -> 1440p

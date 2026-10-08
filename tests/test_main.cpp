@@ -6,6 +6,7 @@
 #include "stream/input_packet.h"
 #include "stream/stream_session.h"
 #include "ui/app_ui.h"
+#include "ui/accent_color.h"
 #include "ui/stream_menu.h"
 #include "ui/strings.h"
 #include "util/json.h"
@@ -182,6 +183,22 @@ static void testPrices() {
     CHECK(formatPrice(4, "XYZ") == "XYZ 4.00");
 }
 
+static void testAccentColor() {
+    using namespace xc::ui;
+    Image img;
+    img.w = img.h = 64;
+    img.px.assign(64 * 64, rgba(60, 60, 60));                            // grey background
+    for (int i = 0; i < 64 * 24; ++i) img.px[i] = rgba(200, 40, 30);    // a red third
+    for (int i = 64 * 60; i < 64 * 64; ++i) img.px[i] = rgba(30, 60, 200);  // a little blue
+    Color c = 0;
+    CHECK(dominantColor(img, c));
+    CHECK((c & 0xFF) == 255 && ((c >> 8) & 0xFF) < 90 && ((c >> 16) & 0xFF) < 90);  // red, at full
+    Image grey;
+    grey.w = grey.h = 16;
+    grey.px.assign(16 * 16, rgba(128, 128, 128));
+    CHECK(!dominantColor(grey, c));
+}
+
 static void testVersions() {
     using xc::app::isNewerVersion;
     CHECK(isNewerVersion("v0.4.0", "0.3.0"));
@@ -209,6 +226,9 @@ static void testStreamMenu() {
     CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Stats);
     CHECK(menu.statsOn());
     press([](xc::ui::NavInput& n) { n.down = true; });
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Upscaler);  // FSR -> AI
+    CHECK(menu.upscaler() == 1);
+    press([](xc::ui::NavInput& n) { n.down = true; });
     CHECK(press([](xc::ui::NavInput& n) { n.left = true; }) == MenuAction::Sharpness);  // off -> high
     CHECK(menu.sharpness() == 3);
     press([](xc::ui::NavInput& n) { n.down = true; });
@@ -220,7 +240,7 @@ static void testStreamMenu() {
     press([](xc::ui::NavInput& n) { n.left = true; });  // wraps to 1440p
     CHECK(menu.resolution() == 2);
     CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Resolution);
-    for (int i = 0; i < 5; ++i) press([](xc::ui::NavInput& n) { n.up = true; });  // wraps to "Leave game"
+    for (int i = 0; i < 6; ++i) press([](xc::ui::NavInput& n) { n.up = true; });  // wraps to "Leave game"
     CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Leave);
     CHECK(!menu.isOpen());
     menu.open(1, true);
@@ -228,6 +248,7 @@ static void testStreamMenu() {
 }
 
 int main() {
+    testAccentColor();
     testVersions();
     testStreamMenu();
     testStrings();

@@ -36,6 +36,19 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
 void setSharpness(int amount);
 // Smoothing of compression blocks in flat areas: 0 off, 1 low, 2 high.
 void setDeband(int level);
+// The upscaler: 0 FSR 1 (EASU), 1 Anime4K x2 (1080p pictures only; others
+// keep FSR). RCAS sharpens after either.
+void setUpscaler(int mode);
+// Before init(): swapchain images (2 = lowest latency, the default).
+void setSwapImages(int count);
+// Before init(): waiting for each frame to reach the screen before the next
+// (VK_KHR_present_wait, on by default). Off, the display time is still
+// measured, by polling.
+void setPresentWait(bool on);
+// The id of the last present() (0 before any), and the last frame known to
+// be on the screen: its id and when it got there (platform::nowUs()).
+uint64_t lastPresentId();
+bool lastShown(uint64_t& id, uint64_t& atUs);
 
 // The image last presented, 8-bit RGB rows; false when there is none.
 bool readBack(std::vector<uint8_t>& rgb, int& width, int& height);

@@ -65,6 +65,7 @@ add_library(xcloud_ui STATIC
     src/ui/app_ui.cpp
     src/ui/stream_menu.cpp
     src/ui/pad_icons.cpp
+    src/ui/accent_color.cpp
     src/ui/brand.cpp
     src/app/library.cpp
     src/app/settings.cpp
@@ -84,6 +85,7 @@ if(XCLOUD_PS5)
         src/app/stream_player.cpp
         src/display/display.cpp
         src/display/gpu.cpp
+        src/media/hw_decoder.cpp
         src/input/controller.cpp
     )
     target_include_directories(xcloud_app PRIVATE "${PS5_RADV}/include")

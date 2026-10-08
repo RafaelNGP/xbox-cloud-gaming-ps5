@@ -123,6 +123,17 @@ enum class Str {
     PadConnected,     // "%s" = "2 (user name)"
     PadDisconnected,  // "%s" = "2 (user name)"
     MenuDeband,       // smoothing of compression blocks (deband)
+    StatOnScreen,     // network arrival to on the TV
+    Reconnecting,     // the connection dropped mid-game
+    Reconnected,
+    LightBar,         // settings: the light bar takes the game's colour
+    MenuUpscaler,     // game menu: how the picture is upscaled to 4K
+    UpscalerAi,       // the Anime4K network
+    FreeToPlay,       // details: a free-to-play game not on the account yet
+    FreeHint,
+    ScanToGet,
+    NoEntitlementFree,  // "%s" = the game
+    NoEntitlement,      // "%s" = the game
     Count
 };
 

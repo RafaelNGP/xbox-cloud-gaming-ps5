@@ -35,12 +35,17 @@ struct StreamCallbacks {
     // The server will end the session for inactivity in `seconds` unless
     // input arrives.
     std::function<void(int seconds)> idleWarning;
+    // The game gained or lost the focus on the cloud console (lost: another
+    // window is up, such as a publisher's web page wanting touch).
+    std::function<void(bool focused)> titleFocus;
     // Set: the game's keyboard requests come here (else the server draws its
     // own); `textInputCancelled` when the game withdraws one.
     std::function<void(const TextInputRequest&)> textInput;
     std::function<void(const std::string& id)> textInputCancelled;
-    // The stream ended (server disconnect, connection lost). Called once.
-    std::function<void(const std::string& reason)> closed;
+    // The stream ended. Called once. `recoverable`: the connection was lost
+    // (the cloud session may still be there to reconnect to); false when
+    // the server ended it (idle kick, the game closed).
+    std::function<void(const std::string& reason, bool recoverable)> closed;
 };
 
 struct StreamOptions {
@@ -65,6 +70,10 @@ struct StreamOptions {
 // port it embeds. Returns false for anything else.
 bool decodeTeredo(const std::string& ipv6, std::string& ipv4, int& port);
 
+// Milliseconds on a clock shared by every session of the process (input and
+// frame reports carry it; it must not restart when a session reconnects).
+double clockMs();
+
 class StreamSession {
 public:
     StreamSession(xcloud::GssvClient& gssv, StreamCallbacks callbacks, StreamOptions options = {});
@@ -77,13 +86,17 @@ public:
     bool isOpen() const;
 
     void sendGamepad(const GamepadFrame& frame);
+    // Touch input on or off (off at the start).
+    void setTouchEnabled(bool on);
     // A controller at `index` (1..3; 0 is attached at the start) came or went.
     void setGamepadConnected(int index, bool connected);
     void requestKeyframe();
     // A frame shown: its timings go back to the server (see FrameMetadata).
     void reportFrame(const FrameMetadata& frame);
-    // The clock FrameMetadata times are on, in ms.
+    // The clock FrameMetadata times are on, in ms (stream::clockMs()).
     double clockMs() const;
+    // Test hook: drops the connection as a network outage would.
+    void simulateDrop();
     void completeTextInput(const std::string& id, const std::string& text);
     void cancelTextInput(const std::string& id);
     // Another stream tier mid-session (StreamOptions::resolutionAlias).

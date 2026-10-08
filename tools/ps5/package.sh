@@ -8,7 +8,7 @@ set -euo pipefail
 
 build=$(cd "${1:?usage: package.sh <build-dir> [out-dir]}" && pwd)
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-vk=${PS5_VULKAN:-$(cd "$root/../../WoW-PS5/deps/PS5_Vulkan" && pwd)}
+vk=${PS5_VULKAN:-$(cd "$root/../PS5_Vulkan" && pwd)}
 param=$root/ps5/sce_sys/param.json
 title=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["titleId"])' "$param")
 out=${2:-$build/pkg}
@@ -39,6 +39,7 @@ cp "$root/THIRD_PARTY_NOTICES.md" "$app/licenses/"
 cp "$root/assets/fonts/OFL.txt" "$app/licenses/Inter-OFL.txt"
 cp "$root/deps/mbedtls/LICENSE" "$app/licenses/mbedtls-LICENSE.txt"
 cp "$root/extern/fsr1/LICENSE.txt" "$app/licenses/FidelityFX-FSR-MIT.txt"
+cp "$root/extern/anime4k/LICENSE" "$app/licenses/Anime4K-MIT.txt"
 # RADV (Mesa), linked into eboot.bin: mostly MIT, per-file SPDX otherwise.
 mesa=${PS5_MESA:-$vk/../PS5_Mesa}
 cp "$mesa/licenses/MIT" "$app/licenses/Mesa-MIT.txt"

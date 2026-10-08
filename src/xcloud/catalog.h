@@ -31,6 +31,9 @@ constexpr const char* kRecentlyAdded = "06323672-b8c8-43cc-b0de-32d5a9834749";
 constexpr const char* kMostPopular = "6a589fa0-d493-472b-8e20-3813699d7056";
 constexpr const char* kLeavingSoon = "31ff2361-2772-4622-849b-f4f1abb4ad1b";
 constexpr const char* kAllGames = "af206485-e87d-4624-9007-cb7f6d0cc42e";
+// "Stream free-to-play games": no Game Pass needed, but each must be on the
+// account (a free "Get" in the store) before it starts.
+constexpr const char* kFreeToPlay = "d8f4afcd-882a-49e3-86b3-f61fa0172b75";
 }  // namespace sigl
 
 struct ProductList {

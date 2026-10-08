@@ -29,11 +29,12 @@ std::string fmt(const char* f, double v) {
 
 }  // namespace
 
-void StreamMenu::open(int resolution, bool stats, int sharpness, int deband) {
+void StreamMenu::open(int resolution, bool stats, int sharpness, int deband, int upscaler) {
     open_ = true;
     stats_ = stats;
     sharpness_ = sharpness;
     deband_ = deband;
+    upscaler_ = upscaler;
     selected_ = Resume;
     resolution_ = applied_ = resolution;
     resolutionAsked_ = false;
@@ -57,6 +58,10 @@ MenuAction StreamMenu::handle(const NavInput& in) {
     if ((selected_ == Sharpness && (in.left || in.right)) || (selected_ == Sharpness && in.accept)) {
         sharpness_ = in.left ? (sharpness_ + 3) % 4 : (sharpness_ + 1) % 4;
         return MenuAction::Sharpness;
+    }
+    if (selected_ == Upscaler && (in.left || in.right || in.accept)) {
+        upscaler_ = 1 - upscaler_;
+        return MenuAction::Upscaler;
     }
     if (selected_ == Deband && (in.left || in.right || in.accept)) {
         deband_ = in.left ? (deband_ + 2) % 3 : (deband_ + 1) % 3;
@@ -88,7 +93,7 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     fonts_.bold.draw(c, tr(Str::MenuTitle), kPad, 40, 34, kWhite);
 
     // The items: the selected one white, like the Xbox guide.
-    constexpr int kRowH = 60, kTop = 110, kPx = 24;
+    constexpr int kRowH = 54, kTop = 108, kPx = 24;
     for (int i = 0; i < ItemCount; ++i) {
         Rect row{kPad - 16, kTop + i * kRowH, kMenuW - 2 * (kPad - 16), kRowH - 8};
         bool sel = i == selected_;
@@ -99,6 +104,7 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
                             : i == Stats      ? tr(Str::MenuStats)
                             : i == Sharpness  ? tr(Str::MenuSharpness)
                             : i == Deband     ? tr(Str::MenuDeband)
+                            : i == Upscaler   ? tr(Str::MenuUpscaler)
                             : i == Resolution ? tr(Str::MenuResolution)
                             : i == Refresh    ? tr(Str::MenuRefresh)
                                               : tr(Str::MenuLeave);
@@ -108,6 +114,10 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         if (i == Sharpness) {
             static constexpr Str kLevels[] = {Str::SharpOff, Str::SharpLow, Str::SharpMedium, Str::SharpHigh};
             value = tr(kLevels[sharpness_]);
+            if (sel) value = "< " + value + " >";
+        }
+        if (i == Upscaler) {
+            value = upscaler_ ? tr(Str::UpscalerAi) : "FSR";
             if (sel) value = "< " + value + " >";
         }
         if (i == Deband) {
@@ -146,6 +156,7 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     line(Str::StatFrameRate, frames);
     line(Str::StatLoss, fmt("%.1f %%", info.lossPct));
     line(Str::StatDecode, info.decodeMs > 0 ? fmt("%.1f ms", info.decodeMs) : none);
+    line(Str::StatOnScreen, info.onScreenMs > 0 ? fmt("%.1f ms", info.onScreenMs) : none);
 
     // The controllers: numbered pads, each connected one with its user.
     y += 8;

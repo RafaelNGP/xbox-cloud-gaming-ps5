@@ -146,6 +146,17 @@ constexpr Column kEnglish = {
     "Controller %s connected",                       // PadConnected
     "Controller %s disconnected",                    // PadDisconnected
     "Block smoothing",                               // MenuDeband
+    "On screen after",                               // StatOnScreen
+    "Connection lost: reconnecting...",              // Reconnecting
+    "Reconnected",                                   // Reconnected
+    "Light bar in the game's colour",                // LightBar
+    "Upscaling",                                     // MenuUpscaler
+    "AI (Anime4K)",                                  // UpscalerAi
+    "Free to play",                                  // FreeToPlay
+    "Get it once, free, on xbox.com or in the Xbox app (scan the code with your phone), then press Play.", // FreeHint
+    "Scan to get it free",                          // ScanToGet
+    "%s is not on your account yet. It is free: scan the code on its page, choose Get, then try again (it can take a minute).", // NoEntitlementFree
+    "Your account can't play %s: it is not in your subscription or not bought.", // NoEntitlement
 };
 
 constexpr Column kPortugueseBR = {
@@ -262,6 +273,17 @@ constexpr Column kPortugueseBR = {
     "Controle %s conectado",
     "Controle %s desconectado",
     "Suavização de blocos",
+    "Na tela após",
+    "Conexão perdida: reconectando...",
+    "Reconectado",
+    "Barra de luz com a cor do jogo",
+    "Ampliação",
+    "IA (Anime4K)",
+    "Grátis para jogar",
+    "Pegue uma vez, de graça, no xbox.com ou no app Xbox (escaneie o código com o celular) e depois aperte Jogar.",
+    "Escaneie para pegar grátis",
+    "%s ainda não está na sua conta. É grátis: escaneie o código na página do jogo, escolha Obter e tente de novo (pode levar um minuto).",
+    "Sua conta não pode jogar %s: não está na sua assinatura ou não foi comprado.",
 };
 
 constexpr Column kSpanish = {
@@ -378,6 +400,17 @@ constexpr Column kSpanish = {
     "Mando %s conectado",
     "Mando %s desconectado",
     "Suavizado de bloques",
+    "En pantalla tras",
+    "Conexión perdida: reconectando...",
+    "Reconectado",
+    "Barra de luz con el color del juego",
+    "Escalado",
+    "IA (Anime4K)",
+    "Gratis para jugar",
+    "Consíguelo una vez, gratis, en xbox.com o en la app de Xbox (escanea el código con el móvil) y luego pulsa Jugar.",
+    "Escanea para conseguirlo gratis",
+    "%s aún no está en tu cuenta. Es gratis: escanea el código en su página, elige Obtener y vuelve a intentarlo (puede tardar un minuto).",
+    "Tu cuenta no puede jugar a %s: no está en tu suscripción o no lo has comprado.",
 };
 
 constexpr Column kFrench = {
@@ -494,6 +527,17 @@ constexpr Column kFrench = {
     "Manette %s connectée",
     "Manette %s déconnectée",
     "Lissage des blocs",
+    "À l'écran après",
+    "Connexion perdue : reconnexion...",
+    "Reconnecté",
+    "Barre lumineuse aux couleurs du jeu",
+    "Mise à l'échelle",
+    "IA (Anime4K)",
+    "Gratuit",
+    "Obtenez-le une fois, gratuitement, sur xbox.com ou dans l'app Xbox (scannez le code avec votre téléphone), puis appuyez sur Jouer.",
+    "Scannez pour l'obtenir gratuitement",
+    "%s n'est pas encore sur votre compte. Il est gratuit : scannez le code sur sa page, choisissez Obtenir, puis réessayez (cela peut prendre une minute).",
+    "Votre compte ne peut pas jouer à %s : il n'est pas dans votre abonnement ou n'a pas été acheté.",
 };
 
 constexpr Column kGerman = {
@@ -610,6 +654,17 @@ constexpr Column kGerman = {
     "Controller %s verbunden",
     "Controller %s getrennt",
     "Blockglättung",
+    "Auf dem Bildschirm nach",
+    "Verbindung verloren: neu verbinden...",
+    "Wieder verbunden",
+    "Lichtleiste in der Farbe des Spiels",
+    "Hochskalierung",
+    "KI (Anime4K)",
+    "Free-to-play",
+    "Einmal kostenlos auf xbox.com oder in der Xbox-App holen (Code mit dem Handy scannen), dann Spielen drücken.",
+    "Scannen, um es kostenlos zu holen",
+    "%s ist noch nicht in deinem Konto. Es ist kostenlos: Code auf seiner Seite scannen, Abrufen wählen und erneut versuchen (kann eine Minute dauern).",
+    "Dein Konto kann %s nicht spielen: nicht in deinem Abo oder nicht gekauft.",
 };
 
 constexpr Column kItalian = {
@@ -726,6 +781,17 @@ constexpr Column kItalian = {
     "Controller %s connesso",
     "Controller %s disconnesso",
     "Attenuazione blocchi",
+    "Sullo schermo dopo",
+    "Connessione persa: riconnessione...",
+    "Riconnesso",
+    "Barra luminosa con il colore del gioco",
+    "Upscaling",
+    "IA (Anime4K)",
+    "Free to play",
+    "Ottienilo una volta, gratis, su xbox.com o nell'app Xbox (scansiona il codice con il telefono), poi premi Gioca.",
+    "Scansiona per ottenerlo gratis",
+    "%s non è ancora nel tuo account. È gratis: scansiona il codice nella sua pagina, scegli Ottieni e riprova (può volerci un minuto).",
+    "Il tuo account non può giocare a %s: non è nel tuo abbonamento o non è stato acquistato.",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

@@ -26,6 +26,11 @@ public:
     // From the input thread, once per polled pad state; `index` 0..3 is the
     // controller's slot (input::pollPad).
     void sendInput(const input::ControllerState& pad, int index = 0);
+    // False while another window has the focus on the cloud console (the
+    // account picker, a publisher's page).
+    bool titleFocused() const;
+    // Touch input announced on or off (off at the start).
+    void setTouchEnabled(bool on);
     // Controllers 1..3 coming and going (0 is there from the start).
     void setPadConnected(int index, bool connected);
     // The game's requests for text, oldest first (main thread): false when
@@ -37,6 +42,11 @@ public:
     void answerTextInput(const std::string& id, bool accepted, const std::string& text);
     // A new key frame (a clean picture), as after packet loss.
     void requestKeyframe();
+    // How many times the stream reconnected after losing the connection (a
+    // new session: controllers 1..3 must be announced again).
+    uint32_t reconnects() const;
+    // Test hook: drops the connection as a network outage would.
+    void simulateDrop();
     // Another stream tier mid-session: "720", "720HQ", "1080", "1080HQ", "1440".
     void requestResolution(const std::string& alias);
     // Keepalives etc.; about once a second from the thread owning `gssv`.
@@ -58,10 +68,15 @@ public:
         int width = 0, height = 0;  // of the last decoded picture
         // Since the previous stats() call (so call it from one place only).
         uint64_t decodeAvgUs = 0, decodeMaxUs = 0, drawAvgUs = 0, drawMaxUs = 0;
+        // Network arrival to on the screen (GPU path), since the last call.
+        uint64_t displayAvgUs = 0, displayMaxUs = 0;
     };
     Stats stats() const;
     // Before start(): H.264 decoder threads (more than 1 = frame threading).
     void setDecodeThreads(int threads);
+    // Before start(): also run every frame through the PS5's hardware
+    // decoder and log how it does (the picture still comes from FFmpeg).
+    void setHwDecodeProbe(bool on);
 
 private:
     struct Impl;

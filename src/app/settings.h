@@ -25,11 +25,15 @@ struct Settings {
     int sharpness = 0;
     // Smoothing of compression blocks (GPU display): 0 off, 1 low, 2 high.
     int deband = 1;
+    // Upscaling to the 4K display (GPU): 0 FSR 1, 1 Anime4K.
+    int upscaler = 0;
     // Controller: stick dead zone (percent), vibration in the triggers,
     // Circle as the confirm button (Xbox A).
     int deadzone = 15;
     bool triggerRumble = true;
     bool circleConfirms = false;
+    // The DualSense light bar takes the colour of the game in focus.
+    bool lightBar = true;
 
     bool load(const std::string& path);
     bool save(const std::string& path) const;
