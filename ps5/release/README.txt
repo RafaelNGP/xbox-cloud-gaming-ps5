@@ -68,13 +68,15 @@ Anime4K, crisper outlines and text but it also sharpens compression
 noise), sharpness (off / low / medium / high: sharpens the picture's
 edges), block smoothing (off / low / high: smooths the squares
 compression leaves in dark, flat areas; low keeps textures best),
-stream resolution (720p / 1080p / 1440p, changed in a few seconds),
+stream resolution (720p / 1080p, and 1440p where a stream delivered
+it: the app measures it),
 and leave the game. Circle closes it (and asks for a clean picture).
 It also shows the connection (region, latency, bitrate, frame rate,
 packet loss, and how long a frame takes from the network to the TV)
 and the controllers in use.
 
-Swiping up or right on the touchpad is the Xbox button too.
+Touchpad shortcuts: swipe down (or left) for this menu, up (or right)
+for the Xbox button.
 
 If the connection drops for a moment, the stream reconnects by itself
 and the game goes on where it was.
