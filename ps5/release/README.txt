@@ -102,6 +102,14 @@ then acts as Xbox A in games too). Saved in
 When a new version is out, a notification says so after sign-in.
 
 
+My consoles (Remote Play)
+-------------------------
+The third tab (R1) lists your own Xbox consoles; Cross plays one: its
+screen, games and apps, on the PS5. On the Xbox, turn on Settings >
+Devices & connections > Remote features, and choose the Sleep power
+mode so it wakes up by itself (it takes about ten seconds).
+
+
 Free-to-play games
 ------------------
 The home screen has a row of free-to-play games. Each one must be added

@@ -134,6 +134,15 @@ enum class Str {
     ScanToGet,
     NoEntitlementFree,  // "%s" = the game
     NoEntitlement,      // "%s" = the game
+    TabConsoles,        // the third tab: the user's own Xbox consoles
+    ConsoleOn,
+    ConsoleSleeping,
+    ConsoleOff,
+    ConsolesLoading,
+    NoConsoles,         // none, or remote features off
+    ConsolesHint,       // under the tab's title
+    WakingConsole,      // the loading screen while the Xbox wakes up
+    WakeFailed,         // "%s" = the console's name
     Count
 };
 

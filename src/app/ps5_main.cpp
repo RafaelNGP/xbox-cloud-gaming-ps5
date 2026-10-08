@@ -49,7 +49,7 @@ std::unique_ptr<ui::AppUi> g_ui;
 
 // --- Worker commands ---------------------------------------------------------
 
-enum Command { kNone, kSignIn, kPlay, kSignOut, kReloadLibrary };
+enum Command { kNone, kSignIn, kPlay, kSignOut, kReloadLibrary, kConsoles };
 
 // User settings (settings.json); read by the worker, changed by the UI thread.
 std::mutex g_settingsMutex;
@@ -158,6 +158,7 @@ int g_autoplaySeconds = 0;
 bool g_autoplayDump = false;
 int g_autoplayRuns = 1;
 bool g_autoplayIdle = false;
+bool g_autoplayConsolesTab = false;  // autoplay "consolestab": open My consoles, save consoles.ppm
 bool g_autoplayConsoles = false;  // autoplay "consoles": log the account's own consoles (xhome)
 bool g_autoplayPad = false;  // autoplay "pad": the physical pad stays in use, its buttons logged
 bool g_autoplayDetailTest = false;  // open a game to buy far down the list, save its page
@@ -206,6 +207,7 @@ void loadAutoplay() {
         if (opt == "detailtest") g_autoplayDetailTest = true;
         if (opt == "pad") g_autoplayPad = true;
         if (opt == "consoles") g_autoplayConsoles = true;
+        if (opt == "consolestab") g_autoplayConsolesTab = true;
         if (opt == "librarytest") g_autoplayLibraryTest = true;
         if (opt == "imetest") g_autoplayImeTest = true;
         if (opt == "menutest") g_autoplayMenuTest = true;
@@ -433,6 +435,8 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
         XC_LOGI("session state: %s", st.raw.c_str());
         if (st.state == xcloud::SessionState::WaitingForResources)
             g_ui->setLaunchStatus(ui::trf(ui::Str::InQueue, formatWait(gssv.waitTimeSeconds())));
+        if (st.state == xcloud::SessionState::Provisioning && gssv.isHome())
+            g_ui->setLaunchStatus(ui::tr(ui::Str::WakingConsole));  // a sleeping Xbox takes ~10 s
         if (st.state == xcloud::SessionState::Failed) {
             result = "the session failed: " + st.errorCode + " " + st.errorMessage;
             break;
@@ -550,6 +554,23 @@ void priceLoop() {
         }
     }
 }
+// "My consoles": the account's own Xbox consoles (Remote Play, the xhome
+// offering, logged in with the same Xbox token).
+void loadConsoles(auth::AuthManager& am, xcloud::GssvClient& home) {
+    std::string err;
+    std::vector<xcloud::Console> consoles;
+    bool fresh = home.session().expiresAt > auth::unixNow() + 120;
+    if ((!fresh && !am.loginOffering(home, err)) || !home.listConsoles(consoles, err)) {
+        XC_LOGW("consoles: %s", err.c_str());
+        g_ui->setConsoles({}, true);
+        return;
+    }
+    std::vector<ui::ConsoleTile> tiles;
+    for (const auto& c : consoles) tiles.push_back({c.serverId, c.deviceName, c.consoleType, c.powerState});
+    XC_LOGI("consoles: %zu", tiles.size());  // not their names or ids
+    g_ui->setConsoles(std::move(tiles), true);
+}
+
 void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
     std::string err;
@@ -575,13 +596,13 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
                     c.powerState.c_str(), c.playPath.c_str(), c.outOfHomeWarning ? ", out-of-home warning" : "",
                     c.wirelessWarning ? ", wireless warning" : "");
         if (g_autoplayTitle == "XHOME" && !consoles.empty()) {
-            // Remote Play probe: stream the first console.
-            ui::GameTile tile;
-            tile.titleId = consoles.front().serverId;
-            tile.name = "Xbox";
-            bool failed = false;
-            std::string result = play(am, home, tile, failed);
-            XC_LOGI("AUTOPLAY END: xhome: %s", result.c_str());
+            // Remote Play: the first console, as "My consoles" plays it.
+            std::lock_guard<std::mutex> lock(g_argMutex);
+            g_playTile = {};
+            g_playTile.titleId = consoles.front().serverId;
+            g_playTile.name = "Xbox";
+            g_playTile.homeConsole = true;
+            g_command = kPlay;
             return;
         }
         XC_LOGI("AUTOPLAY END: consoles listed");
@@ -661,6 +682,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         library->hydrate(changed, &g_stopHydration);
     });
     if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH" && !g_autoplayDetailTest && !g_autoplayLibraryTest &&
+        !g_autoplayConsolesTab &&
         !g_autoplayImeTest && !g_autoplayVibeTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
@@ -683,17 +705,23 @@ void worker() {
         for (;;) platform::sleepMs(1000);
     }
     auth::AuthManager am(platform::dataDir() + "/account.json");
-    xcloud::GssvClient gssv;
+    xcloud::GssvClient gssv, home("xhome");
     for (;;) {
         int cmd = g_command.exchange(kNone);
         g_cancel = false;
         switch (cmd) {
-            case kSignIn: signInAndLoad(am, gssv); break;
+            case kSignIn:
+                signInAndLoad(am, gssv);
+                loadConsoles(am, home);  // empty when the sign-in failed
+                break;
+            case kConsoles: loadConsoles(am, home); break;
             case kReloadLibrary: loadLibrary(gssv); break;  // e.g. after a language change
             case kSignOut:
                 am.signOut();
                 g_ui->setProfile({}, {});
+                g_ui->setConsoles({}, false);
                 signInAndLoad(am, gssv);
+                loadConsoles(am, home);
                 break;
             case kPlay: {
                 ui::GameTile tile;
@@ -702,6 +730,30 @@ void worker() {
                     tile = g_playTile;
                 }
                 bool failed = false;
+                if (tile.homeConsole) {
+                    // The user's own Xbox. One that sleeps too deeply fails
+                    // at once ("... State WaitingForServerToRegister"): asked
+                    // again, it often wakes.
+                    std::string result;
+                    for (int attempt = 0; attempt < 3 && !g_cancel; ++attempt) {
+                        if (attempt) {
+                            g_ui->setLaunchStatus(ui::tr(ui::Str::WakingConsole));
+                            platform::sleepMs(5000);
+                        }
+                        result = play(am, home, tile, failed);
+                        XC_LOGI("%s", result.c_str());
+                        if (!failed || result.find("WaitingForServerToRegister") == std::string::npos) break;
+                    }
+                    if (failed && result.find("WaitingForServerToRegister") != std::string::npos)
+                        g_ui->showPlayError(ui::trf(ui::Str::WakeFailed, tile.name), tile);
+                    else if (failed)
+                        g_ui->showPlayError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result, tile);
+                    else
+                        g_ui->showHome(ui::tr(ui::Str::StreamEnded));
+                    autoplayFinished(result);
+                    loadConsoles(am, home);  // its state changed
+                    break;
+                }
                 bool automatic;
                 {
                     std::lock_guard<std::mutex> lock(g_settingsMutex);
@@ -1123,6 +1175,11 @@ int main(int argc, char** argv) {
                 g_command = kSignOut;
                 break;
             case ui::Action::Retry: g_command = kSignIn; break;
+            case ui::Action::ConsolesShown: {
+                int idle = kNone;
+                g_command.compare_exchange_strong(idle, kConsoles);  // not over a pending command
+                break;
+            }
             case ui::Action::CancelLaunch: g_cancel = true; break;
             case ui::Action::PrefsChanged: {
                 std::lock_guard<std::mutex> lock(g_settingsMutex);
@@ -1257,6 +1314,17 @@ int main(int argc, char** argv) {
                 saveCanvas("detail.ppm");
                 g_autoplayDetailTest = false;
                 XC_LOGI("AUTOPLAY END: detail test");
+            }
+        }
+        if (g_autoplayConsolesTab && uiSaved) {
+            static uint64_t shownAt = 0;
+            if (!shownAt) {
+                g_ui->showTab(ui::Tab::Consoles);
+                shownAt = now;
+            } else if (now - shownAt > 3000) {
+                saveCanvas("consoles.ppm");
+                g_autoplayConsolesTab = false;
+                XC_LOGI("AUTOPLAY END: consoles tab");
             }
         }
         if (!g_autoplayTitle.empty() && !uiSaved && g_ui->screen() == ui::Screen::Home) {

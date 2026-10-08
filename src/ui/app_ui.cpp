@@ -330,6 +330,14 @@ void AppUi::rebuild(bool keepPosition) {
     dirty_ = true;
 }
 
+void AppUi::setConsoles(std::vector<ConsoleTile> consoles, bool known) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    consoles_ = std::move(consoles);
+    consolesKnown_ = known;
+    consoleFocus_ = std::min(consoleFocus_, std::max(0, static_cast<int>(consoles_.size()) - 1));
+    dirty_ = true;
+}
+
 void AppUi::setLoading(bool active, size_t done, size_t total) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (active == loading_ && done == loadingDone_ && total == loadingTotal_) return;
@@ -496,6 +504,13 @@ const GameTile* AppUi::libraryTile(int index) const {
     if (i < purchasable_.size()) return &purchasable_[i];
     i -= purchasable_.size();
     return i < hiddenTiles_.size() ? &hiddenTiles_[i] : nullptr;
+}
+
+void AppUi::showTab(Tab t) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    tab_ = t;
+    searching_ = false;
+    dirty_ = true;
 }
 
 Tab AppUi::tab() const {
@@ -679,7 +694,7 @@ bool AppUi::accentColor(Color& out) {
             if (!searchOnKeys_ && resultFocus_ >= 0 && resultFocus_ < static_cast<int>(results_.size()))
                 t = &results_[static_cast<size_t>(resultFocus_)];
         } else {
-            t = tab_ == Tab::Library ? libraryTile(gridFocus_) : focusedTile();
+            t = tab_ == Tab::Library ? libraryTile(gridFocus_) : tab_ == Tab::GamePass ? focusedTile() : nullptr;
         }
         break;
     default: break;
@@ -860,9 +875,12 @@ AppUi::LibraryLayout AppUi::libraryLayout() const {
 void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
     // Caller holds mutex_.
     if (in.l1 || in.r1) {
-        tab_ = tab_ == Tab::GamePass ? Tab::Library : Tab::GamePass;
+        // Game Pass, Your games, My consoles, round.
+        int n = static_cast<int>(tab_) + (in.r1 ? 1 : 2);
+        tab_ = static_cast<Tab>(n % 3);
         searching_ = false;
         dirty_ = true;
+        if (tab_ == Tab::Consoles) ev.action = Action::ConsolesShown;
         return;
     }
     if (in.options) {
@@ -872,7 +890,7 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
         dirty_ = true;
         return;
     }
-    if (in.triangle && !searching_) {  // search this tab
+    if (in.triangle && !searching_ && tab_ != Tab::Consoles) {  // search this tab
         searching_ = true;
         searchOnKeys_ = true;
         query_.clear();
@@ -911,6 +929,22 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
         return;
     }
     switch (tab_) {
+        case Tab::Consoles: {
+            int n = static_cast<int>(consoles_.size());
+            if (n == 0) break;
+            int before = consoleFocus_;
+            if (in.right && consoleFocus_ + 1 < n) ++consoleFocus_;
+            if (in.left && consoleFocus_ > 0) --consoleFocus_;
+            if (consoleFocus_ != before) dirty_ = true;
+            if (in.accept) {
+                const ConsoleTile& con = consoles_[static_cast<size_t>(consoleFocus_)];
+                ev.action = Action::Play;
+                ev.game.titleId = con.serverId;
+                ev.game.name = con.name.empty() ? "Xbox" : con.name;
+                ev.game.homeConsole = true;
+            }
+            break;
+        }
         case Tab::GamePass: {
             if (rows_.empty()) break;
             int rows = static_cast<int>(rows_.size());
@@ -1119,10 +1153,14 @@ UiEvent AppUi::handle(const NavInput& in) {
             if (in.back) ev.action = Action::CancelLaunch;
             break;
         case Screen::Error:
-            if (!errorGame_.productId.empty()) {
+            if (!errorGame_.titleId.empty()) {
                 if (in.accept) {
                     ev.action = Action::Play;
                     ev.game = errorGame_;
+                } else if (in.back && errorGame_.homeConsole) {
+                    screen_ = Screen::Home;  // back to My consoles
+                    tab_ = Tab::Consoles;
+                    dirty_ = true;
                 } else if (in.back) {
                     openDetails(errorGame_);
                 }
@@ -1357,10 +1395,10 @@ void AppUi::drawSignIn(Canvas& c, uint64_t nowMs) {
 
 void AppUi::drawTabs(Canvas& c) {
     // Centred pills in the top bar, between "L1" and "R1".
-    const char* labels[2] = {tr(Str::TabGamePass), tr(Str::YourGames)};
+    const char* labels[3] = {tr(Str::TabGamePass), tr(Str::YourGames), tr(Str::TabConsoles)};
     constexpr int kPx = 22, kPad = 26, kGap = 12, kH = 44, kY = 50;
-    int widths[2], total = 0;
-    for (int i = 0; i < 2; ++i) {
+    int widths[3], total = 0;
+    for (int i = 0; i < 3; ++i) {
         widths[i] = fonts_.semibold.measure(labels[i], kPx) + 2 * kPad;
         total += widths[i] + (i ? kGap : 0);
     }
@@ -1371,7 +1409,7 @@ void AppUi::drawTabs(Canvas& c) {
         fonts_.bold.draw(c, name, cx - fonts_.bold.measure(name, 16) / 2, fonts_.bold.centeredY(r.y, r.h, 16), 16, kGray);
     };
     shoulder("L1", x - 40);
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < 3; ++i) {
         bool on = static_cast<int>(tab_) == i;
         Rect r{x, kY, widths[i], kH};
         if (on) c.fillRect(r, kWhite, kH / 2);
@@ -1631,9 +1669,70 @@ void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
     drawToast(c, nowMs);
 }
 
+void AppUi::drawConsoles(Canvas& c, uint64_t nowMs) {
+    drawBackground(c);
+    drawTopBar(c);
+    drawTabs(c);
+    fonts_.bold.draw(c, tr(Str::TabConsoles), kMargin, 170, 52, kWhite);
+    fonts_.regular.draw(c, tr(Str::ConsolesHint), kMargin, 240, 26, kGray);
+    if (consoles_.empty()) {
+        if (!consolesKnown_) {
+            drawSpinner(c, kW / 2.0f, 520, 26, nowMs);
+            drawCentered(c, fonts_.semibold, tr(Str::ConsolesLoading), 580, 28, kGray);
+            animating_ = true;
+        } else {
+            int y = 480;
+            for (const auto& line : fonts_.regular.wrap(tr(Str::NoConsoles), 28, 1200, 3)) {
+                drawCentered(c, fonts_.regular, line, y, 28, kGray);
+                y += 42;
+            }
+        }
+        drawHints(c, {{kIconOptions, tr(Str::Settings)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
+        drawPads(c);
+        return;
+    }
+    // One card per console: a drawn Xbox, its name, model and state.
+    constexpr int kCardW = 480, kCardH = 380, kGap = 40, kTop = 320;
+    for (size_t i = 0; i < consoles_.size(); ++i) {
+        const ConsoleTile& con = consoles_[i];
+        int x = kMargin + static_cast<int>(i) * (kCardW + kGap);
+        if (x > kW) break;
+        bool focused = static_cast<int>(i) == consoleFocus_;
+        Rect card{x, kTop, kCardW, kCardH};
+        if (focused) c.strokeRect({card.x - 7, card.y - 7, card.w + 14, card.h + 14}, kWhite, 4, 22);
+        c.fillRect(card, kPanel, 16);
+        // The console: a Series X stands as a tower, the others lie flat.
+        bool tower = con.type == "XboxSeriesX";
+        Rect box = tower ? Rect{x + kCardW / 2 - 55, kTop + 40, 110, 170} : Rect{x + kCardW / 2 - 120, kTop + 90, 240, 70};
+        c.fillRect(box, rgba(20, 20, 20), 12);
+        c.strokeRect(box, rgba(70, 70, 70), 2, 12);
+        bool on = con.power == "On";
+        c.fillCircle(static_cast<float>(box.x + (tower ? box.w / 2 : 24)), static_cast<float>(box.y + (tower ? 22 : box.h / 2)),
+                     tower ? 16.0f : 9.0f, on ? kGreen : rgba(90, 90, 90));
+        std::string name = con.name.empty() ? "Xbox" : con.name;
+        auto lines = fonts_.semibold.wrap(name, 30, kCardW - 48, 1);
+        if (!lines.empty()) fonts_.semibold.draw(c, lines[0], x + 24, kTop + 236, 30, kWhite);
+        std::string model = con.type == "XboxSeriesX"   ? "Xbox Series X"
+                            : con.type == "XboxSeriesS" ? "Xbox Series S"
+                            : con.type == "XboxOneX"    ? "Xbox One X"
+                            : con.type == "XboxOneS"    ? "Xbox One S"
+                            : con.type == "XboxOne"     ? "Xbox One"
+                                                        : con.type;
+        fonts_.regular.draw(c, model, x + 24, kTop + 284, 24, kGray);
+        const char* state = on ? tr(Str::ConsoleOn)
+                            : con.power == "ConnectedStandby" ? tr(Str::ConsoleSleeping)
+                                                              : tr(Str::ConsoleOff);
+        c.fillCircle(static_cast<float>(x + 32), static_cast<float>(kTop + 336), 6, on ? rgba(60, 200, 60) : kDim);
+        fonts_.semibold.draw(c, state, x + 48, kTop + 322, 24, on ? kWhite : kGray);
+    }
+    drawHints(c, {{kIconCross, tr(Str::Play)}, {kIconOptions, tr(Str::Settings)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
+    drawPads(c);
+}
+
 void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
     if (searching_) return drawSearch(c, nowMs);
     if (tab_ == Tab::Library) return drawLibrary(c, nowMs);
+    if (tab_ == Tab::Consoles) return drawConsoles(c, nowMs);
     const GameTile* focus = focusedTile();
     c.clear(kBg);
     drawHero(c, nowMs, focus ? focus->heroUrl : std::string(), false);
@@ -1851,7 +1950,7 @@ void AppUi::drawError(Canvas& c) {
         fonts_.regular.draw(c, line, panel.x + 56, y, 26, kGray);
         y += 38;
     }
-    if (!errorGame_.productId.empty())
+    if (!errorGame_.titleId.empty())
         drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconCircle, tr(Str::Back)}});
     else
         drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconTouchpad, tr(Str::HoldSignOut)}});

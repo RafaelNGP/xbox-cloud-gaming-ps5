@@ -56,6 +56,7 @@ bool AuthManager::save() const {
 void AuthManager::signOut() {
     tokens_ = {};
     profile_ = {};
+    gssvXsts_ = {};
     std::remove(storePath_.c_str());
 }
 

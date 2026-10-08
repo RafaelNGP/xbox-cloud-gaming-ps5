@@ -41,6 +41,15 @@ struct GameTile {
     // Console it was made for: "360", "ONE", "XS" (xcloud/titlehub.h); empty
     // while unknown.
     std::string platform;
+    // Not a game: the user's own Xbox (Remote Play); titleId is its serverId.
+    bool homeConsole = false;
+};
+
+// One of the user's own consoles, as "My consoles" shows it.
+struct ConsoleTile {
+    std::string serverId, name;
+    std::string type;   // "XboxSeriesX", "XboxOne"...
+    std::string power;  // "On", "ConnectedStandby", "Off"...
 };
 
 struct GameRow {
@@ -52,7 +61,7 @@ struct GameRow {
 enum class Screen { Splash, SignIn, Home, Details, Launching, Streaming, Error, Settings };
 
 // The home screen's tabs (L1 / R1). Triangle searches the current one.
-enum class Tab { GamePass, Library };
+enum class Tab { GamePass, Library, Consoles };
 
 struct NavInput {
     bool up = false, down = false, left = false, right = false;
@@ -78,7 +87,8 @@ struct SettingsChoice {
 constexpr int kDeadzonePercent[] = {0, 5, 10, 15, 20, 25};
 constexpr int kSettingRows = 7;  // language, resolution, region, dead zone, triggers, confirm, light bar
 
-enum class Action { None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, PrefsChanged };
+// ConsolesShown: "My consoles" opened (its list is refreshed).
+enum class Action { None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, PrefsChanged, ConsolesShown };
 
 // How "Your games" is sorted (R3).
 enum class LibrarySort { Recent, AZ, Console, Count };
@@ -114,6 +124,8 @@ public:
     // "Your games": the account's games, then those to buy; `known` false
     // while the account's games load.
     void setOwned(std::vector<GameTile> owned, std::vector<GameTile> purchasable, bool known);
+    // "My consoles"; `known` false while they load.
+    void setConsoles(std::vector<ConsoleTile> consoles, bool known);
     // The lists' background refresh: shown as a bar in "Your games" and the
     // search; `total` 0 = running, no measure yet.
     void setLoading(bool active, size_t done, size_t total);
@@ -164,6 +176,8 @@ public:
     void setRegions(std::vector<std::string> regions, const std::string& defaultRegion);
     Screen screen() const;
     Tab tab() const;
+    // Switches the home screen's tab (autoplay tests).
+    void showTab(Tab t);
     void invalidate();
 
     // --- UI thread -----------------------------------------------------------
@@ -193,6 +207,7 @@ private:
     void drawSignIn(Canvas& c, uint64_t nowMs);
     void drawHome(Canvas& c, uint64_t nowMs);
     void drawTabs(Canvas& c);
+    void drawConsoles(Canvas& c, uint64_t nowMs);
     void drawLibrary(Canvas& c, uint64_t nowMs);
     void drawSearch(Canvas& c, uint64_t nowMs);
     void drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, bool gamePassBadge);
@@ -253,6 +268,9 @@ private:
     std::vector<Anim> rowScroll_;
     Anim rowY_;
     Tab tab_ = Tab::GamePass;
+    std::vector<ConsoleTile> consoles_;
+    bool consolesKnown_ = false;
+    int consoleFocus_ = 0;
     std::vector<GameTile> owned_, purchasable_, hiddenTiles_;  // as shown
     // As received, before hiding and sorting (rebuild() derives the above).
     std::vector<GameRow> allRows_;
