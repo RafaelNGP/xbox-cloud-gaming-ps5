@@ -212,12 +212,15 @@ static void testStreamMenu() {
     CHECK(press([](xc::ui::NavInput& n) { n.left = true; }) == MenuAction::Sharpness);  // off -> high
     CHECK(menu.sharpness() == 3);
     press([](xc::ui::NavInput& n) { n.down = true; });
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Deband);  // low -> high
+    CHECK(menu.deband() == 2);
+    press([](xc::ui::NavInput& n) { n.down = true; });
     press([](xc::ui::NavInput& n) { n.left = true; });  // 1080p -> 720p
     CHECK(menu.resolution() == 1);
     press([](xc::ui::NavInput& n) { n.left = true; });  // wraps to 1440p
     CHECK(menu.resolution() == 2);
     CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Resolution);
-    for (int i = 0; i < 4; ++i) press([](xc::ui::NavInput& n) { n.up = true; });  // wraps to "Leave game"
+    for (int i = 0; i < 5; ++i) press([](xc::ui::NavInput& n) { n.up = true; });  // wraps to "Leave game"
     CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Leave);
     CHECK(!menu.isOpen());
     menu.open(1, true);

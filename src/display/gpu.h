@@ -34,6 +34,8 @@ void present();
 // As display::setOverlay / setSharpness.
 void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opacity);
 void setSharpness(int amount);
+// Smoothing of compression blocks in flat areas: 0 off, 1 low, 2 high.
+void setDeband(int level);
 
 // The image last presented, 8-bit RGB rows; false when there is none.
 bool readBack(std::vector<uint8_t>& rgb, int& width, int& height);

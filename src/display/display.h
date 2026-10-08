@@ -38,6 +38,8 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
 
 // Sharpening of the video (drawYuv420), 0 = off .. 256 = full CAS.
 void setSharpness(int amount);
+// Smoothing of compression blocks in flat areas (GPU only): 0 off, 1 low, 2 high.
+void setDeband(int level);
 
 // The back buffer last drawn, untiled, as 8-bit RGB rows (diagnostics:
 // what the TV shows), and its size. False without a display.

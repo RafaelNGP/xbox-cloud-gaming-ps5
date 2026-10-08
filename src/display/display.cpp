@@ -499,6 +499,8 @@ void setSharpness(int amount) {
     gpu::setSharpness(amount);
 }
 
+void setDeband(int level) { gpu::setDeband(level); }
+
 void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opacity) {
     if (gpu::ready()) return gpu::setOverlay(pixels, x, y, w, h, opacity);
     std::shared_ptr<const Overlay> next;
@@ -526,6 +528,7 @@ bool drawYuv420(const uint8_t*, const uint8_t*, const uint8_t*, int, int, int, i
 void drawRgba(const uint32_t*) {}
 void setOverlay(const uint32_t*, int, int, int, int, uint8_t) {}
 void setSharpness(int) {}
+void setDeband(int) {}
 bool readBackRgb(std::vector<uint8_t>&, int&, int&) { return false; }
 } // namespace xc::display
 

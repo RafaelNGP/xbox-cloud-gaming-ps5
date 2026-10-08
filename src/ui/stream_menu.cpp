@@ -29,10 +29,11 @@ std::string fmt(const char* f, double v) {
 
 }  // namespace
 
-void StreamMenu::open(int resolution, bool stats, int sharpness) {
+void StreamMenu::open(int resolution, bool stats, int sharpness, int deband) {
     open_ = true;
     stats_ = stats;
     sharpness_ = sharpness;
+    deband_ = deband;
     selected_ = Resume;
     resolution_ = applied_ = resolution;
     resolutionAsked_ = false;
@@ -56,6 +57,10 @@ MenuAction StreamMenu::handle(const NavInput& in) {
     if ((selected_ == Sharpness && (in.left || in.right)) || (selected_ == Sharpness && in.accept)) {
         sharpness_ = in.left ? (sharpness_ + 3) % 4 : (sharpness_ + 1) % 4;
         return MenuAction::Sharpness;
+    }
+    if (selected_ == Deband && (in.left || in.right || in.accept)) {
+        deband_ = in.left ? (deband_ + 2) % 3 : (deband_ + 1) % 3;
+        return MenuAction::Deband;
     }
     if (selected_ == Stats && (in.left || in.right)) {
         stats_ = !stats_;
@@ -93,6 +98,7 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         const char* label = i == Resume       ? tr(Str::MenuResume)
                             : i == Stats      ? tr(Str::MenuStats)
                             : i == Sharpness  ? tr(Str::MenuSharpness)
+                            : i == Deband     ? tr(Str::MenuDeband)
                             : i == Resolution ? tr(Str::MenuResolution)
                             : i == Refresh    ? tr(Str::MenuRefresh)
                                               : tr(Str::MenuLeave);
@@ -102,6 +108,11 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         if (i == Sharpness) {
             static constexpr Str kLevels[] = {Str::SharpOff, Str::SharpLow, Str::SharpMedium, Str::SharpHigh};
             value = tr(kLevels[sharpness_]);
+            if (sel) value = "< " + value + " >";
+        }
+        if (i == Deband) {
+            static constexpr Str kLevels[] = {Str::SharpOff, Str::SharpLow, Str::SharpHigh};
+            value = tr(kLevels[deband_]);
             if (sel) value = "< " + value + " >";
         }
         if (i == Resolution) {

@@ -632,7 +632,7 @@ int main(int argc, char** argv) {
         save("menu", menu.renderMenu(info), ui::StreamMenu::kMenuX, ui::StreamMenu::kMenuY, 235);
         ui::NavInput n;
         n.down = true;
-        for (int i = 0; i < 3; ++i) menu.handle(n);
+        for (int i = 0; i < 4; ++i) menu.handle(n);
         n = {};
         n.right = true;
         menu.handle(n);  // 1080p -> 1440p

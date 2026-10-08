@@ -118,6 +118,8 @@ std::mutex g_overlayMutex;
 std::vector<uint32_t> g_overlayPixels(kUiW* kUiH, 0);
 bool g_overlayDirty = false, g_overlayShown = false;
 std::atomic<int> g_sharpness{0};
+std::atomic<int> g_deband{1};
+uint32_t g_frame = 0;
 
 bool fail(const char* step, VkResult r) {
     XC_LOGE("gpu: %s failed (%d)", step, static_cast<int>(r));
@@ -432,7 +434,7 @@ bool createPipelines() {
                                                 binding(3, storage)};
     const VkDescriptorSetLayoutBinding easu[] = {binding(0, sampled), binding(1, storage)};
     const VkDescriptorSetLayoutBinding rcas[] = {binding(0, storage), binding(1, sampled), binding(2, storage)};
-    if (!createPipeline(g.yuv, kShader_yuv2rgb, sizeof kShader_yuv2rgb, yuv, 4, 0) ||
+    if (!createPipeline(g.yuv, kShader_yuv2rgb, sizeof kShader_yuv2rgb, yuv, 4, 20) ||
         !createPipeline(g.easu, kShader_easu, sizeof kShader_easu, easu, 2, 64) ||
         !createPipeline(g.rcas, kShader_rcas, sizeof kShader_rcas, rcas, 3, 24)) {
         XC_LOGE("gpu: the FSR pipelines");
@@ -490,7 +492,7 @@ bool videoImages(uint32_t w, uint32_t h) {
         XC_LOGE("gpu: video images %ux%u", w, h);
         return false;
     }
-    writeSampled(g.yuvSet, 0, g.luma.view, g.nearest);
+    writeSampled(g.yuvSet, 0, g.luma.view, g.linear);  // deband samples between pixels
     writeSampled(g.yuvSet, 1, g.chromaU.view, g.linear);
     writeSampled(g.yuvSet, 2, g.chromaV.view, g.linear);
     writeStorage(g.yuvSet, 3, g.rgb.view);
@@ -646,6 +648,16 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int stride
     memoryBarrier();  // the planes copied
     vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.yuv.pipeline);
     vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.yuv.layout, 0, 1, &g.yuvSet, 0, nullptr);
+    // Deband: low smooths steps up to ~2 code values in one pass, high up
+    // to ~4 in two (libplacebo's defaults are close to low).
+    int deband = g_deband;
+    struct {
+        uint32_t iterations;
+        float threshold, radius, grain;
+        uint32_t frame;
+    } yuvPc{deband >= 2 ? 2u : deband == 1 ? 1u : 0u, deband >= 2 ? 0.016f : 0.008f, 16.0f,
+            deband >= 2 ? 0.005f : 0.003f, ++g_frame};
+    vkCmdPushConstants(g.cmd, g.yuv.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof yuvPc, &yuvPc);
     vkCmdDispatch(g.cmd, (g.rgb.w + 7) / 8, (g.rgb.h + 7) / 8, 1);
     memoryBarrier();
     recordUpscale(g.easuVideoSet, g.rgb.w, g.rgb.h, g_sharpness, overlay);
@@ -714,6 +726,8 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
 }
 
 void setSharpness(int amount) { g_sharpness = std::clamp(amount, 0, 256); }
+
+void setDeband(int level) { g_deband = std::clamp(level, 0, 2); }
 
 bool readBack(std::vector<uint8_t>& rgb, int& width, int& height) {
     if (!g.ready || g.lastPresented == UINT32_MAX) return false;
