@@ -931,6 +931,13 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
     switch (tab_) {
         case Tab::Consoles: {
             int n = static_cast<int>(consoles_.size());
+            // Search again: Cross with none listed, Triangle otherwise.
+            if (consolesKnown_ && ((n == 0 && in.accept) || in.triangle)) {
+                if (n == 0) consolesKnown_ = false;  // the spinner while it looks
+                ev.action = Action::ConsolesShown;
+                dirty_ = true;
+                break;
+            }
             if (n == 0) break;
             int before = consoleFocus_;
             if (in.right && consoleFocus_ + 1 < n) ++consoleFocus_;
@@ -1421,6 +1428,24 @@ void AppUi::drawTabs(Canvas& c) {
 
 namespace {
 
+// A QR code of `url` on a white card whose top-right corner is (right, top),
+// about `target` px of code; the card's rect (empty when it can't be encoded).
+Rect drawQr(Canvas& c, const std::string& url, int right, int top, int target) {
+    uint8_t qr[qrcodegen_BUFFER_LEN_MAX], tmp[qrcodegen_BUFFER_LEN_MAX];
+    if (!qrcodegen_encodeText(url.c_str(), tmp, qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
+                              qrcodegen_Mask_AUTO, true))
+        return {};
+    int n = qrcodegen_getSize(qr);
+    int module = target / (n + 2), size = module * (n + 2);
+    Rect box{right - size - 40, top, size + 40, size + 40};
+    c.fillRect(box, kWhite, 20);
+    int ox = box.x + 20 + module, oy = box.y + 20 + module;
+    for (int yy = 0; yy < n; ++yy)
+        for (int xx = 0; xx < n; ++xx)
+            if (qrcodegen_getModule(qr, xx, yy)) c.fillRect({ox + xx * module, oy + yy * module, module, module}, kBg);
+    return box;
+}
+
 const char* platformLabel(const std::string& code) {
     if (code == "360") return "XBOX 360";
     if (code == "ONE") return "XBOX ONE";
@@ -1680,14 +1705,34 @@ void AppUi::drawConsoles(Canvas& c, uint64_t nowMs) {
             drawSpinner(c, kW / 2.0f, 520, 26, nowMs);
             drawCentered(c, fonts_.semibold, tr(Str::ConsolesLoading), 580, 28, kGray);
             animating_ = true;
+            drawHints(c, {{kIconOptions, tr(Str::Settings)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
         } else {
-            int y = 480;
-            for (const auto& line : fonts_.regular.wrap(tr(Str::NoConsoles), 28, 1200, 3)) {
-                drawCentered(c, fonts_.regular, line, y, 28, kGray);
-                y += 42;
+            // How a console shows up: three numbered steps, and Microsoft's
+            // help on the phone.
+            fonts_.bold.draw(c, tr(Str::NoConsoles), kMargin, 340, 40, kWhite);
+            int y = 420;
+            const Str steps[] = {Str::ConsoleStep1, Str::ConsoleStep2, Str::ConsoleStep3};
+            for (int i = 0; i < 3; ++i) {
+                c.fillCircle(static_cast<float>(kMargin + 22), static_cast<float>(y + 20), 22, kGreen);
+                std::string num = std::to_string(i + 1);
+                fonts_.bold.draw(c, num, kMargin + 22 - fonts_.bold.measure(num, 24) / 2,
+                                 fonts_.bold.centeredY(y - 2, 44, 24), 24, kWhite);
+                for (const auto& line : fonts_.regular.wrap(tr(steps[i]), 28, 980, 2)) {
+                    fonts_.regular.draw(c, line, kMargin + 70, y + 2, 28, kGray);
+                    y += 40;
+                }
+                y += 34;
             }
+            Rect box = drawQr(c, "https://support.xbox.com/help/games-apps/game-setup-and-play/how-to-use-remote-play",
+                              kW - kMargin, 330, 340);
+            if (box.w > 0) {
+                int w = fonts_.semibold.measure(tr(Str::ScanForHelp), 24);
+                fonts_.semibold.draw(c, tr(Str::ScanForHelp), box.x + (box.w - w) / 2, box.y + box.h + 22, 24, kWhite);
+            }
+            drawHints(c, {{kIconCross, tr(Str::SearchAgain)},
+                          {kIconOptions, tr(Str::Settings)},
+                          {kIconTouchpad, tr(Str::HoldSignOut)}});
         }
-        drawHints(c, {{kIconOptions, tr(Str::Settings)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
         drawPads(c);
         return;
     }
@@ -1725,7 +1770,10 @@ void AppUi::drawConsoles(Canvas& c, uint64_t nowMs) {
         c.fillCircle(static_cast<float>(x + 32), static_cast<float>(kTop + 336), 6, on ? rgba(60, 200, 60) : kDim);
         fonts_.semibold.draw(c, state, x + 48, kTop + 322, 24, on ? kWhite : kGray);
     }
-    drawHints(c, {{kIconCross, tr(Str::Play)}, {kIconOptions, tr(Str::Settings)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
+    drawHints(c, {{kIconCross, tr(Str::Play)},
+                  {kIconTriangle, tr(Str::SearchAgain)},
+                  {kIconOptions, tr(Str::Settings)},
+                  {kIconTouchpad, tr(Str::HoldSignOut)}});
     drawPads(c);
 }
 
@@ -1875,18 +1923,8 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
                 ty += 34;
             }
         }
-        std::string url = "https://www.xbox.com/games/store/p/" + g->productId;
-        uint8_t qr[qrcodegen_BUFFER_LEN_MAX], tmp[qrcodegen_BUFFER_LEN_MAX];
-        if (qrcodegen_encodeText(url.c_str(), tmp, qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN,
-                                 qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true)) {
-            int n = qrcodegen_getSize(qr);
-            int module = 440 / (n + 2), size = module * (n + 2);
-            Rect box{kW - kMargin - size - 40, 190, size + 40, size + 40};
-            c.fillRect(box, kWhite, 20);
-            int ox = box.x + 20 + module, oy = box.y + 20 + module;
-            for (int yy = 0; yy < n; ++yy)
-                for (int xx = 0; xx < n; ++xx)
-                    if (qrcodegen_getModule(qr, xx, yy)) c.fillRect({ox + xx * module, oy + yy * module, module, module}, kBg);
+        Rect box = drawQr(c, "https://www.xbox.com/games/store/p/" + g->productId, kW - kMargin, 190, 440);
+        if (box.w > 0) {
             const char* scan = tr(g->freeInStore ? Str::ScanToGet : Str::ScanToBuy);
             int w = fonts_.semibold.measure(scan, 26);
             fonts_.semibold.draw(c, scan, box.x + (box.w - w) / 2, box.y + box.h + 22, 26, kWhite);

@@ -162,10 +162,15 @@ constexpr Column kEnglish = {
     "Sleeping",                                      // ConsoleSleeping
     "Off",                                           // ConsoleOff
     "Looking for your consoles...",                  // ConsolesLoading
-    "No Xbox found. On your Xbox, turn on Settings > Devices & connections > Remote features, with the Sleep power mode.", // NoConsoles
+    "No Xbox found yet",                       // NoConsoles
     "Play your own Xbox here: its screen, games and apps.", // ConsolesHint
     "Waking up your Xbox...",                        // WakingConsole
     "%s did not answer. Check that Remote features are on and the power mode is Sleep, or turn it on, then try again.", // WakeFailed
+    "On your Xbox, sign in with this same Microsoft account.", // ConsoleStep1
+    "Settings > Devices & connections > Remote features: turn on remote features.", // ConsoleStep2
+    "Settings > General > Power options: choose Sleep, so it wakes up by itself.", // ConsoleStep3
+    "Scan for Microsoft's help",                     // ScanForHelp
+    "Search again",                                  // SearchAgain
 };
 
 constexpr Column kPortugueseBR = {
@@ -298,10 +303,15 @@ constexpr Column kPortugueseBR = {
     "Em espera",
     "Desligado",
     "Procurando seus consoles...",
-    "Nenhum Xbox encontrado. No seu Xbox, ative Configurações > Dispositivos e conexões > Recursos remotos, com o modo de energia Suspensão.",
+    "Nenhum Xbox encontrado ainda",
     "Jogue no seu próprio Xbox por aqui: a tela, os jogos e os apps dele.",
     "Ligando o seu Xbox...",
     "%s não respondeu. Confira se os Recursos remotos estão ativos e o modo de energia é Suspensão, ou ligue o console, e tente de novo.",
+    "No seu Xbox, entre com esta mesma conta Microsoft.",
+    "Configurações > Dispositivos e conexões > Recursos remotos: ative os recursos remotos.",
+    "Configurações > Geral > Opções de energia: escolha Suspensão, para ele acordar sozinho.",
+    "Escaneie para a ajuda da Microsoft",
+    "Procurar de novo",
 };
 
 constexpr Column kSpanish = {
@@ -434,10 +444,15 @@ constexpr Column kSpanish = {
     "En reposo",
     "Apagada",
     "Buscando tus consolas...",
-    "No se encontró ninguna Xbox. En tu Xbox, activa Configuración > Dispositivos y conexiones > Funciones remotas, con el modo de energía Suspensión.",
+    "Aún no se encontró ninguna Xbox",
     "Juega en tu propia Xbox desde aquí: su pantalla, juegos y aplicaciones.",
     "Encendiendo tu Xbox...",
     "%s no respondió. Comprueba que las Funciones remotas estén activadas y el modo de energía sea Suspensión, o enciéndela, y vuelve a intentarlo.",
+    "En tu Xbox, inicia sesión con esta misma cuenta Microsoft.",
+    "Configuración > Dispositivos y conexiones > Funciones remotas: activa las funciones remotas.",
+    "Configuración > General > Opciones de energía: elige Suspensión, para que se encienda sola.",
+    "Escanea para ver la ayuda de Microsoft",
+    "Buscar de nuevo",
 };
 
 constexpr Column kFrench = {
@@ -570,10 +585,15 @@ constexpr Column kFrench = {
     "En veille",
     "Éteinte",
     "Recherche de vos consoles...",
-    "Aucune Xbox trouvée. Sur votre Xbox, activez Paramètres > Appareils et connexions > Fonctionnalités à distance, avec le mode d'alimentation Veille.",
+    "Aucune Xbox trouvée pour l'instant",
     "Jouez sur votre propre Xbox d'ici : son écran, ses jeux et ses applications.",
     "Réveil de votre Xbox...",
     "%s n'a pas répondu. Vérifiez que les fonctionnalités à distance sont activées et le mode Veille choisi, ou allumez-la, puis réessayez.",
+    "Sur votre Xbox, connectez-vous avec ce même compte Microsoft.",
+    "Paramètres > Appareils et connexions > Fonctionnalités à distance : activez-les.",
+    "Paramètres > Général > Options d'alimentation : choisissez Veille, pour qu'elle se réveille seule.",
+    "Scannez pour l'aide de Microsoft",
+    "Rechercher à nouveau",
 };
 
 constexpr Column kGerman = {
@@ -706,10 +726,15 @@ constexpr Column kGerman = {
     "Im Standby",
     "Aus",
     "Deine Konsolen werden gesucht...",
-    "Keine Xbox gefunden. Aktiviere auf deiner Xbox Einstellungen > Geräte & Verbindungen > Remotefunktionen, mit dem Energiemodus Ruhezustand.",
+    "Noch keine Xbox gefunden",
     "Spiele hier auf deiner eigenen Xbox: ihr Bildschirm, ihre Spiele und Apps.",
     "Deine Xbox wird geweckt...",
     "%s hat nicht geantwortet. Prüfe, ob die Remotefunktionen aktiv sind und der Energiemodus Ruhezustand ist, oder schalte sie ein und versuche es erneut.",
+    "Melde dich auf deiner Xbox mit genau diesem Microsoft-Konto an.",
+    "Einstellungen > Geräte & Verbindungen > Remotefunktionen: Remotefunktionen aktivieren.",
+    "Einstellungen > Allgemein > Energieoptionen: Ruhezustand wählen, damit sie von selbst aufwacht.",
+    "Scannen für die Hilfe von Microsoft",
+    "Erneut suchen",
 };
 
 constexpr Column kItalian = {
@@ -842,10 +867,15 @@ constexpr Column kItalian = {
     "In standby",
     "Spenta",
     "Ricerca delle tue console...",
-    "Nessuna Xbox trovata. Sulla tua Xbox attiva Impostazioni > Dispositivi e connessioni > Funzionalità remote, con la modalità di alimentazione Sospensione.",
+    "Nessuna Xbox trovata per ora",
     "Gioca sulla tua Xbox da qui: il suo schermo, i giochi e le app.",
     "Accensione della tua Xbox...",
     "%s non ha risposto. Controlla che le Funzionalità remote siano attive e la modalità sia Sospensione, oppure accendila, e riprova.",
+    "Sulla tua Xbox, accedi con questo stesso account Microsoft.",
+    "Impostazioni > Dispositivi e connessioni > Funzionalità remote: attiva le funzionalità remote.",
+    "Impostazioni > Generale > Opzioni di alimentazione: scegli Sospensione, così si accende da sola.",
+    "Scansiona per l'aiuto di Microsoft",
+    "Cerca di nuovo",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

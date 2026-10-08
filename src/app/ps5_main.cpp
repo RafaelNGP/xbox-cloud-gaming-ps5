@@ -158,7 +158,8 @@ int g_autoplaySeconds = 0;
 bool g_autoplayDump = false;
 int g_autoplayRuns = 1;
 bool g_autoplayIdle = false;
-bool g_autoplayConsolesTab = false;  // autoplay "consolestab": open My consoles, save consoles.ppm
+bool g_autoplayConsolesTab = false;
+bool g_autoplayConsolesEmpty = false;  // with "consolestab": as if none were found  // autoplay "consolestab": open My consoles, save consoles.ppm
 bool g_autoplayConsoles = false;  // autoplay "consoles": log the account's own consoles (xhome)
 bool g_autoplayPad = false;  // autoplay "pad": the physical pad stays in use, its buttons logged
 bool g_autoplayDetailTest = false;  // open a game to buy far down the list, save its page
@@ -208,6 +209,7 @@ void loadAutoplay() {
         if (opt == "pad") g_autoplayPad = true;
         if (opt == "consoles") g_autoplayConsoles = true;
         if (opt == "consolestab") g_autoplayConsolesTab = true;
+        if (opt == "consolesempty") g_autoplayConsolesTab = g_autoplayConsolesEmpty = true;
         if (opt == "librarytest") g_autoplayLibraryTest = true;
         if (opt == "imetest") g_autoplayImeTest = true;
         if (opt == "menutest") g_autoplayMenuTest = true;
@@ -1320,6 +1322,7 @@ int main(int argc, char** argv) {
             static uint64_t shownAt = 0;
             if (!shownAt) {
                 g_ui->showTab(ui::Tab::Consoles);
+                if (g_autoplayConsolesEmpty) g_ui->setConsoles({}, true);
                 shownAt = now;
             } else if (now - shownAt > 3000) {
                 saveCanvas("consoles.ppm");
