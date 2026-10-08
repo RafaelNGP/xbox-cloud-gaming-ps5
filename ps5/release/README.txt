@@ -4,10 +4,11 @@ PSBox Cloud Gaming - version @VERSION@
 Native Xbox Cloud Gaming (xCloud) client for jailbroken PS5 consoles:
 browse the cloud catalog and stream games at 1080p60 with sound, using
 the DualSense as an Xbox controller. The picture is upscaled to 4K on
-the PS5's GPU (AMD FidelityFX FSR 1).
+the PS5's GPU (AMD FidelityFX FSR 1, or Anime4K).
 
-You need a Microsoft account with a subscription that includes cloud
-gaming (Game Pass Ultimate).
+You need a Microsoft account; Game Pass Ultimate for most of the
+catalog. Free-to-play games stream without it once they are on your
+account (see "Free-to-play games").
 
 Unofficial project, not affiliated with, endorsed or sponsored by
 Microsoft or Sony.
@@ -62,13 +63,18 @@ In game: the DualSense acts as an Xbox controller
 Game menu
 ---------
 OPTIONS + TOUCHPAD during a game: resume, the statistics line over the
-game, sharpness (off / low / medium / high: sharpens the picture's
-edges), block smoothing (off / low / high: smooths the squares
+game, upscaling (FSR, or AI: Anime4K, crisper outlines and text but
+it also sharpens compression noise), sharpness (off / low / medium /
+high: sharpens the picture's edges), block smoothing (off / low / high: smooths the squares
 compression leaves in dark, flat areas; low keeps textures best),
 stream resolution (720p / 1080p / 1440p, changed in a few seconds),
 refresh the picture, and leave the game. It also shows the
-connection (region, latency, bitrate, frame rate, packet loss) and the
-controllers in use.
+connection (region, latency, bitrate, frame rate, packet loss, and how
+long a frame takes from the network to the TV) and the controllers in
+use.
+
+If the connection drops for a moment, the stream reconnects by itself
+and the game goes on where it was.
 
 
 Local multiplayer
@@ -89,16 +95,25 @@ experimental, only granted where Microsoft offers it, otherwise you
 still get 1080p), server region (Automatic, or a specific Azure
 region, with the latency measured in your past sessions), the sticks'
 dead zone (raise it if a stick drifts), trigger vibration on or off,
-and the confirm button (Cross, or Circle as on Japanese consoles: it
+the light bar in the colour of the game in focus, and the confirm button (Cross, or Circle as on Japanese consoles: it
 then acts as Xbox A in games too). Saved in
 /data/homebrew/@TITLE_ID@/settings.json.
 
 When a new version is out, a notification says so after sign-in.
 
 
+Free-to-play games
+------------------
+The home screen has a row of free-to-play games. Each one must be added
+to your account once, for free: a game you don't have yet shows FREE,
+and its page has a QR code of its store page. Scan it with your phone,
+choose Get, then press Play. If you press Play first, the app says what
+to do, and Cross tries again.
+
+
 Your games
 ----------
-Games your account owns outside Game Pass, then "Available to buy":
+Games your account owns (bought, or got free), then "Available to buy":
 games that stream in the cloud once bought, with their store price. A
 game's page shows a QR code of its store page: buy it on your phone (or
 on xbox.com / in the Xbox app) and it appears in Your games.
