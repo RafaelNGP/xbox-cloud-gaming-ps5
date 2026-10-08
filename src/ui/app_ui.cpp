@@ -330,6 +330,12 @@ void AppUi::rebuild(bool keepPosition) {
     dirty_ = true;
 }
 
+void AppUi::setAllow1440(bool on) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    allow1440_ = on;
+    dirty_ = true;
+}
+
 void AppUi::setConsoles(std::vector<ConsoleTile> consoles, bool known) {
     std::lock_guard<std::mutex> lock(mutex_);
     consoles_ = std::move(consoles);
@@ -736,7 +742,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
     if (row == 0) {
         for (int i = 0; i < static_cast<int>(Language::Count); ++i) out.push_back(languageName(static_cast<Language>(i)));
     } else if (row == 1) {
-        out = {tr(Str::Res720), tr(Str::Res1080), tr(Str::Res1440)};  // kResolutionOrder
+        out = {tr(Str::Res720), tr(Str::Res1080)};  // kResolutionOrder
+        if (allow1440_) out.push_back(tr(Str::Res1440));
     } else if (row == 3) {
         for (int p : kDeadzonePercent) out.push_back(std::to_string(p) + " %");
     } else if (row == 4) {
@@ -757,9 +764,11 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
 int AppUi::settingSelected(int row) const {
     // Caller holds mutex_.
     if (row == 0) return settings_.language;
-    if (row == 1)
+    if (row == 1) {
+        if (settings_.resolution == 2 && !allow1440_) return 1;  // 1440p saved, not offered: 1080p
         for (int i = 0; i < 3; ++i)
             if (kResolutionOrder[i] == settings_.resolution) return i;
+    }
     if (row == 3) return settings_.deadzone;
     if (row == 4) return settings_.triggerRumble ? 0 : 1;
     if (row == 5) return settings_.circleConfirms ? 1 : 0;

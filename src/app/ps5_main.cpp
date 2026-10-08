@@ -159,6 +159,7 @@ bool g_autoplayDump = false;
 int g_autoplayRuns = 1;
 bool g_autoplayIdle = false;
 bool g_autoplayConsolesTab = false;
+bool g_autoplaySettingsTest = false;  // autoplay "settingstest": open the resolution list, save settings.ppm
 bool g_autoplayConsolesEmpty = false;  // with "consolestab": as if none were found  // autoplay "consolestab": open My consoles, save consoles.ppm
 bool g_autoplayConsoles = false;  // autoplay "consoles": log the account's own consoles (xhome)
 bool g_autoplayPad = false;  // autoplay "pad": the physical pad stays in use, its buttons logged
@@ -177,7 +178,16 @@ int g_autoplayDeband = -1;            // deband=0..2: instead of the setting
 int g_autoplaySharpness = -1;         // sharp=0..3: instead of the setting
 std::string g_autoplayResolution;     // res=720p|1080p|1440p: instead of the setting
 std::atomic<bool> g_syntheticA{false};
-std::atomic<bool> g_playingHome{false};      // the stream is the user's own Xbox
+std::atomic<bool> g_playingHome{false};
+// This stream measures the tallest picture its kind delivers (asked for the
+// top tier), then asks for g_afterProbeAlias if not empty.
+bool g_probing = false;
+std::string g_afterProbeAlias;
+std::atomic<bool> g_tierPicked{false};  // the game menu chose a tier: the probe leaves it
+constexpr int64_t kReprobeSeconds = 7 * 24 * 3600;
+
+// Caller holds g_settingsMutex. 1440p is offered once a stream delivered it.
+bool allow1440Locked() { return std::max(g_settings.maxHeightCloud, g_settings.maxHeightHome) >= 1440; }      // the stream is the user's own Xbox
 std::atomic<uint64_t> g_xboxButtonUntil{0};  // the game menu's Xbox button, held until then (ms)
 
 void loadAutoplay() {
@@ -211,6 +221,7 @@ void loadAutoplay() {
         if (opt == "pad") g_autoplayPad = true;
         if (opt == "consoles") g_autoplayConsoles = true;
         if (opt == "consolestab") g_autoplayConsolesTab = true;
+        if (opt == "settingstest") g_autoplaySettingsTest = true;
         if (opt == "consolesempty") g_autoplayConsolesTab = g_autoplayConsolesEmpty = true;
         if (opt == "librarytest") g_autoplayLibraryTest = true;
         if (opt == "imetest") g_autoplayImeTest = true;
@@ -302,6 +313,18 @@ std::string stream(xcloud::GssvClient& gssv) {
     bool snapshot1 = false, snapshot2 = false;
     bool autoplayDone = false;
     int bestRtt = -1;  // lowest round trip seen: the region's latency
+    int tallest = 0;   // the tallest picture seen (the probe's measure)
+    bool probeDone = !g_probing;
+    auto recordProbe = [&] {
+        probeDone = true;
+        if (tallest <= 0) return;
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        (gssv.isHome() ? g_settings.maxHeightHome : g_settings.maxHeightCloud) = tallest;
+        (gssv.isHome() ? g_settings.probedHome : g_settings.probedCloud) = auth::unixNow();
+        g_settings.save(settingsPath());
+        g_ui->setAllow1440(allow1440Locked());
+        XC_LOGI("resolution probe (%s): %dp at most", gssv.isHome() ? "own Xbox" : "cloud", tallest);
+    };
     app::StreamPlayer::Stats last{};
     while (player.running() && !g_cancel) {
         uint64_t elapsed = platform::nowMs() - started;
@@ -346,6 +369,11 @@ std::string stream(xcloud::GssvClient& gssv) {
                     static_cast<unsigned long long>(st.lateFrames), st.rttMs, st.width, st.height,
                     st.displayAvgUs / 1000.0, st.displayMaxUs / 1000.0);
             if (st.rttMs > 0 && (bestRtt < 0 || st.rttMs < bestRtt)) bestRtt = st.rttMs;
+            tallest = std::max(tallest, st.height);
+            if (!probeDone && platform::nowMs() - started >= 20000) {
+                recordProbe();
+                if (!g_afterProbeAlias.empty() && !g_tierPicked) player.requestResolution(g_afterProbeAlias);
+            }
             {
                 ui::StreamInfo info;
                 info.region = ui::prettyRegion(gssv.region().name);
@@ -370,6 +398,7 @@ std::string stream(xcloud::GssvClient& gssv) {
         std::lock_guard<std::mutex> lock(g_playerMutex);
         g_player = nullptr;
     }
+    if (!probeDone && player.stats().decodedFrames > 0) recordProbe();  // a short stream still measured
     std::string reason = g_cancel ? "left the game" : autoplayDone ? "autoplay finished" : player.endReason();
     player.stop();
     if (bestRtt > 0) {
@@ -409,10 +438,32 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         const std::string& res = g_autoplayResolution.empty() ? g_settings.resolution : g_autoplayResolution;
-        gssv.setResolution(res == "720p"       ? xcloud::Resolution::P720
-                           : res == "1440p"    ? xcloud::Resolution::P1440
-                           : res == "1080p-hq" ? xcloud::Resolution::P1080HQ
-                                               : xcloud::Resolution::P1080);
+        // What each kind of stream can deliver is measured, not assumed: the
+        // first stream (and one a week) asks for the top tier and records
+        // the picture's height. The user's own Xbox always gets the top tier
+        // (it sends 1080p either way, at ~16 Mbps instead of ~9.5).
+        bool home = gssv.isHome();
+        int64_t now = auth::unixNow();
+        int known = home ? g_settings.maxHeightHome : g_settings.maxHeightCloud;
+        int64_t probed = home ? g_settings.probedHome : g_settings.probedCloud;
+        g_probing = g_autoplayResolution.empty() && res != "720p" && (known == 0 || now - probed > kReprobeSeconds);
+        g_afterProbeAlias.clear();
+        g_tierPicked = false;
+        xcloud::Resolution tier;
+        if (!g_autoplayResolution.empty())
+            tier = res == "720p"       ? xcloud::Resolution::P720
+                   : res == "1440p"    ? xcloud::Resolution::P1440
+                   : res == "1080p-hq" ? xcloud::Resolution::P1080HQ
+                                       : xcloud::Resolution::P1080;
+        else if (res == "720p")
+            tier = xcloud::Resolution::P720;
+        else if (home || g_probing || (res == "1440p" && known >= 1440))
+            tier = xcloud::Resolution::P1440;
+        else
+            tier = xcloud::Resolution::P1080;
+        // A cloud probe goes back to what the user chose once measured.
+        if (g_probing && !home && !(res == "1440p")) g_afterProbeAlias = "1080HQ";
+        gssv.setResolution(tier);
         const xcloud::Region* region = gssv.session().defaultRegion();
         const std::string& wanted = regionName.empty() ? g_settings.region : regionName;
         for (const auto& r : gssv.session().regions)
@@ -719,7 +770,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         library->hydrate(changed, &g_stopHydration);
     });
     if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH" && !g_autoplayDetailTest && !g_autoplayLibraryTest &&
-        !g_autoplayConsolesTab &&
+        !g_autoplayConsolesTab && !g_autoplaySettingsTest &&
         !g_autoplayImeTest && !g_autoplayVibeTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
@@ -933,6 +984,7 @@ int main(int argc, char** argv) {
         choice.triggerRumble = g_settings.triggerRumble;
         choice.circleConfirms = g_settings.circleConfirms;
         choice.lightBar = g_settings.lightBar;
+        g_ui->setAllow1440(allow1440Locked());
         g_ui->setSettings(choice);
         applyControllerSettings();
         g_ui->setRegionLatency(g_settings.regionRtt);
@@ -978,6 +1030,7 @@ int main(int argc, char** argv) {
     uint32_t overlaySeq = 0;  // g_infoSeq + 1 when drawn; 0 = redraw
     uint64_t homeSince = 0, launchSince = 0;
     bool uiSaved = false, launchSaved = false;
+    bool settingsShot = false;  // autoplay "settingstest": save the screen now
     for (;;) {
         input::poll(pad);
         // Autoplay runs unattended: the physical pad must not interfere
@@ -1080,6 +1133,23 @@ int main(int argc, char** argv) {
             }
         }
 
+        if (g_autoplaySettingsTest && uiSaved) {
+            // Settings, down to the resolution, open its list; saved 2 s later.
+            static uint64_t since = 0;
+            static int step = 0;
+            if (!since) since = now;
+            const uint64_t at[] = {500, 1500, 2500, 4500};
+            if (step < 4 && now - since >= at[step]) {
+                if (step == 0) nav.options = true;
+                if (step == 1) nav.down = true;
+                if (step == 2) nav.accept = true;
+                if (step == 3) {
+                    settingsShot = true;  // saved below, once drawn
+                    g_autoplaySettingsTest = false;
+                }
+                ++step;
+            }
+        }
         if (g_ui->screen() == ui::Screen::Streaming) {
             std::lock_guard<std::mutex> lock(g_playerMutex);
             if (g_player != overlayPlayer || (g_player && g_player->reconnects() != playerReconnects)) {
@@ -1109,7 +1179,12 @@ int main(int argc, char** argv) {
                 if (!wasOpen && (menuCombo || swipeMenu) && g_keyboardFor.empty()) {
                     swipeMenu = false;
                     menu.setCircleConfirms(g_settings.circleConfirms);
-                    menu.open(streamResolution, showStats, sharpness, deband, upscaler, g_playingHome);
+                    bool allow1440;
+                    {
+                        std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                        allow1440 = allow1440Locked();
+                    }
+                    menu.open(streamResolution, showStats, sharpness, deband, upscaler, g_playingHome, allow1440);
                     overlaySeq = 0;
                 } else if (wasOpen) {
                     switch (menu.handle(nav)) {
@@ -1123,9 +1198,11 @@ int main(int argc, char** argv) {
                     case ui::MenuAction::Close: g_player->requestKeyframe(); break;  // a clean picture back in the game
                     case ui::MenuAction::Resolution:
                         streamResolution = menu.resolution();
-                        g_player->requestResolution(streamResolution == 1   ? "720HQ"
-                                                    : streamResolution == 2 ? "1440"
-                                                                            : "1080HQ");
+                        g_tierPicked = true;
+                        // The user's own Xbox: 1080p is its top tier ("1440").
+                        g_player->requestResolution(streamResolution == 1 ? "720HQ"
+                                                    : streamResolution == 2 || g_playingHome ? "1440"
+                                                                                              : "1080HQ");
                         break;
                     case ui::MenuAction::Sharpness: {
                         sharpness = menu.sharpness();
@@ -1403,6 +1480,11 @@ int main(int argc, char** argv) {
                 g_autoplayDetailTest = false;
                 XC_LOGI("AUTOPLAY END: detail test");
             }
+        }
+        if (settingsShot) {
+            settingsShot = false;
+            saveCanvas("settings.ppm");
+            XC_LOGI("AUTOPLAY END: settings test");
         }
         if (g_autoplayConsolesTab && uiSaved) {
             static uint64_t shownAt = 0;

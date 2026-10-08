@@ -163,6 +163,8 @@ public:
     // on the phone meanwhile): Cross plays it again, Circle opens its page.
     void showPlayError(const std::string& message, const GameTile& game);
     void setSettings(const SettingsChoice& choice);
+    // Whether 1440p is offered (a stream delivered it); false hides it.
+    void setAllow1440(bool on);
     // The confirm button in force (the hints show it); Settings may be
     // showing another choice not saved yet.
     void setCircleConfirms(bool on);
@@ -269,6 +271,7 @@ private:
     Anim rowY_;
     Tab tab_ = Tab::GamePass;
     std::vector<ConsoleTile> consoles_;
+    bool allow1440_ = false;
     bool consolesKnown_ = false;
     int consoleFocus_ = 0;
     std::vector<GameTile> owned_, purchasable_, hiddenTiles_;  // as shown

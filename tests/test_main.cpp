@@ -248,6 +248,14 @@ static void testStreamMenu() {
     CHECK(!menu.isOpen());
     menu.open(1, true);
     CHECK(press([](xc::ui::NavInput& n) { n.back = true; }) == MenuAction::Close);
+    // 1440p not offered: a saved 1440p shows as 1080p, and the row cycles 720p / 1080p.
+    menu.open(2, false, 0, 1, 0, false, false);
+    CHECK(menu.resolution() == 0);
+    for (int i = 0; i < 5; ++i) press([](xc::ui::NavInput& n) { n.down = true; });  // to the resolution
+    press([](xc::ui::NavInput& n) { n.right = true; });
+    CHECK(menu.resolution() == 1);  // 1080p -> wraps to 720p
+    press([](xc::ui::NavInput& n) { n.right = true; });
+    CHECK(menu.resolution() == 0);  // back to 1080p, never 1440p
 }
 
 int main() {
