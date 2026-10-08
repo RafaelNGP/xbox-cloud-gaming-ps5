@@ -3,7 +3,8 @@ PSBox Cloud Gaming - version @VERSION@
 
 Native Xbox Cloud Gaming (xCloud) client for jailbroken PS5 consoles:
 browse the cloud catalog and stream games at 1080p60 with sound, using
-the DualSense as an Xbox controller.
+the DualSense as an Xbox controller. The picture is upscaled to 4K on
+the PS5's GPU (AMD FidelityFX FSR 1).
 
 You need a Microsoft account with a subscription that includes cloud
 gaming (Game Pass Ultimate).
@@ -62,8 +63,10 @@ Game menu
 ---------
 OPTIONS + TOUCHPAD during a game: resume, the statistics line over the
 game, sharpness (off / low / medium / high: sharpens the picture's
-edges), stream resolution (720p / 1080p / 1440p, changed in a few
-seconds), refresh the picture, and leave the game. It also shows the
+edges), block smoothing (off / low / high: smooths the squares
+compression leaves in dark, flat areas; low keeps textures best),
+stream resolution (720p / 1080p / 1440p, changed in a few seconds),
+refresh the picture, and leave the game. It also shows the
 connection (region, latency, bitrate, frame rate, packet loss) and the
 controllers in use.
 
