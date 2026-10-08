@@ -356,6 +356,13 @@ bool GssvClient::listConsoles(std::vector<Console>& out, std::string& err) {
         return false;
     }
     for (const auto& c : (*j)["results"].items()) {
+        static bool keysLogged = false;  // which fields the service sends (names only)
+        if (!keysLogged) {
+            keysLogged = true;
+            std::string keys;
+            for (const auto& [k, v] : c.members()) keys += k + (v.isString() ? "" : "*") + " ";
+            XC_LOGI("console fields: %s", keys.c_str());
+        }
         Console con;
         con.serverId = c["serverId"].str();
         con.deviceName = c["deviceName"].str();
@@ -543,8 +550,8 @@ bool GssvClient::keepalive(std::string& err) {
 
 void GssvClient::stopSession() {
     if (sessionPath_.empty()) return;
-    net::perform(authed(resolution_, login_, "DELETE", sessionUrl("")));
-    XC_LOGI("session stopped: %s", sessionPath_.c_str());
+    auto r = net::perform(authed(resolution_, login_, "DELETE", sessionUrl("")));
+    XC_LOGI("session stopped: %s (%s)", sessionPath_.c_str(), r.ok() ? "ok" : describe(r).c_str());
     sessionPath_.clear();
 }
 

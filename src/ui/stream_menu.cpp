@@ -29,13 +29,14 @@ std::string fmt(const char* f, double v) {
 
 }  // namespace
 
-void StreamMenu::open(int resolution, bool stats, int sharpness, int deband, int upscaler) {
+void StreamMenu::open(int resolution, bool stats, int sharpness, int deband, int upscaler, bool homeConsole) {
     open_ = true;
+    homeConsole_ = homeConsole;
     stats_ = stats;
     sharpness_ = sharpness;
     deband_ = deband;
     upscaler_ = upscaler;
-    selected_ = Resume;
+    selected_ = XboxButton;
     resolution_ = applied_ = resolution;
     resolutionAsked_ = false;
 }
@@ -73,13 +74,12 @@ MenuAction StreamMenu::handle(const NavInput& in) {
     }
     if (!in.accept) return MenuAction::None;
     switch (selected_) {
-    case Resume: open_ = false; return MenuAction::Close;
+    case XboxButton: open_ = false; return MenuAction::XboxButton;
     case Stats: stats_ = !stats_; return MenuAction::Stats;
     case Resolution:
         applied_ = resolution_;
         resolutionAsked_ = true;
         return MenuAction::Resolution;
-    case Refresh: return MenuAction::Refresh;
     case Leave: open_ = false; return MenuAction::Leave;
     default: return MenuAction::None;
     }
@@ -100,13 +100,13 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         if (sel) c.fillRect(row, kWhite, 8);
         Color fg = sel ? kDark : kWhite;
         int ty = fonts_.semibold.centeredY(row.y, row.h, kPx);
-        const char* label = i == Resume       ? tr(Str::MenuResume)
+        const char* label = i == XboxButton   ? tr(Str::MenuXboxButton)
                             : i == Stats      ? tr(Str::MenuStats)
                             : i == Sharpness  ? tr(Str::MenuSharpness)
                             : i == Deband     ? tr(Str::MenuDeband)
                             : i == Upscaler   ? tr(Str::MenuUpscaler)
                             : i == Resolution ? tr(Str::MenuResolution)
-                            : i == Refresh    ? tr(Str::MenuRefresh)
+                            : homeConsole_    ? tr(Str::MenuEndStream)
                                               : tr(Str::MenuLeave);
         fonts_.semibold.draw(c, label, row.x + 16, ty, kPx, fg);
         std::string value;
