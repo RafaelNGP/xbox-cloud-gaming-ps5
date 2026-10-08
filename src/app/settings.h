@@ -34,7 +34,11 @@ struct Settings {
     bool circleConfirms = false;
     // The DualSense light bar takes the colour of the game in focus.
     bool lightBar = true;
-    int gestureHints = 0;  // streams that showed the touchpad gestures' hint (three do)
+    int gestureHints = 0;
+    // The tallest picture each kind of stream delivered when asked for its
+    // top tier, and when (unix s): 1440p is only offered once one did.
+    int maxHeightCloud = 0, maxHeightHome = 0;
+    int64_t probedCloud = 0, probedHome = 0;  // streams that showed the touchpad gestures' hint (three do)
 
     bool load(const std::string& path);
     bool save(const std::string& path) const;
