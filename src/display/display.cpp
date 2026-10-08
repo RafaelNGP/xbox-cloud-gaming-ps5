@@ -323,7 +323,7 @@ void convertTiles(const YuvJob& job, unsigned first, unsigned last) {
                 int ox = static_cast<int>(x) - ov->x, oy = static_cast<int>(y) - ov->y;
                 if (ox >= 0 && oy >= 0 && ox < ov->w && oy < ov->h) {
                     uint32_t p = ov->px[static_cast<size_t>(oy) * ov->w + ox];
-                    uint32_t a = ov->alpha, na = 255 - a;
+                    uint32_t a = (p >> 24) * ov->alpha / 255, na = 255 - a;
                     r = ((p & 0xFF) * a + r * na) / 255;
                     g = (((p >> 8) & 0xFF) * a + g * na) / 255;
                     b = (((p >> 16) & 0xFF) * a + b * na) / 255;

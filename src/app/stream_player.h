@@ -26,6 +26,11 @@ public:
     // From the input thread, once per polled pad state; `index` 0..3 is the
     // controller's slot (input::pollPad).
     void sendInput(const input::ControllerState& pad, int index = 0);
+    // False while another window has the focus on the cloud console (the
+    // account picker, a publisher's page).
+    bool titleFocused() const;
+    // Touch input announced on or off (off at the start).
+    void setTouchEnabled(bool on);
     // Controllers 1..3 coming and going (0 is there from the start).
     void setPadConnected(int index, bool connected);
     // The game's requests for text, oldest first (main thread): false when

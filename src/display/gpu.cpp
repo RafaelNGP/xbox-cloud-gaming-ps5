@@ -873,16 +873,16 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
     std::fill(g_overlayPixels.begin(), g_overlayPixels.end(), 0u);
     g_overlayShown = pixels && w > 0 && h > 0;
     if (g_overlayShown) {
-        // Alpha carries the opacity: RCAS mixes by it.
-        uint32_t alpha = static_cast<uint32_t>(opacity) << 24;
+        // Alpha carries the opacity (times the pixel's own): RCAS mixes by it.
         for (int row = 0; row < h; ++row) {
             int sy = y + row;
             if (sy < 0 || sy >= static_cast<int>(kUiH)) continue;
             for (int col = 0; col < w; ++col) {
                 int sx = x + col;
                 if (sx < 0 || sx >= static_cast<int>(kUiW)) continue;
-                g_overlayPixels[static_cast<size_t>(sy) * kUiW + sx] =
-                    (pixels[static_cast<size_t>(row) * w + col] & 0x00FFFFFFu) | alpha;
+                uint32_t p = pixels[static_cast<size_t>(row) * w + col];
+                uint32_t alpha = (p >> 24) * opacity / 255;
+                g_overlayPixels[static_cast<size_t>(sy) * kUiW + sx] = (p & 0x00FFFFFFu) | (alpha << 24);
             }
         }
     }

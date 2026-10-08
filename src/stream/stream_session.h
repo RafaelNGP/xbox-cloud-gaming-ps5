@@ -35,6 +35,9 @@ struct StreamCallbacks {
     // The server will end the session for inactivity in `seconds` unless
     // input arrives.
     std::function<void(int seconds)> idleWarning;
+    // The game gained or lost the focus on the cloud console (lost: another
+    // window is up, such as a publisher's web page wanting touch).
+    std::function<void(bool focused)> titleFocus;
     // Set: the game's keyboard requests come here (else the server draws its
     // own); `textInputCancelled` when the game withdraws one.
     std::function<void(const TextInputRequest&)> textInput;
@@ -83,6 +86,8 @@ public:
     bool isOpen() const;
 
     void sendGamepad(const GamepadFrame& frame);
+    // Touch input on or off (off at the start).
+    void setTouchEnabled(bool on);
     // A controller at `index` (1..3; 0 is attached at the start) came or went.
     void setGamepadConnected(int index, bool connected);
     void requestKeyframe();

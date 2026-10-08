@@ -48,6 +48,7 @@ struct StreamPlayer::Impl {
     // Reconnecting after a lost connection, as the xbox.com client does: up
     // to 20 attempts a second apart while the cloud session is still there.
     std::atomic<bool> reconnecting{false};
+    std::atomic<bool> titleFocused{true};
     int reconnectAttempts = 0;
     std::atomic<uint32_t> reconnects{0};
     uint64_t lastRtpPackets = 0;
@@ -330,6 +331,9 @@ struct StreamPlayer::Impl {
             input::setRumble(scale(v.leftMotor), scale(v.rightMotor), v.durationMs, v.gamepadIndex);
             input::setTriggerRumble(scale(v.leftTrigger), scale(v.rightTrigger), v.durationMs, v.gamepadIndex);
         };
+        cb.titleFocus = [this](bool focused) {
+            if (titleFocused.exchange(focused) != focused) XC_LOGI("title %s the focus", focused ? "has" : "lost");
+        };
         cb.idleWarning = [](int seconds) {
             platform::notify(ui::trf(ui::Str::IdleWarning, std::to_string(seconds)));
         };
@@ -566,6 +570,12 @@ void StreamPlayer::sendInput(const input::ControllerState& p, int index) {
     f.leftTrigger = p.triggerL2;
     f.rightTrigger = p.triggerR2;
     s->sendGamepad(f);
+}
+
+bool StreamPlayer::titleFocused() const { return impl_->titleFocused; }
+
+void StreamPlayer::setTouchEnabled(bool on) {
+    if (auto s = impl_->current(); s && impl_->running) s->setTouchEnabled(on);
 }
 
 void StreamPlayer::setPadConnected(int index, bool connected) {

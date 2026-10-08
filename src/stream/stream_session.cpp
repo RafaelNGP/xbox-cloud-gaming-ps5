@@ -282,6 +282,8 @@ struct StreamSession::Impl {
         if (!opt.resolutionAlias.empty()) sendResolution(opt.resolutionAlias);
 
 
+        // One touch point, as the web client announces (touch is then turned
+        // on only while a touch screen is up: setTouchEnabled()).
         sendBinary(input, clientMetadataReport(0, nowMs(), static_cast<uint8_t>(std::getenv("XC_TOUCH_POINTS") ? std::atoi(std::getenv("XC_TOUCH_POINTS")) : 1)));
         sendClientConfig();
         {
@@ -316,6 +318,10 @@ struct StreamSession::Impl {
         std::string target = (*j)["target"].str();
         std::string id = (*j)["id"].str();
         XC_LOGI("message %s %s", type.c_str(), target.c_str());
+        if (target == "/streaming/properties/titleinfo") {
+            auto info = json::parse((*j)["content"].str());
+            if (info && cb.titleFocus) cb.titleFocus((*info)["focused"].asBool());
+        }
         if (target == "/streaming/sessionLifetimeManagement/serverInitiatedDisconnect") {
             std::string body = (*j)["content"].str();
             XC_LOGW("server disconnect: %s", body.substr(0, 300).c_str());
@@ -639,6 +645,13 @@ bool StreamSession::isOpen() const { return impl_->open; }
 void StreamSession::sendGamepad(const GamepadFrame& frame) {
     if (!impl_->open) return;
     Impl::sendBinary(impl_->input, gamepadReport(impl_->inputSequence++, impl_->nowMs(), frame));
+}
+
+void StreamSession::setTouchEnabled(bool on) {
+    if (!impl_->open) return;
+    json::Value touch = json::Value::object();
+    touch.set("touchInputEnabled", on);
+    Impl::sendText(impl_->message, impl_->messageEnvelope("/streaming/characteristics/touchinputenabledchanged", touch));
 }
 
 void StreamSession::setGamepadConnected(int index, bool connected) {

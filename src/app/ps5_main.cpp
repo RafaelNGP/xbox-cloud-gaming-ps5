@@ -27,6 +27,7 @@
 #include "xcloud/regions.h"
 
 #include <atomic>
+#include <cmath>
 #include <ctime>
 #include <map>
 #include <strings.h>
@@ -157,6 +158,7 @@ int g_autoplaySeconds = 0;
 bool g_autoplayDump = false;
 int g_autoplayRuns = 1;
 bool g_autoplayIdle = false;
+bool g_autoplayPad = false;  // autoplay "pad": the physical pad stays in use, its buttons logged
 bool g_autoplayDetailTest = false;  // open a game to buy far down the list, save its page
 bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25 s
 bool g_autoplayVkTest = false;       // the GPU presenting instead of the CPU display
@@ -201,6 +203,7 @@ void loadAutoplay() {
         if (opt.rfind("swap=", 0) == 0) display::gpu::setSwapImages(std::atoi(opt.c_str() + 5));
         if (opt == "nopace") display::gpu::setPresentWait(false);
         if (opt == "detailtest") g_autoplayDetailTest = true;
+        if (opt == "pad") g_autoplayPad = true;
         if (opt == "librarytest") g_autoplayLibraryTest = true;
         if (opt == "imetest") g_autoplayImeTest = true;
         if (opt == "menutest") g_autoplayMenuTest = true;
@@ -815,6 +818,7 @@ int main(int argc, char** argv) {
     const app::StreamPlayer* overlayPlayer = nullptr;
     int streamResolution = 0;  // as SettingsChoice::resolution
     bool showStats = false, overlayShown = false;
+    bool touchEnabled = false;  // touch input announced on (StreamPlayer::setTouchEnabled)
     int sharpness = 0;  // 0..3, as Settings::sharpness
     int deband = 1;     // 0..2, as Settings::deband
     int upscaler = 0;   // as Settings::upscaler
@@ -832,8 +836,34 @@ int main(int argc, char** argv) {
     bool uiSaved = false, launchSaved = false;
     for (;;) {
         input::poll(pad);
-        // Autoplay runs unattended: the physical pad must not interfere.
-        if (!g_autoplayTitle.empty()) pad = input::ControllerState{};
+        // Autoplay runs unattended: the physical pad must not interfere
+        // (unless "pad": someone is playing along, and each press is logged).
+        if (!g_autoplayTitle.empty() && !g_autoplayPad) pad = input::ControllerState{};
+        if (g_autoplayPad) {
+            static std::string lastPressed;
+            std::string pressed;
+            auto add = [&](bool on, const char* name) {
+                if (on) pressed += pressed.empty() ? name : std::string(" ") + name;
+            };
+            add(pad.btnA, "cross");
+            add(pad.btnB, "circle");
+            add(pad.btnX, "square");
+            add(pad.btnY, "triangle");
+            add(pad.dpadUp, "up");
+            add(pad.dpadDown, "down");
+            add(pad.dpadLeft, "left");
+            add(pad.dpadRight, "right");
+            add(pad.btnL1, "L1");
+            add(pad.btnR1, "R1");
+            add(pad.btnOptions, "options");
+            add(pad.btnTouchpad, "touchpad");
+            add(pad.triggerL2 > 0.5f, "L2");
+            add(pad.triggerR2 > 0.5f, "R2");
+            add(std::abs(pad.leftStickX) > 0.5f || std::abs(pad.leftStickY) > 0.5f, "lstick");
+            add(std::abs(pad.rightStickX) > 0.5f || std::abs(pad.rightStickY) > 0.5f, "rstick");
+            if (pressed != lastPressed && !pressed.empty()) XC_LOGI("pad: %s", pressed.c_str());
+            lastPressed = pressed;
+        }
         uint64_t now = platform::nowMs();
         if (now - lightBarAt >= 100) {  // the light bar follows the game in focus
             lightBarAt = now;
@@ -983,6 +1013,15 @@ int main(int argc, char** argv) {
                 }
                 input::ControllerState sent = pad;
                 if (g_syntheticA) sent.btnA = true;
+                // While another window has the focus on the cloud console (a
+                // publisher's page such as NetEase's terms in Marvel Rivals,
+                // which then shows its own pad-driven cursor), touch input is
+                // on, as the web client has it on touch screens.
+                bool unfocused = !g_player->titleFocused();
+                if (unfocused != touchEnabled) {
+                    touchEnabled = unfocused;
+                    g_player->setTouchEnabled(unfocused);
+                }
                 // The menu and the keyboard have the pad while they are up,
                 // and the buttons that closed them until they are let go.
                 bool held = pad.dpadUp || pad.dpadDown || pad.dpadLeft || pad.dpadRight || pad.btnA || pad.btnB ||
@@ -1030,6 +1069,7 @@ int main(int argc, char** argv) {
             platform::sleepMs(8);  // ~120 Hz input
             continue;
         }
+        touchEnabled = false;  // each stream starts with touch off
         if (overlayShown) {
             display::setOverlay(nullptr, 0, 0, 0, 0, 0);
             overlayShown = false;
