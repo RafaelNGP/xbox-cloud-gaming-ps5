@@ -42,6 +42,8 @@ void setSharpness(int amount);
 void setDeband(int level);
 // GPU only: 0 FSR 1, 1 Anime4K (gpu::setUpscaler).
 void setUpscaler(int mode);
+// Anime4K Restore before the upscale (GPU only).
+void setRestore(bool on);
 
 // GPU only: the id of the last present(), and the last frame known to be on
 // the screen (its id, and platform::nowUs() then). False on the CPU path.

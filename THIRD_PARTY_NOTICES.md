@@ -80,6 +80,6 @@ Copyright (c) 2021 Advanced Micro Devices, Inc.: see `extern/fsr1/LICENSE.txt`.
 ## Anime4K
 
 `extern/anime4k/` (bloc97, MIT, see `extern/anime4k/LICENSE`): the
-Upscale_CNN_x2 networks; `tools/gen-anime4k.py` turns their passes, weights
-unchanged, into `src/display/shaders/a4k_*.comp`. Brought to our attention by
+Upscale_CNN_x2 networks and Restore_CNN_S (v4.0.1); `tools/gen-anime4k.py`
+turns their passes, weights unchanged, into `src/display/shaders/a4k_*.comp`. Brought to our attention by
 sainsaji's EVO Player for PS5, which runs them in its own pipeline.

@@ -23,10 +23,12 @@ struct Settings {
     bool streamStats = false;
     // Sharpening of the game picture: 0 off, 1..3 low, medium, high.
     int sharpness = 0;
-    // Smoothing of compression blocks (GPU display): 0 off, 1 low, 2 high.
-    int deband = 1;
-    // Upscaling to the 4K display (GPU): 0 FSR 1, 1 Anime4K.
-    int upscaler = 0;
+    // Smoothing of compression blocks (GPU display): 0 off, 1 low, 2 high,
+    // 3 auto (stronger as the bitrate falls).
+    int deband = 3;
+    // Upscaling to the 4K display (GPU): 0 FSR 1, 1 Anime4K, 2 FSR and 3
+    // Anime4K after Anime4K Restore (the clean-up of compression artefacts).
+    int upscaler = 2;
     // Controller: stick dead zone (percent), vibration in the triggers,
     // Circle as the confirm button (Xbox A).
     int deadzone = 15;

@@ -229,14 +229,22 @@ static void testStreamMenu() {
     CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Stats);
     CHECK(menu.statsOn());
     press([](xc::ui::NavInput& n) { n.down = true; });
-    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Upscaler);  // FSR -> AI
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Upscaler);  // FSR -> FSR + clean-up
+    CHECK(menu.upscaler() == 2);
+    press([](xc::ui::NavInput& n) { n.right = true; });  // -> AI
     CHECK(menu.upscaler() == 1);
+    press([](xc::ui::NavInput& n) { n.right = true; });  // -> AI + clean-up
+    CHECK(menu.upscaler() == 3);
+    press([](xc::ui::NavInput& n) { n.right = true; });  // wraps to FSR
+    CHECK(menu.upscaler() == 0);
     press([](xc::ui::NavInput& n) { n.down = true; });
     CHECK(press([](xc::ui::NavInput& n) { n.left = true; }) == MenuAction::Sharpness);  // off -> high
     CHECK(menu.sharpness() == 3);
     press([](xc::ui::NavInput& n) { n.down = true; });
     CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Deband);  // low -> high
     CHECK(menu.deband() == 2);
+    press([](xc::ui::NavInput& n) { n.right = true; });  // -> auto
+    CHECK(menu.deband() == 3);
     press([](xc::ui::NavInput& n) { n.down = true; });
     press([](xc::ui::NavInput& n) { n.left = true; });  // 1080p -> 720p
     CHECK(menu.resolution() == 1);

@@ -24,8 +24,8 @@ bool Settings::load(const std::string& path) {
     librarySort = (*j)["librarySort"].str(librarySort);
     streamStats = (*j)["streamStats"].asBool(streamStats);
     sharpness = static_cast<int>(std::clamp<int64_t>((*j)["sharpness"].asInt(sharpness), 0, 3));
-    deband = static_cast<int>(std::clamp<int64_t>((*j)["deband"].asInt(deband), 0, 2));
-    upscaler = static_cast<int>(std::clamp<int64_t>((*j)["upscaler"].asInt(upscaler), 0, 1));
+    deband = static_cast<int>(std::clamp<int64_t>((*j)["deband"].asInt(deband), 0, 3));
+    upscaler = static_cast<int>(std::clamp<int64_t>((*j)["upscaler"].asInt(upscaler), 0, 3));
     deadzone = static_cast<int>(std::clamp<int64_t>((*j)["deadzone"].asInt(deadzone), 0, 50));
     triggerRumble = (*j)["triggerRumble"].asBool(triggerRumble);
     circleConfirms = (*j)["circleConfirms"].asBool(circleConfirms);

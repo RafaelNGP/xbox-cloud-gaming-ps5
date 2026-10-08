@@ -63,11 +63,12 @@ In game: the DualSense acts as an Xbox controller
 Game menu
 ---------
 OPTIONS + TOUCHPAD during a game: the Xbox button (opens the Xbox
-guide), the statistics line over the game, upscaling (FSR, or AI:
-Anime4K, crisper outlines and text but it also sharpens compression
-noise), sharpness (off / low / medium / high: sharpens the picture's
-edges), block smoothing (off / low / high: smooths the squares
-compression leaves in dark, flat areas; low keeps textures best),
+guide), the statistics line over the game, upscaling (FSR or AI, each
+with or without "clean-up": Anime4K Restore takes the blur and noise of
+compression off the picture first; "FSR + clean-up" is the default),
+sharpness (off / low / medium / high: sharpens the picture's edges),
+block smoothing (off / low / high, or auto: smooths the squares
+compression leaves in dark, flat areas, stronger as the bitrate falls),
 stream resolution (720p / 1080p, and 1440p where a stream delivered
 it: the app measures it),
 and leave the game. Circle closes it (and asks for a clean picture).

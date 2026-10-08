@@ -176,6 +176,9 @@ constexpr Column kEnglish = {
     "The Xbox was turned off",                        // EndedXboxOff
     "%s got the request but its Remote Play didn't start. Restart it: hold the power button on the console for 10 seconds, turn it back on, then try again.", // StreamingStuck
     "Touchpad: swipe ↓ for the menu, ↑ for the Xbox button", // GestureHint
+    "FSR + clean-up",                                // UpscalerFsrClean
+    "AI + clean-up",                                 // UpscalerAiClean
+    "Auto (%s)",                                     // DebandAuto
 };
 
 constexpr Column kPortugueseBR = {
@@ -322,6 +325,9 @@ constexpr Column kPortugueseBR = {
     "O Xbox foi desligado",
     "%s recebeu o pedido, mas o jogo remoto dele não iniciou. Reinicie o console: segure o botão de ligar do Xbox por 10 segundos, ligue de novo e tente outra vez.",
     "Touchpad: deslize ↓ para o menu, ↑ para o botão Xbox",
+    "FSR + limpeza",
+    "IA + limpeza",
+    "Auto (%s)",
 };
 
 constexpr Column kSpanish = {
@@ -468,6 +474,9 @@ constexpr Column kSpanish = {
     "La Xbox se apagó",
     "%s recibió la solicitud, pero su juego remoto no se inició. Reiníciala: mantén pulsado el botón de encendido de la consola 10 segundos, enciéndela de nuevo y vuelve a intentarlo.",
     "Panel táctil: desliza ↓ para el menú, ↑ para el botón Xbox",
+    "FSR + limpieza",
+    "IA + limpieza",
+    "Auto (%s)",
 };
 
 constexpr Column kFrench = {
@@ -614,6 +623,9 @@ constexpr Column kFrench = {
     "La Xbox a été éteinte",
     "%s a reçu la demande, mais son jeu à distance n'a pas démarré. Redémarrez-la : maintenez le bouton d'alimentation de la console 10 secondes, rallumez-la, puis réessayez.",
     "Pavé tactile : glissez ↓ pour le menu, ↑ pour le bouton Xbox",
+    "FSR + nettoyage",
+    "IA + nettoyage",
+    "Auto (%s)",
 };
 
 constexpr Column kGerman = {
@@ -760,6 +772,9 @@ constexpr Column kGerman = {
     "Die Xbox wurde ausgeschaltet",
     "%s hat die Anfrage erhalten, aber Remote Play ist nicht gestartet. Starte sie neu: Halte die Ein/Aus-Taste der Konsole 10 Sekunden gedrückt, schalte sie wieder ein und versuche es erneut.",
     "Touchpad: ↓ wischen für das Menü, ↑ für die Xbox-Taste",
+    "FSR + Bereinigung",
+    "KI + Bereinigung",
+    "Auto (%s)",
 };
 
 constexpr Column kItalian = {
@@ -906,6 +921,9 @@ constexpr Column kItalian = {
     "La Xbox è stata spenta",
     "%s ha ricevuto la richiesta, ma il gioco remoto non è partito. Riavviala: tieni premuto il pulsante di accensione della console per 10 secondi, riaccendila e riprova.",
     "Touchpad: scorri ↓ per il menu, ↑ per il pulsante Xbox",
+    "FSR + pulizia",
+    "IA + pulizia",
+    "Auto (%s)",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,
