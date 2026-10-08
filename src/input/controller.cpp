@@ -95,7 +95,17 @@ namespace xc::input {
 
 namespace {
 
-constexpr uint8_t kTriggerVibrationHz = 40;
+constexpr uint8_t kTriggerVibrationHz = 60;
+
+// Xbox impulse-trigger level (0..255) -> DualSense trigger amplitude (1..8).
+// Games ask for little (Halo's shots: 15 %), which the Xbox's trigger motors
+// turn into a clear kick; linearly it would be amplitude 1, which drowns
+// under the grip motors. A square-root curve: 15 % -> 4, 50 % -> 6.
+uint8_t triggerAmplitude(uint8_t level) {
+    if (!level) return 0;
+    int a = static_cast<int>(std::ceil(8.0 * std::sqrt(level / 255.0)));
+    return static_cast<uint8_t>(std::clamp(a, 2, 8));
+}
 
 // A rumble request: packed as a << 8 | b, and when it ends (0 = never).
 struct Rumble {
@@ -187,7 +197,7 @@ void applyRumble(Pad& pad) {
             if (!level[t]) continue;  // mode 0: off
             p.command[t].mode = 3;
             p.command[t].data[0] = 0;  // from the top of the travel
-            p.command[t].data[1] = static_cast<uint8_t>(std::max(1, (level[t] * 8 + 127) / 255));
+            p.command[t].data[1] = triggerAmplitude(level[t]);
             p.command[t].data[2] = kTriggerVibrationHz;
         }
         int rc = scePadSetTriggerEffect(pad.handle, &p);
