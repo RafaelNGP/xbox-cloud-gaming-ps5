@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-08, after v0.5.0 (items 1-3 on the way to v0.6.0).
+Last update: 2026-10-08, after v0.5.0 (items 1-3 and more on the way to v0.6.0).
 
 ## Now
 
@@ -47,10 +47,26 @@ the game closed) still ends the stream.
   reconnected on the first attempt, ~8 s of frozen picture, then 60 fps again.
 - To check by hand: a real outage (cable out / Wi-Fi off for ~10 s).
 
+### Also in v0.6.0
+- **DualSense light bar** in the colour of the game in focus (Settings).
+- **Anime4K x2** as an upscaler beside FSR (game menu: Upscaling): crisper
+  outlines and text, but it also sharpens compression noise; ~1-2 ms more.
+  Next to try: Anime4K's Restore network before the upscale.
+- **Free-to-play games** (#10): xbox.com's free-to-play row; one not on the
+  account yet shows FREE, with the store's QR code to get it, and Play.
+  The server refuses a free game until it is got once (`NoEntitlement`);
+  the app explains that and tries again. Got on the phone, it starts at once.
+- **Windows outside the game** (Marvel Rivals' NetEase terms): touch input
+  is announced on while the game is out of focus; the page then shows its
+  own pad cursor. A touchpad pointer was tried and dropped (the page
+  ignored the touches, and it got in the way of the account picker).
+
 ## Next
 
 | Item | Why | Size |
 | --- | --- | --- |
+| Anime4K Restore + Upscale | Cleans compression noise before Anime4K sharpens it | small |
+| TLS errors (-110) | Seen at start (title list, prices) and on images, here and in #10 | small |
 | Adaptive block smoothing | Stronger below ~4 Mbps, off above ~10 Mbps, automatically | small |
 | Voice chat (microphone) | xCloud has a chat channel; needs PS5 audio capture | large |
 | USB keyboard and mouse | Some xCloud games accept them | medium |
