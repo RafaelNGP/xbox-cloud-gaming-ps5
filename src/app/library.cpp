@@ -10,6 +10,7 @@
 #include "xcloud/titlehub.h"
 
 #include <algorithm>
+#include <cstring>
 #include <map>
 
 namespace xc::app {
@@ -79,6 +80,24 @@ bool namesSeries(const std::string& title) {
     return title.find("Series X|S") != std::string::npos || title.find("Series X/S") != std::string::npos;
 }
 
+bool endsWith(const std::string& s, const char* tail) {
+    size_t n = std::strlen(tail);
+    return s.size() >= n && s.compare(s.size() - n, n, tail) == 0;
+}
+
+// Which version of a cross-gen pair (two products, one Xbox title id) a
+// product is, from its cloud title id or its name: +1 Series X|S, -1 Xbox
+// One, 0 can't tell. "HOGWARTSLEGACYXBOXONEVERSION", "...XBOXSERIESXSVERSION",
+// "RUSTCONSOLEEDITIONXS" / "Rust Console Edition X|S", "... - Xbox Series X|S".
+int pairVersion(const xcloud::Product& p) {
+    const std::string& c = p.xcloudTitleId;
+    if (c.find("XBOXONE") != std::string::npos) return -1;
+    if (c.find("XBOXSERIES") != std::string::npos || c.find("SERIESXS") != std::string::npos || endsWith(c, "XS"))
+        return 1;
+    if (namesSeries(p.title) || endsWith(p.title, "X|S") || endsWith(p.title, "X/S")) return 1;
+    return 0;
+}
+
 // Editions of one game ("Forza Horizon 5", "... Standard Edition") are
 // separate products that start the same cloud title: keep one, the shortest
 // name, where the first one was.
@@ -134,7 +153,12 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
             auto xs = xboxTitleOf_.find(id);
             const std::string& xbox = xs != xboxTitleOf_.end() ? xs->second : prod.xboxTitleId;
             if (!xbox.empty() && !seen.insert(xbox).second) sharedXbox_.insert(xbox);
-            if (namesSeries(prod.title)) seriesSiblings_.insert(xbox);
+        }
+        // The pairs with a Series X|S side: the other side is the Xbox One one.
+        for (const auto& [id, prod] : products_) {
+            auto xs = xboxTitleOf_.find(id);
+            const std::string& xbox = xs != xboxTitleOf_.end() ? xs->second : prod.xboxTitleId;
+            if (namesSeries(prod.title) || (sharedXbox_.count(xbox) && pairVersion(prod) > 0)) seriesSiblings_.insert(xbox);
         }
         siblingsFor_ = products_.size();
     }
@@ -147,10 +171,9 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
     // The cloud title id names the version where the store's name doesn't
     // say it in English ("Hogwarts Legacy" / "... Versão Xbox One":
     // HOGWARTSLEGACYXBOXSERIESXSVERSION / ...XBOXONEVERSION).
-    bool pair = sharedXbox_.count(xbox) > 0;
-    if (pair && t.titleId.find("XBOXONE") != std::string::npos) t.platform = xcloud::kPlatformOne;
-    else if (pair && (t.titleId.find("XBOXSERIES") != std::string::npos || t.titleId.find("SERIESXS") != std::string::npos))
-        t.platform = xcloud::kPlatformSeries;
+    int version = sharedXbox_.count(xbox) ? pairVersion(p) : 0;
+    if (version < 0) t.platform = xcloud::kPlatformOne;
+    else if (version > 0) t.platform = xcloud::kPlatformSeries;
     else if (namesSeries(p.title)) t.platform = xcloud::kPlatformSeries;
     else if (t.platform == xcloud::kPlatformSeries && seriesSiblings_.count(xbox)) t.platform = xcloud::kPlatformOne;
     return t;
