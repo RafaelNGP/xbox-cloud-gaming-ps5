@@ -29,6 +29,7 @@ bool launchSaved = false;
 const char* pickerShot = nullptr;
 bool confirmShot = false, confirmHome = false;
 const char* tuneShot = nullptr;  // "tunetest": save this screen next  // "confirmtest": save confirm2.ppm / check the home screen  // "pickertest": save this screen next, once drawn
+const char* gridShot = nullptr;  // "gridtest": save grid screenshot
 bool acceptUpdate = false;  // "updatetest": Cross on the pop-up, next pass ("updateskip": Circle)
 }  // namespace
 
@@ -86,6 +87,7 @@ void loadAutoplay() {
         if (opt == "quicktest") g_autoplay.quickTest = true;
         if (opt == "scrolltest") g_autoplay.scrollTest = true;
         if (opt.rfind("locktitle=", 0) == 0) g_autoplay.lockTitle = opt.substr(10);
+        if (opt == "gridtest") g_autoplay.gridTest = true;
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
@@ -205,6 +207,24 @@ void autoplayPad(input::ControllerState& pad) {
         pad.dpadDown = in(1000, 120) || in(1300, 120) || in(1600, 120) || in(1900, 120) || in(2200, 120) || in(3200, 120);
         if (in(5500, 20)) confirmShot = true;
         if (in(8000, 20)) confirmHome = true;
+    }
+    if (g_autoplay.gridTest && uiSaved) {
+        static uint64_t since = 0;
+        uint64_t now = platform::nowMs();
+        if (!since) since = now;
+        uint64_t t = now - since;
+        auto in = [&](uint64_t at, uint64_t len) { return t >= at && t < at + len; };
+        pad.dpadDown = in(1000, 150) || in(2200, 150) || in(3400, 150) || in(4600, 150) || in(5800, 150) ||
+                       in(8500, 150) || in(10000, 150);
+        pad.dpadRight = in(11200, 150);
+        pad.dpadUp = in(13000, 150) || in(14500, 150) || in(16000, 150);
+        if (in(7500, 20)) gridShot = "grid1.ppm";
+        if (in(12000, 20)) gridShot = "grid2.ppm";
+        if (in(17500, 20)) {
+            gridShot = "grid_back.ppm";
+            g_autoplay.gridTest = false;
+            XC_LOGI("AUTOPLAY END: grid test");
+        }
     }
     if (!g_autoplay.pad) return;
     static std::string lastPressed;
@@ -450,6 +470,10 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
     if (tuneShot) {
         saveCanvas(tuneShot);
         tuneShot = nullptr;
+    }
+    if (gridShot) {
+        saveCanvas(gridShot);
+        gridShot = nullptr;
     }
     if (confirmShot) {
         confirmShot = false;

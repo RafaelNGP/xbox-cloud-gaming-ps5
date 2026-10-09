@@ -71,6 +71,7 @@ struct Autoplay {
     bool pickerTest = false;     // pickertest: the confirm button's list (confirm.ppm), the light
                                  // bar's colour picker moved (picker.ppm), chosen (settings.ppm)
     bool noRestart = false;      // norestart: after an update, close instead of restarting
+    bool gridTest = false;       // gridtest: navigate to All games grid, verify 2D navigation and capture screenshots
 };
 extern Autoplay g_autoplay;
 extern std::atomic<bool> g_syntheticA;  // A held down for the game

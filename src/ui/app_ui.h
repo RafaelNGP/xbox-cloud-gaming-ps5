@@ -62,6 +62,7 @@ struct GameRow {
     std::string title;
     std::vector<GameTile> tiles;
     bool gamePassBadges = true;
+    bool isGrid = false;
 };
 
 enum class Screen { Splash, SignIn, Home, Details, Launching, Streaming, Error, Settings, Updating };

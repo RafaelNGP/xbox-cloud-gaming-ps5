@@ -199,6 +199,7 @@ std::vector<ui::GameRow> Library::rows() const {
         ui::GameRow row;
         row.title = r.title;
         row.gamePassBadges = r.badges;
+        row.isGrid = r.isGrid;
         for (const auto& [pid, tid] : r.items) {
             ui::GameTile t = tile(pid, tid);
             if (t.productId.empty() || t.titleId.empty()) continue;
@@ -357,7 +358,7 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
     // in "Your games").
     std::vector<xcloud::Title> recent;
     if (gssv.listTitles(recent, lastErr, true)) {
-        RowIds r{ui::tr(ui::Str::JumpBackIn), false, {}};
+        RowIds r{ui::tr(ui::Str::JumpBackIn), false, false, {}};
         std::vector<std::string> ids;
         for (const auto& t : recent) {
             if (t.productId.empty()) continue;
@@ -390,10 +391,11 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
                               {xcloud::sigl::kMostPopular, 40},
                               {xcloud::sigl::kFreeToPlay, 40},
                               {xcloud::sigl::kLeavingSoon, 40},
-                              {xcloud::sigl::kAllGames, 120}};
+                              {xcloud::sigl::kAllGames, 0}};
     for (const auto& spec : lists) {
         xcloud::ProductList list;
-        if (spec.sigl == xcloud::sigl::kAllGames && !all.productIds.empty()) {
+        bool isAllGames = std::string_view(spec.sigl) == xcloud::sigl::kAllGames;
+        if (isAllGames && !all.productIds.empty()) {
             list = all;
         } else if (!xcloud::fetchList(spec.sigl, market_, language_, list, e)) {
             XC_LOGW("%s", e.c_str());
@@ -419,7 +421,7 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
                 XC_LOGI("library: %s: %zu of %zu not in Game Pass, left out", list.title.c_str(),
                         before - list.productIds.size(), before);
         }
-        if (list.productIds.size() > spec.limit) list.productIds.resize(spec.limit);
+        if (spec.limit > 0 && list.productIds.size() > spec.limit) list.productIds.resize(spec.limit);
         std::vector<std::string> missing;
         for (const auto& id : list.productIds)
             if (!products_.count(id)) missing.push_back(id);
@@ -428,7 +430,7 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
             lastErr = e;
             continue;
         }
-        RowIds r{list.title, !freeToPlay, {}};
+        RowIds r{list.title, !freeToPlay, isAllGames, {}};
         for (const auto& id : list.productIds) r.items.emplace_back(id, std::string());
         layout_.push_back(std::move(r));
         changed();

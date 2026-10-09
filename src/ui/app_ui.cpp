@@ -1086,13 +1086,25 @@ const GameTile* AppUi::focusedTile() const {
 }
 
 void AppUi::retarget() {
-    rowY_.target = static_cast<float>(focusRow_);
-    const float span = kW - 2 * kMargin - kCard;
-    for (size_t r = 0; r < rows_.size(); ++r) {
-        float left = static_cast<float>(focusCol_[r] * kCardPitch);
-        Anim& a = rowScroll_[r];
-        if (left - a.target > span) a.target = left - span;
-        if (left < a.target) a.target = left;
+    if (focusRow_ < 0 || focusRow_ >= static_cast<int>(rows_.size())) return;
+    const GameRow& curRow = rows_[static_cast<size_t>(focusRow_)];
+
+    if (curRow.isGrid) {
+        constexpr float kGridShift = static_cast<float>(kRowTop - 170) / static_cast<float>(kRowPitch);
+        rowY_.target = static_cast<float>(focusRow_) + kGridShift;
+
+        int gridRow = focusCol_[static_cast<size_t>(focusRow_)] / kLibraryCols;
+        rowScroll_[static_cast<size_t>(focusRow_)].target = static_cast<float>(std::max(0, gridRow - 1) * kGridPitchY);
+    } else {
+        rowY_.target = static_cast<float>(focusRow_);
+        const float span = kW - 2 * kMargin - kCard;
+        for (size_t r = 0; r < rows_.size(); ++r) {
+            if (rows_[r].isGrid) continue;
+            float left = static_cast<float>(focusCol_[r] * kCardPitch);
+            Anim& a = rowScroll_[r];
+            if (left - a.target > span) a.target = left - span;
+            if (left < a.target) a.target = left;
+        }
     }
 }
 
@@ -1247,12 +1259,39 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
         case Tab::GamePass: {
             if (rows_.empty()) break;
             int rows = static_cast<int>(rows_.size());
+            const GameRow& curRow = rows_[static_cast<size_t>(focusRow_)];
             int& col = focusCol_[static_cast<size_t>(focusRow_)];
-            int cols = static_cast<int>(rows_[static_cast<size_t>(focusRow_)].tiles.size());
-            if (in.down && focusRow_ + 1 < rows) ++focusRow_;
-            if (in.up && focusRow_ > 0) --focusRow_;
-            if (in.right && col + 1 < cols) ++col;
-            if (in.left && col > 0) --col;
+            int count = static_cast<int>(curRow.tiles.size());
+
+            if (curRow.isGrid) {
+                if (in.up && col < kLibraryCols) {
+                    if (focusRow_ > 0) {
+                        --focusRow_;
+                        int upCols = static_cast<int>(rows_[static_cast<size_t>(focusRow_)].tiles.size());
+                        focusCol_[static_cast<size_t>(focusRow_)] = std::clamp(focusCol_[static_cast<size_t>(focusRow_)], 0, upCols - 1);
+                    }
+                } else if (in.down && col + kLibraryCols >= count && col / kLibraryCols == (count - 1) / kLibraryCols) {
+                    if (focusRow_ + 1 < rows) {
+                        ++focusRow_;
+                        int downCols = static_cast<int>(rows_[static_cast<size_t>(focusRow_)].tiles.size());
+                        focusCol_[static_cast<size_t>(focusRow_)] = std::clamp(focusCol_[static_cast<size_t>(focusRow_)], 0, downCols - 1);
+                    }
+                } else {
+                    moveInGrid(col, count, kLibraryCols, in);
+                }
+            } else {
+                if (in.down && focusRow_ + 1 < rows) {
+                    ++focusRow_;
+                    if (rows_[static_cast<size_t>(focusRow_)].isGrid) {
+                        int gCols = static_cast<int>(rows_[static_cast<size_t>(focusRow_)].tiles.size());
+                        int targetCol = std::min(col % kLibraryCols, gCols - 1);
+                        focusCol_[static_cast<size_t>(focusRow_)] = std::max(0, targetCol);
+                    }
+                }
+                if (in.up && focusRow_ > 0) --focusRow_;
+                if (in.right && col + 1 < count) ++col;
+                if (in.left && col > 0) --col;
+            }
             if (in.up || in.down || in.left || in.right) {
                 retarget();
                 dirty_ = true;
@@ -2268,46 +2307,100 @@ void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
     const GameTile* focus = focusedTile();
     c.clear(kBg);
     drawHero(c, nowMs, focus ? focus->heroUrl : std::string(), false);
-    drawTopBar(c);
-    drawTabs(c);
 
     if (rows_.empty()) {
         drawCentered(c, fonts_.semibold, tr(Str::NoGames), 500, 32, kGray);
         drawHints(c, {{kIconOptions, tr(Str::Settings)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
+        drawTopBar(c);
+        drawTabs(c);
         return;
     }
 
     if (focus) {
-        auto title = fonts_.bold.wrap(focus->name, 60, 1100, 1);
-        if (!title.empty()) fonts_.bold.draw(c, title[0], kMargin, 190, 60, kWhite);
-        std::string meta = focus->publisher;
-        for (size_t i = 0; i < focus->categories.size() && i < 2; ++i)
-            meta += (meta.empty() ? "" : "  \xE2\x80\xA2  ") + focus->categories[i];
-        fonts_.regular.draw(c, meta, kMargin, 272, 24, kGray);
-        auto desc = fonts_.regular.wrap(focus->description, 22, 860, 2);
-        for (size_t i = 0; i < desc.size(); ++i)
-            fonts_.regular.draw(c, desc[i], kMargin, 318 + static_cast<int>(i) * 32, 22, kGray);
+        float heroAlpha = 1.0f;
+        for (size_t r = 0; r < rows_.size(); ++r) {
+            if (rows_[r].isGrid) {
+                float dist = static_cast<float>(r) - rowY_.value;
+                if (dist < 1.0f) heroAlpha = std::clamp(dist, 0.0f, 1.0f);
+                break;
+            }
+        }
+        if (heroAlpha > 0.05f) {
+            Color titleColor = withAlpha(kWhite, static_cast<int>(255 * heroAlpha));
+            Color grayColor = withAlpha(kGray, static_cast<int>(255 * heroAlpha));
+            auto title = fonts_.bold.wrap(focus->name, 60, 1100, 1);
+            if (!title.empty()) fonts_.bold.draw(c, title[0], kMargin, 190, 60, titleColor);
+            std::string meta = focus->publisher;
+            for (size_t i = 0; i < focus->categories.size() && i < 2; ++i)
+                meta += (meta.empty() ? "" : "  \xE2\x80\xA2  ") + focus->categories[i];
+            fonts_.regular.draw(c, meta, kMargin, 272, 24, grayColor);
+            auto desc = fonts_.regular.wrap(focus->description, 22, 860, 2);
+            for (size_t i = 0; i < desc.size(); ++i)
+                fonts_.regular.draw(c, desc[i], kMargin, 318 + static_cast<int>(i) * 32, 22, grayColor);
+        }
     }
+
+    constexpr int kGridW = kLibraryCols * kCardPitch - kCardGap;
+    const int gridLeft = (kW - kGridW) / 2;
+    int afterGridOffset = 0;
 
     for (size_t r = 0; r < rows_.size(); ++r) {
         float rel = static_cast<float>(r) - rowY_.value;
-        if (rel < -0.7f) continue;
-        int y = kRowTop + static_cast<int>(std::lround(rel * kRowPitch));
-        if (y > kH) break;
+        int y = kRowTop + static_cast<int>(std::lround(rel * kRowPitch)) + afterGridOffset;
         const GameRow& row = rows_[r];
-        fonts_.semibold.draw(c, row.title, kMargin, y, 30, kWhite);
-        int cardY = y + 48;
-        int scroll = static_cast<int>(std::lround(rowScroll_[r].value));
-        int firstCol = std::max(0, scroll / kCardPitch - 1);
-        for (size_t col = static_cast<size_t>(firstCol); col < row.tiles.size(); ++col) {
-            int x = kMargin + static_cast<int>(col) * kCardPitch - scroll;
-            if (x > kW) break;
-            if (x + kCard < 0) continue;
-            bool focused = static_cast<int>(r) == focusRow_ && static_cast<int>(col) == focusCol_[r];
-            drawCard(c, row.tiles[col], x, cardY, focused, row.gamePassBadges);
-            if (hidden_.count(row.tiles[col].productId)) c.fillRect({x, cardY, kCard, kCard}, rgba(0, 0, 0, 120), 10);
+
+        if (row.isGrid) {
+            int offset = static_cast<int>(std::lround(rowScroll_[r].value));
+            int hy = y - offset;
+            int cardY = hy + 48;
+
+            if (hy > 80 && hy < kH) {
+                fonts_.bold.draw(c, row.title, gridLeft, hy + 8, 34, kWhite);
+                int w = fonts_.bold.measure(row.title, 34);
+                fonts_.semibold.draw(c, gamesCount(row.tiles.size()), gridLeft + w + 20, hy + 20, 22, kDim);
+            }
+
+            for (size_t i = 0; i < row.tiles.size(); ++i) {
+                int c_col = static_cast<int>(i) % kLibraryCols;
+                int c_row = static_cast<int>(i) / kLibraryCols;
+                int cy = cardY + c_row * kGridPitchY;
+                if (cy + kCard + 40 < 140) continue;
+                if (cy > kH) break;
+                int cx = gridLeft + c_col * kCardPitch;
+                bool focused = static_cast<int>(r) == focusRow_ && static_cast<int>(i) == focusCol_[r];
+                drawCard(c, row.tiles[i], cx, cy, focused, row.gamePassBadges);
+                if (hidden_.count(row.tiles[i].productId)) c.fillRect({cx, cy, kCard, kCard}, rgba(0, 0, 0, 120), 10);
+                auto name = fonts_.semibold.wrap(row.tiles[i].name, 20, kCard, 1);
+                if (!name.empty()) fonts_.semibold.draw(c, name[0], cx, cy + kCard + 12, 20, focused ? kWhite : kGray);
+            }
+
+            int gridHeight = 48 + ((static_cast<int>(row.tiles.size()) + kLibraryCols - 1) / kLibraryCols) * kGridPitchY;
+            afterGridOffset += gridHeight - offset - kRowPitch;
+        } else {
+            if (rel < -0.7f && afterGridOffset == 0) continue;
+            if (y > kH && afterGridOffset == 0) break;
+            fonts_.semibold.draw(c, row.title, kMargin, y, 30, kWhite);
+            int cardY = y + 48;
+            int scroll = static_cast<int>(std::lround(rowScroll_[r].value));
+            int firstCol = std::max(0, scroll / kCardPitch - 1);
+            for (size_t col = static_cast<size_t>(firstCol); col < row.tiles.size(); ++col) {
+                int x = kMargin + static_cast<int>(col) * kCardPitch - scroll;
+                if (x > kW) break;
+                if (x + kCard < 0) continue;
+                bool focused = static_cast<int>(r) == focusRow_ && static_cast<int>(col) == focusCol_[r];
+                drawCard(c, row.tiles[col], x, cardY, focused, row.gamePassBadges);
+                if (hidden_.count(row.tiles[col].productId)) c.fillRect({x, cardY, kCard, kCard}, rgba(0, 0, 0, 120), 10);
+            }
         }
     }
+
+    constexpr int clipTop = 140;
+    c.fillRect({0, 0, kW, clipTop}, kBg);
+    c.gradientV({0, clipTop, kW, 16}, kBg, withAlpha(kBg, 0));
+
+    drawTopBar(c);
+    drawTabs(c);
+
     // Fade the rows out under the button hints.
     c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
     c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));
