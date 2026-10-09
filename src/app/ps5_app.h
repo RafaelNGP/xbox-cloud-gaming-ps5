@@ -30,12 +30,14 @@ std::string settingsPath();
 bool allow1440Locked();
 
 // --- Worker commands (worker.cpp) ----------------------------------------------
-enum Command { kNone, kSignIn, kPlay, kSignOut, kReloadLibrary, kConsoles };
+enum Command { kNone, kSignIn, kPlay, kSignOut, kReloadLibrary, kConsoles, kUpdate };
 extern std::atomic<int> g_command;
 extern std::atomic<bool> g_cancel;
 extern std::mutex g_argMutex;
 extern ui::GameTile g_playTile;  // what kPlay plays
 void worker();
+// The update pop-up's "Not now": that release isn't offered again on start.
+void skipOfferedUpdate();
 
 // The running stream, for the input thread.
 extern std::mutex g_playerMutex;
@@ -48,6 +50,9 @@ extern std::atomic<uint32_t> g_infoSeq;
 extern std::atomic<bool> g_playingHome;          // the stream is the user's own Xbox
 extern std::atomic<bool> g_tierPicked;           // the game menu chose a tier: the probe leaves it
 extern std::atomic<uint64_t> g_xboxButtonUntil;  // the Xbox button, held until then (ms)
+// An update is in place: the main thread starts the app again (the system
+// call that does it takes the app down when made from another thread).
+extern std::atomic<bool> g_restartWanted;
 
 // --- Store prices (price_loop.cpp) -----------------------------------------------
 void startPriceLoop();

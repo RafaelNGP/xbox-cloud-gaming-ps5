@@ -666,6 +666,43 @@ void AppUi::showPlayError(const std::string& message, const GameTile& game) {
     dirty_ = true;
 }
 
+void AppUi::setUpdateState(const std::string& current, const std::string& available, bool checking) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    updateCurrent_ = current;
+    updateAvailable_ = available;
+    updateChecking_ = checking;
+    dirty_ = true;
+}
+
+void AppUi::offerUpdate() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    updatePrompt_ = true;
+    promptFocus_ = 0;
+    dirty_ = true;
+}
+
+bool AppUi::updateOffered() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return updatePrompt_ && screen_ == Screen::Home;
+}
+
+void AppUi::showUpdating(const std::string& version) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    screen_ = Screen::Updating;
+    updatePrompt_ = false;
+    updatingTo_ = version;
+    updateStatus_.clear();
+    updateFraction_ = -1;
+    dirty_ = true;
+}
+
+void AppUi::setUpdateStatus(const std::string& status, float fraction) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    updateStatus_ = status;
+    updateFraction_ = fraction;
+    dirty_ = true;
+}
+
 void AppUi::setSettings(const SettingsChoice& choice) {
     std::lock_guard<std::mutex> lock(mutex_);
     settings_ = choice;
@@ -752,6 +789,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         out = {tr(Str::ButtonCross), tr(Str::ButtonCircle)};
     } else if (row == 6) {
         out = {tr(Str::Activated), tr(Str::Deactivated)};
+    } else if (row == 7) {
+        // Updates: Cross acts, no list.
     } else {
         // Automatic first, then the regions in the login's order.
         out.push_back(withMs(trf(Str::RegionAuto, defaultRegion_.empty() ? "-" : prettyRegion(defaultRegion_)),
@@ -773,6 +812,7 @@ int AppUi::settingSelected(int row) const {
     if (row == 4) return settings_.triggerRumble ? 0 : 1;
     if (row == 5) return settings_.circleConfirms ? 1 : 0;
     if (row == 6) return settings_.lightBar ? 0 : 1;
+    if (row == 7) return 0;
     for (size_t i = 0; i < regions_.size(); ++i)
         if (regions_[i] == settings_.region) return static_cast<int>(i) + 1;
     return 0;
@@ -793,6 +833,7 @@ void AppUi::applySetting(int row, int index) {
         settings_.circleConfirms = index == 1;
     } else if (row == 6) {
         settings_.lightBar = index == 0;
+    } else if (row == 7) {
     } else {
         settings_.region = index == 0 ? std::string() : regions_[static_cast<size_t>(index - 1)];
     }
@@ -1122,6 +1163,16 @@ void AppUi::handleSearchKeys(const NavInput& in) {
 UiEvent AppUi::handle(const NavInput& in) {
     std::lock_guard<std::mutex> lock(mutex_);
     UiEvent ev;
+    if (screen_ == Screen::Home && updatePrompt_) {
+        // The update pop-up has the pad: left / right, Cross picks, Circle is "Not now".
+        if (in.left || in.right) promptFocus_ = 1 - promptFocus_, dirty_ = true;
+        if (in.accept || in.back) {
+            ev.action = in.accept && promptFocus_ == 0 ? Action::UpdateNow : Action::UpdateLater;
+            updatePrompt_ = false;
+            dirty_ = true;
+        }
+        return ev;
+    }
     switch (screen_) {
         case Screen::Home: handleHome(in, ev); break;
         case Screen::Settings:
@@ -1139,7 +1190,13 @@ UiEvent AppUi::handle(const NavInput& in) {
             if (in.up && settingsRow_ > 0) --settingsRow_, dirty_ = true;
             if (in.right) changeSetting(+1);
             if (in.left) changeSetting(-1);
-            if (in.accept) {
+            if (in.accept && settingsRow_ == 7) {
+                // Updates: a newer version is installed (the settings saved first).
+                if (!updateAvailable_.empty() && !updateChecking_) {
+                    ev.action = Action::UpdateNow;
+                    ev.settings = settings_;
+                }
+            } else if (in.accept) {
                 dropdownOpen_ = true;
                 dropdownIndex_ = settingSelected(settingsRow_);
                 dropdownTop_ = 0;
@@ -1211,7 +1268,8 @@ bool AppUi::needsRedraw(uint64_t nowMs) const {
     if (screen_ == Screen::Streaming) return false;
     if (dirty_ || animating_) return true;
     // Spinners keep moving (about 30 fps is enough).
-    bool spinner = screen_ == Screen::Splash || screen_ == Screen::SignIn || screen_ == Screen::Launching;
+    bool spinner = screen_ == Screen::Splash || screen_ == Screen::SignIn || screen_ == Screen::Launching ||
+                   screen_ == Screen::Updating;
     return spinner && nowMs - lastRender_ >= 33;
 }
 
@@ -2009,8 +2067,8 @@ void AppUi::drawSettings(Canvas& c) {
     fonts_.bold.draw(c, tr(Str::Settings), kMargin, 170, 60, kWhite);
     const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
-                                        tr(Str::LightBar)};
-    constexpr int kRowW = 1200, kRowH = 70;
+                                        tr(Str::LightBar),      tr(Str::Updates)};
+    constexpr int kRowW = 1200, kRowH = 66;
     Rect rows[kSettingRows];
     int y = 262;
     for (int i = 0; i < kSettingRows; ++i) {
@@ -2021,6 +2079,17 @@ void AppUi::drawSettings(Canvas& c) {
         if (focused && !dropdownOpen_) c.strokeRect({r.x - 5, r.y - 5, r.w + 10, r.h + 10}, kWhite, 3, 20);
         int ty = fonts_.semibold.centeredY(r.y, r.h, 30);
         fonts_.semibold.draw(c, labels[i], r.x + 36, ty, 30, kWhite);
+        if (i == 7) {
+            // Updates: the state; Cross updates when there is a newer version.
+            std::string value = updateChecking_            ? tr(Str::UpdateChecking)
+                                : !updateAvailable_.empty() ? trf(Str::UpdateReady, updateAvailable_)
+                                                            : trf(Str::UpToDate, "v" + updateCurrent_);
+            Color color = !updateAvailable_.empty() && !updateChecking_ ? rgba(120, 220, 120) : focused ? kWhite : kGray;
+            int w = fonts_.regular.measure(value, 30);
+            fonts_.regular.draw(c, value, r.x + r.w - 44 - w, fonts_.regular.centeredY(r.y, r.h, 30), 30, color);
+            y += kRowH + 10;
+            continue;
+        }
         // The value, then a chevron: this opens a list.
         auto options = settingOptions(i);
         int sel = settingSelected(i);
@@ -2031,7 +2100,7 @@ void AppUi::drawSettings(Canvas& c) {
         int w = fonts_.regular.measure(value, 30);
         fonts_.regular.draw(c, value, r.x + r.w - 76 - w, fonts_.regular.centeredY(r.y, r.h, 30), 30,
                             focused ? kWhite : kGray);
-        y += kRowH + 14;
+        y += kRowH + 10;
     }
     for (const auto& line : fonts_.regular.wrap(tr(Str::SettingsNote), 24, kRowW, 2)) {
         fonts_.regular.draw(c, line, kMargin, y + 20, 24, kDim);
@@ -2085,6 +2154,46 @@ void AppUi::drawSettings(Canvas& c) {
     }
 }
 
+void AppUi::drawUpdatePrompt(Canvas& c) {
+    c.fillRect({0, 0, kW, kH}, rgba(0, 0, 0, 160));
+    constexpr int kPanelW = 960, kPanelH = 340, kButtonW = 360, kButtonH = 72;
+    Rect panel{(kW - kPanelW) / 2, (kH - kPanelH) / 2 - 40, kPanelW, kPanelH};
+    c.fillRect({panel.x + 8, panel.y + 12, panel.w, panel.h}, rgba(0, 0, 0, 120), 26);  // shadow
+    c.fillRect(panel, kPanel, 24);
+    c.strokeRect(panel, rgba(255, 255, 255, 50), 2, 24);
+    fonts_.bold.draw(c, trf(Str::UpdateAvailable, updateAvailable_), panel.x + 56, panel.y + 48, 44, kWhite);
+    auto lines = fonts_.regular.wrap(tr(Str::UpdatePrompt), 26, kPanelW - 112, 2);
+    for (size_t i = 0; i < lines.size(); ++i)
+        fonts_.regular.draw(c, lines[i], panel.x + 56, panel.y + 124 + static_cast<int>(i) * 36, 26, kGray);
+    const char* labels[2] = {tr(Str::UpdateNow), tr(Str::NotNow)};
+    for (int i = 0; i < 2; ++i) {
+        Rect b{panel.x + 56 + i * (kButtonW + 24), panel.y + panel.h - kButtonH - 44, kButtonW, kButtonH};
+        bool on = i == promptFocus_;
+        c.fillRect(b, on ? kWhite : rgba(255, 255, 255, 30), 14);
+        int tw = fonts_.semibold.measure(labels[i], 28);
+        fonts_.semibold.draw(c, labels[i], b.x + (b.w - tw) / 2, fonts_.semibold.centeredY(b.y, b.h, 28), 28,
+                             on ? kBg : kWhite);
+    }
+    c.fillRect({0, kH - 80, kW, 80}, kBg);  // the home screen's hints, under the pop-up's
+    drawPads(c);
+    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::NotNow)}});
+}
+
+void AppUi::drawUpdating(Canvas& c, uint64_t nowMs) {
+    drawBackground(c);
+    drawLogo(c, kW / 2.0f, 330, 56);
+    drawCentered(c, fonts_.bold, trf(Str::UpdatingTo, updatingTo_), 440, 48, kWhite);
+    drawCentered(c, fonts_.regular, updateStatus_, 520, 28, kGray);
+    if (updateFraction_ >= 0) {
+        constexpr int kBarW = 720;
+        Rect bar{(kW - kBarW) / 2, 590, kBarW, 12};
+        c.fillRect(bar, rgba(255, 255, 255, 40), 6);
+        c.fillRect({bar.x, bar.y, static_cast<int>(kBarW * std::min(1.0f, updateFraction_)), bar.h}, kGreen, 6);
+    } else {
+        drawSpinner(c, kW / 2.0f, 610, 24, nowMs);
+    }
+}
+
 void AppUi::drawSignOutHold(Canvas& c, uint64_t nowMs) {
     if (!signOutHoldStart_) return;
     float progress = std::min(1.0f, static_cast<float>(nowMs - signOutHoldStart_) / kSignOutHoldMs);
@@ -2122,9 +2231,11 @@ void AppUi::render(Canvas& c, uint64_t nowMs) {
         case Screen::Launching: drawLaunching(c, nowMs); break;
         case Screen::Error: drawError(c); break;
         case Screen::Settings: drawSettings(c); break;
+        case Screen::Updating: drawUpdating(c, nowMs); break;
         case Screen::Streaming: break;
     }
-    if (screen_ == Screen::Home || screen_ == Screen::Error) drawSignOutHold(c, nowMs);
+    if (screen_ == Screen::Home && updatePrompt_) drawUpdatePrompt(c);
+    if ((screen_ == Screen::Home && !updatePrompt_) || screen_ == Screen::Error) drawSignOutHold(c, nowMs);
     if (!toast_.empty()) animating_ = true;  // to expire it
 }
 

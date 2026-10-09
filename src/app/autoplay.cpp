@@ -26,15 +26,16 @@ bool uiSaved = false;
 bool settingsShot = false;  // "settingstest": save the screen now
 uint64_t homeSince = 0, launchSince = 0;
 bool launchSaved = false;
+bool acceptUpdate = false;  // "updatetest": Cross on the pop-up, next pass ("updateskip": Circle)
 }  // namespace
 
 void loadAutoplay() {
     std::string text;
     if (!platform::readFile(platform::dataDir() + "/autoplay.txt", text)) return;
     char title[128] = {};
-    char option[64] = {};
+    char option[512] = {};
     int seconds = 0;
-    if (std::sscanf(text.c_str(), "%127s %d %63s", title, &seconds, option) < 1) return;
+    if (std::sscanf(text.c_str(), "%127s %d %511s", title, &seconds, option) < 1) return;
     std::string options = option;  // comma-separated
     for (size_t start = 0; start <= options.size();) {
         size_t comma = options.find(',', start);
@@ -69,6 +70,12 @@ void loadAutoplay() {
         if (opt.rfind("res=", 0) == 0) g_autoplay.resolution = opt.substr(4);
         if (opt.rfind("sharp=", 0) == 0) g_autoplay.sharpness = std::atoi(opt.c_str() + 6);
         if (opt.rfind("deband=", 0) == 0) g_autoplay.deband = std::atoi(opt.c_str() + 7);
+        if (opt.rfind("updatefeed=", 0) == 0) g_autoplay.updateFeed = opt.substr(11);
+        if (opt == "testca") g_autoplay.testCa = true;
+        if (opt == "updatetest") g_autoplay.updateTest = true;
+        if (opt == "updateskip") g_autoplay.updateSkip = true;
+        if (opt == "settingsupdate") g_autoplay.settingsUpdate = true;
+        if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
     g_autoplay.title = title;
@@ -141,6 +148,26 @@ void autoplayPad(input::ControllerState& pad) {
 }
 
 void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
+    if (g_autoplay.settingsUpdate && uiSaved && !g_ui->updateOffered()) {
+        // Settings, down to Updates (the last row), Cross.
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        if (step < 10 && now - since >= 500u + 300u * static_cast<unsigned>(step)) {
+            nav = ui::NavInput{};
+            if (step == 0) nav.options = true;
+            if (step >= 1 && step <= 8) nav.down = true;
+            if (step == 9) nav.accept = true;
+            XC_LOGI("autoplay: settings update step %d", step);
+            ++step;
+        }
+    }
+    if (acceptUpdate) {
+        acceptUpdate = false;
+        nav = ui::NavInput{};
+        (g_autoplay.updateSkip ? nav.back : nav.accept) = true;
+        XC_LOGI("autoplay: update %s", g_autoplay.updateSkip ? "not now" : "now");
+    }
     if (g_autoplay.menuTest && g_ui->screen() == ui::Screen::Streaming) {
         // Menu, down five times to the resolution, left to 720p, accept; at
         // 35 s right (back to 1080p) and accept.
@@ -299,6 +326,30 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         if (now - homeSince > 5000) {
             uiSaved = true;
             saveCanvas("ui.ppm");
+        }
+    }
+    if (g_autoplay.title == "UPDATE") {
+        // The update test: the pop-up saved and accepted, the progress
+        // saved; the run ends on the home screen without one (the new
+        // version, or none offered).
+        static uint64_t offeredAt = 0, updatingAt = 0, plainHomeAt = 0;
+        bool offered = g_ui->updateOffered();
+        if (offered && !offeredAt) offeredAt = now;
+        if (offered && (g_autoplay.updateTest || g_autoplay.updateSkip) && now - offeredAt > 2500 && !acceptUpdate) {
+            saveCanvas("update.ppm");
+            acceptUpdate = true;
+        }
+        if (g_ui->screen() == ui::Screen::Updating && !updatingAt) updatingAt = now;
+        if (updatingAt && updatingAt != 1 && now - updatingAt > 1500) {
+            saveCanvas("updating.ppm");
+            updatingAt = 1;
+        }
+        bool plainHome = g_ui->screen() == ui::Screen::Home && !offered;
+        if (!plainHome) plainHomeAt = 0;
+        else if (!plainHomeAt) plainHomeAt = now;
+        else if (plainHomeAt != 1 && now - plainHomeAt > 25000) {
+            plainHomeAt = 1;
+            XC_LOGI("AUTOPLAY END: update test, running v%s", XC_APP_VERSION);
         }
     }
 }

@@ -17,6 +17,7 @@
 //                               the PS5 home-screen icon (icon0.png: 512)
 //   xcloud-cli logout
 #include "app/library.h"
+#include "app/updater.h"
 #include "auth/auth_manager.h"
 #include "media/decoder.h"
 #include "net/http.h"
@@ -535,6 +536,27 @@ int main(int argc, char** argv) {
         std::printf("tls-stress: %d threads x %d: %d answered, %d failed\n", threads, rounds, ok.load(), failed.load());
         for (const auto& [e, n] : errors) std::printf("  %3d x %s\n", n, e.c_str());
         return failed ? 1 : 0;
+    }
+    if (cmd == "self-update" && argi + 1 < argc) {
+        // The updater against a release feed, into a folder:
+        // self-update <feed url> <dir> [extra CA .pem] [current version].
+        if (argi + 2 < argc && !net::addTrustedCa(argv[argi + 2])) return 1;
+        std::string current = argi + 3 < argc ? argv[argi + 3] : XC_APP_VERSION, err;
+        app::Release release;
+        if (!app::findLatestRelease(release, err, argv[argi])) {
+            std::fprintf(stderr, "release: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("release %s: %s (%ld bytes), %s\n", release.tag.c_str(), release.zipUrl.c_str(), release.zipSize,
+                    release.sigUrl.c_str());
+        bool ok = app::installRelease(release, argv[argi + 1], current, [](app::UpdateStep step, double f) {
+            static int last = -2;
+            int pct = f < 0 ? -1 : static_cast<int>(f * 10) * 10;
+            if (pct != last) std::printf("  step %d: %d%%\n", static_cast<int>(step), pct);
+            last = pct;
+        }, err);
+        std::printf("%s\n", ok ? "installed" : ("failed: " + err).c_str());
+        return ok ? 0 : 1;
     }
     auth::AuthManager am(platform::dataDir() + "/account.json");
 

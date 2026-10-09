@@ -58,7 +58,7 @@ struct GameRow {
     bool gamePassBadges = true;
 };
 
-enum class Screen { Splash, SignIn, Home, Details, Launching, Streaming, Error, Settings };
+enum class Screen { Splash, SignIn, Home, Details, Launching, Streaming, Error, Settings, Updating };
 
 // The home screen's tabs (L1 / R1). Triangle searches the current one.
 enum class Tab { GamePass, Library, Consoles };
@@ -85,10 +85,14 @@ struct SettingsChoice {
 
 // The stick dead zones Settings offers, in percent of the travel.
 constexpr int kDeadzonePercent[] = {0, 5, 10, 15, 20, 25};
-constexpr int kSettingRows = 7;  // language, resolution, region, dead zone, triggers, confirm, light bar
+constexpr int kSettingRows = 8;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates
 
-// ConsolesShown: "My consoles" opened (its list is refreshed).
-enum class Action { None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, PrefsChanged, ConsolesShown };
+// ConsolesShown: "My consoles" opened (its list is refreshed). UpdateNow
+// (with the settings, saved first when it came from Settings) / UpdateLater:
+// the answer to the update pop-up, or Updates in Settings.
+enum class Action {
+    None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, PrefsChanged, ConsolesShown, UpdateNow, UpdateLater
+};
 
 // How "Your games" is sorted (R3).
 enum class LibrarySort { Recent, AZ, Console, Count };
@@ -176,6 +180,15 @@ public:
     // Regions offered by the account's xCloud login; `defaultRegion` is the
     // one "Automatic" picks.
     void setRegions(std::vector<std::string> regions, const std::string& defaultRegion);
+    // Updates: this version, and the newer one (empty: up to date);
+    // `checking` while it is being asked (Settings shows it).
+    void setUpdateState(const std::string& current, const std::string& available, bool checking);
+    // The pop-up offering the newer version, over the home screen.
+    void offerUpdate();
+    bool updateOffered() const;
+    // The screen while it updates: `status` and, 0..1, how far (-1: a spinner).
+    void showUpdating(const std::string& version);
+    void setUpdateStatus(const std::string& status, float fraction);
     Screen screen() const;
     Tab tab() const;
     // Switches the home screen's tab (autoplay tests).
@@ -248,6 +261,8 @@ private:
     void drawLaunching(Canvas& c, uint64_t nowMs);
     void drawError(Canvas& c);
     void drawSettings(Canvas& c);
+    void drawUpdatePrompt(Canvas& c);
+    void drawUpdating(Canvas& c, uint64_t nowMs);
     void changeSetting(int delta);
     // Settings drop-downs: the choices of a row, the chosen one, choosing.
     std::vector<std::string> settingOptions(int row) const;
@@ -316,6 +331,12 @@ private:
         std::vector<std::string> categories;
     };
     std::map<std::string, DetailInfo> detailInfo_;  // fetched on demand, by product id
+    std::string updateCurrent_, updateAvailable_;
+    bool updateChecking_ = false;
+    bool updatePrompt_ = false;  // the pop-up is up (on the home screen)
+    int promptFocus_ = 0;        // 0 Update now, 1 Not now
+    std::string updatingTo_, updateStatus_;
+    float updateFraction_ = -1;
     int settingsRow_ = 0;
     bool dropdownOpen_ = false;  // the list of the focused settings row
     int dropdownIndex_ = 0, dropdownTop_ = 0;

@@ -111,6 +111,15 @@ screen's loop), `worker.cpp` (sign-in, library, consoles, playing),
 `price_loop.cpp`, `autoplay.cpp` (the unattended tests) and
 `auto_deband.cpp`, whose "auto" block smoothing now has unit tests.
 
+### In-app updates — done
+After sign-in the app asks for the latest release and offers a newer one
+(a pop-up with "Update now" / "Not now", and Settings > Updates). The zip
+must be signed (ECDSA P-256) with the maintainer's key, which
+`tools/release.sh` uses; a package that isn't that version or isn't newer
+is refused. Files are swapped in place with a backup (an update cut short
+is rolled back at the next start), then the app restarts itself
+(`sceSystemServiceLoadExec`, from the main thread).
+
 ## Next
 
 | Item | Why | Size |

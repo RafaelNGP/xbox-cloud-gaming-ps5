@@ -92,4 +92,6 @@ bool systemKeyboardAvailable() { return false; }
 bool openSystemKeyboard(const std::string&, const std::string&, size_t, KeyboardKind) { return false; }
 KeyboardStatus pollSystemKeyboard(std::string&) { return KeyboardStatus::Closed; }
 
+bool restartApp() { return false; }
+
 }  // namespace xc::platform

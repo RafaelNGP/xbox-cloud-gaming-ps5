@@ -116,7 +116,7 @@ enum class Str {
     Deactivated,
     ButtonCross,
     ButtonCircle,
-    UpdateAvailable,  // "%s" = the new version
+    UpdateAvailable,  // the update pop-up's title; "%s" = the new version
     Controllers,      // in-game menu: the pads in use
     PadConnected,     // "%s" = "2 (user name)"
     PadDisconnected,  // "%s" = "2 (user name)"
@@ -156,6 +156,20 @@ enum class Str {
     UpscalerFsrClean,   // game menu: FSR after Anime4K Restore (cleans compression artefacts)
     UpscalerAiClean,    // Anime4K upscale after Anime4K Restore
     DebandAuto,         // "%s" = the level in use now; block smoothing follows the bitrate
+    UpdatePrompt,       // the update pop-up's text
+    UpdateNow,          // button
+    NotNow,             // button
+    Updates,            // Settings row
+    UpToDate,           // "%s" = this version
+    UpdateReady,        // "%s" = the new version: Settings, Cross updates
+    UpdateChecking,     // Settings, while it asks
+    UpdatingTo,         // "%s" = the new version
+    UpdateDownloading,  // "%s" = percent
+    UpdateVerifying,
+    UpdateInstalling,
+    UpdateRestarting,
+    UpdateReopen,       // notification when it couldn't restart
+    UpdateFailed,       // toast; nothing was changed
     Count
 };
 

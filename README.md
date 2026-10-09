@@ -45,8 +45,10 @@ No building needed: download `PPSA99810.zip` from the
 3. Sign in: open <https://www.microsoft.com/link> on your phone or computer
    (or scan the QR code) and enter the code shown on the TV.
 
-To update, close the app and copy the new folder over the old one; your
-sign-in is kept. The sign-in lives in `PPSA99810/account.json`: never share
+New versions install from inside the app (it asks after sign-in, and
+Settings > Updates): only a package signed with the project's key is
+accepted, and your sign-in is kept. By hand: close the app and copy the new
+folder over the old one. The sign-in lives in `PPSA99810/account.json`: never share
 that file. More details, controls and troubleshooting are in the
 `README.txt` inside the folder.
 
@@ -91,8 +93,9 @@ tools/ps5/link.sh build-ps5          # -> build-ps5/eboot.bin
 tools/ps5/package.sh build-ps5       # -> build-ps5/pkg/PPSA99810/
 ```
 
-A release is built and checked with `tools/release.sh <X.Y.Z>` (see the
-script's header); it publishes nothing.
+A release is built, signed and checked with `tools/release.sh <X.Y.Z>`
+(see the script's header); it publishes nothing. The signing key stays with
+the maintainer: the app trusts only its public half (`src/app/updater.cpp`).
 
 ## License
 
