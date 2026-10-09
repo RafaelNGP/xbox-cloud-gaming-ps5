@@ -94,6 +94,16 @@ library"), and a GET with no answer is retried once. Host stress test
 (`xcloud-cli tls-stress`): 960 parallel requests, 0 failures (before: 2
 runs in 3 failed).
 
+### Safer changes and releases — done
+- CI (`.github/workflows/ci.yml`): the desktop build and unit tests on
+  every push and pull request, and a scan of each pull request for tokens
+  and private files.
+- `tools/release.sh <X.Y.Z> [out] [--console]`: checks the version,
+  contentVersion, tag and changes, builds and packages without the
+  account, checks inside the zip and eboot.bin, optionally streams on the
+  console, and prints the publish commands and the catalog record. It
+  publishes nothing.
+
 ## Next
 
 | Item | Why | Size |
@@ -101,8 +111,6 @@ runs in 3 failed).
 | Voice chat (microphone) | xCloud has a chat channel; needs PS5 audio capture | large |
 | USB keyboard and mouse | Some xCloud games accept them | medium |
 | Split `ps5_main.cpp` | 1,100+ lines mixing the stream screen, autoplay and settings | medium |
-| CI on GitHub | Host build and unit tests on every PR | small |
-| One-command release | Package, checksums, release and catalog record, with the secret scan | small |
 
 ## Dropped (and why)
 

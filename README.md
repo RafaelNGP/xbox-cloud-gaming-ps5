@@ -91,6 +91,9 @@ tools/ps5/link.sh build-ps5          # -> build-ps5/eboot.bin
 tools/ps5/package.sh build-ps5       # -> build-ps5/pkg/PPSA99810/
 ```
 
+A release is built and checked with `tools/release.sh <X.Y.Z>` (see the
+script's header); it publishes nothing.
+
 ## License
 
 GPL-3.0-or-later; see `LICENSE`. The PS5 binary statically links the PS5 app
