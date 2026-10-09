@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-08, after v0.8.0.
+Last update: 2026-10-09, after v0.9.0.
 
 ## Now
 
@@ -94,7 +94,7 @@ library"), and a GET with no answer is retried once. Host stress test
 (`xcloud-cli tls-stress`): 960 parallel requests, 0 failures (before: 2
 runs in 3 failed).
 
-### Safer changes and releases — done
+### Safer changes and releases — done (v0.9.0)
 - CI (`.github/workflows/ci.yml`): the desktop build and unit tests on
   every push and pull request, and a scan of each pull request for tokens
   and private files.
@@ -104,14 +104,14 @@ runs in 3 failed).
   console, and prints the publish commands and the catalog record. It
   publishes nothing.
 
-### `ps5_main.cpp` split — done
+### `ps5_main.cpp` split — done (v0.9.0)
 It had grown to 1,586 lines. Now: `ps5_main.cpp` (start-up and the home
 screen's loop), `worker.cpp` (sign-in, library, consoles, playing),
 `stream_screen.cpp` (the game's menu, gestures, controllers, overlay),
 `price_loop.cpp`, `autoplay.cpp` (the unattended tests) and
 `auto_deband.cpp`, whose "auto" block smoothing now has unit tests.
 
-### In-app updates — done
+### In-app updates — done (v0.9.0)
 After sign-in the app asks for the latest release and offers a newer one
 (a pop-up with "Update now" / "Not now", and Settings > Updates). The zip
 must be signed (ECDSA P-256) with the maintainer's key, which
@@ -120,11 +120,28 @@ is refused. Files are swapped in place with a backup (an update cut short
 is rolled back at the next start), then the app restarts itself
 (`sceSystemServiceLoadExec`, from the main thread).
 
+### Controls and search — done (v0.9.0)
+- Controller icons as DualSense silhouettes; the light bar's colour from
+  the game, a colour picker (live on the pad), or off; the confirm button
+  shown as its symbol, in force from the next press.
+- Trigger vibration tester: strength, frequency, resistance (the DualSense
+  pushes back) and force pulses; the console takes trigger modes 0..3 only.
+- Each stick's own dead zone, radial with rescaling, set in a stick tester.
+- Search: Mode, Genre, Language (in the app's language) and Console lists;
+  Lowest price by the discounted price. Modes and languages come from the
+  store's full details, fetched once in the background and cached.
+
 ## Next
 
 | Item | Why | Size |
 | --- | --- | --- |
 | Per-game settings (next release) | A profile per game (picture, triggers, dead zones, controls) that overrides the general settings for that game only; games without one use the general ones | medium |
+| "All games" (Game Pass) as a grid | One row is too little for hundreds of games: a grid like "My games" | medium |
+| Fast scrolling | Right stick by pages, a touchpad swipe jumps rows | small |
+| Refresh old catalog details | Cached details are never refreshed: a few of the oldest (over 30 days) each start | small |
+| Publisher filter | 918 publishers: the most frequent first, studios of one owner grouped | medium |
+| Friends playing now | Xbox social / presence APIs; privacy to handle | large |
+| Keyboard and mouse filter / icon | The store marks games that take them; together with keyboard and mouse support | small |
 | Voice chat (microphone) | xCloud has a chat channel; needs PS5 audio capture | large |
 | USB keyboard and mouse | Some xCloud games accept them | medium |
 
