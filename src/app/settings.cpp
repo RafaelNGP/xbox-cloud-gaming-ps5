@@ -7,6 +7,8 @@
 #include "util/log.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 
 namespace xc::app {
 
@@ -30,7 +32,13 @@ bool Settings::load(const std::string& path) {
     deadzone = static_cast<int>(std::clamp<int64_t>((*j)["deadzone"].asInt(deadzone), 0, 50));
     triggerRumble = (*j)["triggerRumble"].asBool(triggerRumble);
     circleConfirms = (*j)["circleConfirms"].asBool(circleConfirms);
-    lightBar = (*j)["lightBar"].asBool(lightBar);
+    // "lightBar" (on/off) until the colour could be chosen.
+    lightBarMode = (*j)["lightBar"].asBool(true) ? 0 : 2;
+    lightBarMode = static_cast<int>(std::clamp<int64_t>((*j)["lightBarMode"].asInt(lightBarMode), 0, 2));
+    if (std::string hex = (*j)["lightBarColour"].str(); hex.size() == 7 && hex[0] == '#') {
+        uint32_t rgb = static_cast<uint32_t>(std::strtoul(hex.c_str() + 1, nullptr, 16));
+        lightBarColour = 0xFF000000u | (rgb >> 16 & 0xFF) | (rgb & 0xFF00) | (rgb & 0xFF) << 16;
+    }
     gestureHints = static_cast<int>((*j)["gestureHints"].asInt(gestureHints));
     skippedUpdate = (*j)["skippedUpdate"].str();
     maxHeightCloud = static_cast<int>((*j)["maxHeightCloud"].asInt(0));
@@ -70,7 +78,11 @@ bool Settings::save(const std::string& path) const {
     v.set("deadzone", deadzone);
     v.set("triggerRumble", triggerRumble);
     v.set("circleConfirms", circleConfirms);
-    v.set("lightBar", lightBar);
+    v.set("lightBarMode", lightBarMode);
+    char hex[8];
+    std::snprintf(hex, sizeof hex, "#%02X%02X%02X", static_cast<unsigned>(lightBarColour & 0xFF),
+                  static_cast<unsigned>(lightBarColour >> 8 & 0xFF), static_cast<unsigned>(lightBarColour >> 16 & 0xFF));
+    v.set("lightBarColour", std::string(hex));
     v.set("gestureHints", gestureHints);
     v.set("skippedUpdate", skippedUpdate);
     v.set("maxHeightCloud", maxHeightCloud);

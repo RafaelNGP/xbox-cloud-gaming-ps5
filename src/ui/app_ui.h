@@ -69,6 +69,7 @@ struct NavInput {
     bool l1 = false, r1 = false, square = false, triangle = false, r3 = false;
     bool l2 = false, r2 = false;  // pressed (triggers past halfway)
     bool touchpad = false;  // held right now (sign out needs a 5 s hold)
+    float stickX = 0, stickY = 0;  // the left stick, -1..1 (the colour picker)
     uint64_t nowMs = 0;
 };
 
@@ -80,7 +81,8 @@ struct SettingsChoice {
     int deadzone = 3;      // index into kDeadzonePercent (15 %)
     bool triggerRumble = true;
     bool circleConfirms = false;  // Circle is Xbox A (and Cross is B)
-    bool lightBar = true;         // the light bar takes the game's colour
+    int lightBarMode = 0;         // 0 the game's colour, 1 lightBarColour, 2 off
+    Color lightBarColour = rgba(0, 112, 220);
 };
 
 // The stick dead zones Settings offers, in percent of the travel.
@@ -177,6 +179,9 @@ public:
     // The colour of the game in focus (or being played), from its art, for
     // the DualSense light bar; false while there is none to show.
     bool accentColor(Color& out);
+    // While Settings is open: the light bar being chosen there (the colour
+    // picker's colour as it moves), so the pad shows it at once.
+    bool settingsLightBar(int& mode, Color& colour) const;
     // Regions offered by the account's xCloud login; `defaultRegion` is the
     // one "Automatic" picks.
     void setRegions(std::vector<std::string> regions, const std::string& defaultRegion);
@@ -262,6 +267,11 @@ private:
     void drawError(Canvas& c);
     void drawSettings(Canvas& c);
     void drawUpdatePrompt(Canvas& c);
+    // The light bar's colour picker (Settings > Light bar > Custom colour).
+    void openColourPicker(int previousMode);
+    void handleColourPicker(const NavInput& in);
+    Color pickerColour() const;
+    void drawColourPicker(Canvas& c);
     void drawUpdating(Canvas& c, uint64_t nowMs);
     void changeSetting(int delta);
     // Settings drop-downs: the choices of a row, the chosen one, choosing.
@@ -337,6 +347,13 @@ private:
     int promptFocus_ = 0;        // 0 Update now, 1 Not now
     std::string updatingTo_, updateStatus_;
     float updateFraction_ = -1;
+    bool pickerOpen_ = false;
+    float pickU_ = 0, pickV_ = 0;  // on the wheel: angle = hue, distance = saturation
+    float pickValue_ = 1;          // brightness
+    int pickerPrevMode_ = 0;       // what Circle goes back to
+    uint64_t pickerLastMs_ = 0;
+    std::vector<uint32_t> wheel_;  // the wheel's pixels at wheelValue_
+    float wheelValue_ = -1;
     int settingsRow_ = 0;
     bool dropdownOpen_ = false;  // the list of the focused settings row
     int dropdownIndex_ = 0, dropdownTop_ = 0;

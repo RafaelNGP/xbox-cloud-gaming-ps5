@@ -3,6 +3,7 @@
 // User settings, kept in <dataDir>/settings.json.
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -34,8 +35,10 @@ struct Settings {
     int deadzone = 15;
     bool triggerRumble = true;
     bool circleConfirms = false;
-    // The DualSense light bar takes the colour of the game in focus.
-    bool lightBar = true;
+    // The DualSense light bar: 0 the colour of the game in focus, 1
+    // lightBarColour, 2 off.
+    int lightBarMode = 0;
+    uint32_t lightBarColour = 0xFFDC7000;  // as ui::Color: 0xAABBGGRR, opaque (blue)
     int gestureHints = 0;
     // The release the user said "Not now" to: not offered again on start.
     std::string skippedUpdate;

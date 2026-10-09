@@ -181,11 +181,12 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     for (int i = 0; i < static_cast<int>(pads_.size()); ++i) {
         int sx = kPad + i * slotW;
         constexpr int kIconW = 60;
-        drawPadIcon(c, fonts_.bold, sx + (slotW - kIconW) / 2, y, kIconW, i, pads_[i].connected);
+        drawPadIcon(c, fonts_.bold, sx + (slotW - kIconW) / 2, y, kIconW, i, pads_[i].connected, kPanel);
         if (!pads_[i].connected || pads_[i].name.empty()) continue;
         auto name = fonts_.regular.wrap(pads_[i].name, 16, slotW - 8, 1);
         if (!name.empty())
-            fonts_.regular.draw(c, name[0], sx + (slotW - fonts_.regular.measure(name[0], 16)) / 2, y + 48, 16, kGray);
+            fonts_.regular.draw(c, name[0], sx + (slotW - fonts_.regular.measure(name[0], 16)) / 2,
+                                y + padIconHeight(kIconW) + 4, 16, kGray);
     }
 
     // Cross selects, Circle goes back to the game (swapped with Circle

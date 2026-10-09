@@ -666,6 +666,93 @@ void AppUi::showPlayError(const std::string& message, const GameTile& game) {
     dirty_ = true;
 }
 
+namespace {
+
+// Hue 0..1, saturation and value 0..1.
+Color hsvColour(float h, float s, float v) {
+    h = (h - std::floor(h)) * 6.0f;
+    int i = static_cast<int>(h) % 6;
+    float f = h - std::floor(h), p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f));
+    float r = i == 0 || i == 5 ? v : i == 1 ? q : i == 2 || i == 3 ? p : t;
+    float g = i == 0 ? t : i == 1 || i == 2 ? v : i == 3 ? q : p;
+    float b = i == 2 ? t : i == 3 || i == 4 ? v : i == 5 ? q : p;
+    auto byte = [](float x) { return static_cast<uint8_t>(std::lround(std::clamp(x, 0.0f, 1.0f) * 255)); };
+    return rgba(byte(r), byte(g), byte(b));
+}
+
+void colourHsv(Color c, float& h, float& s, float& v) {
+    float r = (c & 0xFF) / 255.0f, g = (c >> 8 & 0xFF) / 255.0f, b = (c >> 16 & 0xFF) / 255.0f;
+    float mx = std::max({r, g, b}), mn = std::min({r, g, b}), d = mx - mn;
+    v = mx;
+    s = mx > 0 ? d / mx : 0;
+    if (d <= 0) h = 0;
+    else if (mx == r) h = (g - b) / d / 6.0f;
+    else if (mx == g) h = ((b - r) / d + 2) / 6.0f;
+    else h = ((r - g) / d + 4) / 6.0f;
+    if (h < 0) h += 1;
+}
+
+constexpr int kWheelR = 180;
+constexpr float kMinValue = 0.2f;  // darker turns the light bar all but off
+
+}  // namespace
+
+bool AppUi::settingsLightBar(int& mode, Color& colour) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (screen_ != Screen::Settings) return false;
+    mode = pickerOpen_ ? 1 : settings_.lightBarMode;
+    colour = pickerOpen_ ? pickerColour() : settings_.lightBarColour;
+    return true;
+}
+
+void AppUi::openColourPicker(int previousMode) {
+    // Caller holds mutex_. Starts on the colour saved.
+    float h, s, v;
+    colourHsv(settings_.lightBarColour, h, s, v);
+    pickU_ = s * std::cos(h * 6.2832f);
+    pickV_ = s * std::sin(h * 6.2832f);
+    pickValue_ = std::max(kMinValue, v);
+    pickerPrevMode_ = previousMode;
+    pickerLastMs_ = 0;
+    pickerOpen_ = true;
+    dirty_ = true;
+}
+
+Color AppUi::pickerColour() const {
+    float h = std::atan2(pickV_, pickU_) / 6.2832f;
+    return hsvColour(h < 0 ? h + 1 : h, std::min(1.0f, std::hypot(pickU_, pickV_)), pickValue_);
+}
+
+void AppUi::handleColourPicker(const NavInput& in) {
+    // Caller holds mutex_. The stick moves the cursor smoothly, the D-pad a
+    // step at a time; L2 / R2 change the brightness.
+    float dt = pickerLastMs_ && in.nowMs > pickerLastMs_ ? std::min(0.1f, (in.nowMs - pickerLastMs_) / 1000.0f) : 0;
+    pickerLastMs_ = in.nowMs;
+    float u = pickU_, v = pickV_;
+    auto axis = [](float a) { return std::abs(a) < 0.2f ? 0.0f : a; };
+    u += axis(in.stickX) * 1.1f * dt;
+    v += axis(in.stickY) * 1.1f * dt;
+    constexpr float kStep = 0.05f;
+    if (in.left) u -= kStep;
+    if (in.right) u += kStep;
+    if (in.up) v -= kStep;
+    if (in.down) v += kStep;
+    if (float d = std::hypot(u, v); d > 1) u /= d, v /= d;
+    if (u != pickU_ || v != pickV_) pickU_ = u, pickV_ = v, dirty_ = true;
+    if (in.l2) pickValue_ = std::max(kMinValue, pickValue_ - 0.1f), dirty_ = true;
+    if (in.r2) pickValue_ = std::min(1.0f, pickValue_ + 0.1f), dirty_ = true;
+    if (in.accept) {
+        settings_.lightBarColour = pickerColour();
+        settings_.lightBarMode = 1;
+        pickerOpen_ = false;
+        dirty_ = true;
+    } else if (in.back) {
+        settings_.lightBarMode = pickerPrevMode_;
+        pickerOpen_ = false;
+        dirty_ = true;
+    }
+}
+
 void AppUi::setUpdateState(const std::string& current, const std::string& available, bool checking) {
     std::lock_guard<std::mutex> lock(mutex_);
     updateCurrent_ = current;
@@ -758,7 +845,7 @@ bool AppUi::accentColor(Color& out) {
 
 void AppUi::drawPads(Canvas& c) {
     // Bottom left, on the line of the button hints (which are right-aligned).
-    drawPadRow(c, fonts_.bold, kMargin, kH - 70, 54, 14, pads_);
+    drawPadRow(c, fonts_.bold, kMargin, kH - 26 - padIconHeight(48), 48, 16, pads_, kBg);
 }
 
 void AppUi::setRegions(std::vector<std::string> regions, const std::string& defaultRegion) {
@@ -786,9 +873,9 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
     } else if (row == 4) {
         out = {tr(Str::Activated), tr(Str::Deactivated)};
     } else if (row == 5) {
-        out = {tr(Str::ButtonCross), tr(Str::ButtonCircle)};
+        out = {"", ""};  // Cross, Circle: drawn as the buttons
     } else if (row == 6) {
-        out = {tr(Str::Activated), tr(Str::Deactivated)};
+        out = {tr(Str::LightBarGame), tr(Str::LightBarCustom), tr(Str::Deactivated)};
     } else if (row == 7) {
         // Updates: Cross acts, no list.
     } else {
@@ -811,7 +898,7 @@ int AppUi::settingSelected(int row) const {
     if (row == 3) return settings_.deadzone;
     if (row == 4) return settings_.triggerRumble ? 0 : 1;
     if (row == 5) return settings_.circleConfirms ? 1 : 0;
-    if (row == 6) return settings_.lightBar ? 0 : 1;
+    if (row == 6) return settings_.lightBarMode;
     if (row == 7) return 0;
     for (size_t i = 0; i < regions_.size(); ++i)
         if (regions_[i] == settings_.region) return static_cast<int>(i) + 1;
@@ -832,7 +919,7 @@ void AppUi::applySetting(int row, int index) {
     } else if (row == 5) {
         settings_.circleConfirms = index == 1;
     } else if (row == 6) {
-        settings_.lightBar = index == 0;
+        settings_.lightBarMode = index;
     } else if (row == 7) {
     } else {
         settings_.region = index == 0 ? std::string() : regions_[static_cast<size_t>(index - 1)];
@@ -1176,13 +1263,19 @@ UiEvent AppUi::handle(const NavInput& in) {
     switch (screen_) {
         case Screen::Home: handleHome(in, ev); break;
         case Screen::Settings:
+            if (pickerOpen_) {
+                handleColourPicker(in);
+                break;
+            }
             if (dropdownOpen_) {
                 // The list: up / down, Cross picks, Circle closes it unchanged.
                 int n = static_cast<int>(settingOptions(settingsRow_).size());
                 if (in.down && dropdownIndex_ + 1 < n) ++dropdownIndex_;
                 if (in.up && dropdownIndex_ > 0) --dropdownIndex_;
+                int before = settingSelected(settingsRow_);
                 if (in.accept) applySetting(settingsRow_, dropdownIndex_);
                 if (in.accept || in.back) dropdownOpen_ = false;
+                if (in.accept && settingsRow_ == 6 && dropdownIndex_ == 1) openColourPicker(before);
                 dirty_ = true;
                 break;
             }
@@ -1301,6 +1394,27 @@ void AppUi::drawTopBar(Canvas& c) {
     }
 }
 
+// A face button as on the pad: its symbol in its colour on a round key,
+// `r` its radius (14 in the button hints).
+static void drawFaceButton(Canvas& c, int icon, float cx, float cy, float r) {
+    const float k = r / 14.0f, t = 2.5f * k;
+    c.fillCircle(cx, cy, r, rgba(255, 255, 255, 40));
+    if (icon == kIconCross) {
+        c.line(cx - 6 * k, cy - 6 * k, cx + 6 * k, cy + 6 * k, t, rgba(124, 178, 232));
+        c.line(cx + 6 * k, cy - 6 * k, cx - 6 * k, cy + 6 * k, t, rgba(124, 178, 232));
+    } else if (icon == kIconCircle) {
+        c.strokeArc(cx, cy, 6.5f * k, t, 0, 6.2832f, rgba(255, 102, 102));
+    } else if (icon == kIconSquare) {
+        int h = static_cast<int>(6 * k);
+        c.strokeRect({static_cast<int>(cx) - h, static_cast<int>(cy) - h, 2 * h, 2 * h}, rgba(240, 130, 200),
+                     std::max(2, static_cast<int>(2 * k)));
+    } else {
+        c.line(cx, cy - 7 * k, cx - 7 * k, cy + 5 * k, t, rgba(64, 226, 160));
+        c.line(cx, cy - 7 * k, cx + 7 * k, cy + 5 * k, t, rgba(64, 226, 160));
+        c.line(cx - 7 * k, cy + 5 * k, cx + 7 * k, cy + 5 * k, t, rgba(64, 226, 160));
+    }
+}
+
 void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>& hints) {
     // Right-aligned PlayStation button glyphs with labels.
     constexpr int kPx = 22, kR = 14, kGap = 36;
@@ -1337,19 +1451,7 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
             c.fillRect({x - 4, static_cast<int>(cy) - 11, 2 * kR + 8, 22}, rgba(255, 255, 255, 40), 11);
             for (int k = -1; k <= 1; ++k) c.line(cx - 8, cy + k * 5, cx + 8, cy + k * 5, 2, kGray);
         } else {
-            c.fillCircle(cx, cy, kR, rgba(255, 255, 255, 40));
-            if (icon == kIconCross) {
-                c.line(cx - 6, cy - 6, cx + 6, cy + 6, 2.5f, rgba(124, 178, 232));
-                c.line(cx + 6, cy - 6, cx - 6, cy + 6, 2.5f, rgba(124, 178, 232));
-            } else if (icon == kIconCircle) {
-                c.strokeArc(cx, cy, 6.5f, 2.5f, 0, 6.2832f, rgba(255, 102, 102));
-            } else if (icon == kIconSquare) {
-                c.strokeRect({static_cast<int>(cx) - 6, static_cast<int>(cy) - 6, 12, 12}, rgba(240, 130, 200), 2);
-            } else {
-                c.line(cx, cy - 7, cx - 7, cy + 5, 2.5f, rgba(64, 226, 160));
-                c.line(cx, cy - 7, cx + 7, cy + 5, 2.5f, rgba(64, 226, 160));
-                c.line(cx - 7, cy + 5, cx + 7, cy + 5, 2.5f, rgba(64, 226, 160));
-            }
+            drawFaceButton(c, icon, cx, cy, kR);
         }
         x -= kGap;
     }
@@ -2097,9 +2199,18 @@ void AppUi::drawSettings(Canvas& c) {
         float cx = static_cast<float>(r.x + r.w - 44), cy = static_cast<float>(r.y + r.h / 2);
         c.line(cx - 9, cy - 4, cx, cy + 5, 3, focused ? kWhite : kGray);
         c.line(cx, cy + 5, cx + 9, cy - 4, 3, focused ? kWhite : kGray);
-        int w = fonts_.regular.measure(value, 30);
-        fonts_.regular.draw(c, value, r.x + r.w - 76 - w, fonts_.regular.centeredY(r.y, r.h, 30), 30,
-                            focused ? kWhite : kGray);
+        int vx = r.x + r.w - 76;
+        if (i == 5) {
+            // The confirm button, as the button itself.
+            drawFaceButton(c, settings_.circleConfirms ? kIconCircle : kIconCross, vx - 20.0f, cy, 20);
+        } else {
+            int w = fonts_.regular.measure(value, 30);
+            fonts_.regular.draw(c, value, vx - w, fonts_.regular.centeredY(r.y, r.h, 30), 30, focused ? kWhite : kGray);
+            if (i == 6 && settings_.lightBarMode == 1) {  // the colour chosen
+                c.fillCircle(vx - w - 30.0f, cy, 14, settings_.lightBarColour);
+                c.strokeArc(vx - w - 30.0f, cy, 14, 2, 0, 6.2832f, rgba(255, 255, 255, 120));
+            }
+        }
         y += kRowH + 10;
     }
     for (const auto& line : fonts_.regular.wrap(tr(Str::SettingsNote), 24, kRowW, 2)) {
@@ -2107,6 +2218,10 @@ void AppUi::drawSettings(Canvas& c) {
         y += 34;
     }
 
+    if (pickerOpen_) {
+        drawColourPicker(c);
+        return;
+    }
     if (dropdownOpen_) {
         // The list under (or, near the bottom, over) the row, right-aligned
         // with it; scrolls past kVisible choices.
@@ -2129,8 +2244,13 @@ void AppUi::drawSettings(Canvas& c) {
             bool on = i == dropdownIndex_;
             if (on) c.fillRect(item, kWhite, 12);
             Color text = on ? kBg : (i == sel ? kWhite : kGray);
-            fonts_.semibold.draw(c, options[static_cast<size_t>(i)], item.x + 24,
-                                 fonts_.semibold.centeredY(item.y, item.h, 26), 26, text);
+            if (settingsRow_ == 5)
+                drawFaceButton(c, i == 1 ? kIconCircle : kIconCross, item.x + 44.0f, item.y + item.h / 2.0f, 20);
+            else
+                fonts_.semibold.draw(c, options[static_cast<size_t>(i)], item.x + 24,
+                                     fonts_.semibold.centeredY(item.y, item.h, 26), 26, text);
+            if (settingsRow_ == 6 && i == 1)
+                c.fillCircle(item.x + item.w - 84.0f, item.y + item.h / 2.0f, 12, settings_.lightBarColour);
             if (i == sel) {  // a check mark on the current choice
                 float cx = static_cast<float>(item.x + item.w - 36), cy = static_cast<float>(item.y + item.h / 2);
                 c.line(cx - 10, cy, cx - 3, cy + 7, 3, on ? kBg : kGreen);
@@ -2177,6 +2297,78 @@ void AppUi::drawUpdatePrompt(Canvas& c) {
     c.fillRect({0, kH - 80, kW, 80}, kBg);  // the home screen's hints, under the pop-up's
     drawPads(c);
     drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::NotNow)}});
+}
+
+void AppUi::drawColourPicker(Canvas& c) {
+    c.fillRect({0, 0, kW, kH}, rgba(0, 0, 0, 160));
+    constexpr int kPanelW = 1000, kPanelH = 540;
+    Rect panel{(kW - kPanelW) / 2, (kH - kPanelH) / 2 - 20, kPanelW, kPanelH};
+    c.fillRect({panel.x + 8, panel.y + 12, panel.w, panel.h}, rgba(0, 0, 0, 120), 26);  // shadow
+    c.fillRect(panel, kPanel, 24);
+    c.strokeRect(panel, rgba(255, 255, 255, 50), 2, 24);
+    fonts_.bold.draw(c, tr(Str::LightBarColour), panel.x + 56, panel.y + 44, 40, kWhite);
+
+    // The wheel: angle = hue, distance from the centre = saturation, at the
+    // brightness chosen (its pixels kept until that changes).
+    const int R = kWheelR, cx = panel.x + 56 + R, cy = panel.y + 120 + R;
+    if (wheelValue_ != pickValue_ || wheel_.empty()) {
+        wheel_.assign(static_cast<size_t>(4 * R * R), 0);
+        for (int y = 0; y < 2 * R; ++y)
+            for (int x = 0; x < 2 * R; ++x) {
+                float u = (x + 0.5f - R) / R, v = (y + 0.5f - R) / R, d = std::hypot(u, v);
+                if (d > 1.0f + 1.0f / R) continue;
+                float h = std::atan2(v, u) / 6.2832f;
+                Color col = hsvColour(h < 0 ? h + 1 : h, std::min(1.0f, d), pickValue_);
+                // Edge coverage, for a smooth rim.
+                uint32_t a = static_cast<uint32_t>(std::clamp((1.0f - d) * R + 0.5f, 0.0f, 1.0f) * 255);
+                wheel_[static_cast<size_t>(y * 2 * R + x)] = (col & 0x00FFFFFF) | a << 24;
+            }
+        wheelValue_ = pickValue_;
+    }
+    uint32_t* px = c.data();
+    for (int y = 0; y < 2 * R; ++y)
+        for (int x = 0; x < 2 * R; ++x) {
+            uint32_t w = wheel_[static_cast<size_t>(y * 2 * R + x)], a = w >> 24;
+            if (!a) continue;
+            uint32_t& d = px[static_cast<size_t>((cy - R + y) * kW + (cx - R + x))];
+            auto mix = [&](int shift) {
+                uint32_t s = w >> shift & 0xFF, t = d >> shift & 0xFF;
+                return ((s * a + t * (255 - a)) / 255) << shift;
+            };
+            d = mix(0) | mix(8) | mix(16) | 0xFF000000u;
+        }
+    float kx = cx + pickU_ * R, ky = cy + pickV_ * R;  // the cursor
+    c.strokeArc(kx, ky, 15, 3, 0, 6.2832f, rgba(0, 0, 0, 160));
+    c.strokeArc(kx, ky, 12, 3, 0, 6.2832f, kWhite);
+
+    // The colour chosen, and the brightness under it.
+    const int sx = panel.x + 56 + 2 * R + 80, sw = panel.x + panel.w - 56 - sx;
+    Color chosen = pickerColour();
+    c.fillRect({sx, cy - R + 10, sw, 170}, chosen, 20);
+    c.strokeRect({sx, cy - R + 10, sw, 170}, rgba(255, 255, 255, 60), 2, 20);
+    Rect bar{sx, cy + 30, sw, 18};
+    float h = std::atan2(pickV_, pickU_) / 6.2832f, s = std::min(1.0f, std::hypot(pickU_, pickV_));
+    c.gradientH(bar, hsvColour(h < 0 ? h + 1 : h, s, kMinValue), hsvColour(h < 0 ? h + 1 : h, s, 1));
+    float mx = bar.x + (pickValue_ - kMinValue) / (1 - kMinValue) * bar.w;
+    c.fillCircle(mx, bar.y + bar.h / 2.0f, 14, kWhite);
+    c.fillCircle(mx, bar.y + bar.h / 2.0f, 9, chosen);
+    // The help, a line per control (its parts are four spaces apart).
+    std::string help = tr(Str::ColourPickerHelp);
+    int hy = cy + 90;
+    for (size_t start = 0; start < help.size();) {
+        size_t gap = help.find("    ", start);
+        std::string part = help.substr(start, gap == std::string::npos ? std::string::npos : gap - start);
+        for (const auto& line : fonts_.regular.wrap(part, 22, sw, 2)) {
+            fonts_.regular.draw(c, line, sx, hy, 22, kGray);
+            hy += 32;
+        }
+        if (gap == std::string::npos) break;
+        start = help.find_first_not_of(' ', gap);
+        if (start == std::string::npos) break;
+    }
+
+    c.fillRect({0, kH - 80, kW, 80}, kBg);
+    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
 }
 
 void AppUi::drawUpdating(Canvas& c, uint64_t nowMs) {

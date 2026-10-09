@@ -26,6 +26,7 @@ bool uiSaved = false;
 bool settingsShot = false;  // "settingstest": save the screen now
 uint64_t homeSince = 0, launchSince = 0;
 bool launchSaved = false;
+const char* pickerShot = nullptr;  // "pickertest": save this screen next, once drawn
 bool acceptUpdate = false;  // "updatetest": Cross on the pop-up, next pass ("updateskip": Circle)
 }  // namespace
 
@@ -75,6 +76,8 @@ void loadAutoplay() {
         if (opt == "updatetest") g_autoplay.updateTest = true;
         if (opt == "updateskip") g_autoplay.updateSkip = true;
         if (opt == "settingsupdate") g_autoplay.settingsUpdate = true;
+        if (opt == "pickertest") g_autoplay.pickerTest = true;
+        if (opt == "menushot") g_autoplay.menuShot = true;
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
@@ -159,6 +162,40 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
             if (step >= 1 && step <= 8) nav.down = true;
             if (step == 9) nav.accept = true;
             XC_LOGI("autoplay: settings update step %d", step);
+            ++step;
+        }
+    }
+    if (g_autoplay.menuShot && g_ui->screen() == ui::Screen::Streaming) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        if (step == 0 && now - since >= 7000) menuCombo = true, ++step;
+        else if (step == 1 && now - since >= 13000) nav = ui::NavInput{}, nav.back = true, ++step;
+    }
+    if (g_autoplay.pickerTest && uiSaved) {
+        // Settings; down to the confirm button, its list (saved), closed;
+        // down to the light bar, its list, Custom colour; the stick right and
+        // up for 1.5 s, L2 (darker); saved; Cross; Settings saved.
+        static uint64_t since = 0;
+        if (!since) since = now;
+        uint64_t t = now - since;
+        static int step = 0;
+        const uint64_t at[] = {500, 1000, 1300, 1600, 1900, 2200, 2700, 4500, 5000, 5500, 6000, 6500, 7000, 9000, 10500, 11000, 12500};
+        if (t >= 7500 && t < 9000) nav.stickX = 1.0f, nav.stickY = -0.6f;
+        if (step < 17 && t >= at[step]) {
+            nav = ui::NavInput{};
+            nav.nowMs = now;
+            switch (step) {
+            case 0: nav.options = true; break;
+            case 1: case 2: case 3: case 4: case 5: case 9: case 11: nav.down = true; break;
+            case 6: case 10: case 12: case 15: nav.accept = true; break;
+            case 7: pickerShot = "confirm.ppm"; break;
+            case 8: nav.back = true; break;  // the confirm button's list closes, unchanged
+            case 13: nav.l2 = true; break;   // after the stick: darker
+            case 14: pickerShot = "picker.ppm"; break;
+            case 16: pickerShot = "settings.ppm"; break;
+            }
+            XC_LOGI("autoplay: picker step %d", step);
             ++step;
         }
     }
@@ -327,6 +364,11 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             uiSaved = true;
             saveCanvas("ui.ppm");
         }
+    }
+    if (pickerShot) {
+        saveCanvas(pickerShot);
+        if (std::string(pickerShot) == "settings.ppm") XC_LOGI("AUTOPLAY END: picker test");
+        pickerShot = nullptr;
     }
     if (g_autoplay.title == "UPDATE") {
         // The update test: the pop-up saved and accepted, the progress
