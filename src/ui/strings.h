@@ -86,7 +86,6 @@ enum class Str {
     SortHint,         // hint for R3
     FilterFree,
     FilterCheapest,
-    FilterSale,
     FilterAllConsoles,
     OneGame,          // GamesCount for exactly one
     Sections,         // hint for L2 / R2: jump between sections
@@ -191,6 +190,19 @@ enum class Str {
     TriggerStyle,       // the trigger tester: how the game's vibration is felt
     StyleVibration,
     StylePulses,        // the resistance pushing and letting go
+    FilterMode,         // search filter (a list): how a game can be played
+    FilterGenre,        // search filter (a list)
+    FilterLanguage,     // search filter (a list): translated into the app's language
+    ModeAll,
+    ModeSingle,
+    ModeOnlineMulti,
+    ModeOnlineCoop,
+    ModeLocal,          // local multiplayer or co-op, split screen
+    GenreAll,
+    LanguageAll,
+    LanguageNoun,       // this language's name, as the filters say it
+    LangSubtitles,      // "%s" = LanguageNoun: subtitles or menus in it
+    LangAudio,          // "%s" = LanguageNoun: spoken in it
     Count
 };
 

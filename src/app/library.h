@@ -55,7 +55,9 @@ public:
     void loadCatalogNames(const Changed& changed, const std::atomic<bool>* stop = nullptr);
     // Console generation of every known game; `xblAuth` from the profile.
     void loadPlatforms(const std::string& xblAuth, const Changed& changed, const std::atomic<bool>* stop = nullptr);
-    // Hero art and descriptions, in batches; stops early when `stop` is set.
+    // Hero art, descriptions, play modes and languages (the full details), in
+    // batches: the rows, the account's games, then the rest of the search's
+    // games; stops early when `stop` is set.
     void hydrate(const Changed& changed, const std::atomic<bool>* stop = nullptr);
 
     std::vector<ui::GameRow> rows() const;

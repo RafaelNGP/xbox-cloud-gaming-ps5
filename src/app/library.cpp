@@ -36,6 +36,13 @@ json::Value productToJson(const xcloud::Product& p) {
     json::Value cats = json::Value::array();
     for (const auto& c : p.categories) cats.push(c);
     v.set("categories", cats);
+    if (p.detailed) {
+        v.set("d", true);
+        v.set("modes", static_cast<int64_t>(p.modes));
+        json::Value langs = json::Value::object();
+        for (const auto& [lang, bits] : p.languages) langs.set(lang, static_cast<int64_t>(bits));
+        v.set("langs", langs);
+    }
     return v;
 }
 
@@ -51,6 +58,9 @@ xcloud::Product productFromJson(const std::string& id, const json::Value& v) {
     p.posterUrl = v["poster"].str();
     p.heroUrl = v["hero"].str();
     for (const auto& c : v["categories"].items()) p.categories.push_back(c.str());
+    p.detailed = v["d"].asBool(false);
+    p.modes = static_cast<uint32_t>(v["modes"].asInt(0));
+    for (const auto& [lang, bits] : v["langs"].members()) p.languages[lang] = static_cast<uint8_t>(bits.asInt(0));
     return p;
 }
 
@@ -102,6 +112,10 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
     t.tileUrl = p.tileUrl.empty() ? p.posterUrl : p.tileUrl;
     t.heroUrl = p.heroUrl;
     t.categories = p.categories;
+    t.detailed = p.detailed;
+    t.modes = p.modes;
+    if (auto lang = p.languages.find(language_.substr(0, language_.find('-'))); lang != p.languages.end())
+        t.languages = lang->second;  // in the app's language
     if (ownershipKnown_) t.playable = ownedTitles_.count(t.titleId) || ownedProducts_.count(t.productId);
     t.freeInStore = freeInStore_.count(productId) > 0;
     // A free-to-play game not on the account yet is got like one bought
@@ -230,8 +244,10 @@ void Library::saveCache() const {
     root.set("ownedProducts", prods);
     root.set("owned", itemsToJson(owned_));
     root.set("purchasable", itemsToJson(purchasable_));
-    // Details of everything on the home screen and in "Your games": the next
-    // launch shows them, hero art and all, before the network answers.
+    // Details of everything on the home screen, in "Your games" and in the
+    // Game Pass search: the next launch shows them, hero art and all, before
+    // the network answers, and the search's filters (play modes, languages)
+    // work without asking again.
     json::Value details = json::Value::object();
     auto keep = [&](const std::string& pid) {
         auto it = products_.find(pid);
@@ -241,6 +257,7 @@ void Library::saveCache() const {
         for (const auto& item : r.items) keep(item.first);
     for (const auto* list : {&owned_, &purchasable_})
         for (const auto& [pid, tid] : *list) keep(pid);
+    for (const auto& pid : allGames_) keep(pid);
     root.set("products", details);
     json::Value platforms = json::Value::object(), xboxTitles = json::Value::object();
     for (const auto& [id, code] : platform_) platforms.set(id, code);
@@ -464,6 +481,11 @@ void Library::loadCatalogNames(const Changed& changed, const std::atomic<bool>* 
             if (old != products_.end()) {
                 if (p.heroUrl.empty()) p.heroUrl = old->second.heroUrl;
                 if (p.description.empty() && !otherLanguage_.count(id)) p.description = old->second.description;
+                if (!p.detailed && old->second.detailed) {  // modes and languages don't change with the language
+                    p.detailed = true;
+                    p.modes = old->second.modes;
+                    p.languages = old->second.languages;
+                }
             }
             products_[id] = std::move(p);
             otherLanguage_.erase(id);
@@ -480,28 +502,47 @@ void Library::loadCatalogNames(const Changed& changed, const std::atomic<bool>* 
 
 bool Library::fetchFull(const std::vector<std::string>& ids, const Changed& changed, const std::atomic<bool>* stop,
                         size_t firstBatch) {
+    bool ok = true;
+    int batches = 0;
     std::vector<std::string> order;
     std::set<std::string> queued;
     for (const auto& id : ids) {
         auto it = products_.find(id);
-        if ((it == products_.end() || it->second.heroUrl.empty() || it->second.description.empty()) &&
+        if ((it == products_.end() || it->second.heroUrl.empty() || it->second.description.empty() ||
+             !it->second.detailed) &&
             queued.insert(id).second)
             order.push_back(id);
     }
+    // Batches of 20 (~10 KB per product: bigger ones made the catalog time
+    // out, 504, and weren't faster).
     for (size_t i = 0, n = firstBatch; i < order.size(); i += n, n = 20) {
         if (stop && *stop) return true;
         std::vector<std::string> batch(order.begin() + static_cast<long>(i),
                                        order.begin() + static_cast<long>(std::min(order.size(), i + n)));
         std::map<std::string, xcloud::Product> full;
         std::string e;
-        if (!xcloud::fetchProducts(batch, market_, language_, full, e, true)) {
-            XC_LOGW("%s", e.c_str());
-            return false;
+        // A batch that fails (a timeout now and then) is asked again; one
+        // that keeps failing is left for next time, and the rest carries on.
+        bool got = false;
+        for (int attempt = 0; attempt < 3 && !got; ++attempt) {
+            if (attempt) platform::sleepMs(1000);
+            got = xcloud::fetchProducts(batch, market_, language_, full, e, true);
+            if (!got) XC_LOGW("%s%s", e.c_str(), attempt < 2 ? " (asking again)" : " (skipped)");
+        }
+        if (!got) {
+            ok = false;
+            continue;
+        }
+        for (const auto& id : batch) {
+            // Not in the catalog's details: nothing more to know, not asked again.
+            auto known = products_.find(id);
+            if (!full.count(id) && known != products_.end()) known->second.detailed = true;
         }
         for (auto& [id, p] : full) products_[id] = std::move(p);
         changed();
+        if (++batches % 4 == 0) saveCache();  // a long fetch keeps what it got if the app closes
     }
-    return true;
+    return ok;
 }
 
 void Library::fetchPlatformsFor(const std::vector<std::string>& ids, const std::string& xblAuth) {
@@ -567,8 +608,17 @@ void Library::hydrate(const Changed& changed, const std::atomic<bool>* stop) {
     for (const auto& r : layout_)
         for (const auto& item : r.items) ids.push_back(item.first);
     for (const auto& item : owned_) ids.push_back(item.first);
-    if (fetchFull(ids, changed, stop)) saveCache();  // descriptions and hero art for next time
-    XC_LOGI("library: %zu rows, %zu products with details", layout_.size(), products_.size());
+    // Then every game the search goes through: its filters (play mode,
+    // language) need the full details.
+    for (const auto& item : purchasable_) ids.push_back(item.first);
+    ids.insert(ids.end(), allGames_.begin(), allGames_.end());
+    uint64_t t0 = platform::nowMs();
+    fetchFull(ids, changed, stop);
+    saveCache();  // descriptions, hero art, modes and languages for next time
+    size_t detailed = 0;
+    for (const auto& [id, p] : products_) detailed += p.detailed;
+    XC_LOGI("library: %zu rows, %zu of %zu products with details (%llu s)", layout_.size(), detailed, products_.size(),
+            static_cast<unsigned long long>((platform::nowMs() - t0) / 1000));
 }
 
 }  // namespace xc::app

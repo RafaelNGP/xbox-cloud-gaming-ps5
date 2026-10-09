@@ -43,6 +43,12 @@ struct GameTile {
     std::string platform;
     // Not a game: the user's own Xbox (Remote Play); titleId is its serverId.
     bool homeConsole = false;
+    // Once the store's full details are in (`detailed`): how it can be
+    // played (xcloud::kMode* bits) and what is translated into the app's
+    // language (xcloud::kLang* bits).
+    bool detailed = false;
+    uint32_t modes = 0;
+    uint8_t languages = 0;
 };
 
 // One of the user's own consoles, as "My consoles" shows it.
@@ -214,6 +220,11 @@ public:
     Tab tab() const;
     // Switches the home screen's tab (autoplay tests).
     void showTab(Tab t);
+    // Autoplay tests: a tab's search with these filters (`mode` and
+    // `language` as their lists' index, `genre` "" for all), optionally with
+    // `openList` (0 mode, 1 genre, 2 language) open; and the first results.
+    void showFilteredSearch(Tab tab, bool cheapest, int mode, const std::string& genre, int language, int openList = -1);
+    std::vector<std::pair<std::string, PriceInfo>> searchResults(size_t max) const;
     void invalidate();
 
     // --- UI thread -----------------------------------------------------------
@@ -270,9 +281,20 @@ private:
     void toggleHidden(const GameTile& tile, UiEvent& ev);
     void prefsEvent(UiEvent& ev) const;
     // The filter buttons of the current tab's search.
-    std::vector<std::string> filterLabels() const;
-    void pressFilter(int index);
-    bool anyFilter() const { return filterFree_ || filterCheapest_ || filterSale_ || filterConsole_; }
+    // The search's filters, in two rows: Free, Lowest price (in "Your games"
+    // only) and Console; then Mode, Genre and Language. The lists open a
+    // drop-down; Free and Lowest price turn on and off.
+    enum class Filter { Free, Cheapest, Console, Mode, Genre, Language };
+    std::vector<Filter> filterRow(int row) const;
+    bool isList(Filter f) const { return f != Filter::Free && f != Filter::Cheapest; }
+    std::string filterText(Filter f) const;  // the chip's label: its choice when one is made
+    bool filterOn(Filter f) const;
+    std::vector<std::string> filterOptions(Filter f) const;
+    int filterSelected(Filter f) const;
+    void chooseFilter(Filter f, int index);
+    void pressFilter(Filter f);
+    std::vector<std::string> poolGenres() const;  // the genres of the tab's games, most common first
+    bool anyFilter() const;
     void handleHome(const NavInput& in, UiEvent& ev);
     void handleSearchKeys(const NavInput& in);
     void runSearch();
@@ -333,8 +355,13 @@ private:
     void drawLoadingBar(Canvas& c, int x, int y, int w, uint64_t nowMs);
     LibrarySort librarySort_ = LibrarySort::Recent;
     // Search filters (the row of buttons under the keys).
-    bool filterFree_ = false, filterCheapest_ = false, filterSale_ = false;
-    int filterConsole_ = 0;  // 0 all, 1 Series X|S, 2 Xbox One, 3 Xbox 360
+    bool filterFree_ = false, filterCheapest_ = false;
+    int filterConsole_ = 0;   // 0 all, 1 Series X|S, 2 Xbox One, 3 Xbox 360
+    int filterMode_ = 0;      // 0 all, single, online multiplayer, online co-op, local
+    std::string filterGenre_;  // empty: all
+    int filterLanguage_ = 0;  // 0 any, 1 subtitles (or menus) in the app's language, 2 audio
+    // The filter whose drop-down is open (-1: none), its focus and first row.
+    int filterList_ = -1, filterListIndex_ = 0, filterListTop_ = 0;
     bool ownedKnown_ = false;
     int gridFocus_ = 0;
     Anim gridScroll_;

@@ -3,6 +3,7 @@
 #include "ui/app_ui.h"
 
 #include "input/tuning.h"
+#include "xcloud/catalog.h"
 #include "ui/accent_color.h"
 
 #include "ui/brand.h"
@@ -421,7 +422,7 @@ void AppUi::setPrices(const std::map<std::string, PriceInfo>& prices) {
     for (const auto& [id, p] : prices) prices_[id] = p;
     // A list ordered or filtered by price fills in as prices arrive (not
     // while the user moves through it).
-    if (searching_ && searchOnKeys_ && tab_ == Tab::Library && (filterCheapest_ || filterSale_ || filterFree_))
+    if (searching_ && searchOnKeys_ && tab_ == Tab::Library && (filterCheapest_ || filterFree_))
         runSearch();
     dirty_ = true;
 }
@@ -513,6 +514,36 @@ const GameTile* AppUi::libraryTile(int index) const {
     return i < hiddenTiles_.size() ? &hiddenTiles_[i] : nullptr;
 }
 
+void AppUi::showFilteredSearch(Tab tab, bool cheapest, int mode, const std::string& genre, int language, int openList) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    screen_ = Screen::Home;
+    tab_ = tab;
+    searching_ = true;
+    searchOnKeys_ = true;
+    query_.clear();
+    filterFree_ = false;
+    filterCheapest_ = cheapest;
+    filterConsole_ = 0;
+    filterMode_ = mode;
+    filterGenre_ = genre;
+    filterLanguage_ = language;
+    runSearch();
+    keyRow_ = kKeyRows + 2;  // the row of lists
+    keyCol_ = std::max(0, openList);
+    if (openList >= 0) pressFilter(filterRow(1)[static_cast<size_t>(openList)]);
+    dirty_ = true;
+}
+
+std::vector<std::pair<std::string, PriceInfo>> AppUi::searchResults(size_t max) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::pair<std::string, PriceInfo>> out;
+    for (size_t i = 0; i < results_.size() && i < max; ++i) {
+        auto p = prices_.find(results_[i].productId);
+        out.push_back({results_[i].name, p == prices_.end() ? PriceInfo{} : p->second});
+    }
+    return out;
+}
+
 void AppUi::showTab(Tab t) {
     std::lock_guard<std::mutex> lock(mutex_);
     tab_ = t;
@@ -567,19 +598,29 @@ void AppUi::runSearch() {
         if (j > i) words.push_back(q.substr(i, j - i));
         i = j + 1;
     }
-    bool filtering = anyFilter() && (tab_ == Tab::Library || filterConsole_);
+    bool filtering = anyFilter();
     if (words.empty() && !filtering) return;
     std::string compact = withoutSpaces(q);
     static const char* kConsoleCodes[] = {"", "XS", "ONE", "360"};
     struct Hit {
         int score;
-        double order;  // price or discount, by the active order filter
+        double order;     // the price now (with any discount), by the active order filter
+        double discount;  // the bigger first among equal prices
         const GameTile* tile;
     };
     std::vector<Hit> hits;
     for (const auto& t : tab_ == Tab::GamePass ? gamePassPool_ : libraryPool_) {
         if (hidden_.count(t.productId)) continue;
         if (filterConsole_ && t.platform != kConsoleCodes[filterConsole_]) continue;
+        // Play mode and language need the full details: a game without them
+        // yet comes in when they arrive.
+        static constexpr uint32_t kModeBits[] = {0, xcloud::kModeSingle, xcloud::kModeOnlineMulti, xcloud::kModeOnlineCoop,
+                                                 xcloud::kModeLocal};
+        if (filterMode_ && !(t.modes & kModeBits[filterMode_])) continue;
+        if (filterLanguage_ == 1 && !(t.languages & (xcloud::kLangInterface | xcloud::kLangSubtitles))) continue;
+        if (filterLanguage_ == 2 && !(t.languages & xcloud::kLangAudio)) continue;
+        if (!filterGenre_.empty() && std::find(t.categories.begin(), t.categories.end(), filterGenre_) == t.categories.end())
+            continue;
         auto price = prices_.find(t.productId);
         bool priced = price != prices_.end();
         if (tab_ == Tab::Library) {
@@ -591,10 +632,9 @@ void AppUi::runSearch() {
             if (filterFree_ && !freeToPlay && !zeroNow) continue;  // Free: both
             // Free-to-play games have their own filter: the price orders
             // leave them out, unless Free is on too. Giveaways stay (first).
-            if ((filterCheapest_ || filterSale_) && freeToPlay && !filterFree_) continue;
+            if (filterCheapest_ && freeToPlay && !filterFree_) continue;
             // Price filters look at games to buy only.
-            if ((filterCheapest_ || filterSale_) && !t.purchasable) continue;
-            if (filterSale_ && !(priced && price->second.msrp > price->second.list + 0.005)) continue;
+            if (filterCheapest_ && !t.purchasable) continue;
         }
         std::string name = fold(t.name);
         int score = 0;
@@ -607,14 +647,18 @@ void AppUi::runSearch() {
             score = name.rfind(words[0], 0) == 0 ? 0 : name.find(" " + words[0]) != std::string::npos ? 1 : 2;
         }
         if (!t.playable) score += 3;  // in "Your games": owned before games to buy
-        double order = 0;
-        if (filterCheapest_) order = priced ? price->second.list : 1e12;  // unknown prices last
-        if (filterSale_ && priced) order = -(1.0 - price->second.list / price->second.msrp);  // biggest discount first
-        hits.push_back({score, order, &t});
+        // Lowest price: by the price now (with any discount, not the regular
+        // one), lowest first; unknown prices last; the bigger discount first
+        // among equal prices.
+        double order = 0, discount = 0;
+        if (filterCheapest_) order = priced ? price->second.list : 1e12;
+        if (filterCheapest_ && priced && price->second.msrp > 0) discount = 1.0 - price->second.list / price->second.msrp;
+        hits.push_back({score, order, discount, &t});
     }
-    bool byOrder = tab_ == Tab::Library && (filterCheapest_ || filterSale_);
+    bool byOrder = tab_ == Tab::Library && filterCheapest_;
     std::stable_sort(hits.begin(), hits.end(), [&](const Hit& a, const Hit& b) {
         if (byOrder && a.order != b.order) return a.order < b.order;
+        if (byOrder && a.discount != b.discount) return a.discount > b.discount;
         if (a.score != b.score) return a.score < b.score;
         return fold(a.tile->name) < fold(b.tile->name);
     });
@@ -1098,6 +1142,7 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
         screen_ = Screen::Settings;
         settingsRow_ = 0;
         dropdownOpen_ = false;
+        filterList_ = -1;
         dirty_ = true;
         return;
     }
@@ -1111,7 +1156,7 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
     }
     if (searching_) {
         if (searchOnKeys_) {
-            if (in.back || in.triangle) {  // close the search
+            if ((in.back || in.triangle) && filterList_ < 0) {  // close the search (Circle closes an open list first)
                 searching_ = false;
                 dirty_ = true;
                 return;
@@ -1247,45 +1292,134 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
     }
 }
 
-std::vector<std::string> AppUi::filterLabels() const {
-    // Caller holds mutex_. Prices only matter in "Your games" (Game Pass
-    // games aren't bought): there, Free / Lowest price / On sale first.
-    static const char* kConsoles[] = {nullptr, "SERIES X|S", "XBOX ONE", "XBOX 360"};
-    std::string console = filterConsole_ ? kConsoles[filterConsole_] : tr(Str::FilterAllConsoles);
-    if (tab_ == Tab::GamePass) return {console};
-    return {tr(Str::FilterFree), tr(Str::FilterCheapest), tr(Str::FilterSale), console};
+bool AppUi::anyFilter() const {
+    // Caller holds mutex_. Free and Lowest price only count in "Your games".
+    bool library = tab_ == Tab::Library && (filterFree_ || filterCheapest_);
+    return library || filterConsole_ || filterMode_ || !filterGenre_.empty() || filterLanguage_;
 }
 
-void AppUi::pressFilter(int index) {
+std::vector<AppUi::Filter> AppUi::filterRow(int row) const {
+    // Caller holds mutex_. Prices only matter in "Your games" (Game Pass
+    // games aren't bought).
+    if (row == 1) return {Filter::Mode, Filter::Genre, Filter::Language};
+    if (tab_ == Tab::GamePass) return {Filter::Console};
+    return {Filter::Free, Filter::Cheapest, Filter::Console};
+}
+
+std::vector<std::string> AppUi::poolGenres() const {
     // Caller holds mutex_.
-    int console = static_cast<int>(filterLabels().size()) - 1;  // always last
-    if (index == console) {
-        filterConsole_ = (filterConsole_ + 1) % 4;
-    } else if (index == 0) {
-        filterFree_ = !filterFree_;
-    } else if (index == 1) {
-        filterCheapest_ = !filterCheapest_;
-        if (filterCheapest_) filterSale_ = false;  // one order at a time
-    } else if (index == 2) {
-        filterSale_ = !filterSale_;
-        if (filterSale_) filterCheapest_ = false;
+    std::map<std::string, int> count;
+    for (const auto& t : tab_ == Tab::GamePass ? gamePassPool_ : libraryPool_)
+        for (const auto& c : t.categories) ++count[c];
+    std::vector<std::pair<int, std::string>> order;
+    for (const auto& [g, n] : count) order.push_back({-n, g});
+    std::sort(order.begin(), order.end());
+    std::vector<std::string> out;
+    for (const auto& [n, g] : order) out.push_back(g);
+    return out;
+}
+
+std::vector<std::string> AppUi::filterOptions(Filter f) const {
+    // Caller holds mutex_. The first choice is always "all".
+    switch (f) {
+    case Filter::Console: return {tr(Str::FilterAllConsoles), "SERIES X|S", "XBOX ONE", "XBOX 360"};
+    case Filter::Mode:
+        return {tr(Str::ModeAll), tr(Str::ModeSingle), tr(Str::ModeOnlineMulti), tr(Str::ModeOnlineCoop), tr(Str::ModeLocal)};
+    case Filter::Genre: {
+        std::vector<std::string> out = {tr(Str::GenreAll)};
+        for (auto& g : poolGenres()) out.push_back(std::move(g));
+        return out;
+    }
+    case Filter::Language:
+        return {tr(Str::LanguageAll), trf(Str::LangSubtitles, tr(Str::LanguageNoun)), trf(Str::LangAudio, tr(Str::LanguageNoun))};
+    default: return {};
+    }
+}
+
+int AppUi::filterSelected(Filter f) const {
+    // Caller holds mutex_.
+    if (f == Filter::Console) return filterConsole_;
+    if (f == Filter::Mode) return filterMode_;
+    if (f == Filter::Language) return filterLanguage_;
+    if (f == Filter::Genre) {
+        auto genres = poolGenres();
+        for (size_t i = 0; i < genres.size(); ++i)
+            if (genres[i] == filterGenre_) return static_cast<int>(i) + 1;
+    }
+    return 0;
+}
+
+void AppUi::chooseFilter(Filter f, int index) {
+    // Caller holds mutex_.
+    if (f == Filter::Console) filterConsole_ = index;
+    if (f == Filter::Mode) filterMode_ = index;
+    if (f == Filter::Language) filterLanguage_ = index;
+    if (f == Filter::Genre) {
+        auto genres = poolGenres();
+        filterGenre_ = index > 0 && index <= static_cast<int>(genres.size()) ? genres[static_cast<size_t>(index - 1)] : "";
     }
     runSearch();
+    dirty_ = true;
+}
+
+std::string AppUi::filterText(Filter f) const {
+    // Caller holds mutex_. A list shows its name until a choice is made.
+    if (f == Filter::Free) return tr(Str::FilterFree);
+    if (f == Filter::Cheapest) return tr(Str::FilterCheapest);
+    int sel = filterSelected(f);
+    if (sel > 0 || f == Filter::Console) {
+        auto options = filterOptions(f);
+        if (sel < static_cast<int>(options.size())) return options[static_cast<size_t>(sel)];
+    }
+    return tr(f == Filter::Mode ? Str::FilterMode : f == Filter::Genre ? Str::FilterGenre : Str::FilterLanguage);
+}
+
+bool AppUi::filterOn(Filter f) const {
+    // Caller holds mutex_.
+    if (f == Filter::Free) return filterFree_;
+    if (f == Filter::Cheapest) return filterCheapest_;
+    return filterSelected(f) > 0;
+}
+
+void AppUi::pressFilter(Filter f) {
+    // Caller holds mutex_. A list opens its drop-down at the current choice.
+    if (isList(f)) {
+        filterList_ = static_cast<int>(f);
+        filterListIndex_ = filterSelected(f);
+        filterListTop_ = 0;
+    } else {
+        (f == Filter::Free ? filterFree_ : filterCheapest_) ^= true;
+        runSearch();
+    }
+    dirty_ = true;
 }
 
 void AppUi::handleSearchKeys(const NavInput& in) {
     // Caller holds mutex_. keyRow_ == kKeyRows is the row of wide keys, where
-    // keyCol_ is 0..2 (Space, Delete, Clear); kKeyRows + 1 the filters.
-    bool wide = keyRow_ == kKeyRows, filters = keyRow_ == kKeyRows + 1;
-    int filterCount = static_cast<int>(filterLabels().size());
+    // keyCol_ is 0..2 (Space, Delete, Clear); kKeyRows + 1 and + 2 the two
+    // rows of filters.
+    if (filterList_ >= 0) {
+        // A filter's drop-down: up / down, Cross picks, Circle closes it unchanged.
+        Filter f = static_cast<Filter>(filterList_);
+        int n = static_cast<int>(filterOptions(f).size());
+        if (in.down && filterListIndex_ + 1 < n) ++filterListIndex_;
+        if (in.up && filterListIndex_ > 0) --filterListIndex_;
+        if (in.accept) chooseFilter(f, filterListIndex_);
+        if (in.accept || in.back) filterList_ = -1;
+        dirty_ = true;
+        return;
+    }
+    bool wide = keyRow_ == kKeyRows, filters = keyRow_ > kKeyRows;
+    int filterCount = filters ? static_cast<int>(filterRow(keyRow_ - kKeyRows - 1).size()) : 0;
     if (in.up && keyRow_ > 0) {
         if (wide) keyCol_ = kWideCols[keyCol_];
-        if (filters) keyCol_ = std::min(keyCol_, 2);
+        if (keyRow_ == kKeyRows + 1) keyCol_ = std::min(keyCol_, 2);
         --keyRow_;
-    } else if (in.down && keyRow_ < kKeyRows + 1) {
+        if (keyRow_ == kKeyRows + 1) keyCol_ = std::min(keyCol_, static_cast<int>(filterRow(0).size()) - 1);
+    } else if (in.down && keyRow_ < kKeyRows + 2) {
         ++keyRow_;
         if (keyRow_ == kKeyRows) keyCol_ = keyCol_ < 3 ? 0 : keyCol_ < 5 ? 1 : 2;
-        else if (keyRow_ == kKeyRows + 1) keyCol_ = std::min(keyCol_, filterCount - 1);
+        else keyCol_ = std::min(keyCol_, static_cast<int>(filterRow(keyRow_ - kKeyRows - 1).size()) - 1);
     } else if (in.left && keyCol_ > 0) {
         --keyCol_;
     } else if (in.right) {
@@ -1300,7 +1434,7 @@ void AppUi::handleSearchKeys(const NavInput& in) {
     bool edited = false;
     if (in.accept) {
         if (filters) {
-            pressFilter(keyCol_);
+            pressFilter(filterRow(keyRow_ - kKeyRows - 1)[static_cast<size_t>(keyCol_)]);
         } else if (!wide) {
             query_ += kKeys[keyRow_ * kKeyCols + keyCol_];
         } else if (keyCol_ == 0) {
@@ -1866,7 +2000,7 @@ void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
     drawTopBar(c);
     drawTabs(c);
     const char* scope = tab_ == Tab::GamePass ? tr(Str::TabGamePass) : tr(Str::YourGames);
-    bool filtering = anyFilter() && (tab_ == Tab::Library || filterConsole_);
+    bool filtering = anyFilter();
     if (query_.empty() && !filtering) {
         fonts_.semibold.draw(c, tr(Str::SearchHint), kResultsX, 150, 26, kDim);
     } else if (results_.empty()) {
@@ -1909,35 +2043,82 @@ void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
                                  focused ? kBg : kWhite);
         }
     }
-    // The filters, one row under the keys: green when on.
-    {
-        auto labels = filterLabels();
-        const int kbW = kKeyCols * (kKeyW + kKeyGap) - kKeyGap, gap = 10, px = 18;
-        const int fy = kKeysY + (kKeyRows + 1) * (kKeyH + kKeyGap) + 6, fh = 54;
-        int textTotal = 0;
-        for (const auto& l : labels) textTotal += fonts_.semibold.measure(l, px);
-        int spare = kbW - textTotal - gap * (static_cast<int>(labels.size()) - 1);
-        int pad = std::max(8, spare / static_cast<int>(labels.size()));
-        int x = kMargin;
-        for (size_t k = 0; k < labels.size(); ++k) {
-            bool console = k + 1 == labels.size();
-            bool on = console ? filterConsole_ != 0
-                              : (k == 0 ? filterFree_ : k == 1 ? filterCheapest_ : filterSale_);
-            bool focused = searchOnKeys_ && keyRow_ == kKeyRows + 1 && keyCol_ == static_cast<int>(k);
-            int w = fonts_.semibold.measure(labels[k], px) + pad;
-            if (k + 1 == labels.size()) w = kMargin + kbW - x;  // the last one fills the row
-            Rect chip{x, fy, w, fh};
-            c.fillRect(chip, focused ? kWhite : on ? rgba(16, 124, 16, 255) : kPanel, fh / 2);
-            if (on && focused) c.strokeRect({chip.x + 3, chip.y + 3, chip.w - 6, chip.h - 6}, kGreen, 3, fh / 2 - 3);
-            std::string text = fonts_.semibold.fit(labels[k], px, w - 16);
-            fonts_.semibold.draw(c, text, chip.x + (chip.w - fonts_.semibold.measure(text, px)) / 2,
-                                 fonts_.semibold.centeredY(chip.y, chip.h, px), px, focused ? kBg : kWhite);
-            x += w + gap;
-        }
-    }
     c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
     c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));
-    if (searchOnKeys_)
+    // The filters, two rows under the keys (over the fade): green when on;
+    // the lists with a chevron.
+    const int kbW2 = kKeyCols * (kKeyW + kKeyGap) - kKeyGap, gap = 10, px = 18, fh = 50;
+    const int fy0 = kKeysY + (kKeyRows + 1) * (kKeyH + kKeyGap) + 6;
+    Rect openChip{};
+    for (int row = 0; row < 2; ++row) {
+        auto chips = filterRow(row);
+        int fy = fy0 + row * (fh + 10);
+        int chipW = (kbW2 - gap * (static_cast<int>(chips.size()) - 1)) / static_cast<int>(chips.size());
+        for (size_t k = 0; k < chips.size(); ++k) {
+            Filter f = chips[k];
+            bool on = filterOn(f);
+            bool focused = searchOnKeys_ && keyRow_ == kKeyRows + 1 + row && keyCol_ == static_cast<int>(k);
+            Rect chip{kMargin + static_cast<int>(k) * (chipW + gap), fy, chipW, fh};
+            if (filterList_ == static_cast<int>(f)) openChip = chip;
+            c.fillRect(chip, focused ? kWhite : on ? rgba(16, 124, 16, 255) : kPanel, fh / 2);
+            if (on && focused) c.strokeRect({chip.x + 3, chip.y + 3, chip.w - 6, chip.h - 6}, kGreen, 3, fh / 2 - 3);
+            Color text = focused ? kBg : kWhite;
+            int room = chip.w - (isList(f) ? 44 : 16);
+            std::string label = fonts_.semibold.fit(filterText(f), px, room);
+            int tw = fonts_.semibold.measure(label, px);
+            int tx = chip.x + (isList(f) ? (chip.w - 22 - tw) / 2 : (chip.w - tw) / 2);
+            fonts_.semibold.draw(c, label, tx, fonts_.semibold.centeredY(chip.y, chip.h, px), px, text);
+            if (isList(f)) {  // a list: a chevron at the right
+                float cx = static_cast<float>(chip.x + chip.w - 24), cy = static_cast<float>(chip.y + chip.h / 2);
+                c.line(cx - 6, cy - 3, cx, cy + 3, 2.5f, text);
+                c.line(cx, cy + 3, cx + 6, cy - 3, 2.5f, text);
+            }
+        }
+    }
+    if (filterList_ >= 0) {
+        // The open list, above its chip (they are near the bottom); scrolls
+        // past kVisible choices.
+        Filter f = static_cast<Filter>(filterList_);
+        auto options = filterOptions(f);
+        int sel = filterSelected(f);
+        constexpr int kItemH = 54, kVisible = 9;
+        int n = static_cast<int>(options.size()), visible = std::min(n, kVisible);
+        if (filterListIndex_ < filterListTop_) filterListTop_ = filterListIndex_;
+        if (filterListIndex_ >= filterListTop_ + visible) filterListTop_ = filterListIndex_ - visible + 1;
+        int listW = std::max(openChip.w, 460);
+        Rect panel{openChip.x, openChip.y - 10 - (visible * kItemH + 16), listW, visible * kItemH + 16};
+        panel.y = std::max(120, panel.y);
+        c.fillRect({panel.x + 6, panel.y + 10, panel.w, panel.h}, rgba(0, 0, 0, 120), 18);  // shadow
+        c.fillRect(panel, rgba(38, 38, 38, 250), 18);
+        c.strokeRect(panel, rgba(255, 255, 255, 50), 2, 18);
+        for (int k = 0; k < visible; ++k) {
+            int i = filterListTop_ + k;
+            Rect item{panel.x + 8, panel.y + 8 + k * kItemH, panel.w - 16, kItemH};
+            bool on = i == filterListIndex_;
+            if (on) c.fillRect(item, kWhite, 12);
+            Color text = on ? kBg : (i == sel ? kWhite : kGray);
+            std::string label = fonts_.semibold.fit(options[static_cast<size_t>(i)], 24, item.w - 70);
+            fonts_.semibold.draw(c, label, item.x + 20, fonts_.semibold.centeredY(item.y, item.h, 24), 24, text);
+            if (i == sel) {  // a check mark on the current choice
+                float cx = static_cast<float>(item.x + item.w - 30), cy = static_cast<float>(item.y + item.h / 2);
+                c.line(cx - 9, cy, cx - 3, cy + 6, 3, on ? kBg : kGreen);
+                c.line(cx - 3, cy + 6, cx + 9, cy - 6, 3, on ? kBg : kGreen);
+            }
+        }
+        if (filterListTop_ > 0) {  // more above / below
+            float cx = static_cast<float>(panel.x + panel.w / 2), cy = static_cast<float>(panel.y - 12);
+            c.line(cx - 9, cy + 4, cx, cy - 4, 3, kGray);
+            c.line(cx, cy - 4, cx + 9, cy + 4, 3, kGray);
+        }
+        if (filterListTop_ + visible < n) {
+            float cx = static_cast<float>(panel.x + panel.w / 2), cy = static_cast<float>(panel.y + panel.h + 12);
+            c.line(cx - 9, cy - 4, cx, cy + 4, 3, kGray);
+            c.line(cx, cy + 4, cx + 9, cy - 4, 3, kGray);
+        }
+    }
+    if (filterList_ >= 0)
+        drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
+    else if (searchOnKeys_)
         drawHints(c, {{kIconCross, tr(Str::KeyType)}, {kIconSquare, tr(Str::KeyDelete)}, {kIconCircle, tr(Str::Back)}});
     else
         drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconSquare, tr(Str::KeyDelete)}, {kIconCircle, tr(Str::Back)}});

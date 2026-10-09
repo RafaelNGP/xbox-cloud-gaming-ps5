@@ -83,6 +83,30 @@ bool fetchProducts(const std::vector<std::string>& ids, const std::string& marke
             prod.heroUrl = imageUrl(p["Image_Hero"]);
             if (prod.heroUrl.empty()) prod.heroUrl = imageUrl(p["Image_TitledHero"]);
             for (const auto& c : p["LocalizedCategories"].items()) prod.categories.push_back(c.str());
+            if (full) {
+                // How it can be played, from the store's attributes.
+                prod.detailed = true;
+                for (const auto& a : p["Attributes"].items()) {
+                    std::string n = a["Name"].str();
+                    if (n == "SinglePlayer") prod.modes |= kModeSingle;
+                    if (n == "XblOnlineMultiPlayer" || n == "XblCrossPlatformMultiPlayer" || n == "XboxLiveCrossGenMP")
+                        prod.modes |= kModeOnlineMulti;
+                    if (n == "XblOnlineCoop" || n == "XblCrossPlatformCoop") prod.modes |= kModeOnlineCoop;
+                    if (n == "XblLocalMultiPlayer" || n == "XblLocalCoop" || n == "SharedSplitScreen") prod.modes |= kModeLocal;
+                }
+                // What is translated, per language: "pt-BR" and "pt-PT" both count as "pt".
+                for (const auto& [locale, support] : p["LanguageSupport"].members()) {
+                    std::string lang = locale.substr(0, locale.find('-'));
+                    for (const char* kept : kKeptLanguages) {
+                        if (lang != kept) continue;
+                        uint8_t bits = 0;
+                        if (support["InterfaceLanguageSupport"].asInt(0)) bits |= kLangInterface;
+                        if (support["SubtitlesLanguageSupport"].asInt(0)) bits |= kLangSubtitles;
+                        if (support["GamePlayAudioLanguageSupport"].asInt(0)) bits |= kLangAudio;
+                        prod.languages[lang] |= bits;
+                    }
+                }
+            }
             out[id] = std::move(prod);
         }
     }

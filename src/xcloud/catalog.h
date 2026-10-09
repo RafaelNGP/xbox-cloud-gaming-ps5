@@ -6,6 +6,7 @@
 // Public endpoints: no authentication.
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -23,7 +24,18 @@ struct Product {
     std::string posterUrl;  // 2:3
     std::string heroUrl;    // 16:9 background
     std::vector<std::string> categories;
+    // From the full details only (`detailed`): how it can be played
+    // (kMode* bits) and, per language ("en", "pt"...: any of its locales),
+    // what is translated (kLang* bits).
+    bool detailed = false;
+    uint32_t modes = 0;
+    std::map<std::string, uint8_t> languages;
 };
+
+constexpr uint32_t kModeSingle = 1, kModeOnlineMulti = 2, kModeOnlineCoop = 4, kModeLocal = 8;
+constexpr uint8_t kLangInterface = 1, kLangSubtitles = 2, kLangAudio = 4;
+// The languages kept from a product's list: the app's own.
+constexpr const char* kKeptLanguages[] = {"en", "pt", "es", "fr", "de", "it"};
 
 // Lists shown on xbox.com/play.
 namespace sigl {

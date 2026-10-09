@@ -82,6 +82,7 @@ void loadAutoplay() {
         if (opt == "menushot") g_autoplay.menuShot = true;
         if (opt == "confirmtest") g_autoplay.confirmTest = true;
         if (opt == "tunetest") g_autoplay.tuneTest = true;
+        if (opt == "searchtest") g_autoplay.searchTest = true;
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
@@ -434,6 +435,30 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         g_autoplay.confirmTest = false;
         saveCanvas("home.ppm");
         XC_LOGI("AUTOPLAY END: confirm test, on the %s screen", g_ui->screen() == ui::Screen::Home ? "home" : "WRONG");
+    }
+    if (g_autoplay.searchTest && uiSaved) {
+        // "Your games" by lowest price, then on sale, once the prices are in
+        // (the background fetch): each saved, its first results logged.
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        auto logResults = [](const char* what) {
+            int i = 0;
+            for (const auto& [name, p] : g_ui->searchResults(12))
+                XC_LOGI("search %s %2d: %.2f (was %.2f) %s", what, ++i, p.list, p.msrp, name.c_str());
+        };
+        if (step == 0 && now - since > 20000) g_ui->showFilteredSearch(ui::Tab::Library, true, 0, "", 0), ++step;
+        else if (step == 1 && now - since > 24000) saveCanvas("cheapest.ppm"), logResults("lowest"), ++step;
+        // Game Pass, online co-op and spoken in the app's language, once the
+        // details have had time to arrive.
+        else if (step == 2 && now - since > 60000) g_ui->showFilteredSearch(ui::Tab::GamePass, false, 3, "", 2), ++step;
+        else if (step == 3 && now - since > 63000) saveCanvas("filters.ppm"), logResults("co-op, dubbed"), ++step;
+        else if (step == 4) g_ui->showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, 1), ++step;  // the genres' list
+        else if (step == 5 && now - since > 66000) {
+            saveCanvas("genres.ppm");
+            g_autoplay.searchTest = false;
+            XC_LOGI("AUTOPLAY END: search test");
+        }
     }
     if (pickerShot) {
         saveCanvas(pickerShot);
