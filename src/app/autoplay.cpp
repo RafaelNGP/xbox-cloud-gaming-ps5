@@ -27,7 +27,8 @@ bool settingsShot = false;  // "settingstest": save the screen now
 uint64_t homeSince = 0, launchSince = 0;
 bool launchSaved = false;
 const char* pickerShot = nullptr;
-bool confirmShot = false, confirmHome = false;  // "confirmtest": save confirm2.ppm / check the home screen  // "pickertest": save this screen next, once drawn
+bool confirmShot = false, confirmHome = false;
+const char* tuneShot = nullptr;  // "tunetest": save this screen next  // "confirmtest": save confirm2.ppm / check the home screen  // "pickertest": save this screen next, once drawn
 bool acceptUpdate = false;  // "updatetest": Cross on the pop-up, next pass ("updateskip": Circle)
 }  // namespace
 
@@ -80,6 +81,7 @@ void loadAutoplay() {
         if (opt == "pickertest") g_autoplay.pickerTest = true;
         if (opt == "menushot") g_autoplay.menuShot = true;
         if (opt == "confirmtest") g_autoplay.confirmTest = true;
+        if (opt == "tunetest") g_autoplay.tuneTest = true;
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
@@ -126,6 +128,35 @@ void autoplayPad(input::ControllerState& pad) {
     // Autoplay runs unattended: the physical pad must not interfere
     // (unless "pad": someone is playing along, and each press is logged).
     if (!g_autoplay.title.empty() && !g_autoplay.pad) pad = input::ControllerState{};
+    if (g_autoplay.tuneTest && uiSaved) {
+        // Settings, down to the dead zone, its tester: the left stick inside
+        // the dead zone, the right one out, the dead zone 15 -> 20 % (saved),
+        // Circle. Down to the trigger vibration, its tester: strong, high
+        // frequency, L2 a little and R2 60 % (saved), Circle.
+        static uint64_t since = 0;
+        uint64_t now = platform::nowMs();
+        if (!since) since = now;
+        uint64_t t = now - since;
+        auto in = [&](uint64_t at, uint64_t len) { return t >= at && t < at + len; };
+        auto pulses = [&](uint64_t from, int n) {
+            for (int i = 0; i < n; ++i)
+                if (in(from + 300u * static_cast<unsigned>(i), 120)) return true;
+            return false;
+        };
+        pad.btnOptions = in(500, 150);
+        pad.dpadDown = pulses(1000, 3) || in(6500, 120) || in(7900, 120);
+        pad.btnA = in(2000, 150) || in(7000, 150);
+        pad.btnB = in(5500, 150) || in(11500, 150);
+        pad.dpadRight = pulses(3000, 5) || in(7500, 120) || in(8300, 120);
+        if (in(2500, 3500)) pad.rawLeftX = 0.1f, pad.rawLeftY = 0.06f, pad.rawRightX = 0.7f, pad.rawRightY = -0.4f;
+        if (in(8700, 2300)) pad.triggerL2 = 0.15f, pad.triggerR2 = 0.6f;
+        if (in(5000, 20)) tuneShot = "sticks.ppm";
+        if (in(10000, 20)) tuneShot = "triggers.ppm";
+        if (in(12500, 20)) {
+            g_autoplay.tuneTest = false;
+            XC_LOGI("AUTOPLAY END: tune test");
+        }
+    }
     if (g_autoplay.confirmTest && uiSaved) {
         // The buttons as the hands press them, swapped as input::poll swaps
         // them: Settings, down to the confirm button; Cross opens its list,
@@ -385,6 +416,10 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             uiSaved = true;
             saveCanvas("ui.ppm");
         }
+    }
+    if (tuneShot) {
+        saveCanvas(tuneShot);
+        tuneShot = nullptr;
     }
     if (confirmShot) {
         confirmShot = false;

@@ -172,6 +172,21 @@ enum class Str {
     LightBarCustom,     // Settings > Light bar: one the user picks
     LightBarColour,     // the colour picker's title
     ColourPickerHelp,   // under the colour picker
+    TriggerLight,       // trigger vibration strengths (after Deactivated)
+    TriggerMedium,      // also the middle frequency
+    TriggerStrong,
+    TriggerMax,
+    TriggerIntensity,   // the trigger tester's rows
+    TriggerFrequency,
+    FrequencyLow,
+    FrequencyHigh,
+    TriggerTestHelp,    // under the trigger tester
+    TriggerLevel,       // "%s" = 0..8, the strength sent to the trigger
+    StickLeft,          // the stick tester
+    StickRight,
+    StickPosition,      // legend: the grey dot
+    StickGameGets,      // legend: the green dot
+    StickTestHelp,      // under the stick tester
     Count
 };
 

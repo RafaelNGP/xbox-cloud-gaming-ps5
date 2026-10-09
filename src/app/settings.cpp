@@ -30,7 +30,10 @@ bool Settings::load(const std::string& path) {
     deband = static_cast<int>(std::clamp<int64_t>((*j)["deband"].asInt(deband), 0, 3));
     upscaler = static_cast<int>(std::clamp<int64_t>((*j)["upscaler"].asInt(upscaler), 0, 3));
     deadzone = static_cast<int>(std::clamp<int64_t>((*j)["deadzone"].asInt(deadzone), 0, 50));
-    triggerRumble = (*j)["triggerRumble"].asBool(triggerRumble);
+    // "triggerRumble" (on/off) until the strength could be chosen.
+    triggerStrength = (*j)["triggerRumble"].asBool(true) ? 2 : 0;
+    triggerStrength = static_cast<int>(std::clamp<int64_t>((*j)["triggerStrength"].asInt(triggerStrength), 0, 4));
+    triggerHz = static_cast<int>(std::clamp<int64_t>((*j)["triggerHz"].asInt(triggerHz), 0, 2));
     circleConfirms = (*j)["circleConfirms"].asBool(circleConfirms);
     // "lightBar" (on/off) until the colour could be chosen.
     lightBarMode = (*j)["lightBar"].asBool(true) ? 0 : 2;
@@ -76,7 +79,8 @@ bool Settings::save(const std::string& path) const {
     v.set("deband", deband);
     v.set("upscaler", upscaler);
     v.set("deadzone", deadzone);
-    v.set("triggerRumble", triggerRumble);
+    v.set("triggerStrength", triggerStrength);
+    v.set("triggerHz", triggerHz);
     v.set("circleConfirms", circleConfirms);
     v.set("lightBarMode", lightBarMode);
     char hex[8];

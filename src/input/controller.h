@@ -30,11 +30,13 @@ struct ControllerState {
     bool btnTouchpad = false; // View / Select
     bool btnNexus = false;    // the Xbox button (from the game menu; the PS button stays the system's)
 
-    // Analog axes [-1.0 .. 1.0]
+    // Analog axes [-1.0 .. 1.0], after the dead zone
     float leftStickX = 0.0f;
     float leftStickY = 0.0f;
     float rightStickX = 0.0f;
     float rightStickY = 0.0f;
+    // The same before it (the Settings stick tester)
+    float rawLeftX = 0.0f, rawLeftY = 0.0f, rawRightX = 0.0f, rawRightY = 0.0f;
 
     // Triggers [0.0 .. 1.0]
     float triggerL2 = 0.0f;
@@ -73,8 +75,9 @@ void setDeadzone(float deadzone);
 // Circle reported as Cross (Xbox A) and Cross as Circle, everywhere.
 void setCircleConfirms(bool on);
 bool circleConfirms();
-// Off: setTriggerRumble() is ignored.
-void setTriggerRumbleEnabled(bool on);
+// How the triggers vibrate: strength 0 (off: setTriggerRumble() is ignored)
+// to kTriggerStrengths - 1, and the frequency in Hz (input/tuning.h).
+void setTriggerFeel(int strength, int hz);
 // The light bar eases (~0.4 s) to this colour; reset gives it back to the
 // system (the player's colour). Any thread; polling applies it.
 void setLightBar(uint8_t r, uint8_t g, uint8_t b, int pad = 0);

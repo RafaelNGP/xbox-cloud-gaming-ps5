@@ -5,6 +5,7 @@
 #include "app/settings.h"
 #include "app/update_check.h"
 #include "app/updater.h"
+#include "input/tuning.h"
 #include "net/http.h"
 #include "platform/platform.h"
 #include "stream/input_packet.h"
@@ -17,6 +18,7 @@
 #include "xcloud/prices.h"
 #include "xcloud/regions.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
@@ -236,6 +238,8 @@ static void testSettingsMigration() {
     CHECK(old.save(path));
     xc::app::Settings again;
     CHECK(again.load(path) && again.deband == 3 && again.upscaler == 2);
+    // The triggers' on/off before their strength could be chosen.
+    CHECK(loadFrom(R"({"triggerRumble":false})").triggerStrength == 0 && loadFrom("{}").triggerStrength == 2);
     // The light bar's on/off before its colour could be chosen.
     CHECK(loadFrom(R"({"lightBar":false})").lightBarMode == 2 && loadFrom(R"({"lightBar":true})").lightBarMode == 0);
     xc::app::Settings custom;
@@ -380,6 +384,29 @@ static void testUpdater() {
     std::system(("rm -rf " + dir).c_str());
 }
 
+static void testControllerTuning() {
+    using xc::input::radialDeadzone;
+    using xc::input::triggerAmplitude;
+    auto near = [](float a, float b) { return std::abs(a - b) < 0.01f; };
+    float x = 0.1f, y = 0.1f;
+    radialDeadzone(x, y, 0.15f);  // |0.14| < 0.15: nothing
+    CHECK(x == 0 && y == 0);
+    x = 1, y = 0;
+    radialDeadzone(x, y, 0.15f);  // the edge stays the edge
+    CHECK(near(x, 1) && y == 0);
+    x = 0.575f, y = 0;
+    radialDeadzone(x, y, 0.15f);  // halfway out of the dead zone -> 0.5, from 0 (no jump)
+    CHECK(near(x, 0.5f));
+    x = 0.6f, y = 0.1f;  // a diagonal near the X axis keeps its Y (no snapping to the axis)
+    radialDeadzone(x, y, 0.15f);
+    CHECK(y > 0.05f && near(y / x, 0.1f / 0.6f));
+
+    CHECK(triggerAmplitude(38) == 4 && triggerAmplitude(128) == 6);  // medium: as before
+    CHECK(triggerAmplitude(38, 0) == 0 && triggerAmplitude(0, 4) == 0);
+    CHECK(triggerAmplitude(38, 1) == 2 && triggerAmplitude(38, 3) == 6 && triggerAmplitude(38, 4) == 8);
+    CHECK(triggerAmplitude(255, 3) == 8 && triggerAmplitude(1, 1) == 1);
+}
+
 static void testAutoDeband() {
     using xc::app::debandForMbps;
     CHECK(debandForMbps(0.3, 1) == -1);  // starting or standing still: no measure
@@ -406,6 +433,7 @@ static void testAutoDeband() {
 
 int main() {
     testAutoDeband();
+    testControllerTuning();
     testUpdater();
     testAccentColor();
     testVersions();

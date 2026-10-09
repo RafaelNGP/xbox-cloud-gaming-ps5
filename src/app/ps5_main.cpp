@@ -13,12 +13,14 @@
 #include "display/display.h"
 #include "display/gpu.h"
 #include "input/controller.h"
+#include "input/tuning.h"
 #include "net/http.h"
 #include "platform/platform.h"
 #include "ui/app_ui.h"
 #include "ui/strings.h"
 #include "util/log.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <memory>
@@ -59,19 +61,11 @@ namespace {
 
 std::unique_ptr<ui::ImageCache> g_images;
 
-// The dead zone setting (percent) as an index into ui::kDeadzonePercent.
-int deadzoneIndex(int percent) {
-    int best = 0;
-    for (int i = 0; i < static_cast<int>(std::size(ui::kDeadzonePercent)); ++i)
-        if (std::abs(ui::kDeadzonePercent[i] - percent) < std::abs(ui::kDeadzonePercent[best] - percent)) best = i;
-    return best;
-}
-
 // Dead zone, trigger vibration and confirm button from g_settings.
 void applyControllerSettings() {
     std::lock_guard<std::mutex> lock(g_settingsMutex);
     input::setDeadzone(g_settings.deadzone / 100.0f);
-    input::setTriggerRumbleEnabled(g_settings.triggerRumble);
+    input::setTriggerFeel(g_settings.triggerStrength, input::kTriggerHz[std::clamp(g_settings.triggerHz, 0, 2)]);
     input::setCircleConfirms(g_settings.circleConfirms);
     if (g_ui) g_ui->setCircleConfirms(g_settings.circleConfirms);
 }
@@ -87,8 +81,9 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.language = code;
         g_settings.resolution = choice.resolution == 1 ? "720p" : choice.resolution == 2 ? "1440p" : "1080p";
         g_settings.region = choice.region;
-        g_settings.deadzone = ui::kDeadzonePercent[choice.deadzone];
-        g_settings.triggerRumble = choice.triggerRumble;
+        g_settings.deadzone = choice.deadzone;
+        g_settings.triggerStrength = choice.triggerStrength;
+        g_settings.triggerHz = choice.triggerHz;
         g_settings.circleConfirms = choice.circleConfirms;
         g_settings.lightBarMode = choice.lightBarMode;
         g_settings.lightBarColour = choice.lightBarColour;
@@ -169,8 +164,9 @@ int main(int argc, char** argv) {
         choice.language = static_cast<int>(ui::language());
         choice.resolution = g_settings.resolution == "720p" ? 1 : g_settings.resolution == "1440p" ? 2 : 0;
         choice.region = g_settings.region;
-        choice.deadzone = deadzoneIndex(g_settings.deadzone);
-        choice.triggerRumble = g_settings.triggerRumble;
+        choice.deadzone = std::clamp(g_settings.deadzone, 0, ui::kMaxDeadzone);
+        choice.triggerStrength = g_settings.triggerStrength;
+        choice.triggerHz = g_settings.triggerHz;
         choice.circleConfirms = g_settings.circleConfirms;
         choice.lightBarMode = g_settings.lightBarMode;
         choice.lightBarColour = g_settings.lightBarColour;
@@ -198,7 +194,7 @@ int main(int argc, char** argv) {
 
     // Never return from main: the app is closed from the home screen.
     input::ControllerState prev{}, pad{};
-    Repeater up, down, left, right;
+    Repeater up, down, left, right, dpadLeft, dpadRight;
     StreamScreen streamScreen(fonts);  // the game's menu and what is laid over it
     uint64_t padsCheckedAt = 0;
     unsigned padChecks = 0;
@@ -268,6 +264,10 @@ int main(int argc, char** argv) {
         nav.touchpad = pad.btnTouchpad;
         nav.stickX = pad.leftStickX;
         nav.stickY = pad.leftStickY;
+        nav.dpadLeft = dpadLeft.update(pad.dpadLeft, now);
+        nav.dpadRight = dpadRight.update(pad.dpadRight, now);
+        nav.rawLX = pad.rawLeftX, nav.rawLY = pad.rawLeftY, nav.rawRX = pad.rawRightX, nav.rawRY = pad.rawRightY;
+        nav.l2Analog = pad.triggerL2, nav.r2Analog = pad.triggerR2;
         nav.nowMs = now;
         bool menuCombo = pad.btnOptions && pad.btnTouchpad && !(prev.btnOptions && prev.btnTouchpad);
         prev = pad;
@@ -280,6 +280,20 @@ int main(int argc, char** argv) {
         streamScreen.idle();
 
         ui::UiEvent ev = g_ui->handle(nav);
+        if (int strength, hz; g_ui->settingsTriggerFeel(strength, hz)) {
+            // Settings: the trigger vibration as chosen there, at once; its
+            // tester makes the triggers vibrate as far as they are pressed.
+            input::setTriggerFeel(strength, input::kTriggerHz[std::clamp(hz, 0, 2)]);
+            float l2, r2;
+            static bool testing = false;
+            if (g_ui->triggerTest(l2, r2)) {
+                input::setTriggerRumble(static_cast<uint8_t>(std::lround(l2 * 255)), static_cast<uint8_t>(std::lround(r2 * 255)), 500);
+                testing = true;
+            } else if (testing) {
+                input::setTriggerRumble(0, 0, 0);
+                testing = false;
+            }
+        }
         if (bool circle = g_ui->circleConfirms(); circle != input::circleConfirms()) {
             // The confirm button just changed in Settings: the pad follows at
             // once, and a button still held from choosing it isn't a new press.
