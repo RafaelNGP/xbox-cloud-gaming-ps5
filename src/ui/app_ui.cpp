@@ -513,6 +513,28 @@ const GameTile* AppUi::libraryTile(int index) const {
     return i < hiddenTiles_.size() ? &hiddenTiles_[i] : nullptr;
 }
 
+void AppUi::showFilteredSearch(int filterIndex) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    screen_ = Screen::Home;
+    tab_ = Tab::Library;
+    searching_ = true;
+    query_.clear();
+    filterFree_ = filterCheapest_ = filterSale_ = false;
+    filterConsole_ = 0;
+    pressFilter(filterIndex);
+    dirty_ = true;
+}
+
+std::vector<std::pair<std::string, PriceInfo>> AppUi::searchResults(size_t max) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::pair<std::string, PriceInfo>> out;
+    for (size_t i = 0; i < results_.size() && i < max; ++i) {
+        auto p = prices_.find(results_[i].productId);
+        out.push_back({results_[i].name, p == prices_.end() ? PriceInfo{} : p->second});
+    }
+    return out;
+}
+
 void AppUi::showTab(Tab t) {
     std::lock_guard<std::mutex> lock(mutex_);
     tab_ = t;
@@ -573,7 +595,8 @@ void AppUi::runSearch() {
     static const char* kConsoleCodes[] = {"", "XS", "ONE", "360"};
     struct Hit {
         int score;
-        double order;  // price or discount, by the active order filter
+        double order;     // the price now (with any discount), by the active order filter
+        double discount;  // On sale: the bigger first among equal prices
         const GameTile* tile;
     };
     std::vector<Hit> hits;
@@ -607,14 +630,17 @@ void AppUi::runSearch() {
             score = name.rfind(words[0], 0) == 0 ? 0 : name.find(" " + words[0]) != std::string::npos ? 1 : 2;
         }
         if (!t.playable) score += 3;  // in "Your games": owned before games to buy
-        double order = 0;
-        if (filterCheapest_) order = priced ? price->second.list : 1e12;  // unknown prices last
-        if (filterSale_ && priced) order = -(1.0 - price->second.list / price->second.msrp);  // biggest discount first
-        hits.push_back({score, order, &t});
+        // Both price orders go by the price now, lowest first (on sale: the
+        // discounted price, not the regular one); unknown prices last.
+        double order = 0, discount = 0;
+        if (filterCheapest_ || filterSale_) order = priced ? price->second.list : 1e12;
+        if (filterSale_ && priced) discount = 1.0 - price->second.list / price->second.msrp;
+        hits.push_back({score, order, discount, &t});
     }
     bool byOrder = tab_ == Tab::Library && (filterCheapest_ || filterSale_);
     std::stable_sort(hits.begin(), hits.end(), [&](const Hit& a, const Hit& b) {
         if (byOrder && a.order != b.order) return a.order < b.order;
+        if (byOrder && a.discount != b.discount) return a.discount > b.discount;
         if (a.score != b.score) return a.score < b.score;
         return fold(a.tile->name) < fold(b.tile->name);
     });

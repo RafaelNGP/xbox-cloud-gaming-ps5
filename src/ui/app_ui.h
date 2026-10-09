@@ -214,6 +214,10 @@ public:
     Tab tab() const;
     // Switches the home screen's tab (autoplay tests).
     void showTab(Tab t);
+    // Autoplay tests: "Your games" searched with one filter button pressed
+    // (0 free, 1 lowest price, 2 on sale), and the first results with prices.
+    void showFilteredSearch(int filterIndex);
+    std::vector<std::pair<std::string, PriceInfo>> searchResults(size_t max) const;
     void invalidate();
 
     // --- UI thread -----------------------------------------------------------

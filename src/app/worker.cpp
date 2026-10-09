@@ -535,7 +535,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     });
     if (!g_autoplay.title.empty() && g_autoplay.title != "BENCH" && g_autoplay.title != "UPDATE" && !g_autoplay.detailTest && !g_autoplay.libraryTest &&
         !g_autoplay.consolesTab && !g_autoplay.settingsTest &&
-        !g_autoplay.imeTest && !g_autoplay.vibeTest) {
+        !g_autoplay.imeTest && !g_autoplay.vibeTest && !g_autoplay.searchTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
         tile.titleId = g_autoplay.title;

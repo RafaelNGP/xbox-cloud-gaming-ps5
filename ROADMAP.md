@@ -124,6 +124,7 @@ is rolled back at the next start), then the app restarts itself
 
 | Item | Why | Size |
 | --- | --- | --- |
+| Per-game settings (next release) | A profile per game (picture, triggers, dead zones, controls) that overrides the general settings for that game only; games without one use the general ones | medium |
 | Voice chat (microphone) | xCloud has a chat channel; needs PS5 audio capture | large |
 | USB keyboard and mouse | Some xCloud games accept them | medium |
 
