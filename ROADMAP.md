@@ -131,9 +131,12 @@ is rolled back at the next start), then the app restarts itself
   Lowest price by the discounted price. Modes and languages come from the
   store's full details, fetched once in the background and cached.
 
-### Fast scrolling and fresher catalog — done (v0.9.1)
+### Fast scrolling, inertia, fresher catalog and "All games" grid — done (v0.9.1)
 - The right stick pages through the lists (3 rows up / down, 6 cards
-  sideways), and so does a swipe on the touchpad.
+  sideways), and so does a swipe on the touchpad, with smooth inertia.
+- "All games" (Game Pass) expands into a 6-column vertical grid: all 550+
+  titles accessible with 2D D-pad navigation, smooth vertical row scrolling,
+  and clean viewport clipping under the headers and tabs.
 - Cached game details older than 30 days are fetched again, 40 per start,
   oldest first.
 
