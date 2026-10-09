@@ -4,6 +4,7 @@
 
 #include "platform/platform.h"
 #include "util/json.h"
+#include "util/log.h"
 
 #include <algorithm>
 
@@ -24,8 +25,8 @@ bool Settings::load(const std::string& path) {
     librarySort = (*j)["librarySort"].str(librarySort);
     streamStats = (*j)["streamStats"].asBool(streamStats);
     sharpness = static_cast<int>(std::clamp<int64_t>((*j)["sharpness"].asInt(sharpness), 0, 3));
-    deband = static_cast<int>(std::clamp<int64_t>((*j)["deband"].asInt(deband), 0, 2));
-    upscaler = static_cast<int>(std::clamp<int64_t>((*j)["upscaler"].asInt(upscaler), 0, 1));
+    deband = static_cast<int>(std::clamp<int64_t>((*j)["deband"].asInt(deband), 0, 3));
+    upscaler = static_cast<int>(std::clamp<int64_t>((*j)["upscaler"].asInt(upscaler), 0, 3));
     deadzone = static_cast<int>(std::clamp<int64_t>((*j)["deadzone"].asInt(deadzone), 0, 50));
     triggerRumble = (*j)["triggerRumble"].asBool(triggerRumble);
     circleConfirms = (*j)["circleConfirms"].asBool(circleConfirms);
@@ -35,6 +36,14 @@ bool Settings::load(const std::string& path) {
     maxHeightHome = static_cast<int>((*j)["maxHeightHome"].asInt(0));
     probedCloud = (*j)["probedCloud"].asInt(0);
     probedHome = (*j)["probedHome"].asInt(0);
+    // Files from before v0.8.0 (no version): what still holds the old
+    // defaults moves to the new ones (block smoothing low -> auto, FSR ->
+    // FSR + clean-up); anything chosen otherwise stays.
+    if ((*j)["settingsVersion"].asInt(1) < 2) {
+        if (deband == 1) deband = 3;
+        if (upscaler == 0) upscaler = 2;
+        XC_LOGI("settings: from before v0.8.0; block smoothing %d, upscaling %d", deband, upscaler);
+    }
     regionRtt.clear();
     for (const auto& [name, ms] : (*j)["regionRtt"].members())
         if (ms.asInt() > 0) regionRtt[name] = static_cast<int>(ms.asInt());
@@ -66,6 +75,7 @@ bool Settings::save(const std::string& path) const {
     v.set("maxHeightHome", maxHeightHome);
     v.set("probedCloud", probedCloud);
     v.set("probedHome", probedHome);
+    v.set("settingsVersion", 2);
     return platform::writeFileAtomic(path, v.dump());
 }
 

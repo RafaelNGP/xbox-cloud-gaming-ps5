@@ -150,7 +150,7 @@ void updateTextInput(app::StreamPlayer* player) {
 // buy far down the list instead of playing, saves detail.ppm), imetest (opens
 // the system keyboard on the home screen), menutest (in the game: the menu,
 // 720p, back to 1080p), res=720p|1080p|1080p-hq|1440p, sharp=0..3 and
-// deband=0..2 and ai (Anime4K) instead of the settings.
+// deband=0..3 and ai (Anime4K) instead of the settings.
 // The title "BENCH" decodes <dataDir>/sample.h264 instead.
 
 std::string g_autoplayTitle;
@@ -168,13 +168,32 @@ bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25
 bool g_autoplayVkTest = false;       // the GPU presenting instead of the CPU display
 bool g_autoplayCpuDisplay = false;
 int g_autoplayUpscaler = -1;          // ai: Anime4K instead of the setting
+bool g_autoplayRestore = false;       // restore: Anime4K Restore before the upscale
+
+// The game menu's upscaling: 0 FSR, 1 Anime4K, 2 FSR + clean-up, 3 Anime4K +
+// clean-up (Anime4K Restore before the upscale).
+void applyUpscaler(int mode) {
+    display::setUpscaler(mode & 1);
+    display::setRestore(mode >= 2);
+}
 bool g_autoplayDropTest = false;     // droptest: the connection dropped at 20 s
 bool g_autoplayHwDecode = false;     // hwdecode: the hardware decoder alongside, logged   // the CPU display even where the GPU comes up
 bool g_autoplayVibeTest = false;     // each motor alone, with a notification
 bool g_autoplayImeTest = false;      // open the system keyboard on the home screen
 bool g_autoplayMenuTest = false;     // in the game: open the menu, switch to 720p
 int g_decodeThreads = 1;
-int g_autoplayDeband = -1;            // deband=0..2: instead of the setting
+int g_autoplayDeband = -1;            // deband=0..3: instead of the setting
+
+// Block smoothing "auto": the level for a bitrate (Mbps) coming from `now`,
+// stronger as it falls (high below ~5 Mbps, off above ~10). A 1 Mbps margin
+// each way keeps a bitrate near a limit from flipping it; -1 = no measure
+// (below 0.5 Mbps: the stream is starting, or the picture is standing still).
+int debandForMbps(double mbps, int now) {
+    if (mbps < 0.5) return -1;
+    if (now == 2) return mbps >= 6 ? (mbps >= 11 ? 0 : 1) : 2;
+    if (now == 1) return mbps < 4 ? 2 : mbps >= 11 ? 0 : 1;
+    return mbps < 4 ? 2 : mbps < 9 ? 1 : 0;
+}
 int g_autoplaySharpness = -1;         // sharp=0..3: instead of the setting
 std::string g_autoplayResolution;     // res=720p|1080p|1440p: instead of the setting
 std::atomic<bool> g_syntheticA{false};
@@ -215,6 +234,7 @@ void loadAutoplay() {
         if (opt == "hwdecode") g_autoplayHwDecode = true;
         if (opt == "droptest") g_autoplayDropTest = true;
         if (opt == "ai") g_autoplayUpscaler = 1;
+        if (opt == "restore") g_autoplayRestore = true;
         if (opt.rfind("swap=", 0) == 0) display::gpu::setSwapImages(std::atoi(opt.c_str() + 5));
         if (opt == "nopace") display::gpu::setPresentWait(false);
         if (opt == "detailtest") g_autoplayDetailTest = true;
@@ -1016,7 +1036,11 @@ int main(int argc, char** argv) {
     } swipe;
     bool swipeMenu = false;  // a swipe asked for the game menu
     int sharpness = 0;  // 0..3, as Settings::sharpness
-    int deband = 1;     // 0..2, as Settings::deband
+    int deband = 3;     // 0..3, as Settings::deband
+    // "Auto": the level in use, and a new one waiting for 3 s of its bitrate.
+    int debandInUse = 1, debandNext = -1, debandStreak = 0, debandSeconds = 0;
+    uint32_t debandSeq = 0;
+    auto applyDeband = [&] { display::setDeband(deband == 3 ? debandInUse : deband); };
     int upscaler = 0;   // as Settings::upscaler
     // How much CAS each sharpness level mixes in (display::setSharpness).
     static constexpr int kSharpAmount[] = {0, 96, 176, 256};
@@ -1167,9 +1191,14 @@ int main(int argc, char** argv) {
                 sharpness = g_autoplaySharpness >= 0 ? g_autoplaySharpness : g_settings.sharpness;
                 display::setSharpness(kSharpAmount[std::clamp(sharpness, 0, 3)]);
                 deband = g_autoplayDeband >= 0 ? g_autoplayDeband : g_settings.deband;
-                display::setDeband(deband);
+                debandInUse = 1;
+                debandNext = -1;
+                debandStreak = 0;
+                debandSeconds = 0;
+                applyDeband();
                 upscaler = g_autoplayUpscaler >= 0 ? g_autoplayUpscaler : g_settings.upscaler;
-                display::setUpscaler(upscaler);
+                if (g_autoplayRestore) upscaler = (upscaler & 1) | 2;
+                applyUpscaler(upscaler);
                 overlaySeq = 0;
             }
             if (g_player) {
@@ -1184,6 +1213,7 @@ int main(int argc, char** argv) {
                         std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
                         allow1440 = allow1440Locked();
                     }
+                    menu.setDebandInUse(debandInUse);
                     menu.open(streamResolution, showStats, sharpness, deband, upscaler, g_playingHome, allow1440);
                     overlaySeq = 0;
                 } else if (wasOpen) {
@@ -1214,7 +1244,7 @@ int main(int argc, char** argv) {
                     }
                     case ui::MenuAction::Upscaler: {
                         upscaler = menu.upscaler();
-                        display::setUpscaler(upscaler);
+                        applyUpscaler(upscaler);
                         std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
                         g_settings.upscaler = upscaler;
                         g_settings.save(settingsPath());
@@ -1222,7 +1252,7 @@ int main(int argc, char** argv) {
                     }
                     case ui::MenuAction::Deband: {
                         deband = menu.deband();
-                        display::setDeband(deband);
+                        applyDeband();
                         std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
                         g_settings.deband = deband;
                         g_settings.save(settingsPath());
@@ -1299,6 +1329,30 @@ int main(int argc, char** argv) {
             // The overlay: the menu, else the statistics line, redrawn when
             // the numbers or the menu change.
             uint32_t seq = g_infoSeq;
+            if (deband == 3 && seq != debandSeq) {
+                // Auto block smoothing, once a second: a new level after 3 s.
+                debandSeq = seq;
+                double mbps;
+                {
+                    std::lock_guard<std::mutex> infoLock(g_infoMutex);
+                    mbps = g_streamInfo.mbps;
+                }
+                // Not in the first 5 s: the bitrate is still climbing.
+                int want = ++debandSeconds <= 5 ? -1 : debandForMbps(mbps, debandInUse);
+                if (want < 0 || want == debandInUse) {
+                    debandStreak = 0;
+                } else if (want == debandNext && ++debandStreak >= 3) {
+                    debandInUse = want;
+                    debandStreak = 0;
+                    applyDeband();
+                    menu.setDebandInUse(debandInUse);
+                    overlaySeq = 0;
+                    XC_LOGI("block smoothing auto: %s at %.1f Mbps", want == 2 ? "high" : want == 1 ? "low" : "off", mbps);
+                } else if (want != debandNext) {
+                    debandNext = want;
+                    debandStreak = 1;
+                }
+            }
             if (overlaySeq != seq + 1) {
                 overlaySeq = seq + 1;
                 ui::StreamInfo info;

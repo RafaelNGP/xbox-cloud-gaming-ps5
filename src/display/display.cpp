@@ -501,6 +501,7 @@ void setSharpness(int amount) {
 
 void setDeband(int level) { gpu::setDeband(level); }
 void setUpscaler(int mode) { gpu::setUpscaler(mode); }
+void setRestore(bool on) { gpu::setRestore(on); }
 
 uint64_t lastPresentId() { return gpu::ready() ? gpu::lastPresentId() : 0; }
 bool lastShown(uint64_t& id, uint64_t& atUs) { return gpu::ready() && gpu::lastShown(id, atUs); }
@@ -534,6 +535,7 @@ void setOverlay(const uint32_t*, int, int, int, int, uint8_t) {}
 void setSharpness(int) {}
 void setDeband(int) {}
 void setUpscaler(int) {}
+void setRestore(bool) {}
 uint64_t lastPresentId() { return 0; }
 bool lastShown(uint64_t&, uint64_t&) { return false; }
 bool readBackRgb(std::vector<uint8_t>&, int&, int&) { return false; }

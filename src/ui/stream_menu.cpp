@@ -4,6 +4,7 @@
 
 #include "ui/strings.h"
 
+#include <algorithm>
 #include <cstdio>
 
 namespace xc::ui {
@@ -65,11 +66,17 @@ MenuAction StreamMenu::handle(const NavInput& in) {
         return MenuAction::Sharpness;
     }
     if (selected_ == Upscaler && (in.left || in.right || in.accept)) {
-        upscaler_ = 1 - upscaler_;
+        // FSR, FSR + clean-up, AI, AI + clean-up (values 0, 2, 1, 3).
+        static constexpr int kOrder[4] = {0, 2, 1, 3};
+        int pos = 0;
+        for (int i = 0; i < 4; ++i)
+            if (kOrder[i] == upscaler_) pos = i;
+        upscaler_ = kOrder[in.left ? (pos + 3) % 4 : (pos + 1) % 4];
         return MenuAction::Upscaler;
     }
     if (selected_ == Deband && (in.left || in.right || in.accept)) {
-        deband_ = in.left ? (deband_ + 2) % 3 : (deband_ + 1) % 3;
+        // Off, low, high, auto (follows the bitrate).
+        deband_ = in.left ? (deband_ + 3) % 4 : (deband_ + 1) % 4;
         return MenuAction::Deband;
     }
     if (selected_ == Stats && (in.left || in.right)) {
@@ -121,12 +128,16 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
             if (sel) value = "< " + value + " >";
         }
         if (i == Upscaler) {
-            value = upscaler_ ? tr(Str::UpscalerAi) : "FSR";
+            value = upscaler_ == 3   ? tr(Str::UpscalerAiClean)
+                    : upscaler_ == 2 ? tr(Str::UpscalerFsrClean)
+                    : upscaler_ == 1 ? tr(Str::UpscalerAi)
+                                     : "FSR";
             if (sel) value = "< " + value + " >";
         }
         if (i == Deband) {
             static constexpr Str kLevels[] = {Str::SharpOff, Str::SharpLow, Str::SharpHigh};
-            value = tr(kLevels[deband_]);
+            value = deband_ == 3 ? trf(Str::DebandAuto, tr(kLevels[std::clamp(debandInUse_, 0, 2)]))
+                                 : tr(kLevels[std::clamp(deband_, 0, 2)]);
             if (sel) value = "< " + value + " >";
         }
         if (i == Resolution) {

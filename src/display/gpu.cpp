@@ -16,6 +16,10 @@
 #include <string>
 
 #include "display/shaders/a4k_d2s.spv.h"
+#include "display/shaders/a4k_r_conv0.spv.h"
+#include "display/shaders/a4k_r_conv1.spv.h"
+#include "display/shaders/a4k_r_conv2.spv.h"
+#include "display/shaders/a4k_r_conv3.spv.h"
 #include "display/shaders/a4k_s_conv0.spv.h"
 #include "display/shaders/a4k_s_conv1.spv.h"
 #include "display/shaders/a4k_s_conv2.spv.h"
@@ -111,6 +115,11 @@ struct State {
     Pipeline a4kConv[4], a4kD2s;
     VkDescriptorSet a4kConvSets[4]{}, a4kD2sSet = VK_NULL_HANDLE;
     bool a4kReady = false;
+    // Anime4K Restore (S): four convolutions that clean compression artefacts
+    // off the picture before it is upscaled (FSR or Anime4K), in place.
+    Pipeline restoreConv[4];
+    VkDescriptorSet restoreSets[4]{};
+    bool restoreReady = false;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkDescriptorSet yuvSet = VK_NULL_HANDLE, easuVideoSet = VK_NULL_HANDLE, easuUiSet = VK_NULL_HANDLE;
     VkDescriptorSet rcasSets[8]{};
@@ -136,6 +145,7 @@ bool g_overlayDirty = false, g_overlayShown = false;
 std::atomic<int> g_sharpness{0};
 std::atomic<int> g_deband{1};
 std::atomic<int> g_upscaler{0};  // 0 FSR (EASU), 1 Anime4K
+std::atomic<bool> g_restore{false};  // Anime4K Restore before the upscale
 uint32_t g_frame = 0;
 uint32_t g_swapImages = 2;
 bool g_noPresentWait = false;
@@ -523,6 +533,13 @@ bool createPipelines() {
         g.a4kReady = createPipeline(g.a4kD2s, kShader_a4k_d2s, sizeof kShader_a4k_d2s, d2s, 3, 0);
         for (int i = 0; i < 4 && g.a4kReady; ++i) g.a4kReady = createPipeline(g.a4kConv[i], code[i], bytes[i], conv, 2, 0);
         if (!g.a4kReady) XC_LOGW("gpu: no Anime4K pipelines; FSR only");
+        const uint32_t* rcode[4] = {kShader_a4k_r_conv0, kShader_a4k_r_conv1, kShader_a4k_r_conv2, kShader_a4k_r_conv3};
+        const size_t rbytes[4] = {sizeof kShader_a4k_r_conv0, sizeof kShader_a4k_r_conv1, sizeof kShader_a4k_r_conv2,
+                                  sizeof kShader_a4k_r_conv3};
+        g.restoreReady = g.a4kReady;  // it uses the same feature maps
+        for (int i = 0; i < 4 && g.restoreReady; ++i)
+            g.restoreReady = createPipeline(g.restoreConv[i], rcode[i], rbytes[i], conv, 2, 0);
+        if (g.a4kReady && !g.restoreReady) XC_LOGW("gpu: no Anime4K Restore pipelines");
     }
     const VkDescriptorPoolSize sizes[] = {{sampled, 32}, {storage, 32}};
     VkDescriptorPoolCreateInfo pool{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
@@ -538,6 +555,8 @@ bool createPipelines() {
         for (int i = 0; i < 4; ++i) g.a4kConvSets[i] = allocateSet(g.a4kConv[i]);
         g.a4kD2sSet = allocateSet(g.a4kD2s);
     }
+    if (g.restoreReady)
+        for (int i = 0; i < 4; ++i) g.restoreSets[i] = allocateSet(g.restoreConv[i]);
 
     // The images every frame uses; the video's come with its first picture.
     const VkImageUsageFlags upload = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -604,6 +623,15 @@ bool videoImages(uint32_t w, uint32_t h) {
             writeStorage(g.a4kD2sSet, 0, g.features[1].view);
             writeSampled(g.a4kD2sSet, 1, g.rgb.view, g.linear);
             writeStorage(g.a4kD2sSet, 2, g.upscaled.view);
+            if (g.restoreReady) {
+                // picture -> f0 -> f1 -> f0 -> (+ picture) -> picture
+                const VkImageView rin[4] = {g.rgb.view, g.features[0].view, g.features[1].view, g.features[0].view};
+                const VkImageView rout[4] = {g.features[0].view, g.features[1].view, g.features[0].view, g.rgb.view};
+                for (int i = 0; i < 4; ++i) {
+                    writeStorage(g.restoreSets[i], 0, rin[i]);
+                    writeStorage(g.restoreSets[i], 1, rout[i]);
+                }
+            }
         }
     }
     XC_LOGI("gpu: video images %ux%u", w, h);
@@ -707,6 +735,20 @@ bool beginFrame(bool wait) {
 
 // `input` (the RGB picture, w x h) upscaled with EASU, sharpened with RCAS,
 // the overlay on top, into the acquired image.
+// Anime4K Restore on the RGB picture, in place.
+void recordRestore(uint32_t w, uint32_t h) {
+    if (!g.restoreReady || g.features[0].w != w || g.features[0].h != h) return;
+    barrier(g.features[0].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    barrier(g.features[1].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    for (int i = 0; i < 4; ++i) {
+        vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.restoreConv[i].pipeline);
+        vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.restoreConv[i].layout, 0, 1, &g.restoreSets[i],
+                                0, nullptr);
+        vkCmdDispatch(g.cmd, (w + 7) / 8, (h + 7) / 8, 1);
+        memoryBarrier();
+    }
+}
+
 // Anime4K x2 into `upscaled`; false (nothing recorded) when it doesn't fit:
 // only the video, and only a picture of exactly half the display.
 bool recordAnime4K(uint32_t w, uint32_t h) {
@@ -818,6 +860,7 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int stride
     vkCmdPushConstants(g.cmd, g.yuv.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof yuvPc, &yuvPc);
     vkCmdDispatch(g.cmd, (g.rgb.w + 7) / 8, (g.rgb.h + 7) / 8, 1);
     memoryBarrier();
+    if (g_restore) recordRestore(g.rgb.w, g.rgb.h);
     recordUpscale(g.easuVideoSet, g.rgb.w, g.rgb.h, g_sharpness, overlay, g_upscaler == 1);
     return true;
 }
@@ -894,6 +937,8 @@ void setSharpness(int amount) { g_sharpness = std::clamp(amount, 0, 256); }
 void setDeband(int level) { g_deband = std::clamp(level, 0, 2); }
 
 void setUpscaler(int mode) { g_upscaler = std::clamp(mode, 0, 1); }
+
+void setRestore(bool on) { g_restore = on; }
 
 void setPresentWait(bool on) { g_noPresentWait = !on; }
 

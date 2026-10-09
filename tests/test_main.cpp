@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 // Offline unit tests for the portable core (no network).
+#include "app/settings.h"
 #include "app/update_check.h"
 #include "net/http.h"
+#include "platform/platform.h"
 #include "stream/input_packet.h"
 #include "stream/stream_session.h"
 #include "ui/app_ui.h"
@@ -210,6 +212,29 @@ static void testVersions() {
     CHECK(!isNewerVersion("", "0.3.0"));
 }
 
+static void testSettingsMigration() {
+    // A file from before v0.8.0 at the old defaults gets the new ones; other
+    // choices, and files already saved by v0.8.0, stay as they are.
+    std::string path = "/tmp/xcloud-tests-settings.json";
+    auto loadFrom = [&](const std::string& text) {
+        xc::platform::writeFileAtomic(path, text);
+        xc::app::Settings s;
+        CHECK(s.load(path));
+        return s;
+    };
+    auto old = loadFrom(R"({"deband":1,"upscaler":0})");
+    CHECK(old.deband == 3 && old.upscaler == 2);
+    auto chosen = loadFrom(R"({"deband":2,"upscaler":1})");
+    CHECK(chosen.deband == 2 && chosen.upscaler == 1);
+    auto current = loadFrom(R"({"deband":1,"upscaler":0,"settingsVersion":2})");
+    CHECK(current.deband == 1 && current.upscaler == 0);
+    // Saved again, the migration doesn't repeat.
+    CHECK(old.save(path));
+    xc::app::Settings again;
+    CHECK(again.load(path) && again.deband == 3 && again.upscaler == 2);
+    std::remove(path.c_str());
+}
+
 static void testStreamMenu() {
     using xc::ui::MenuAction;
     xc::ui::Fonts fonts;  // not loaded: handle() never draws
@@ -229,14 +254,22 @@ static void testStreamMenu() {
     CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Stats);
     CHECK(menu.statsOn());
     press([](xc::ui::NavInput& n) { n.down = true; });
-    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Upscaler);  // FSR -> AI
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Upscaler);  // FSR -> FSR + clean-up
+    CHECK(menu.upscaler() == 2);
+    press([](xc::ui::NavInput& n) { n.right = true; });  // -> AI
     CHECK(menu.upscaler() == 1);
+    press([](xc::ui::NavInput& n) { n.right = true; });  // -> AI + clean-up
+    CHECK(menu.upscaler() == 3);
+    press([](xc::ui::NavInput& n) { n.right = true; });  // wraps to FSR
+    CHECK(menu.upscaler() == 0);
     press([](xc::ui::NavInput& n) { n.down = true; });
     CHECK(press([](xc::ui::NavInput& n) { n.left = true; }) == MenuAction::Sharpness);  // off -> high
     CHECK(menu.sharpness() == 3);
     press([](xc::ui::NavInput& n) { n.down = true; });
     CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Deband);  // low -> high
     CHECK(menu.deband() == 2);
+    press([](xc::ui::NavInput& n) { n.right = true; });  // -> auto
+    CHECK(menu.deband() == 3);
     press([](xc::ui::NavInput& n) { n.down = true; });
     press([](xc::ui::NavInput& n) { n.left = true; });  // 1080p -> 720p
     CHECK(menu.resolution() == 1);
@@ -262,6 +295,7 @@ int main() {
     testAccentColor();
     testVersions();
     testStreamMenu();
+    testSettingsMigration();
     testStrings();
     testRegions();
     testPrices();

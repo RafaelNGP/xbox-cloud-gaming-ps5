@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-08, after v0.5.0 (items 1-3 and more on the way to v0.6.0).
+Last update: 2026-10-08, after v0.7.0.
 
 ## Now
 
@@ -77,13 +77,19 @@ the Xbox ends or turns off the stream.
   offered once delivered. The own Xbox is always asked for its top tier:
   ~15.7 Mbps instead of ~9.5.
 
+### Picture clean-up — v0.8.0
+- **Anime4K Restore (S)** before the upscale, for FSR and Anime4K alike
+  ("+ clean-up" in the game menu, the default with FSR): on Fortnite at
+  ~5 Mbps, edges 50% stronger with the same noise in flat areas, and no
+  measurable latency (on screen 26-29 ms either way).
+- **Auto block smoothing**: high below ~5 Mbps, low up to ~10, off above,
+  with 1 Mbps margins and 3 s before a change (the default).
+
 ## Next
 
 | Item | Why | Size |
 | --- | --- | --- |
-| Anime4K Restore + Upscale | Cleans compression noise before Anime4K sharpens it | small |
 | TLS errors (-110) | Seen at start (title list, prices) and on images, here and in #10 | small |
-| Adaptive block smoothing | Stronger below ~4 Mbps, off above ~10 Mbps, automatically | small |
 | Voice chat (microphone) | xCloud has a chat channel; needs PS5 audio capture | large |
 | USB keyboard and mouse | Some xCloud games accept them | medium |
 | Split `ps5_main.cpp` | 1,100+ lines mixing the stream screen, autoplay and settings | medium |

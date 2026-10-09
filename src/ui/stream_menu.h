@@ -50,6 +50,8 @@ public:
     int sharpness() const { return sharpness_; }
     int deband() const { return deband_; }
     int upscaler() const { return upscaler_; }
+    // The block smoothing level "auto" picked for the bitrate (shown as "Auto (low)").
+    void setDebandInUse(int level) { debandInUse_ = level; }
     // Circle confirms: the hints swap their buttons.
     void setCircleConfirms(bool on) { circleConfirms_ = on; }
     // The controllers in use, under the connection.
@@ -65,7 +67,7 @@ private:
     bool open_ = false, stats_ = false;
     int selected_ = XboxButton;
     int resolution_ = 0, applied_ = 0;
-    int sharpness_ = 0, deband_ = 1, upscaler_ = 0;
+    int sharpness_ = 0, deband_ = 1, upscaler_ = 0, debandInUse_ = 1;
     bool resolutionAsked_ = false;
     bool circleConfirms_ = false;
     bool homeConsole_ = false, allow1440_ = true;

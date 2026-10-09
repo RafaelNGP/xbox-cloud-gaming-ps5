@@ -153,6 +153,9 @@ enum class Str {
     EndedXboxOff,       // toast: the Xbox was turned off during the stream
     StreamingStuck,     // "%s" = the console: its Remote Play service didn't start
     GestureHint,        // at the start of a stream (the first three): the touchpad gestures
+    UpscalerFsrClean,   // game menu: FSR after Anime4K Restore (cleans compression artefacts)
+    UpscalerAiClean,    // Anime4K upscale after Anime4K Restore
+    DebandAuto,         // "%s" = the level in use now; block smoothing follows the bitrate
     Count
 };
 
