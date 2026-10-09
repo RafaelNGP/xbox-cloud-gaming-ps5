@@ -468,7 +468,7 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         XC_LOGI("AUTOPLAY END: consoles listed");
         return;
     }
-    g_ui->setProfile(am.profile().gamertag, am.profile().gamerpicUrl);
+    g_ui->setProfile(am.profile().gamertag, am.profile().gamerpicUrl, am.profile().gamerscore);
     {
         std::lock_guard<std::mutex> lock(g_argMutex);
         g_xblAuth = am.profile().xblAuthorization;
@@ -535,7 +535,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     });
     if (!g_autoplay.title.empty() && g_autoplay.title != "BENCH" && g_autoplay.title != "UPDATE" && !g_autoplay.detailTest && !g_autoplay.libraryTest &&
         !g_autoplay.consolesTab && !g_autoplay.settingsTest &&
-        !g_autoplay.imeTest && !g_autoplay.vibeTest && !g_autoplay.searchTest) {
+        !g_autoplay.imeTest && !g_autoplay.vibeTest && !g_autoplay.searchTest && !g_autoplay.quickTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
         tile.titleId = g_autoplay.title;

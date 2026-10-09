@@ -57,7 +57,7 @@ xcloud::Product productFromJson(const std::string& id, const json::Value& v) {
     p.tileUrl = v["tile"].str();
     p.posterUrl = v["poster"].str();
     p.heroUrl = v["hero"].str();
-    for (const auto& c : v["categories"].items()) p.categories.push_back(c.str());
+    for (const auto& c : v["categories"].items()) p.categories.push_back(xcloud::categoryName(c.str()));
     p.detailed = v["d"].asBool(false);
     p.modes = static_cast<uint32_t>(v["modes"].asInt(0));
     for (const auto& [lang, bits] : v["langs"].members()) p.languages[lang] = static_cast<uint8_t>(bits.asInt(0));
@@ -117,16 +117,24 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
     if (auto lang = p.languages.find(language_.substr(0, language_.find('-'))); lang != p.languages.end())
         t.languages = lang->second;  // in the app's language
     if (ownershipKnown_) t.playable = ownedTitles_.count(t.titleId) || ownedProducts_.count(t.productId);
+    // Added to Game Pass since the last start: the account's list from then
+    // doesn't have it yet. Not locked until this start's list arrives.
+    if (!t.playable && !ownershipFresh_ && !knownGamePass_.empty() && gamePass_.count(productId) &&
+        !knownGamePass_.count(productId))
+        t.playable = true;
     t.freeInStore = freeInStore_.count(productId) > 0;
     // A free-to-play game not on the account yet is got like one bought
     // (the store page's QR code), only free.
     t.purchasable = !t.playable && (purchasableSet_.count(productId) || t.freeInStore);
     if (siblingsFor_ != products_.size()) {
         seriesSiblings_.clear();
+        sharedXbox_.clear();
+        std::set<std::string> seen;
         for (const auto& [id, prod] : products_) {
-            if (!namesSeries(prod.title)) continue;
             auto xs = xboxTitleOf_.find(id);
-            seriesSiblings_.insert(xs != xboxTitleOf_.end() ? xs->second : prod.xboxTitleId);
+            const std::string& xbox = xs != xboxTitleOf_.end() ? xs->second : prod.xboxTitleId;
+            if (!xbox.empty() && !seen.insert(xbox).second) sharedXbox_.insert(xbox);
+            if (namesSeries(prod.title)) seriesSiblings_.insert(xbox);
         }
         siblingsFor_ = products_.size();
     }
@@ -136,7 +144,14 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
     if (pl != platform_.end()) t.platform = pl->second;
     // Cross-gen pairs ("Call of Duty: Vanguard" and "... - Xbox Series X|S")
     // are two cloud titles sharing one Xbox title id: the name tells them apart.
-    if (namesSeries(p.title)) t.platform = xcloud::kPlatformSeries;
+    // The cloud title id names the version where the store's name doesn't
+    // say it in English ("Hogwarts Legacy" / "... Versão Xbox One":
+    // HOGWARTSLEGACYXBOXSERIESXSVERSION / ...XBOXONEVERSION).
+    bool pair = sharedXbox_.count(xbox) > 0;
+    if (pair && t.titleId.find("XBOXONE") != std::string::npos) t.platform = xcloud::kPlatformOne;
+    else if (pair && (t.titleId.find("XBOXSERIES") != std::string::npos || t.titleId.find("SERIESXS") != std::string::npos))
+        t.platform = xcloud::kPlatformSeries;
+    else if (namesSeries(p.title)) t.platform = xcloud::kPlatformSeries;
     else if (t.platform == xcloud::kPlatformSeries && seriesSiblings_.count(xbox)) t.platform = xcloud::kPlatformOne;
     return t;
 }
@@ -217,6 +232,7 @@ bool Library::loadCache() {
     for (const auto& id : (*j)["freeInStore"].items()) freeInStore_.insert(id.str());
     for (const auto& t : (*j)["ownedTitles"].items()) ownedTitles_.insert(t.str());
     for (const auto& p : (*j)["ownedProducts"].items()) ownedProducts_.insert(p.str());
+    for (const auto& p : (*j)["gamePass"].items()) knownGamePass_.insert(p.str());
     owned_.clear();
     for (const auto& o : (*j)["owned"].items()) owned_.emplace_back(o["p"].str(), o["t"].str());
     purchasable_.clear();
@@ -243,6 +259,9 @@ void Library::saveCache() const {
     root.set("ownedTitles", titles);
     root.set("ownedProducts", prods);
     root.set("owned", itemsToJson(owned_));
+    json::Value gamePass = json::Value::array();
+    for (const auto& id : allGames_) gamePass.push(id);
+    root.set("gamePass", gamePass);  // the next start tells the games added since
     root.set("purchasable", itemsToJson(purchasable_));
     // Details of everything on the home screen, in "Your games" and in the
     // Game Pass search: the next launch shows them, hero art and all, before
@@ -280,6 +299,8 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
     popular_.clear();
     recent_.clear();
     ownershipKnown_ = false;
+    ownershipFresh_ = false;
+    knownGamePass_.clear();
     ownedTitles_.clear();
     ownedProducts_.clear();
     owned_.clear();
@@ -436,6 +457,7 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
         XC_LOGW("%s", err.c_str());
     if (stop && *stop) return;
     ownedTitles_ = std::move(ownedTitles);
+    ownershipFresh_ = true;
     ownedProducts_ = std::move(ownedProducts);
     owned_ = std::move(mine);
     purchasable_ = std::move(buy);

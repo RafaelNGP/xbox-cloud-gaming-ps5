@@ -76,7 +76,7 @@ constexpr Column kEnglish = {
     "Could not load the game list: %s",               // LibraryFailed
     "Could not start the stream: %s",                 // StreamFailed
     "No input for a while: you will be disconnected in %s seconds",  // IdleWarning
-    "Your games",                                     // YourGames
+    "My games",                                     // YourGames
     "Not available on your account",                  // NotPlayable
     "Game Pass",                                    // TabGamePass
     "Search",                                       // TabSearch
@@ -92,7 +92,7 @@ constexpr Column kEnglish = {
     "Available to buy",                              // AvailableToBuy
     "BUY",                                           // BuyBadge
     "Buy this game to play it in the cloud",         // BuyToPlay
-    "Buy it on xbox.com or in the Xbox app; it then shows up in Your games.", // BuyHint
+    "Buy it on xbox.com or in the Xbox app; it then shows up in My games.", // BuyHint
     "Scan to open the store page",                   // ScanToBuy
     "Search in %s",                                  // SearchIn
     "FREE",                                          // Free
@@ -272,7 +272,7 @@ constexpr Column kPortugueseBR = {
     "Não foi possível carregar a lista de jogos: %s",
     "Não foi possível iniciar o streaming: %s",
     "Sem atividade: você será desconectado em %s segundos",
-    "Seus jogos",
+    "Meus jogos",
     "Indisponível na sua conta",
     "Game Pass",
     "Pesquisar",
@@ -288,7 +288,7 @@ constexpr Column kPortugueseBR = {
     "Disponíveis para comprar",
     "COMPRAR",
     "Compre este jogo para jogá-lo na nuvem",
-    "Compre em xbox.com ou no app Xbox; depois ele aparece em Seus jogos.",
+    "Compre em xbox.com ou no app Xbox; depois ele aparece em Meus jogos.",
     "Escaneie para abrir a página da loja",
     "Pesquisar em %s",
     "GRÁTIS",
@@ -468,7 +468,7 @@ constexpr Column kSpanish = {
     "No se pudo cargar la lista de juegos: %s",
     "No se pudo iniciar el streaming: %s",
     "Sin actividad: se te desconectará en %s segundos",
-    "Tus juegos",
+    "Mis juegos",
     "No disponible en tu cuenta",
     "Game Pass",
     "Buscar",
@@ -484,7 +484,7 @@ constexpr Column kSpanish = {
     "Disponibles para comprar",
     "COMPRAR",
     "Compra este juego para jugarlo en la nube",
-    "Cómpralo en xbox.com o en la app de Xbox; luego aparecerá en Tus juegos.",
+    "Cómpralo en xbox.com o en la app de Xbox; luego aparecerá en Mis juegos.",
     "Escanea para abrir la página de la tienda",
     "Buscar en %s",
     "GRATIS",
@@ -664,7 +664,7 @@ constexpr Column kFrench = {
     "Impossible de charger la liste des jeux : %s",
     "Impossible de démarrer le streaming : %s",
     "Aucune activité : vous serez déconnecté dans %s secondes",
-    "Vos jeux",
+    "Mes jeux",
     "Indisponible sur votre compte",
     "Game Pass",
     "Rechercher",
@@ -680,7 +680,7 @@ constexpr Column kFrench = {
     "Disponibles à l'achat",
     "ACHETER",
     "Achetez ce jeu pour y jouer dans le cloud",
-    "Achetez-le sur xbox.com ou dans l'app Xbox ; il apparaîtra ensuite dans Vos jeux.",
+    "Achetez-le sur xbox.com ou dans l'app Xbox ; il apparaîtra ensuite dans Mes jeux.",
     "Scannez pour ouvrir la page du magasin",
     "Rechercher dans %s",
     "GRATUIT",
@@ -860,7 +860,7 @@ constexpr Column kGerman = {
     "Die Spieleliste konnte nicht geladen werden: %s",
     "Das Streaming konnte nicht gestartet werden: %s",
     "Keine Aktivität: Die Verbindung wird in %s Sekunden getrennt",
-    "Deine Spiele",
+    "Meine Spiele",
     "Für dein Konto nicht verfügbar",
     "Game Pass",
     "Suchen",
@@ -876,7 +876,7 @@ constexpr Column kGerman = {
     "Zum Kaufen verfügbar",
     "KAUFEN",
     "Kaufe dieses Spiel, um es in der Cloud zu spielen",
-    "Kaufe es auf xbox.com oder in der Xbox-App; danach erscheint es unter Deine Spiele.",
+    "Kaufe es auf xbox.com oder in der Xbox-App; danach erscheint es unter Meine Spiele.",
     "Scannen, um die Store-Seite zu öffnen",
     "Suchen in %s",
     "KOSTENLOS",
@@ -1056,7 +1056,7 @@ constexpr Column kItalian = {
     "Impossibile caricare l'elenco dei giochi: %s",
     "Impossibile avviare lo streaming: %s",
     "Nessuna attività: verrai disconnesso tra %s secondi",
-    "I tuoi giochi",
+    "I miei giochi",
     "Non disponibile sul tuo account",
     "Game Pass",
     "Cerca",
@@ -1072,7 +1072,7 @@ constexpr Column kItalian = {
     "Disponibili per l'acquisto",
     "ACQUISTA",
     "Acquista questo gioco per giocarci nel cloud",
-    "Acquistalo su xbox.com o nell'app Xbox; poi apparirà in I tuoi giochi.",
+    "Acquistalo su xbox.com o nell'app Xbox; poi apparirà in I miei giochi.",
     "Scansiona per aprire la pagina dello store",
     "Cerca in %s",
     "GRATIS",

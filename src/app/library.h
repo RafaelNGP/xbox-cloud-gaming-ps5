@@ -106,6 +106,8 @@ private:
     std::vector<std::string> recent_;    // recently played product ids, newest first
     // The account (loadOwned() or the cache).
     bool ownershipKnown_ = false;
+    bool ownershipFresh_ = false;            // the account's list of this start (not the cache's) is in
+    std::set<std::string> knownGamePass_;    // the Game Pass catalog at the last start (cache)
     std::set<std::string> ownedTitles_, ownedProducts_;
     std::vector<Item> owned_;        // outside Game Pass
     std::vector<Item> purchasable_;  // streamable once bought
@@ -119,6 +121,7 @@ private:
     // Xbox title ids that have a "... - Xbox Series X|S" product, rebuilt
     // when products_ grows.
     mutable std::set<std::string> seriesSiblings_;
+    mutable std::set<std::string> sharedXbox_;  // Xbox title ids two products share (cross-gen pairs)
     mutable size_t siblingsFor_ = 0;
 };
 

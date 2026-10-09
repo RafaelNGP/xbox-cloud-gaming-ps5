@@ -83,6 +83,8 @@ void loadAutoplay() {
         if (opt == "confirmtest") g_autoplay.confirmTest = true;
         if (opt == "tunetest") g_autoplay.tuneTest = true;
         if (opt == "searchtest") g_autoplay.searchTest = true;
+        if (opt == "quicktest") g_autoplay.quickTest = true;
+        if (opt.rfind("locktitle=", 0) == 0) g_autoplay.lockTitle = opt.substr(10);
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
@@ -435,6 +437,21 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         g_autoplay.confirmTest = false;
         saveCanvas("home.ppm");
         XC_LOGI("AUTOPLAY END: confirm test, on the %s screen", g_ui->screen() == ui::Screen::Home ? "home" : "WRONG");
+    }
+    if (g_autoplay.quickTest && uiSaved) {
+        g_autoplay.quickTest = false;
+        ui::GameTile t;
+        for (const char* id : {"HOGWARTSLEGACYXBOXSERIESXSVERSION", "HOGWARTSLEGACYXBOXONEVERSION"})
+            XC_LOGI("quick: %s badge %s", id, g_ui->findTile(id, t) ? t.platform.c_str() : "(not found)");
+        if (!g_autoplay.lockTitle.empty())
+            XC_LOGI("quick: %s %s", g_autoplay.lockTitle.c_str(),
+                    !g_ui->findTile(g_autoplay.lockTitle, t) ? "not found" : t.playable ? "playable" : "LOCKED");
+        g_ui->showFilteredSearch(ui::Tab::Library, false, 0, "MOBA", 0);
+        size_t mine = g_ui->searchResults(500).size();
+        g_ui->showFilteredSearch(ui::Tab::GamePass, false, 0, "MOBA", 0);
+        XC_LOGI("quick: MOBA games: %zu in My games, %zu in Game Pass", mine, g_ui->searchResults(500).size());
+        g_ui->showHome();
+        XC_LOGI("AUTOPLAY END: quick test");
     }
     if (g_autoplay.searchTest && uiSaved) {
         // "Your games" by lowest price, then on sale, once the prices are in
