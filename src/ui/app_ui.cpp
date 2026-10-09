@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RafaelNGP
 #include "ui/app_ui.h"
 
+#include "input/tuning.h"
 #include "ui/accent_color.h"
 
 #include "ui/brand.h"
@@ -705,6 +706,71 @@ bool AppUi::settingsLightBar(int& mode, Color& colour) const {
     return true;
 }
 
+bool AppUi::settingsTriggerFeel(int& strength, int& hzIndex, int& resistance, bool& pulses) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (screen_ != Screen::Settings) return false;
+    strength = settings_.triggerStrength;
+    hzIndex = settings_.triggerHz;
+    resistance = settings_.triggerResistance;
+    pulses = settings_.triggerPulses;
+    return true;
+}
+
+bool AppUi::triggerTest(float& l2, float& r2) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (screen_ != Screen::Settings || tester_ != Tester::Triggers) return false;
+    l2 = testL2_;
+    r2 = testR2_;
+    return true;
+}
+
+void AppUi::openTester(Tester t) {
+    // Caller holds mutex_. Circle puts back what was there.
+    tester_ = t;
+    testerRow_ = 0;
+    testerStick_ = 0;
+    testerBackup_ = settings_;
+    dirty_ = true;
+}
+
+void AppUi::handleTester(const NavInput& in) {
+    // Caller holds mutex_. Changes apply as they are made (the pad follows);
+    // Cross keeps them, Circle puts the old ones back.
+    if (tester_ == Tester::Sticks) {
+        // L1 / R1 pick the stick, the D-pad (only: the sticks are what is
+        // being tried) changes its dead zone.
+        if (in.l1 || in.r1) testerStick_ = in.r1 ? 1 : 0, dirty_ = true;
+        int& zone = settings_.deadzone[testerStick_];
+        int dz = std::clamp(zone + (in.dpadRight ? 1 : 0) - (in.dpadLeft ? 1 : 0), 0, kMaxDeadzone);
+        if (dz != zone) zone = dz, dirty_ = true;
+        const float now[4] = {in.rawLX, in.rawLY, in.rawRX, in.rawRY};
+        for (int i = 0; i < 4; ++i)
+            if (now[i] != testSticks_[i]) testSticks_[i] = now[i], dirty_ = true;
+    } else {
+        if (in.up && testerRow_ > 0) --testerRow_, dirty_ = true;
+        if (in.down && testerRow_ < 3) ++testerRow_, dirty_ = true;
+        int delta = (in.right ? 1 : 0) - (in.left ? 1 : 0);
+        if (delta && testerRow_ == 0)
+            settings_.triggerStrength = std::clamp(settings_.triggerStrength + delta, 0, input::kTriggerStrengths - 1);
+        if (delta && testerRow_ == 1) settings_.triggerHz = std::clamp(settings_.triggerHz + delta, 0, 2);
+        if (delta && testerRow_ == 2)
+            settings_.triggerResistance = std::clamp(settings_.triggerResistance + delta, 0, input::kTriggerResistances - 1);
+        if (delta && testerRow_ == 3) settings_.triggerPulses = !settings_.triggerPulses;
+        if (delta) dirty_ = true;
+        if (in.l2Analog != testL2_ || in.r2Analog != testR2_) testL2_ = in.l2Analog, testR2_ = in.r2Analog, dirty_ = true;
+    }
+    if (in.back) {
+        settings_.deadzone[0] = testerBackup_.deadzone[0], settings_.deadzone[1] = testerBackup_.deadzone[1];
+        settings_.triggerStrength = testerBackup_.triggerStrength, settings_.triggerHz = testerBackup_.triggerHz;
+        settings_.triggerResistance = testerBackup_.triggerResistance, settings_.triggerPulses = testerBackup_.triggerPulses;
+    }
+    if (in.accept || in.back) {
+        tester_ = Tester::None;
+        testL2_ = testR2_ = 0;
+        dirty_ = true;
+    }
+}
+
 void AppUi::openColourPicker(int previousMode) {
     // Caller holds mutex_. Starts on the colour saved.
     float h, s, v;
@@ -874,9 +940,11 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         out = {tr(Str::Res720), tr(Str::Res1080)};  // kResolutionOrder
         if (allow1440_) out.push_back(tr(Str::Res1440));
     } else if (row == 3) {
-        for (int p : kDeadzonePercent) out.push_back(std::to_string(p) + " %");
+        // Left and right stick (the tester changes them).
+        out = {std::to_string(settings_.deadzone[0]) + " %  \xC2\xB7  " + std::to_string(settings_.deadzone[1]) + " %"};
     } else if (row == 4) {
-        out = {tr(Str::Activated), tr(Str::Deactivated)};
+        out = {tr(Str::Deactivated), tr(Str::TriggerLight), tr(Str::TriggerMedium), tr(Str::TriggerStrong),
+               tr(Str::TriggerMax)};
     } else if (row == 5) {
         out = {"", ""};  // Cross, Circle: drawn as the buttons
     } else if (row == 6) {
@@ -900,8 +968,8 @@ int AppUi::settingSelected(int row) const {
         for (int i = 0; i < 3; ++i)
             if (kResolutionOrder[i] == settings_.resolution) return i;
     }
-    if (row == 3) return settings_.deadzone;
-    if (row == 4) return settings_.triggerRumble ? 0 : 1;
+    if (row == 3) return 0;
+    if (row == 4) return settings_.triggerStrength;
     if (row == 5) return settings_.circleConfirms ? 1 : 0;
     if (row == 6) return settings_.lightBarMode;
     if (row == 7) return 0;
@@ -918,9 +986,9 @@ void AppUi::applySetting(int row, int index) {
     } else if (row == 1) {
         settings_.resolution = kResolutionOrder[index];
     } else if (row == 3) {
-        settings_.deadzone = index;
+        (void)index;  // the tester sets each stick's
     } else if (row == 4) {
-        settings_.triggerRumble = index == 0;
+        settings_.triggerStrength = index;
     } else if (row == 5) {
         settings_.circleConfirms = index == 1;
         circleConfirms_ = settings_.circleConfirms;  // in force at once: the next press already uses it
@@ -1273,6 +1341,10 @@ UiEvent AppUi::handle(const NavInput& in) {
                 handleColourPicker(in);
                 break;
             }
+            if (tester_ != Tester::None) {
+                handleTester(in);
+                break;
+            }
             if (dropdownOpen_) {
                 // The list: up / down, Cross picks, Circle closes it unchanged.
                 int n = static_cast<int>(settingOptions(settingsRow_).size());
@@ -1289,7 +1361,10 @@ UiEvent AppUi::handle(const NavInput& in) {
             if (in.up && settingsRow_ > 0) --settingsRow_, dirty_ = true;
             if (in.right) changeSetting(+1);
             if (in.left) changeSetting(-1);
-            if (in.accept && settingsRow_ == 7) {
+            if (in.accept && (settingsRow_ == 3 || settingsRow_ == 4)) {
+                // Dead zone, trigger vibration: their testers instead of a list.
+                openTester(settingsRow_ == 3 ? Tester::Sticks : Tester::Triggers);
+            } else if (in.accept && settingsRow_ == 7) {
                 // Updates: a newer version is installed (the settings saved first).
                 if (!updateAvailable_.empty() && !updateChecking_) {
                     ev.action = Action::UpdateNow;
@@ -2228,6 +2303,8 @@ void AppUi::drawSettings(Canvas& c) {
         drawColourPicker(c);
         return;
     }
+    if (tester_ == Tester::Sticks) return drawStickTester(c);
+    if (tester_ == Tester::Triggers) return drawTriggerTester(c);
     if (dropdownOpen_) {
         // The list under (or, near the bottom, over) the row, right-aligned
         // with it; scrolls past kVisible choices.
@@ -2303,6 +2380,105 @@ void AppUi::drawUpdatePrompt(Canvas& c) {
     c.fillRect({0, kH - 80, kW, 80}, kBg);  // the home screen's hints, under the pop-up's
     drawPads(c);
     drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::NotNow)}});
+}
+
+Rect AppUi::drawModal(Canvas& c, int w, int h, const std::string& title) {
+    c.fillRect({0, 0, kW, kH}, rgba(0, 0, 0, 160));
+    Rect panel{(kW - w) / 2, (kH - h) / 2 - 30, w, h};
+    c.fillRect({panel.x + 8, panel.y + 12, panel.w, panel.h}, rgba(0, 0, 0, 120), 26);  // shadow
+    c.fillRect(panel, kPanel, 24);
+    c.strokeRect(panel, rgba(255, 255, 255, 50), 2, 24);
+    fonts_.bold.draw(c, title, panel.x + 56, panel.y + 44, 40, kWhite);
+    c.fillRect({0, kH - 80, kW, 80}, kBg);  // Settings' hints, under the panel's
+    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
+    return panel;
+}
+
+void AppUi::drawStickTester(Canvas& c) {
+    Rect panel = drawModal(c, 1240, 740, tr(Str::Deadzone));
+    constexpr int R = 180;
+    const Color raw = rgba(170, 170, 170), game = rgba(90, 220, 110);
+    for (int s = 0; s < 2; ++s) {
+        const float dz = settings_.deadzone[s] / 100.0f;
+        const bool chosen = s == testerStick_;
+        const float cx = panel.x + (s ? 930.0f : 310.0f), cy = panel.y + 170.0f + R;
+        // Its dead zone above it, in white on the stick being adjusted.
+        std::string value = std::to_string(settings_.deadzone[s]) + " %";
+        fonts_.bold.draw(c, value, static_cast<int>(cx) - fonts_.bold.measure(value, 34) / 2, static_cast<int>(cy) - R - 56, 34,
+                         chosen ? kWhite : kDim);
+        c.fillCircle(cx, cy, R, rgba(255, 255, 255, chosen ? 22 : 10));
+        c.line(cx - R, cy, cx + R, cy, 1, rgba(255, 255, 255, 30));
+        c.line(cx, cy - R, cx, cy + R, 1, rgba(255, 255, 255, 30));
+        c.strokeArc(cx, cy, R, chosen ? 4.0f : 2.0f, 0, 6.2832f, chosen ? kWhite : rgba(255, 255, 255, 70));
+        // The dead zone: nothing reaches the game in there.
+        if (dz > 0) {
+            c.fillCircle(cx, cy, dz * R, rgba(230, 70, 70, 60));
+            c.strokeArc(cx, cy, dz * R, 2, 0, 6.2832f, rgba(230, 90, 90, 180));
+        }
+        float x = testSticks_[2 * s], y = testSticks_[2 * s + 1], gx = x, gy = y;
+        input::radialDeadzone(gx, gy, dz);
+        c.fillCircle(cx + x * R, cy + y * R, 9, raw);
+        c.fillCircle(cx + gx * R, cy + gy * R, 12, game);
+        const char* name = tr(s ? Str::StickRight : Str::StickLeft);
+        fonts_.semibold.draw(c, name, static_cast<int>(cx) - fonts_.semibold.measure(name, 26) / 2, static_cast<int>(cy) + R + 22,
+                             26, kWhite);
+        // How far each one is, in percent of the travel.
+        auto pct = [](float a, float b) { return std::to_string(static_cast<int>(std::lround(std::min(1.0f, std::hypot(a, b)) * 100))) + " %"; };
+        std::string line = pct(x, y) + "  \xE2\x86\x92  " + pct(gx, gy);
+        int tw = fonts_.regular.measure(line, 24);
+        fonts_.regular.draw(c, line, static_cast<int>(cx) - tw / 2, static_cast<int>(cy) + R + 58, 24, kGray);
+    }
+    // The legend, then the help.
+    int ly = panel.y + panel.h - 92, lx = panel.x + 56;
+    c.fillCircle(lx + 9.0f, ly + 13.0f, 9, raw);
+    fonts_.regular.draw(c, tr(Str::StickPosition), lx + 28, ly, 24, kGray);
+    lx += 28 + fonts_.regular.measure(tr(Str::StickPosition), 24) + 48;
+    c.fillCircle(lx + 12.0f, ly + 13.0f, 12, game);
+    fonts_.regular.draw(c, tr(Str::StickGameGets), lx + 32, ly, 24, kGray);
+    fonts_.regular.draw(c, tr(Str::StickTestHelp), panel.x + 56, ly + 44, 22, kDim);
+}
+
+void AppUi::drawTriggerTester(Canvas& c) {
+    Rect panel = drawModal(c, 1100, 830, tr(Str::TriggerRumble));
+    // The two choices, as Settings' rows: up / down picks one, left / right changes it.
+    const char* strengths[] = {tr(Str::Deactivated), tr(Str::TriggerLight), tr(Str::TriggerMedium), tr(Str::TriggerStrong),
+                               tr(Str::TriggerMax)};
+    const char* freqs[] = {tr(Str::FrequencyLow), tr(Str::TriggerMedium), tr(Str::FrequencyHigh)};
+    const char* labels[] = {tr(Str::TriggerIntensity), tr(Str::TriggerFrequency), tr(Str::TriggerResistance),
+                            tr(Str::TriggerStyle)};
+    // Pulses go at their own, slower rates.
+    int hz = settings_.triggerPulses ? input::kTriggerPulseHz[settings_.triggerHz] : input::kTriggerHz[settings_.triggerHz];
+    const std::string values[] = {strengths[settings_.triggerStrength],
+                                  std::string(freqs[settings_.triggerHz]) + "  (" + std::to_string(hz) + " Hz)",
+                                  strengths[settings_.triggerResistance],  // off, light, medium, strong
+                                  tr(settings_.triggerPulses ? Str::StylePulses : Str::StyleVibration)};
+    for (int i = 0; i < 4; ++i) {
+        Rect r{panel.x + 56, panel.y + 120 + i * 84, panel.w - 112, 70};
+        bool on = i == testerRow_;
+        c.fillRect(r, on ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 16);
+        if (on) c.strokeRect({r.x - 5, r.y - 5, r.w + 10, r.h + 10}, kWhite, 3, 20);
+        fonts_.semibold.draw(c, labels[i], r.x + 36, fonts_.semibold.centeredY(r.y, r.h, 30), 30, kWhite);
+        std::string v = "\xE2\x80\xB9  " + values[i] + "  \xE2\x80\xBA";  // ‹ value ›
+        int w = fonts_.regular.measure(v, 30);
+        fonts_.regular.draw(c, v, r.x + r.w - 36 - w, fonts_.regular.centeredY(r.y, r.h, 30), 30, on ? kWhite : kGray);
+    }
+    // L2 and R2: how far each is pressed, and the level it sends to the trigger.
+    const float pressed[2] = {testL2_, testR2_};
+    for (int t = 0; t < 2; ++t) {
+        constexpr int kBarW = 90, kBarH = 170;
+        int bx = panel.x + panel.w / 2 + (t ? 80 : -80 - kBarW), by = panel.y + 490;
+        c.fillRect({bx, by, kBarW, kBarH}, rgba(255, 255, 255, 20), 16);
+        int fill = static_cast<int>(kBarH * std::clamp(pressed[t], 0.0f, 1.0f));
+        int level = input::triggerAmplitude(static_cast<uint8_t>(std::lround(pressed[t] * 255)), settings_.triggerStrength);
+        if (fill > 0) c.fillRect({bx, by + kBarH - fill, kBarW, fill}, level ? rgba(90, 220, 110) : rgba(120, 120, 120), 16);
+        std::string name = t ? "R2" : "L2";
+        fonts_.bold.draw(c, name, bx + (kBarW - fonts_.bold.measure(name, 26)) / 2, by + kBarH + 14, 26, kWhite);
+        std::string lv = trf(Str::TriggerLevel, std::to_string(level) + " / 8");
+        fonts_.regular.draw(c, lv, bx + (kBarW - fonts_.regular.measure(lv, 22)) / 2, by + kBarH + 48, 22, kGray);
+    }
+    auto help = fonts_.regular.wrap(tr(Str::TriggerTestHelp), 22, panel.w - 112, 2);
+    for (size_t i = 0; i < help.size(); ++i)
+        fonts_.regular.draw(c, help[i], panel.x + 56, panel.y + panel.h - 70 + static_cast<int>(i) * 30, 22, kDim);
 }
 
 void AppUi::drawColourPicker(Canvas& c) {

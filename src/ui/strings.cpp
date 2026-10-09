@@ -195,6 +195,25 @@ constexpr Column kEnglish = {
     "Custom colour",                                 // LightBarCustom
     "Light bar colour",                              // LightBarColour
     "Left stick or D-pad: colour    L2 / R2: brightness", // ColourPickerHelp
+    "Light",                                         // TriggerLight
+    "Medium",                                        // TriggerMedium
+    "Strong",                                        // TriggerStrong
+    "Max",                                           // TriggerMax
+    "Intensity",                                     // TriggerIntensity
+    "Frequency",                                     // TriggerFrequency
+    "Low",                                           // FrequencyLow
+    "High",                                          // FrequencyHigh
+    "Press L2 / R2 to feel it: the deeper, the stronger the game would ask", // TriggerTestHelp
+    "Level %s",                                      // TriggerLevel
+    "Left stick",                                    // StickLeft
+    "Right stick",                                   // StickRight
+    "Stick position",                                // StickPosition
+    "What the game gets",                            // StickGameGets
+    "L1 / R1: choose the stick    D-pad ← / →: adjust    Move the sticks to see it", // StickTestHelp
+    "Resistance",                                    // TriggerResistance
+    "Style",                                         // TriggerStyle
+    "Vibration",                                     // StyleVibration
+    "Force pulses",                                  // StylePulses
 };
 
 constexpr Column kPortugueseBR = {
@@ -360,6 +379,25 @@ constexpr Column kPortugueseBR = {
     "Cor personalizada",
     "Cor da barra de luz",
     "Analógico esquerdo ou direcional: cor    L2 / R2: brilho",
+    "Leve",
+    "Média",
+    "Forte",
+    "Máxima",
+    "Intensidade",
+    "Frequência",
+    "Grave",
+    "Aguda",
+    "Aperte L2 / R2 para sentir: quanto mais fundo, mais forte o jogo pediria",
+    "Nível %s",
+    "Analógico esquerdo",
+    "Analógico direito",
+    "Posição real",
+    "O que o jogo recebe",
+    "L1 / R1: escolher o analógico    Direcional ← / →: ajustar    Mova os analógicos para ver",
+    "Resistência",
+    "Estilo",
+    "Vibração",
+    "Pulsos de força",
 };
 
 constexpr Column kSpanish = {
@@ -525,6 +563,25 @@ constexpr Column kSpanish = {
     "Color personalizado",
     "Color de la barra de luz",
     "Stick izquierdo o cruceta: color    L2 / R2: brillo",
+    "Suave",
+    "Media",
+    "Fuerte",
+    "Máxima",
+    "Intensidad",
+    "Frecuencia",
+    "Grave",
+    "Aguda",
+    "Pulsa L2 / R2 para sentirlo: cuanto más a fondo, más fuerte lo pediría el juego",
+    "Nivel %s",
+    "Stick izquierdo",
+    "Stick derecho",
+    "Posición real",
+    "Lo que recibe el juego",
+    "L1 / R1: elegir el stick    Cruceta ← / →: ajustar    Mueve los sticks para verlo",
+    "Resistencia",
+    "Estilo",
+    "Vibración",
+    "Pulsos de fuerza",
 };
 
 constexpr Column kFrench = {
@@ -690,6 +747,25 @@ constexpr Column kFrench = {
     "Couleur personnalisée",
     "Couleur de la barre lumineuse",
     "Joystick gauche ou croix : couleur    L2 / R2 : luminosité",
+    "Légère",
+    "Moyenne",
+    "Forte",
+    "Maximale",
+    "Intensité",
+    "Fréquence",
+    "Grave",
+    "Aiguë",
+    "Appuyez sur L2 / R2 pour le sentir : plus vous enfoncez, plus le jeu le demanderait fort",
+    "Niveau %s",
+    "Joystick gauche",
+    "Joystick droit",
+    "Position réelle",
+    "Ce que reçoit le jeu",
+    "L1 / R1 : choisir le joystick    Croix ← / → : régler    Bougez les joysticks pour le voir",
+    "Résistance",
+    "Style",
+    "Vibration",
+    "Impulsions de force",
 };
 
 constexpr Column kGerman = {
@@ -855,6 +931,25 @@ constexpr Column kGerman = {
     "Eigene Farbe",
     "Farbe der Lichtleiste",
     "Linker Stick oder Steuerkreuz: Farbe    L2 / R2: Helligkeit",
+    "Leicht",
+    "Mittel",
+    "Stark",
+    "Maximal",
+    "Stärke",
+    "Frequenz",
+    "Tief",
+    "Hoch",
+    "L2 / R2 drücken zum Fühlen: je tiefer, desto stärker würde es das Spiel verlangen",
+    "Stufe %s",
+    "Linker Stick",
+    "Rechter Stick",
+    "Tatsächliche Position",
+    "Was das Spiel bekommt",
+    "L1 / R1: Stick wählen    Steuerkreuz ← / →: einstellen    Sticks bewegen zum Sehen",
+    "Widerstand",
+    "Stil",
+    "Vibration",
+    "Kraftimpulse",
 };
 
 constexpr Column kItalian = {
@@ -1020,6 +1115,25 @@ constexpr Column kItalian = {
     "Colore personalizzato",
     "Colore della barra luminosa",
     "Levetta sinistra o croce: colore    L2 / R2: luminosità",
+    "Leggera",
+    "Media",
+    "Forte",
+    "Massima",
+    "Intensità",
+    "Frequenza",
+    "Bassa",
+    "Alta",
+    "Premi L2 / R2 per sentirlo: più a fondo, più forte lo chiederebbe il gioco",
+    "Livello %s",
+    "Levetta sinistra",
+    "Levetta destra",
+    "Posizione reale",
+    "Ciò che riceve il gioco",
+    "L1 / R1: scegliere la levetta    Croce ← / →: regolare    Muovi le levette per vederlo",
+    "Resistenza",
+    "Stile",
+    "Vibrazione",
+    "Impulsi di forza",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

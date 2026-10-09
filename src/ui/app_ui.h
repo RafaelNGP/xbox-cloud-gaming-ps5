@@ -70,6 +70,11 @@ struct NavInput {
     bool l2 = false, r2 = false;  // pressed (triggers past halfway)
     bool touchpad = false;  // held right now (sign out needs a 5 s hold)
     float stickX = 0, stickY = 0;  // the left stick, -1..1 (the colour picker)
+    // For the Settings testers: the D-pad alone (with repeat), the sticks
+    // before the dead zone, and how far the triggers are pressed (0..1).
+    bool dpadLeft = false, dpadRight = false;
+    float rawLX = 0, rawLY = 0, rawRX = 0, rawRY = 0;
+    float l2Analog = 0, r2Analog = 0;
     uint64_t nowMs = 0;
 };
 
@@ -78,15 +83,18 @@ struct SettingsChoice {
     int language = 0;      // ui::Language
     int resolution = 0;    // 0 = 1080p, 1 = 720p, 2 = 1440p (experimental)
     std::string region;    // gssv region name; empty = automatic
-    int deadzone = 3;      // index into kDeadzonePercent (15 %)
-    bool triggerRumble = true;
+    int deadzone[2] = {15, 15};  // left, right stick: percent of the travel, 0..kMaxDeadzone
+    int triggerStrength = 2;     // 0 off .. 4 max (input/tuning.h)
+    int triggerHz = 1;           // index into input::kTriggerHz
+    int triggerResistance = 0;   // 0 off .. 3 strong
+    bool triggerPulses = false;  // force pulses instead of the motor vibrating
     bool circleConfirms = false;  // Circle is Xbox A (and Cross is B)
     int lightBarMode = 0;         // 0 the game's colour, 1 lightBarColour, 2 off
     Color lightBarColour = rgba(0, 112, 220);
 };
 
-// The stick dead zones Settings offers, in percent of the travel.
-constexpr int kDeadzonePercent[] = {0, 5, 10, 15, 20, 25};
+// The largest stick dead zone Settings offers, in percent of the travel.
+constexpr int kMaxDeadzone = 30;
 constexpr int kSettingRows = 8;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates
 
 // ConsolesShown: "My consoles" opened (its list is refreshed). UpdateNow
@@ -185,6 +193,11 @@ public:
     // While Settings is open: the light bar being chosen there (the colour
     // picker's colour as it moves), so the pad shows it at once.
     bool settingsLightBar(int& mode, Color& colour) const;
+    // The same for the trigger vibration (strength, frequency index), and,
+    // while its tester is open, how far each trigger is pressed: the app
+    // makes them vibrate as a game asking that much would.
+    bool settingsTriggerFeel(int& strength, int& hzIndex, int& resistance, bool& pulses) const;
+    bool triggerTest(float& l2, float& r2) const;
     // Regions offered by the account's xCloud login; `defaultRegion` is the
     // one "Automatic" picks.
     void setRegions(std::vector<std::string> regions, const std::string& defaultRegion);
@@ -275,6 +288,14 @@ private:
     void handleColourPicker(const NavInput& in);
     Color pickerColour() const;
     void drawColourPicker(Canvas& c);
+    // The testers that Dead zone and Trigger vibration open in Settings.
+    enum class Tester { None, Sticks, Triggers };
+    void openTester(Tester t);
+    void handleTester(const NavInput& in);
+    void drawStickTester(Canvas& c);
+    void drawTriggerTester(Canvas& c);
+    // A modal panel over Settings with its title; returns its rectangle.
+    Rect drawModal(Canvas& c, int w, int h, const std::string& title);
     void drawUpdating(Canvas& c, uint64_t nowMs);
     void changeSetting(int delta);
     // Settings drop-downs: the choices of a row, the chosen one, choosing.
@@ -350,6 +371,11 @@ private:
     int promptFocus_ = 0;        // 0 Update now, 1 Not now
     std::string updatingTo_, updateStatus_;
     float updateFraction_ = -1;
+    Tester tester_ = Tester::None;
+    SettingsChoice testerBackup_;  // what Circle puts back
+    int testerRow_ = 0;            // the trigger tester's row: intensity, frequency, resistance, style
+    int testerStick_ = 0;          // the stick tester: the one being adjusted (L1 / R1)
+    float testSticks_[4] = {0, 0, 0, 0}, testL2_ = 0, testR2_ = 0;
     bool pickerOpen_ = false;
     float pickU_ = 0, pickV_ = 0;  // on the wheel: angle = hue, distance = saturation
     float pickValue_ = 1;          // brightness

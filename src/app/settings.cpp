@@ -29,8 +29,16 @@ bool Settings::load(const std::string& path) {
     sharpness = static_cast<int>(std::clamp<int64_t>((*j)["sharpness"].asInt(sharpness), 0, 3));
     deband = static_cast<int>(std::clamp<int64_t>((*j)["deband"].asInt(deband), 0, 3));
     upscaler = static_cast<int>(std::clamp<int64_t>((*j)["upscaler"].asInt(upscaler), 0, 3));
-    deadzone = static_cast<int>(std::clamp<int64_t>((*j)["deadzone"].asInt(deadzone), 0, 50));
-    triggerRumble = (*j)["triggerRumble"].asBool(triggerRumble);
+    // "deadzone": one for both sticks, until each could have its own.
+    int both = static_cast<int>(std::clamp<int64_t>((*j)["deadzone"].asInt(15), 0, 50));
+    deadzoneLeft = static_cast<int>(std::clamp<int64_t>((*j)["deadzoneLeft"].asInt(both), 0, 50));
+    deadzoneRight = static_cast<int>(std::clamp<int64_t>((*j)["deadzoneRight"].asInt(both), 0, 50));
+    // "triggerRumble" (on/off) until the strength could be chosen.
+    triggerStrength = (*j)["triggerRumble"].asBool(true) ? 2 : 0;
+    triggerStrength = static_cast<int>(std::clamp<int64_t>((*j)["triggerStrength"].asInt(triggerStrength), 0, 4));
+    triggerHz = static_cast<int>(std::clamp<int64_t>((*j)["triggerHz"].asInt(triggerHz), 0, 2));
+    triggerResistance = static_cast<int>(std::clamp<int64_t>((*j)["triggerResistance"].asInt(0), 0, 3));
+    triggerPulses = (*j)["triggerPulses"].asBool(false);
     circleConfirms = (*j)["circleConfirms"].asBool(circleConfirms);
     // "lightBar" (on/off) until the colour could be chosen.
     lightBarMode = (*j)["lightBar"].asBool(true) ? 0 : 2;
@@ -75,8 +83,12 @@ bool Settings::save(const std::string& path) const {
     v.set("sharpness", sharpness);
     v.set("deband", deband);
     v.set("upscaler", upscaler);
-    v.set("deadzone", deadzone);
-    v.set("triggerRumble", triggerRumble);
+    v.set("deadzoneLeft", deadzoneLeft);
+    v.set("deadzoneRight", deadzoneRight);
+    v.set("triggerStrength", triggerStrength);
+    v.set("triggerHz", triggerHz);
+    v.set("triggerResistance", triggerResistance);
+    v.set("triggerPulses", triggerPulses);
     v.set("circleConfirms", circleConfirms);
     v.set("lightBarMode", lightBarMode);
     char hex[8];

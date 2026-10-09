@@ -30,11 +30,13 @@ struct ControllerState {
     bool btnTouchpad = false; // View / Select
     bool btnNexus = false;    // the Xbox button (from the game menu; the PS button stays the system's)
 
-    // Analog axes [-1.0 .. 1.0]
+    // Analog axes [-1.0 .. 1.0], after the dead zone
     float leftStickX = 0.0f;
     float leftStickY = 0.0f;
     float rightStickX = 0.0f;
     float rightStickY = 0.0f;
+    // The same before it (the Settings stick tester)
+    float rawLeftX = 0.0f, rawLeftY = 0.0f, rawRightX = 0.0f, rawRightY = 0.0f;
 
     // Triggers [0.0 .. 1.0]
     float triggerL2 = 0.0f;
@@ -69,12 +71,19 @@ void setRumble(uint8_t large, uint8_t small, uint32_t durationMs, int pad = 0);
 // DualSense's adaptive triggers vibrate along their whole travel.
 void setTriggerRumble(uint8_t left, uint8_t right, uint32_t durationMs, int pad = 0);
 // Stick dead zone, 0..0.5 of the travel.
-void setDeadzone(float deadzone);
+// Each stick's own dead zone (0..1 of the travel): a drifting stick can
+// have a bigger one.
+void setDeadzone(float left, float right);
 // Circle reported as Cross (Xbox A) and Cross as Circle, everywhere.
 void setCircleConfirms(bool on);
 bool circleConfirms();
-// Off: setTriggerRumble() is ignored.
-void setTriggerRumbleEnabled(bool on);
+// How the triggers feel (input/tuning.h): vibration strength 0 (off:
+// setTriggerRumble() is ignored) to kTriggerStrengths - 1, the frequency
+// choice (index), the resistance (weight) and the style (pulses of the
+// resistance instead of the motor vibrating).
+void setTriggerFeel(int strength, int hzIndex, int resistance, bool pulses);
+// Logs each time a trigger starts or stops vibrating (the Settings tester).
+void setTriggerLogging(bool on);
 // The light bar eases (~0.4 s) to this colour; reset gives it back to the
 // system (the player's colour). Any thread; polling applies it.
 void setLightBar(uint8_t r, uint8_t g, uint8_t b, int pad = 0);

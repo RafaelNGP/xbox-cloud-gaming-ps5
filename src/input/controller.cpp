@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 #include "input/controller.h"
+#include "input/tuning.h"
 #include "util/log.h"
 
 #include <algorithm>
@@ -101,18 +102,6 @@ namespace xc::input {
 
 namespace {
 
-constexpr uint8_t kTriggerVibrationHz = 60;
-
-// Xbox impulse-trigger level (0..255) -> DualSense trigger amplitude (1..8).
-// Games ask for little (Halo's shots: 15 %), which the Xbox's trigger motors
-// turn into a clear kick; linearly it would be amplitude 1, which drowns
-// under the grip motors. A square-root curve: 15 % -> 4, 50 % -> 6.
-uint8_t triggerAmplitude(uint8_t level) {
-    if (!level) return 0;
-    int a = static_cast<int>(std::ceil(8.0 * std::sqrt(level / 255.0)));
-    return static_cast<uint8_t>(std::clamp(a, 2, 8));
-}
-
 // A rumble request: packed as a << 8 | b, and when it ends (0 = never).
 struct Rumble {
     std::atomic<uint32_t> wanted{0};
@@ -122,6 +111,16 @@ struct Rumble {
     void set(uint8_t a, uint8_t b, uint32_t durationMs) {
         untilMs = durationMs ? platform::nowMs() + durationMs : 0;
         wanted = (uint32_t(a) << 8) | b;
+    }
+    // The value wanted now (0 once its time is up).
+    uint32_t current() {
+        uint32_t want = wanted;
+        uint64_t until = untilMs;
+        if (want && until && platform::nowMs() >= until) {
+            wanted.compare_exchange_strong(want, 0);
+            want = 0;
+        }
+        return want;
     }
     // The value to apply now, or false when it hasn't changed.
     bool due(uint32_t& out) {
@@ -143,6 +142,9 @@ struct Pad {
     std::atomic<bool> connected{false};  // the last poll's answer
     char name[32] = {};                   // the user's, read when opened
     Rumble motors, triggers;
+    TriggerCommand triggerSent[2];  // L2, R2 as last told
+    bool triggerFresh = false;      // triggerSent is what the pad has
+    bool triggerVibrating[2] = {false, false};
     // Light bar: wanted colour (r << 16 | g << 8 | b, bit 24 = set) and the
     // one shown, easing towards it.
     std::atomic<uint32_t> lightWanted{0};
@@ -151,15 +153,15 @@ struct Pad {
     bool lightStarted = false;
 };
 Pad g_pads[kMaxPads];
-std::atomic<float> g_deadzone{0.15f};
-std::atomic<bool> g_circleConfirms{false}, g_triggerRumble{true};
-bool g_rumbleLogged = false, g_triggerLogged = false;
+std::atomic<float> g_deadzone[2] = {0.15f, 0.15f};
+std::atomic<bool> g_circleConfirms{false};
+std::atomic<int> g_triggerStrength{kTriggerMedium}, g_triggerHz{1}, g_triggerResistance{0};
+std::atomic<bool> g_triggerPulses{false}, g_triggerLogging{false};
+bool g_rumbleLogged = false;
 
 inline float normStick(uint8_t val) {
-    // 0..255 -> -1.0 .. 1.0, nothing inside the dead zone
-    float v = (static_cast<float>(val) - 128.0f) / 128.0f;
-    if (std::abs(v) < g_deadzone.load(std::memory_order_relaxed)) return 0.0f;
-    return std::clamp(v, -1.0f, 1.0f);
+    // 0..255 -> -1.0 .. 1.0
+    return std::clamp((static_cast<float>(val) - 128.0f) / 128.0f, -1.0f, 1.0f);
 }
 
 inline float normTrigger(uint8_t val) {
@@ -179,6 +181,7 @@ bool openPad(Pad& pad, int32_t userId, int slot) {
     pad.handle = h;
     if (sceUserServiceGetUserName(userId, pad.name, sizeof pad.name) != 0) pad.name[0] = 0;
     pad.motors.applied = pad.triggers.applied = 0;
+    pad.triggerFresh = false;
     XC_LOGI("pad %d opened (handle %d, rumble mode 0x%08x)", slot, h, static_cast<unsigned>(mode));
     return true;
 }
@@ -238,21 +241,37 @@ void applyRumble(Pad& pad) {
         if (!g_rumbleLogged || rc != 0) XC_LOGI("scePadSetVibration(%u, %u): 0x%08x", p.largeMotor, p.smallMotor, rc);
         g_rumbleLogged = true;
     }
-    if (pad.triggers.due(v)) {
-        ScePadTriggerEffectParam p{};
-        p.triggerMask = 3;
-        const uint8_t level[2] = {static_cast<uint8_t>(v >> 8), static_cast<uint8_t>(v)};
-        for (int t = 0; t < 2; ++t) {
-            if (!level[t]) continue;  // mode 0: off
-            p.command[t].mode = 3;
-            p.command[t].data[0] = 0;  // from the top of the travel
-            p.command[t].data[1] = triggerAmplitude(level[t]);
-            p.command[t].data[2] = kTriggerVibrationHz;
-        }
-        int rc = scePadSetTriggerEffect(pad.handle, &p);
-        if (!g_triggerLogged || rc != 0) XC_LOGI("scePadSetTriggerEffect(%u, %u): 0x%08x", level[0], level[1], rc);
-        g_triggerLogged = true;
+    // The triggers, worked out on every poll (the pulses change on their
+    // own) and sent when either changes.
+    v = pad.triggers.current();
+    const uint8_t level[2] = {static_cast<uint8_t>(v >> 8), static_cast<uint8_t>(v)};
+    int strength = g_triggerStrength, hz = g_triggerHz, resistance = g_triggerResistance;
+    bool pulses = g_triggerPulses;
+    uint64_t now = platform::nowMs();
+    TriggerCommand want[2];
+    for (int t = 0; t < 2; ++t) want[t] = triggerCommand(level[t], strength, hz, resistance, pulses, now);
+    if (pad.triggerFresh && want[0] == pad.triggerSent[0] && want[1] == pad.triggerSent[1]) return;
+    ScePadTriggerEffectParam p{};
+    p.triggerMask = 3;
+    for (int t = 0; t < 2; ++t) {
+        p.command[t].mode = want[t].mode;
+        std::copy(want[t].data, want[t].data + 4, p.command[t].data);
     }
+    int rc = scePadSetTriggerEffect(pad.handle, &p);
+    static int failures = 0;  // a refused effect is sent again each poll: logged a few times
+    for (int t = 0; t < 2; ++t) {
+        // Vibrating: the motor, or pulses (a feedback while there is a request).
+        bool was = pad.triggerFresh && pad.triggerVibrating[t];
+        bool is = level[t] && triggerAmplitude(level[t], strength);
+        if ((g_triggerLogging && was != is) || (rc != 0 && failures < 6))
+            XC_LOGI("trigger %s: %s (mode %d, %u %u %u %u): 0x%08x", t ? "R2" : "L2", is ? "vibrating" : "still", want[t].mode,
+                    want[t].data[0], want[t].data[1], want[t].data[2], want[t].data[3], static_cast<unsigned>(rc));
+    }
+    for (int t = 0; t < 2; ++t) pad.triggerVibrating[t] = level[t] && triggerAmplitude(level[t], strength);
+    pad.triggerSent[0] = want[0];
+    pad.triggerSent[1] = want[1];
+    pad.triggerFresh = rc == 0;
+    if (rc != 0) ++failures;
 }
 
 } // namespace
@@ -262,7 +281,7 @@ void setRumble(uint8_t large, uint8_t small, uint32_t durationMs, int pad) {
 }
 
 void setTriggerRumble(uint8_t left, uint8_t right, uint32_t durationMs, int pad) {
-    if (!g_triggerRumble) left = right = 0;
+    if (g_triggerStrength <= 0) left = right = 0;
     if (pad >= 0 && pad < kMaxPads) g_pads[pad].triggers.set(left, right, durationMs);
 }
 
@@ -284,13 +303,22 @@ std::string padUserName(int index) {
     return index >= 0 && index < kMaxPads && g_pads[index].handle >= 0 ? g_pads[index].name : "";
 }
 
-void setTriggerRumbleEnabled(bool on) {
-    g_triggerRumble = on;
-    if (!on)
+void setTriggerFeel(int strength, int hzIndex, int resistance, bool pulses) {
+    g_triggerStrength = std::clamp(strength, 0, kTriggerStrengths - 1);
+    g_triggerHz = std::clamp(hzIndex, 0, 2);
+    g_triggerResistance = std::clamp(resistance, 0, kTriggerResistances - 1);
+    g_triggerPulses = pulses;
+    if (!g_triggerStrength)
         for (Pad& p : g_pads) p.triggers.set(0, 0, 0);
+    // The next poll works the triggers out in the new feel.
 }
 
-void setDeadzone(float deadzone) { g_deadzone = std::clamp(deadzone, 0.0f, 0.5f); }
+void setTriggerLogging(bool on) { g_triggerLogging = on; }
+
+void setDeadzone(float left, float right) {
+    g_deadzone[0] = std::clamp(left, 0.0f, 0.5f);
+    g_deadzone[1] = std::clamp(right, 0.0f, 0.5f);
+}
 
 bool init() {
     int rc = scePadInit();
@@ -383,10 +411,12 @@ bool pollPad(int index, ControllerState& out) {
     out.btnTouchpad = (b & 0x100000) != 0;
 
     // Analog
-    out.leftStickX  = normStick(pad.leftStick.x);
-    out.leftStickY  = normStick(pad.leftStick.y);
-    out.rightStickX = normStick(pad.rightStick.x);
-    out.rightStickY = normStick(pad.rightStick.y);
+    out.rawLeftX = out.leftStickX = normStick(pad.leftStick.x);
+    out.rawLeftY = out.leftStickY = normStick(pad.leftStick.y);
+    out.rawRightX = out.rightStickX = normStick(pad.rightStick.x);
+    out.rawRightY = out.rightStickY = normStick(pad.rightStick.y);
+    radialDeadzone(out.leftStickX, out.leftStickY, g_deadzone[0].load(std::memory_order_relaxed));
+    radialDeadzone(out.rightStickX, out.rightStickY, g_deadzone[1].load(std::memory_order_relaxed));
 
     out.triggerL2 = normTrigger(pad.l2);
     out.triggerR2 = normTrigger(pad.r2);
@@ -418,14 +448,15 @@ bool pollPad(int index, ControllerState& out) {
 void refreshPads() {}
 void setRumble(uint8_t, uint8_t, uint32_t, int) {}
 void setTriggerRumble(uint8_t, uint8_t, uint32_t, int) {}
-void setDeadzone(float) {}
+void setDeadzone(float, float) {}
 void setCircleConfirms(bool) {}
 bool circleConfirms() { return false; }
 void setLightBar(uint8_t, uint8_t, uint8_t, int) {}
 void resetLightBar(int) {}
 bool padConnected(int index) { return index == 0; }
 std::string padUserName(int index) { return index == 0 ? "Player" : ""; }
-void setTriggerRumbleEnabled(bool) {}
+void setTriggerFeel(int, int, int, bool) {}
+void setTriggerLogging(bool) {}
 } // namespace xc::input
 
 #endif
