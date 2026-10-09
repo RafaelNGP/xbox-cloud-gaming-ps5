@@ -81,6 +81,9 @@ struct NavInput {
     bool dpadLeft = false, dpadRight = false;
     float rawLX = 0, rawLY = 0, rawRX = 0, rawRY = 0;
     float l2Analog = 0, r2Analog = 0;
+    // Fast scrolling (the right stick, or a swipe on the touchpad): a page
+    // up / down / left / right in the lists of games.
+    bool pageUp = false, pageDown = false, pageLeft = false, pageRight = false;
     uint64_t nowMs = 0;
 };
 
@@ -226,6 +229,8 @@ public:
     // `openList` (0 mode, 1 genre, 2 language) open; and the first results.
     void showFilteredSearch(Tab tab, bool cheapest, int mode, const std::string& genre, int language, int openList = -1);
     std::vector<std::pair<std::string, PriceInfo>> searchResults(size_t max) const;
+    // Autoplay tests: where the focus is ("Game Pass row 2 card 6", ...).
+    std::string focusDescription() const;
     void invalidate();
 
     // --- UI thread -----------------------------------------------------------

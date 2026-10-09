@@ -84,6 +84,7 @@ void loadAutoplay() {
         if (opt == "tunetest") g_autoplay.tuneTest = true;
         if (opt == "searchtest") g_autoplay.searchTest = true;
         if (opt == "quicktest") g_autoplay.quickTest = true;
+        if (opt == "scrolltest") g_autoplay.scrollTest = true;
         if (opt.rfind("locktitle=", 0) == 0) g_autoplay.lockTitle = opt.substr(10);
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
@@ -162,6 +163,28 @@ void autoplayPad(input::ControllerState& pad) {
         if (in(17500, 20)) {
             g_autoplay.tuneTest = false;
             XC_LOGI("AUTOPLAY END: tune test");
+        }
+    }
+    if (g_autoplay.scrollTest && uiSaved) {
+        // Game Pass: right stick down, then right; R1 to My games: right
+        // stick down; a finger moving up the touchpad, then down. The focus
+        // is logged after each.
+        static uint64_t since = 0;
+        uint64_t now = platform::nowMs();
+        if (!since) since = now;
+        uint64_t t = now - since;
+        auto in = [&](uint64_t at, uint64_t len) { return t >= at && t < at + len; };
+        if (in(1000, 150)) pad.rightStickY = 1.0f;
+        if (in(2500, 150)) pad.rightStickX = 1.0f;
+        if (in(4000, 150)) pad.btnR1 = true;
+        if (in(5500, 150)) pad.rightStickY = 1.0f;
+        if (in(7000, 400)) pad.touching = true, pad.touchX = 0.5f, pad.touchY = 0.8f - 0.5f * static_cast<float>(t - 7000) / 400;
+        if (in(8500, 400)) pad.touching = true, pad.touchX = 0.5f, pad.touchY = 0.3f + 0.5f * static_cast<float>(t - 8500) / 400;
+        for (uint64_t at : {800, 2000, 3500, 5000, 6500, 8000, 9500})
+            if (in(at, 20)) XC_LOGI("scroll: at %llu ms: %s", static_cast<unsigned long long>(at), g_ui->focusDescription().c_str());
+        if (in(10000, 20)) {
+            g_autoplay.scrollTest = false;
+            XC_LOGI("AUTOPLAY END: scroll test");
         }
     }
     if (g_autoplay.confirmTest && uiSaved) {

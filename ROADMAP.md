@@ -131,14 +131,18 @@ is rolled back at the next start), then the app restarts itself
   Lowest price by the discounted price. Modes and languages come from the
   store's full details, fetched once in the background and cached.
 
+### Fast scrolling and fresher catalog — done (v0.9.1)
+- The right stick pages through the lists (3 rows up / down, 6 cards
+  sideways), and so does a swipe on the touchpad.
+- Cached game details older than 30 days are fetched again, 40 per start,
+  oldest first.
+
 ## Next
 
 | Item | Why | Size |
 | --- | --- | --- |
 | Per-game settings (next release) | A profile per game (picture, triggers, dead zones, controls) that overrides the general settings for that game only; games without one use the general ones | medium |
 | "All games" (Game Pass) as a grid | One row is too little for hundreds of games: a grid like "My games" | medium |
-| Fast scrolling | Right stick by pages, a touchpad swipe jumps rows | small |
-| Refresh old catalog details | Cached details are never refreshed: a few of the oldest (over 30 days) each start | small |
 | Publisher filter | 918 publishers: the most frequent first, studios of one owner grouped | medium |
 | Friends playing now | Xbox social / presence APIs; privacy to handle | large |
 | Keyboard and mouse filter / icon | The store marks games that take them; together with keyboard and mouse support | small |

@@ -2,6 +2,8 @@
 // Copyright (C) 2026 RafaelNGP
 #include "xcloud/catalog.h"
 
+#include <ctime>
+
 #include "net/http.h"
 #include "util/json.h"
 
@@ -86,6 +88,7 @@ bool fetchProducts(const std::vector<std::string>& ids, const std::string& marke
             if (full) {
                 // How it can be played, from the store's attributes.
                 prod.detailed = true;
+                prod.detailedAt = static_cast<int64_t>(std::time(nullptr));
                 for (const auto& a : p["Attributes"].items()) {
                     std::string n = a["Name"].str();
                     if (n == "SinglePlayer") prod.modes |= kModeSingle;

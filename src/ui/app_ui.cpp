@@ -545,6 +545,21 @@ std::vector<std::pair<std::string, PriceInfo>> AppUi::searchResults(size_t max) 
     return out;
 }
 
+std::string AppUi::focusDescription() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (tab_ == Tab::GamePass)
+        return "Game Pass row " + std::to_string(focusRow_) + " card " +
+               std::to_string(focusCol_.empty() ? 0 : focusCol_[static_cast<size_t>(focusRow_)]);
+    if (tab_ == Tab::Library) {
+        LibraryLayout L = libraryLayout();
+        int f = gridFocus_;
+        if (f >= 0 && f < static_cast<int>(L.rowOf.size()))
+            return "My games tile " + std::to_string(f) + " (row " + std::to_string(L.rowOf[static_cast<size_t>(f)]) + ")";
+        return "My games tile " + std::to_string(f);
+    }
+    return "consoles";
+}
+
 void AppUi::showTab(Tab t) {
     std::lock_guard<std::mutex> lock(mutex_);
     tab_ = t;
@@ -1130,6 +1145,23 @@ AppUi::LibraryLayout AppUi::libraryLayout() const {
 
 void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
     // Caller holds mutex_.
+    if ((in.pageUp || in.pageDown || in.pageLeft || in.pageRight) && !(searching_ && searchOnKeys_)) {
+        // A page: several steps at once (rows up or down, cards sideways).
+        NavInput step;
+        step.up = in.pageUp, step.down = in.pageDown, step.left = in.pageLeft, step.right = in.pageRight;
+        step.nowMs = in.nowMs;
+        constexpr int kPageRows = 3, kPageCards = 6;
+        int steps = in.pageUp || in.pageDown ? kPageRows : kPageCards;
+        // Sideways in the search's results stops at the row's edge (left of
+        // it is the keyboard).
+        if (searching_ && (in.pageLeft || in.pageRight)) steps = std::min(steps, kResultCols - 1);
+        for (int k = 0; k < steps; ++k) {
+            if (searching_ && searchOnKeys_) break;  // went back to the keys
+            if (searching_ && step.left && resultFocus_ % kResultCols == 0) break;
+            handleHome(step, ev);
+        }
+        return;
+    }
     if (in.l1 || in.r1) {
         // Game Pass, Your games, My consoles, round.
         int n = static_cast<int>(tab_) + (in.r1 ? 1 : 2);

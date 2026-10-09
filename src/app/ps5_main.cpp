@@ -200,7 +200,12 @@ int main(int argc, char** argv) {
 
     // Never return from main: the app is closed from the home screen.
     input::ControllerState prev{}, pad{};
-    Repeater up, down, left, right, dpadLeft, dpadRight;
+    Repeater up, down, left, right, dpadLeft, dpadRight, pageUp, pageDown, pageLeft, pageRight;
+    // A swipe on the touchpad (touched, not pressed): where it last paged.
+    struct {
+        bool active = false;
+        float x = 0, y = 0;
+    } swipe;
     StreamScreen streamScreen(fonts);  // the game's menu and what is laid over it
     uint64_t padsCheckedAt = 0;
     unsigned padChecks = 0;
@@ -274,6 +279,26 @@ int main(int argc, char** argv) {
         nav.dpadRight = dpadRight.update(pad.dpadRight, now);
         nav.rawLX = pad.rawLeftX, nav.rawLY = pad.rawLeftY, nav.rawRX = pad.rawRightX, nav.rawRY = pad.rawRightY;
         nav.l2Analog = pad.triggerL2, nav.r2Analog = pad.triggerR2;
+        // Fast scrolling: the right stick pages (with repeat), and so does a
+        // swipe on the touchpad, a page each fifth of its height / width.
+        nav.pageUp = pageUp.update(pad.rightStickY < -0.6f, now);
+        nav.pageDown = pageDown.update(pad.rightStickY > 0.6f, now);
+        nav.pageLeft = pageLeft.update(pad.rightStickX < -0.6f, now);
+        nav.pageRight = pageRight.update(pad.rightStickX > 0.6f, now);
+        if (pad.touching && !pad.btnTouchpad && g_ui->screen() == ui::Screen::Home) {
+            if (!swipe.active) swipe = {true, pad.touchX, pad.touchY};
+            float dx = pad.touchX - swipe.x, dy = pad.touchY - swipe.y;
+            // A finger moving up scrolls the list down, as on a phone.
+            if (std::abs(dy) > 0.2f && std::abs(dy) > std::abs(dx)) {
+                (dy < 0 ? nav.pageDown : nav.pageUp) = true;
+                swipe.x = pad.touchX, swipe.y = pad.touchY;
+            } else if (std::abs(dx) > 0.2f) {
+                (dx < 0 ? nav.pageRight : nav.pageLeft) = true;
+                swipe.x = pad.touchX, swipe.y = pad.touchY;
+            }
+        } else {
+            swipe.active = false;
+        }
         nav.nowMs = now;
         bool menuCombo = pad.btnOptions && pad.btnTouchpad && !(prev.btnOptions && prev.btnTouchpad);
         prev = pad;

@@ -28,6 +28,7 @@ struct Product {
     // (kMode* bits) and, per language ("en", "pt"...: any of its locales),
     // what is translated (kLang* bits).
     bool detailed = false;
+    int64_t detailedAt = 0;  // when the full details were fetched (unix s)
     uint32_t modes = 0;
     std::map<std::string, uint8_t> languages;
 };
