@@ -267,6 +267,7 @@ void setTriggerRumble(uint8_t left, uint8_t right, uint32_t durationMs, int pad)
 }
 
 void setCircleConfirms(bool on) { g_circleConfirms = on; }
+bool circleConfirms() { return g_circleConfirms; }
 
 void setLightBar(uint8_t r, uint8_t g, uint8_t b, int pad) {
     if (pad >= 0 && pad < kMaxPads) g_pads[pad].lightWanted = (1u << 24) | (uint32_t(r) << 16) | (uint32_t(g) << 8) | b;
@@ -419,6 +420,7 @@ void setRumble(uint8_t, uint8_t, uint32_t, int) {}
 void setTriggerRumble(uint8_t, uint8_t, uint32_t, int) {}
 void setDeadzone(float) {}
 void setCircleConfirms(bool) {}
+bool circleConfirms() { return false; }
 void setLightBar(uint8_t, uint8_t, uint8_t, int) {}
 void resetLightBar(int) {}
 bool padConnected(int index) { return index == 0; }

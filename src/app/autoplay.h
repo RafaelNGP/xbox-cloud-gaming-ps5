@@ -60,6 +60,7 @@ struct Autoplay {
     bool updateTest = false;     // updatetest: accept the update pop-up, save update.ppm / updating.ppm
     bool updateSkip = false;     // updateskip: "Not now" on the update pop-up
     bool settingsUpdate = false; // settingsupdate: Settings > Updates, Cross
+    bool confirmTest = false;    // confirmtest: physical Cross / Circle presses through Settings > Confirm button
     bool menuShot = false;       // menushot: the game menu open over the 10 s snapshot (screen.ppm)
     bool pickerTest = false;     // pickertest: the confirm button's list (confirm.ppm), the light
                                  // bar's colour picker moved (picker.ppm), chosen (settings.ppm)

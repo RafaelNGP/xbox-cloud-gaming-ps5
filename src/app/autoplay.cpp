@@ -26,7 +26,8 @@ bool uiSaved = false;
 bool settingsShot = false;  // "settingstest": save the screen now
 uint64_t homeSince = 0, launchSince = 0;
 bool launchSaved = false;
-const char* pickerShot = nullptr;  // "pickertest": save this screen next, once drawn
+const char* pickerShot = nullptr;
+bool confirmShot = false, confirmHome = false;  // "confirmtest": save confirm2.ppm / check the home screen  // "pickertest": save this screen next, once drawn
 bool acceptUpdate = false;  // "updatetest": Cross on the pop-up, next pass ("updateskip": Circle)
 }  // namespace
 
@@ -78,6 +79,7 @@ void loadAutoplay() {
         if (opt == "settingsupdate") g_autoplay.settingsUpdate = true;
         if (opt == "pickertest") g_autoplay.pickerTest = true;
         if (opt == "menushot") g_autoplay.menuShot = true;
+        if (opt == "confirmtest") g_autoplay.confirmTest = true;
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
@@ -124,6 +126,25 @@ void autoplayPad(input::ControllerState& pad) {
     // Autoplay runs unattended: the physical pad must not interfere
     // (unless "pad": someone is playing along, and each press is logged).
     if (!g_autoplay.title.empty() && !g_autoplay.pad) pad = input::ControllerState{};
+    if (g_autoplay.confirmTest && uiSaved) {
+        // The buttons as the hands press them, swapped as input::poll swaps
+        // them: Settings, down to the confirm button; Cross opens its list,
+        // down, Cross (held over the change) picks Circle; Circle now opens
+        // the list again (saved), Circle picks; Cross now leaves Settings.
+        static uint64_t since = 0;
+        uint64_t now = platform::nowMs();
+        if (!since) since = now;
+        uint64_t t = now - since;
+        auto in = [&](uint64_t at, uint64_t len) { return t >= at && t < at + len; };
+        bool cross = in(2700, 150) || in(3700, 500) || in(6800, 150), circle = in(4800, 150) || in(6000, 150);
+        bool swapped = input::circleConfirms();
+        pad.btnA = swapped ? circle : cross;
+        pad.btnB = swapped ? cross : circle;
+        pad.btnOptions = in(500, 150);
+        pad.dpadDown = in(1000, 120) || in(1300, 120) || in(1600, 120) || in(1900, 120) || in(2200, 120) || in(3200, 120);
+        if (in(5500, 20)) confirmShot = true;
+        if (in(8000, 20)) confirmHome = true;
+    }
     if (!g_autoplay.pad) return;
     static std::string lastPressed;
     std::string pressed;
@@ -364,6 +385,16 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             uiSaved = true;
             saveCanvas("ui.ppm");
         }
+    }
+    if (confirmShot) {
+        confirmShot = false;
+        saveCanvas("confirm2.ppm");
+    }
+    if (confirmHome) {
+        confirmHome = false;
+        g_autoplay.confirmTest = false;
+        saveCanvas("home.ppm");
+        XC_LOGI("AUTOPLAY END: confirm test, on the %s screen", g_ui->screen() == ui::Screen::Home ? "home" : "WRONG");
     }
     if (pickerShot) {
         saveCanvas(pickerShot);

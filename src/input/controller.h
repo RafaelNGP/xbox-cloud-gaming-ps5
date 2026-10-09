@@ -72,6 +72,7 @@ void setTriggerRumble(uint8_t left, uint8_t right, uint32_t durationMs, int pad 
 void setDeadzone(float deadzone);
 // Circle reported as Cross (Xbox A) and Cross as Circle, everywhere.
 void setCircleConfirms(bool on);
+bool circleConfirms();
 // Off: setTriggerRumble() is ignored.
 void setTriggerRumbleEnabled(bool on);
 // The light bar eases (~0.4 s) to this colour; reset gives it back to the

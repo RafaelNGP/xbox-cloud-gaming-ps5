@@ -174,6 +174,9 @@ public:
     // The confirm button in force (the hints show it); Settings may be
     // showing another choice not saved yet.
     void setCircleConfirms(bool on);
+    // The confirm button in force now: Settings changes it as soon as it is
+    // chosen there, before it is saved (the app makes the pad follow).
+    bool circleConfirms() const;
     // The controllers in use (bottom left of the home screen).
     void setPads(const PadSlots& pads);
     // The colour of the game in focus (or being played), from its art, for

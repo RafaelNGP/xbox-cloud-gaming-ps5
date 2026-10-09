@@ -802,6 +802,11 @@ void AppUi::setCircleConfirms(bool on) {
     dirty_ = true;
 }
 
+bool AppUi::circleConfirms() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return circleConfirms_;
+}
+
 void AppUi::setPads(const PadSlots& pads) {
     std::lock_guard<std::mutex> lock(mutex_);
     bool changed = false;
@@ -918,6 +923,7 @@ void AppUi::applySetting(int row, int index) {
         settings_.triggerRumble = index == 0;
     } else if (row == 5) {
         settings_.circleConfirms = index == 1;
+        circleConfirms_ = settings_.circleConfirms;  // in force at once: the next press already uses it
     } else if (row == 6) {
         settings_.lightBarMode = index;
     } else if (row == 7) {

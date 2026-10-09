@@ -25,6 +25,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 
 extern "C" int sceSystemServiceHideSplashScreen(void);
 
@@ -279,6 +280,13 @@ int main(int argc, char** argv) {
         streamScreen.idle();
 
         ui::UiEvent ev = g_ui->handle(nav);
+        if (bool circle = g_ui->circleConfirms(); circle != input::circleConfirms()) {
+            // The confirm button just changed in Settings: the pad follows at
+            // once, and a button still held from choosing it isn't a new press.
+            input::setCircleConfirms(circle);
+            std::swap(prev.btnA, prev.btnB);
+            XC_LOGI("confirm button: %s", circle ? "circle" : "cross");
+        }
         switch (ev.action) {
             case ui::Action::Play: {
                 std::lock_guard<std::mutex> lock(g_argMutex);
