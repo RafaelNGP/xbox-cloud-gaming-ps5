@@ -159,7 +159,8 @@ bool g_autoplayDump = false;
 int g_autoplayRuns = 1;
 bool g_autoplayIdle = false;
 bool g_autoplayConsolesTab = false;
-bool g_autoplaySettingsTest = false;  // autoplay "settingstest": open the resolution list, save settings.ppm
+bool g_autoplaySettingsTest = false;
+bool g_autoplayBadCa = false;  // autoplay "badca": a missing CA bundle, to see the TLS setup error  // autoplay "settingstest": open the resolution list, save settings.ppm
 bool g_autoplayConsolesEmpty = false;  // with "consolestab": as if none were found  // autoplay "consolestab": open My consoles, save consoles.ppm
 bool g_autoplayConsoles = false;  // autoplay "consoles": log the account's own consoles (xhome)
 bool g_autoplayPad = false;  // autoplay "pad": the physical pad stays in use, its buttons logged
@@ -242,6 +243,7 @@ void loadAutoplay() {
         if (opt == "consoles") g_autoplayConsoles = true;
         if (opt == "consolestab") g_autoplayConsolesTab = true;
         if (opt == "settingstest") g_autoplaySettingsTest = true;
+        if (opt == "badca") g_autoplayBadCa = true;
         if (opt == "consolesempty") g_autoplayConsolesTab = g_autoplayConsolesEmpty = true;
         if (opt == "librarytest") g_autoplayLibraryTest = true;
         if (opt == "imetest") g_autoplayImeTest = true;
@@ -1014,9 +1016,12 @@ int main(int argc, char** argv) {
     }
     ui::Canvas canvas(display::kWidth, display::kHeight);
 
-    if (!net::initTls(platform::caBundlePath())) {
-        platform::notify("xCloud: could not load the TLS certificates");
-        g_ui->showError("Could not load " + platform::caBundlePath());
+    if (!net::initTls(g_autoplayBadCa ? platform::assetDir() + "/missing.pem" : platform::caBundlePath())) {
+        // The step that failed, and where the log is: what a bug report needs.
+        platform::notify("PSBox: secure connections unavailable");
+        g_ui->showError("Secure connections could not be set up: " + net::tlsInitError() + ". Log: " +
+                        platform::dataDir() + "/xcloud.log");
+        if (g_autoplayBadCa) XC_LOGI("AUTOPLAY END: TLS setup error shown");
     } else {
         std::thread(worker).detach();
     }
