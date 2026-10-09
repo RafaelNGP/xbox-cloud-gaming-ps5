@@ -441,7 +441,9 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
     if (g_autoplay.quickTest && uiSaved) {
         g_autoplay.quickTest = false;
         ui::GameTile t;
-        for (const char* id : {"HOGWARTSLEGACYXBOXSERIESXSVERSION", "HOGWARTSLEGACYXBOXONEVERSION"})
+        for (const char* id : {"HOGWARTSLEGACYXBOXSERIESXSVERSION", "HOGWARTSLEGACYXBOXONEVERSION", "RUSTCONSOLEEDITIONXS",
+                               "RUSTCONSOLEEDITION", "CALLOFDUTYVANGUARDXBOXSERIESXS", "CALLOFDUTYVANGUARD", "PGATOUR2K23",
+                               "PGATOUR2K23XBOXONE"})
             XC_LOGI("quick: %s badge %s", id, g_ui->findTile(id, t) ? t.platform.c_str() : "(not found)");
         if (!g_autoplay.lockTitle.empty())
             XC_LOGI("quick: %s %s", g_autoplay.lockTitle.c_str(),
