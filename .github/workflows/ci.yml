@@ -16,7 +16,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -27,7 +27,7 @@ jobs:
       # time CMake runs (minutes): kept between runs while its source and
       # the script stay the same.
       - name: FFmpeg cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/xcloud-ps5
           key: ffmpeg-host-${{ hashFiles('.git/modules/deps/ffmpeg/HEAD', 'tools/build-ffmpeg.sh') }}
@@ -48,7 +48,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
