@@ -36,6 +36,9 @@
 #include "stb_image_write.h"
 
 #include <atomic>
+#include <thread>
+#include <mutex>
+#include <map>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -502,6 +505,37 @@ int main(int argc, char** argv) {
 
     platform::init();
     if (!net::initTls(platform::caBundlePath())) return 1;
+    if (cmd == "tls-stress") {
+        // Diagnostics: many HTTPS requests at once (public URLs, no account),
+        // as the app makes them at start; prints how many failed and why.
+        int threads = argi < argc ? std::atoi(argv[argi]) : 16, rounds = argi + 1 < argc ? std::atoi(argv[argi + 1]) : 4;
+        const char* urls[] = {"https://catalog.gamepass.com/sigls/v2?id=af206485-e87d-4624-9007-cb7f6d0cc42e&market=US&language=en-us",
+                              "https://www.xbox.com/en-US/play", "https://store-images.s-microsoft.com/image/apps.28754.13851675759085158.74991af7-70f4-4aea-ad50-57bb8bc448c3.552869ac-6877-4457-90ec-ee9ce0701c50?w=240&h=240",
+                              "https://displaycatalog.mp.microsoft.com/v7.0/products?bigIds=9NBLGGH4R315&market=US&languages=en-us"};
+        std::atomic<int> ok{0}, failed{0};
+        std::mutex errorsMutex;
+        std::map<std::string, int> errors;
+        std::vector<std::thread> pool;
+        for (int t = 0; t < threads; ++t)
+            pool.emplace_back([&, t] {
+                for (int r = 0; r < rounds; ++r) {
+                    net::Request req;
+                    req.url = urls[(t + r) % 4];
+                    auto resp = net::perform(req);
+                    if (resp.status > 0) {
+                        ++ok;
+                    } else {
+                        ++failed;
+                        std::lock_guard<std::mutex> lock(errorsMutex);
+                        ++errors[resp.error.substr(resp.error.find(':') == std::string::npos ? 0 : resp.error.find(':') + 2, 60)];
+                    }
+                }
+            });
+        for (auto& th : pool) th.join();
+        std::printf("tls-stress: %d threads x %d: %d answered, %d failed\n", threads, rounds, ok.load(), failed.load());
+        for (const auto& [e, n] : errors) std::printf("  %3d x %s\n", n, e.c_str());
+        return failed ? 1 : 0;
+    }
     auth::AuthManager am(platform::dataDir() + "/account.json");
 
     int rc;
