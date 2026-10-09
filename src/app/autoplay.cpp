@@ -447,12 +447,15 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             for (const auto& [name, p] : g_ui->searchResults(12))
                 XC_LOGI("search %s %2d: %.2f (was %.2f) %s", what, ++i, p.list, p.msrp, name.c_str());
         };
-        if (step == 0 && now - since > 20000) g_ui->showFilteredSearch(1), ++step;
+        if (step == 0 && now - since > 20000) g_ui->showFilteredSearch(ui::Tab::Library, true, 0, "", 0), ++step;
         else if (step == 1 && now - since > 24000) saveCanvas("cheapest.ppm"), logResults("lowest"), ++step;
-        else if (step == 2) g_ui->showFilteredSearch(2), ++step;
-        else if (step == 3 && now - since > 28000) {
-            saveCanvas("sale.ppm");
-            logResults("sale");
+        // Game Pass, online co-op and spoken in the app's language, once the
+        // details have had time to arrive.
+        else if (step == 2 && now - since > 60000) g_ui->showFilteredSearch(ui::Tab::GamePass, false, 3, "", 2), ++step;
+        else if (step == 3 && now - since > 63000) saveCanvas("filters.ppm"), logResults("co-op, dubbed"), ++step;
+        else if (step == 4) g_ui->showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, 1), ++step;  // the genres' list
+        else if (step == 5 && now - since > 66000) {
+            saveCanvas("genres.ppm");
             g_autoplay.searchTest = false;
             XC_LOGI("AUTOPLAY END: search test");
         }

@@ -109,7 +109,6 @@ constexpr Column kEnglish = {
     "Sort",                                          // SortHint
     "Free",                                          // FilterFree
     "Lowest price",                                  // FilterCheapest
-    "On sale",                                       // FilterSale
     "All consoles",                                  // FilterAllConsoles
     "1 game",                                        // OneGame
     "Sections",                                      // Sections
@@ -214,6 +213,19 @@ constexpr Column kEnglish = {
     "Style",                                         // TriggerStyle
     "Vibration",                                     // StyleVibration
     "Force pulses",                                  // StylePulses
+    "Mode",                                          // FilterMode
+    "Genre",                                         // FilterGenre
+    "Language",                                      // FilterLanguage
+    "All modes",                                     // ModeAll
+    "Single player",                                 // ModeSingle
+    "Online multiplayer",                            // ModeOnlineMulti
+    "Online co-op",                                  // ModeOnlineCoop
+    "Local / split screen",                          // ModeLocal
+    "All genres",                                    // GenreAll
+    "Any language",                                  // LanguageAll
+    "English",                                       // LanguageNoun
+    "Subtitles in %s",                               // LangSubtitles
+    "Audio in %s",                                   // LangAudio
 };
 
 constexpr Column kPortugueseBR = {
@@ -293,7 +305,6 @@ constexpr Column kPortugueseBR = {
     "Ordenar",
     "Grátis",
     "Menor preço",
-    "Em promoção",
     "Todos os consoles",
     "1 jogo",
     "Seções",
@@ -398,6 +409,19 @@ constexpr Column kPortugueseBR = {
     "Estilo",
     "Vibração",
     "Pulsos de força",
+    "Modo",
+    "Gênero",
+    "Idioma",
+    "Todos os modos",
+    "Um jogador",
+    "Multijogador online",
+    "Cooperação online",
+    "Local / tela dividida",
+    "Todos os gêneros",
+    "Qualquer idioma",
+    "português",
+    "Legendas em %s",
+    "Dublado em %s",
 };
 
 constexpr Column kSpanish = {
@@ -477,7 +501,6 @@ constexpr Column kSpanish = {
     "Ordenar",
     "Gratis",
     "Menor precio",
-    "En oferta",
     "Todas las consolas",
     "1 juego",
     "Secciones",
@@ -582,6 +605,19 @@ constexpr Column kSpanish = {
     "Estilo",
     "Vibración",
     "Pulsos de fuerza",
+    "Modo",
+    "Género",
+    "Idioma",
+    "Todos los modos",
+    "Un jugador",
+    "Multijugador en línea",
+    "Cooperativo en línea",
+    "Local / pantalla dividida",
+    "Todos los géneros",
+    "Cualquier idioma",
+    "español",
+    "Subtítulos en %s",
+    "Doblado al %s",
 };
 
 constexpr Column kFrench = {
@@ -661,7 +697,6 @@ constexpr Column kFrench = {
     "Trier",
     "Gratuit",
     "Prix croissant",
-    "En promotion",
     "Toutes les consoles",
     "1 jeu",
     "Sections",
@@ -766,6 +801,19 @@ constexpr Column kFrench = {
     "Style",
     "Vibration",
     "Impulsions de force",
+    "Mode",
+    "Genre",
+    "Langue",
+    "Tous les modes",
+    "Solo",
+    "Multijoueur en ligne",
+    "Coopération en ligne",
+    "Local / écran partagé",
+    "Tous les genres",
+    "Toutes les langues",
+    "français",
+    "Sous-titres en %s",
+    "Doublé en %s",
 };
 
 constexpr Column kGerman = {
@@ -845,7 +893,6 @@ constexpr Column kGerman = {
     "Sortieren",
     "Kostenlos",
     "Niedrigster Preis",
-    "Im Angebot",
     "Alle Konsolen",
     "1 Spiel",
     "Abschnitte",
@@ -950,6 +997,19 @@ constexpr Column kGerman = {
     "Stil",
     "Vibration",
     "Kraftimpulse",
+    "Modus",
+    "Genre",
+    "Sprache",
+    "Alle Modi",
+    "Einzelspieler",
+    "Online-Mehrspieler",
+    "Online-Koop",
+    "Lokal / geteilter Bildschirm",
+    "Alle Genres",
+    "Alle Sprachen",
+    "Deutsch",
+    "Untertitel: %s",
+    "Sprachausgabe: %s",
 };
 
 constexpr Column kItalian = {
@@ -1029,7 +1089,6 @@ constexpr Column kItalian = {
     "Ordina",
     "Gratis",
     "Prezzo più basso",
-    "In offerta",
     "Tutte le console",
     "1 gioco",
     "Sezioni",
@@ -1134,6 +1193,19 @@ constexpr Column kItalian = {
     "Stile",
     "Vibrazione",
     "Impulsi di forza",
+    "Modalità",
+    "Genere",
+    "Lingua",
+    "Tutte le modalità",
+    "Giocatore singolo",
+    "Multigiocatore online",
+    "Cooperativa online",
+    "Locale / schermo condiviso",
+    "Tutti i generi",
+    "Qualsiasi lingua",
+    "italiano",
+    "Sottotitoli in %s",
+    "Doppiato in %s",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,
