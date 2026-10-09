@@ -104,13 +104,19 @@ runs in 3 failed).
   console, and prints the publish commands and the catalog record. It
   publishes nothing.
 
+### `ps5_main.cpp` split — done
+It had grown to 1,586 lines. Now: `ps5_main.cpp` (start-up and the home
+screen's loop), `worker.cpp` (sign-in, library, consoles, playing),
+`stream_screen.cpp` (the game's menu, gestures, controllers, overlay),
+`price_loop.cpp`, `autoplay.cpp` (the unattended tests) and
+`auto_deband.cpp`, whose "auto" block smoothing now has unit tests.
+
 ## Next
 
 | Item | Why | Size |
 | --- | --- | --- |
 | Voice chat (microphone) | xCloud has a chat channel; needs PS5 audio capture | large |
 | USB keyboard and mouse | Some xCloud games accept them | medium |
-| Split `ps5_main.cpp` | 1,100+ lines mixing the stream screen, autoplay and settings | medium |
 
 ## Dropped (and why)
 

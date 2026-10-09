@@ -1,84 +1,59 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
-// PS5 front end: the menus (ui::AppUi) and playing a title
-// (queue -> /connect -> Provisioned -> StreamPlayer).
-//
-// One worker thread owns AuthManager/GssvClient and does all network work;
-// the main thread reads the pad, drives the UI and draws it.
-#include "app/library.h"
+// PS5 front end: main() sets things up, then the main thread reads the pad,
+// drives the UI (ui::AppUi) and draws it. The rest lives beside it:
+// worker.cpp (all the network work, on its own thread), stream_screen.cpp
+// (the game's menu, gestures and controllers while streaming),
+// price_loop.cpp (store prices) and autoplay.cpp (the unattended tests).
+#include "app/autoplay.h"
+#include "app/ps5_app.h"
 #include "app/settings.h"
-#include "app/stream_player.h"
-#include "app/update_check.h"
-#include "auth/auth_manager.h"
+#include "app/stream_screen.h"
 #include "display/display.h"
 #include "display/gpu.h"
 #include "input/controller.h"
-#include "media/decoder.h"
 #include "net/http.h"
 #include "platform/platform.h"
 #include "ui/app_ui.h"
-#include "ui/stream_menu.h"
 #include "ui/strings.h"
-#include "util/json.h"
 #include "util/log.h"
-#include "xcloud/catalog.h"
-#include "xcloud/gssv.h"
-#include "xcloud/prices.h"
-#include "xcloud/regions.h"
 
-#include <atomic>
 #include <cmath>
-#include <ctime>
-#include <map>
-#include <strings.h>
-#include <cstdio>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
-#include <vector>
-
-using namespace xc;
 
 extern "C" int sceSystemServiceHideSplashScreen(void);
 
-namespace {
+namespace xc::app {
 
-std::unique_ptr<ui::ImageCache> g_images;
 std::unique_ptr<ui::AppUi> g_ui;
-
-// --- Worker commands ---------------------------------------------------------
-
-enum Command { kNone, kSignIn, kPlay, kSignOut, kReloadLibrary, kConsoles };
-
-// User settings (settings.json); read by the worker, changed by the UI thread.
 std::mutex g_settingsMutex;
-app::Settings g_settings;
+Settings g_settings;
 std::string settingsPath() { return platform::dataDir() + "/settings.json"; }
-
+bool allow1440Locked() { return std::max(g_settings.maxHeightCloud, g_settings.maxHeightHome) >= 1440; }
 std::atomic<int> g_command{kSignIn};
 std::atomic<bool> g_cancel{false};
 std::mutex g_argMutex;
 ui::GameTile g_playTile;
-
-// Background catalog hydration (hero art, descriptions).
-std::atomic<bool> g_stopHydration{false};
-platform::Thread g_hydrationThread;
-
-void stopHydration() {
-    g_stopHydration = true;
-    if (g_hydrationThread.joinable()) g_hydrationThread.join();
-}
-
-// The running stream, for the input thread.
 std::mutex g_playerMutex;
-app::StreamPlayer* g_player = nullptr;
-
-// The stream's numbers for the in-game menu, refreshed every second by the
-// worker; the sequence number tells the main thread something changed.
+StreamPlayer* g_player = nullptr;
 std::mutex g_infoMutex;
 ui::StreamInfo g_streamInfo;
 std::atomic<uint32_t> g_infoSeq{0};
+std::atomic<bool> g_playingHome{false};
+std::atomic<bool> g_tierPicked{false};
+std::atomic<uint64_t> g_xboxButtonUntil{0};
+
+}  // namespace xc::app
+
+using namespace xc;
+using namespace xc::app;
+
+namespace {
+
+std::unique_ptr<ui::ImageCache> g_images;
 
 // The dead zone setting (percent) as an index into ui::kDeadzonePercent.
 int deadzoneIndex(int percent) {
@@ -95,845 +70,6 @@ void applyControllerSettings() {
     input::setTriggerRumbleEnabled(g_settings.triggerRumble);
     input::setCircleConfirms(g_settings.circleConfirms);
     if (g_ui) g_ui->setCircleConfirms(g_settings.circleConfirms);
-}
-
-// The console keyboard answering a game's text field (main thread): the
-// request it answers, and the stream that asked.
-std::string g_keyboardFor;
-const app::StreamPlayer* g_keyboardPlayer = nullptr;
-
-platform::KeyboardKind keyboardKind(int inputScope) {
-    switch (inputScope) {
-    case 1: return platform::KeyboardKind::Url;
-    case 5: return platform::KeyboardKind::Email;
-    case 29:
-    case 32: return platform::KeyboardKind::Number;
-    case 31: return platform::KeyboardKind::Password;
-    default: return platform::KeyboardKind::Text;
-    }
-}
-
-// Opens the keyboard for the game's next text request and sends back what
-// was typed. `player` null: the stream is gone, a keyboard still up is
-// closed by the player and its text dropped.
-void updateTextInput(app::StreamPlayer* player) {
-    if (!g_keyboardFor.empty()) {
-        std::string text;
-        platform::KeyboardStatus st = platform::pollSystemKeyboard(text);
-        if (st == platform::KeyboardStatus::Open) return;
-        if (player && player == g_keyboardPlayer)
-            player->answerTextInput(g_keyboardFor, st == platform::KeyboardStatus::Accepted, text);
-        g_keyboardFor.clear();
-        g_keyboardPlayer = nullptr;
-        return;
-    }
-    stream::TextInputRequest req;
-    if (!player || !player->takeTextInput(req)) return;
-    std::string title = req.title.empty() ? req.description : req.title;
-    size_t max = req.maxLength > 0 ? static_cast<size_t>(req.maxLength) : 256;
-    if (platform::openSystemKeyboard(title, req.defaultText, max, keyboardKind(req.inputScope))) {
-        g_keyboardFor = req.id;
-        g_keyboardPlayer = player;
-    } else {
-        player->answerTextInput(req.id, false, std::string());
-    }
-}
-
-// --- Unattended test mode (tools/ps5/autotest.sh) ----------------------------
-// <dataDir>/autoplay.txt holds "<titleId> <seconds> [option]". The app signs
-// in, plays that title for that long (pressing A at 15 s and 20 s), saves
-// decoded frames and logs "AUTOPLAY END". Options, comma-separated: nosimd,
-// dump, repeat, idle (no A presses), threads=N (H.264 decoder threads),
-// rumbletest (rumbles the pad for 1.5 s at start), triggertest (the triggers
-// for 3 s), vibetest (each motor and trigger alone, announced, no game),
-// droptest (the connection dropped at 20 s: the stream reconnects), detailtest (opens a game to
-// buy far down the list instead of playing, saves detail.ppm), imetest (opens
-// the system keyboard on the home screen), menutest (in the game: the menu,
-// 720p, back to 1080p), res=720p|1080p|1080p-hq|1440p, sharp=0..3 and
-// deband=0..3 and ai (Anime4K) instead of the settings.
-// The title "BENCH" decodes <dataDir>/sample.h264 instead.
-
-std::string g_autoplayTitle;
-int g_autoplaySeconds = 0;
-bool g_autoplayDump = false;
-int g_autoplayRuns = 1;
-bool g_autoplayIdle = false;
-bool g_autoplayConsolesTab = false;
-bool g_autoplaySettingsTest = false;
-bool g_autoplayBadCa = false;  // autoplay "badca": a missing CA bundle, to see the TLS setup error  // autoplay "settingstest": open the resolution list, save settings.ppm
-bool g_autoplayConsolesEmpty = false;  // with "consolestab": as if none were found  // autoplay "consolestab": open My consoles, save consoles.ppm
-bool g_autoplayConsoles = false;  // autoplay "consoles": log the account's own consoles (xhome)
-bool g_autoplayPad = false;  // autoplay "pad": the physical pad stays in use, its buttons logged
-bool g_autoplayDetailTest = false;  // open a game to buy far down the list, save its page
-bool g_autoplayLibraryTest = false;  // open "Your games", save it at 4 s and 25 s
-bool g_autoplayVkTest = false;       // the GPU presenting instead of the CPU display
-bool g_autoplayCpuDisplay = false;
-int g_autoplayUpscaler = -1;          // ai: Anime4K instead of the setting
-bool g_autoplayRestore = false;       // restore: Anime4K Restore before the upscale
-
-// The game menu's upscaling: 0 FSR, 1 Anime4K, 2 FSR + clean-up, 3 Anime4K +
-// clean-up (Anime4K Restore before the upscale).
-void applyUpscaler(int mode) {
-    display::setUpscaler(mode & 1);
-    display::setRestore(mode >= 2);
-}
-bool g_autoplayDropTest = false;     // droptest: the connection dropped at 20 s
-bool g_autoplayHwDecode = false;     // hwdecode: the hardware decoder alongside, logged   // the CPU display even where the GPU comes up
-bool g_autoplayVibeTest = false;     // each motor alone, with a notification
-bool g_autoplayImeTest = false;      // open the system keyboard on the home screen
-bool g_autoplayMenuTest = false;     // in the game: open the menu, switch to 720p
-int g_decodeThreads = 1;
-int g_autoplayDeband = -1;            // deband=0..3: instead of the setting
-
-// Block smoothing "auto": the level for a bitrate (Mbps) coming from `now`,
-// stronger as it falls (high below ~5 Mbps, off above ~10). A 1 Mbps margin
-// each way keeps a bitrate near a limit from flipping it; -1 = no measure
-// (below 0.5 Mbps: the stream is starting, or the picture is standing still).
-int debandForMbps(double mbps, int now) {
-    if (mbps < 0.5) return -1;
-    if (now == 2) return mbps >= 6 ? (mbps >= 11 ? 0 : 1) : 2;
-    if (now == 1) return mbps < 4 ? 2 : mbps >= 11 ? 0 : 1;
-    return mbps < 4 ? 2 : mbps < 9 ? 1 : 0;
-}
-int g_autoplaySharpness = -1;         // sharp=0..3: instead of the setting
-std::string g_autoplayResolution;     // res=720p|1080p|1440p: instead of the setting
-std::atomic<bool> g_syntheticA{false};
-std::atomic<bool> g_playingHome{false};
-// This stream measures the tallest picture its kind delivers (asked for the
-// top tier), then asks for g_afterProbeAlias if not empty.
-bool g_probing = false;
-std::string g_afterProbeAlias;
-std::atomic<bool> g_tierPicked{false};  // the game menu chose a tier: the probe leaves it
-constexpr int64_t kReprobeSeconds = 7 * 24 * 3600;
-
-// Caller holds g_settingsMutex. 1440p is offered once a stream delivered it.
-bool allow1440Locked() { return std::max(g_settings.maxHeightCloud, g_settings.maxHeightHome) >= 1440; }      // the stream is the user's own Xbox
-std::atomic<uint64_t> g_xboxButtonUntil{0};  // the game menu's Xbox button, held until then (ms)
-
-void loadAutoplay() {
-    std::string text;
-    if (!platform::readFile(platform::dataDir() + "/autoplay.txt", text)) return;
-    char title[128] = {};
-    char option[64] = {};
-    int seconds = 0;
-    if (std::sscanf(text.c_str(), "%127s %d %63s", title, &seconds, option) < 1) return;
-    std::string options = option;  // comma-separated
-    for (size_t start = 0; start <= options.size();) {
-        size_t comma = options.find(',', start);
-        if (comma == std::string::npos) comma = options.size();
-        std::string opt = options.substr(start, comma - start);
-        start = comma + 1;
-        if (opt == "nosimd") media::disableSimd();
-        if (opt == "dump") g_autoplayDump = true;
-        if (opt == "repeat") g_autoplayRuns = 2;
-        if (opt == "idle") g_autoplayIdle = true;
-        if (opt == "rumbletest") input::setRumble(200, 200, 1500);
-        if (opt == "triggertest") input::setTriggerRumble(255, 128, 3000);
-        if (opt == "vibetest") g_autoplayVibeTest = true;
-        if (opt == "vktest") g_autoplayVkTest = true;
-        if (opt == "cpudisplay") g_autoplayCpuDisplay = true;
-        if (opt == "hwdecode") g_autoplayHwDecode = true;
-        if (opt == "droptest") g_autoplayDropTest = true;
-        if (opt == "ai") g_autoplayUpscaler = 1;
-        if (opt == "restore") g_autoplayRestore = true;
-        if (opt.rfind("swap=", 0) == 0) display::gpu::setSwapImages(std::atoi(opt.c_str() + 5));
-        if (opt == "nopace") display::gpu::setPresentWait(false);
-        if (opt == "detailtest") g_autoplayDetailTest = true;
-        if (opt == "pad") g_autoplayPad = true;
-        if (opt == "consoles") g_autoplayConsoles = true;
-        if (opt == "consolestab") g_autoplayConsolesTab = true;
-        if (opt == "settingstest") g_autoplaySettingsTest = true;
-        if (opt == "badca") g_autoplayBadCa = true;
-        if (opt == "consolesempty") g_autoplayConsolesTab = g_autoplayConsolesEmpty = true;
-        if (opt == "librarytest") g_autoplayLibraryTest = true;
-        if (opt == "imetest") g_autoplayImeTest = true;
-        if (opt == "menutest") g_autoplayMenuTest = true;
-        if (opt.rfind("res=", 0) == 0) g_autoplayResolution = opt.substr(4);
-        if (opt.rfind("sharp=", 0) == 0) g_autoplaySharpness = std::atoi(opt.c_str() + 6);
-        if (opt.rfind("deband=", 0) == 0) g_autoplayDeband = std::atoi(opt.c_str() + 7);
-        if (opt.rfind("threads=", 0) == 0) g_decodeThreads = std::atoi(opt.c_str() + 8);
-    }
-    g_autoplayTitle = title;
-    g_autoplaySeconds = seconds > 0 ? seconds : 60;
-    XC_LOGI("AUTOPLAY %s for %ds %s", title, g_autoplaySeconds, option);
-    platform::probeNetworking();
-}
-
-void autoplayFinished(const std::string& result) {
-    if (g_autoplayTitle.empty()) return;
-    if (--g_autoplayRuns > 0) {
-        XC_LOGI("AUTOPLAY next run: %s", result.c_str());
-        g_command = kPlay;
-    } else {
-        XC_LOGI("AUTOPLAY END: %s", result.c_str());
-    }
-}
-
-void runDecodeBench() {
-    std::string data;
-    if (!platform::readFile(platform::dataDir() + "/sample.h264", data)) {
-        XC_LOGE("AUTOPLAY END: no sample.h264");
-        return;
-    }
-    auto aus = media::splitAccessUnits(reinterpret_cast<const uint8_t*>(data.data()), data.size());
-    XC_LOGI("bench: %zu bytes, %zu access units", data.size(), aus.size());
-    media::VideoDecoder dec;
-    if (!dec.init(1)) {
-        XC_LOGE("AUTOPLAY END: decoder init failed");
-        return;
-    }
-    media::Picture pic;
-    int pictures = 0;
-    uint64_t t0 = platform::nowMs();
-    for (const auto& [off, len] : aus)
-        if (dec.decode(reinterpret_cast<const uint8_t*>(data.data()) + off, len, pic)) ++pictures;
-    uint64_t ms = platform::nowMs() - t0;
-    XC_LOGI("AUTOPLAY END: bench %d pictures (%dx%d) in %llu ms = %.2f ms/picture", pictures, pic.width,
-            pic.height, static_cast<unsigned long long>(ms), pictures ? double(ms) / pictures : 0.0);
-}
-
-// --- Worker ----------------------------------------------------------------------
-
-std::string formatWait(int seconds) {
-    if (seconds < 0) return "...";
-    if (seconds < 60) return std::to_string(seconds) + " s";
-    return std::to_string((seconds + 59) / 60) + " min";
-}
-
-// Set by stream(): the game quit on the server before its first frame.
-bool g_gameClosedOnServer = false;
-// Titles that would not start in the automatic region, and where they did
-// (for the rest of this run).
-std::map<std::string, std::string> g_regionFallback;
-
-// Streams until the player ends or the user leaves; returns a status line.
-std::string stream(xcloud::GssvClient& gssv) {
-    g_gameClosedOnServer = false;
-    app::StreamPlayer player(gssv);
-    if (g_autoplayDump) player.dumpVideo(platform::dataDir() + "/stream.aus", 20);
-    player.setDecodeThreads(g_decodeThreads);
-    player.setHwDecodeProbe(g_autoplayHwDecode);
-    std::string err;
-    if (!player.start(err)) return "ERROR: " + ui::trf(ui::Str::StreamFailed, err);
-    {
-        std::lock_guard<std::mutex> lock(g_playerMutex);
-        g_player = &player;
-    }
-    g_ui->showStreaming();
-    {
-        // The touchpad's gestures, in the first three streams only.
-        std::lock_guard<std::mutex> lock(g_settingsMutex);
-        if (g_settings.gestureHints < 3) {
-            ++g_settings.gestureHints;
-            g_settings.save(settingsPath());
-            platform::notify(ui::tr(ui::Str::GestureHint));
-        }
-    }
-
-    const uint64_t started = platform::nowMs();
-    uint64_t nextTick = started;
-    bool snapshot1 = false, snapshot2 = false;
-    bool autoplayDone = false;
-    int bestRtt = -1;  // lowest round trip seen: the region's latency
-    int tallest = 0;   // the tallest picture seen (the probe's measure)
-    bool probeDone = !g_probing;
-    auto recordProbe = [&] {
-        probeDone = true;
-        if (tallest <= 0) return;
-        std::lock_guard<std::mutex> lock(g_settingsMutex);
-        (gssv.isHome() ? g_settings.maxHeightHome : g_settings.maxHeightCloud) = tallest;
-        (gssv.isHome() ? g_settings.probedHome : g_settings.probedCloud) = auth::unixNow();
-        g_settings.save(settingsPath());
-        g_ui->setAllow1440(allow1440Locked());
-        XC_LOGI("resolution probe (%s): %dp at most", gssv.isHome() ? "own Xbox" : "cloud", tallest);
-    };
-    app::StreamPlayer::Stats last{};
-    while (player.running() && !g_cancel) {
-        uint64_t elapsed = platform::nowMs() - started;
-        if (!g_autoplayTitle.empty()) {
-            if (elapsed >= static_cast<uint64_t>(g_autoplaySeconds) * 1000u) {
-                autoplayDone = true;
-                break;
-            }
-            if (!snapshot1 && elapsed >= 10000) {
-                snapshot1 = true;
-                player.requestSnapshot(platform::dataDir() + "/frame.ppm");
-            }
-            bool press = !g_autoplayIdle && ((elapsed >= 15000 && elapsed < 15300) || (elapsed >= 20000 && elapsed < 20300));
-            if (press != g_syntheticA.exchange(press)) XC_LOGI("autoplay: A %s", press ? "down" : "up");
-            static bool dropped = false;
-            if (g_autoplayDropTest && !dropped && elapsed >= 20000) {
-                dropped = true;
-                player.simulateDrop();
-            }
-            if (!snapshot2 && elapsed >= 26000) {
-                snapshot2 = true;
-                player.requestSnapshot(platform::dataDir() + "/frame2.ppm");
-            }
-        }
-        if (platform::nowMs() >= nextTick) {
-            nextTick += 1000;
-            player.tick();
-            auto st = player.stats();
-            XC_LOGI("stream: %llu frames, %llu decoded, %llu skipped, %llu failed, %llu resets, %llu kf req, "
-                    "%llu queued, %llu audio; rtp %llu pkts, %llu lost, %llu recovered, %llu nacks, "
-                    "%llu frames dropped; %llu kbps (remb %llu); %llu rumble; decode %.1f/%.1f ms, draw %.1f/%.1f ms, %llu late; "
-                    "rtt %d ms; %dx%d; on screen %.1f/%.1f ms after arrival",
-                    static_cast<unsigned long long>(st.videoFrames), static_cast<unsigned long long>(st.decodedFrames),
-                    static_cast<unsigned long long>(st.droppedFrames), static_cast<unsigned long long>(st.decodeFailures),
-                    static_cast<unsigned long long>(st.queueResets), static_cast<unsigned long long>(st.keyframeRequests),
-                    static_cast<unsigned long long>(st.queued), static_cast<unsigned long long>(st.audioPackets),
-                    static_cast<unsigned long long>(st.rtpPackets), static_cast<unsigned long long>(st.rtpLost),
-                    static_cast<unsigned long long>(st.rtpRecovered), static_cast<unsigned long long>(st.rtpNacks),
-                    static_cast<unsigned long long>(st.rtpDroppedFrames), static_cast<unsigned long long>(st.rtpKbps),
-                    static_cast<unsigned long long>(st.rembKbps), static_cast<unsigned long long>(st.vibrations),
-                    st.decodeAvgUs / 1000.0, st.decodeMaxUs / 1000.0, st.drawAvgUs / 1000.0, st.drawMaxUs / 1000.0,
-                    static_cast<unsigned long long>(st.lateFrames), st.rttMs, st.width, st.height,
-                    st.displayAvgUs / 1000.0, st.displayMaxUs / 1000.0);
-            if (st.rttMs > 0 && (bestRtt < 0 || st.rttMs < bestRtt)) bestRtt = st.rttMs;
-            tallest = std::max(tallest, st.height);
-            if (!probeDone && platform::nowMs() - started >= 20000) {
-                recordProbe();
-                if (!g_afterProbeAlias.empty() && !g_tierPicked) player.requestResolution(g_afterProbeAlias);
-            }
-            {
-                ui::StreamInfo info;
-                info.region = ui::prettyRegion(gssv.region().name);
-                info.rttMs = st.rttMs;
-                info.fps = static_cast<double>(st.decodedFrames - last.decodedFrames - (st.droppedFrames - last.droppedFrames));
-                info.mbps = st.rtpKbps / 1000.0;
-                uint64_t lost = st.rtpLost - last.rtpLost, got = st.rtpPackets - last.rtpPackets;
-                info.lossPct = got + lost ? 100.0 * lost / (got + lost) : 0;
-                info.decodeMs = st.decodeAvgUs / 1000.0;
-                info.onScreenMs = st.displayAvgUs / 1000.0;
-                info.width = st.width;
-                info.height = st.height;
-                std::lock_guard<std::mutex> lock(g_infoMutex);
-                g_streamInfo = info;
-                ++g_infoSeq;
-            }
-            last = st;
-        }
-        platform::sleepMs(100);
-    }
-    {
-        std::lock_guard<std::mutex> lock(g_playerMutex);
-        g_player = nullptr;
-    }
-    if (!probeDone && player.stats().decodedFrames > 0) recordProbe();  // a short stream still measured
-    std::string reason = g_cancel ? "left the game" : autoplayDone ? "autoplay finished" : player.endReason();
-    player.stop();
-    if (bestRtt > 0) {
-        // Remembered per region: Settings shows it, the region fallback uses it.
-        std::map<std::string, int> rtt;
-        {
-            std::lock_guard<std::mutex> lock(g_settingsMutex);
-            g_settings.regionRtt[gssv.region().name] = bestRtt;
-            g_settings.save(settingsPath());
-            rtt = g_settings.regionRtt;
-        }
-        XC_LOGI("region %s: %d ms round trip", gssv.region().name.c_str(), bestRtt);
-        g_ui->setRegionLatency(rtt);
-    }
-    auto st = player.stats();
-    // Ended before a single frame: the game never started (e.g. it closed on
-    // the server); say so on the error screen instead of going back quietly.
-    if (st.decodedFrames == 0 && !g_cancel && !autoplayDone) {
-        g_gameClosedOnServer = reason.rfind("the game closed on the server", 0) == 0;
-        return "ERROR: " + ui::trf(ui::Str::StreamFailed, reason);
-    }
-    return "Stream ended (" + reason + "), " + std::to_string(st.decodedFrames) + " frames shown";
-}
-
-// Queue -> /connect -> Provisioned -> stream. Returns a status line; sets
-// `failed` when the user should see an error rather than the home screen.
-// `regionName` overrides the settings' region (empty: as set).
-std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::GameTile& game, bool& failed,
-                 const std::string& regionName = {}) {
-    failed = true;
-    // A home session's id is the console's: only its start in the log.
-    XC_LOGI("starting %s (%s)", game.name.c_str(),
-            gssv.isHome() ? (game.titleId.substr(0, 4) + "...").c_str() : game.titleId.c_str());
-    g_ui->showLaunching(game, regionName.empty() ? ui::tr(ui::Str::Connecting)
-                                                 : ui::trf(ui::Str::TryingRegion, ui::prettyRegion(regionName)));
-    std::string err;
-    {
-        std::lock_guard<std::mutex> lock(g_settingsMutex);
-        const std::string& res = g_autoplayResolution.empty() ? g_settings.resolution : g_autoplayResolution;
-        // What each kind of stream can deliver is measured, not assumed: the
-        // first stream (and one a week) asks for the top tier and records
-        // the picture's height. The user's own Xbox always gets the top tier
-        // (it sends 1080p either way, at ~16 Mbps instead of ~9.5).
-        bool home = gssv.isHome();
-        int64_t now = auth::unixNow();
-        int known = home ? g_settings.maxHeightHome : g_settings.maxHeightCloud;
-        int64_t probed = home ? g_settings.probedHome : g_settings.probedCloud;
-        g_probing = g_autoplayResolution.empty() && res != "720p" && (known == 0 || now - probed > kReprobeSeconds);
-        g_afterProbeAlias.clear();
-        g_tierPicked = false;
-        xcloud::Resolution tier;
-        if (!g_autoplayResolution.empty())
-            tier = res == "720p"       ? xcloud::Resolution::P720
-                   : res == "1440p"    ? xcloud::Resolution::P1440
-                   : res == "1080p-hq" ? xcloud::Resolution::P1080HQ
-                                       : xcloud::Resolution::P1080;
-        else if (res == "720p")
-            tier = xcloud::Resolution::P720;
-        else if (home || g_probing || (res == "1440p" && known >= 1440))
-            tier = xcloud::Resolution::P1440;
-        else
-            tier = xcloud::Resolution::P1080;
-        // A cloud probe goes back to what the user chose once measured.
-        if (g_probing && !home && !(res == "1440p")) g_afterProbeAlias = "1080HQ";
-        gssv.setResolution(tier);
-        const xcloud::Region* region = gssv.session().defaultRegion();
-        const std::string& wanted = regionName.empty() ? g_settings.region : regionName;
-        for (const auto& r : gssv.session().regions)
-            if (r.name == wanted) region = &r;
-        if (region) gssv.setRegion(*region);
-        XC_LOGI("stream settings: %s, region %s, locale %s", g_settings.resolution.c_str(),
-                region ? region->name.c_str() : "?", ui::gameLocale());
-    }
-    if (!gssv.startSession(game.titleId, ui::gameLocale(), err)) return err;
-    if (game.heroUrl.empty() && !game.productId.empty()) {
-        // Picked before the background hydration reached it: fetch the hero
-        // art for the loading screen while the session queues.
-        std::map<std::string, xcloud::Product> full;
-        std::string e;
-        if (xcloud::fetchProducts({game.productId}, gssv.session().market.empty() ? "US" : gssv.session().market,
-                                  ui::catalogLanguage(), full, e, true) &&
-            full.count(game.productId)) {
-            ui::GameTile withArt = game;
-            withArt.heroUrl = full[game.productId].heroUrl;
-            XC_LOGI("launch art: %s", withArt.heroUrl.empty() ? "(none)" : withArt.heroUrl.c_str());
-            g_ui->showLaunching(withArt, ui::tr(ui::Str::Connecting));
-        }
-    }
-    bool connected = false;
-    std::string result = "timed out waiting for the session";
-    // A console that is off for good (not asleep) never comes out of
-    // Provisioning: give up after a minute (the cloud's queue may take long).
-    const uint64_t provisioningSince = platform::nowMs();
-    int pollErrors = 0;
-    for (int i = 0; i < 900 && !g_cancel; ++i) {
-        if (gssv.isHome() && platform::nowMs() - provisioningSince > 60000) {
-            result = "ConsoleDidNotWake: no answer in 60 s";
-            break;
-        }
-        xcloud::SessionStatus st;
-        if (!gssv.sessionState(st, err)) {
-            // A network hiccup (a TLS timeout) is asked again; three in a row end it.
-            if (++pollErrors < 3) {
-                XC_LOGW("%s (asking again)", err.c_str());
-                platform::sleepMs(1000);
-                continue;
-            }
-            result = err;
-            break;
-        }
-        pollErrors = 0;
-        XC_LOGI("session state: %s", st.raw.c_str());
-        if (st.state == xcloud::SessionState::WaitingForResources)
-            g_ui->setLaunchStatus(ui::trf(ui::Str::InQueue, formatWait(gssv.waitTimeSeconds())));
-        if (st.state == xcloud::SessionState::Provisioning && gssv.isHome())
-            g_ui->setLaunchStatus(ui::tr(ui::Str::WakingConsole));  // a sleeping Xbox takes ~10 s
-        if (st.state == xcloud::SessionState::Failed) {
-            result = "the session failed: " + st.errorCode + " " + st.errorMessage;
-            break;
-        }
-        if (st.state == xcloud::SessionState::ReadyToConnect && !connected) {
-            std::string transfer;
-            if (!am.consoleTransferToken(transfer, err) || !gssv.connect(transfer, err)) {
-                result = err;
-                break;
-            }
-            connected = true;
-        }
-        if (st.state == xcloud::SessionState::Provisioned) {
-            g_ui->setLaunchStatus(ui::tr(ui::Str::StartingStream));
-            result = stream(gssv);
-            failed = result.rfind("ERROR", 0) == 0;
-            break;
-        }
-        platform::sleepMs(1000);
-    }
-    if (g_cancel && failed) {
-        result = "cancelled";
-        failed = false;
-    }
-    gssv.stopSession();
-    return result;
-}
-
-void loadLibrary(xcloud::GssvClient& gssv);
-
-// Profile token for titlehub (memory only).
-std::string g_xblAuth;
-
-// --- Store prices ---------------------------------------------------------------
-// Asked for the games to buy as they come on screen; kept a day in
-// <dataDir>/prices.json. The same thread fetches the description of an
-// opened game that has none yet.
-std::mutex g_priceMutex;
-std::string g_priceMarket, g_priceLanguage;  // set by loadLibrary()
-platform::Thread g_priceThread;
-std::atomic<bool> g_stopPrices{false};
-constexpr int64_t kPriceTtlSeconds = 24 * 3600;
-
-std::string pricesPath() { return platform::dataDir() + "/prices.json"; }
-
-ui::PriceInfo priceTexts(const xcloud::Price& p) {
-    ui::PriceInfo info;
-    info.now = p.list < 0.005 ? ui::tr(ui::Str::Free) : xcloud::formatPrice(p.list, p.currency);
-    info.was = p.msrp > p.list + 0.005 ? xcloud::formatPrice(p.msrp, p.currency) : std::string();
-    info.list = p.list;
-    info.msrp = p.msrp;
-    return info;
-}
-
-void priceLoop() {
-    json::Value cache = json::Value::object();
-    {
-        std::string text;
-        if (platform::readFile(pricesPath(), text))
-            if (auto j = json::parse(text)) cache = *j;
-    }
-    // Fresh cached prices to the UI right away.
-    int64_t now = static_cast<int64_t>(std::time(nullptr));
-    std::map<std::string, ui::PriceInfo> shown;
-    json::Value kept = json::Value::object();
-    for (const auto& [id, v] : cache.members()) {
-        if (now - v["t"].asInt() > kPriceTtlSeconds) continue;
-        kept.set(id, v);
-        xcloud::Price p{v["list"].asNumber(), v["msrp"].asNumber(), v["cur"].str()};
-        shown[id] = priceTexts(p);
-    }
-    cache = kept;
-    if (!shown.empty()) g_ui->setPrices(shown);
-    while (!g_stopPrices) {
-        std::string market, language;
-        {
-            std::lock_guard<std::mutex> lock(g_priceMutex);
-            market = g_priceMarket;
-            language = g_priceLanguage;
-        }
-        // The open page's description, for games that only have the light
-        // catalog data (games to buy, search results).
-        if (std::string id = market.empty() ? std::string() : g_ui->detailWanted(platform::nowMs()); !id.empty()) {
-            std::map<std::string, xcloud::Product> full;
-            std::string err;
-            bool ok = xcloud::fetchProducts({id}, market, language, full, err, true) && full.count(id);
-            if (ok) {
-                const auto& p = full[id];
-                g_ui->setDetailInfo(id, p.description, p.publisher, p.categories, p.heroUrl);
-            }
-            XC_LOGI("details of %s: %s", id.c_str(), ok ? "ok" : err.empty() ? "not in the catalog" : err.c_str());
-        }
-        std::vector<std::string> ids = market.empty() ? std::vector<std::string>() : g_ui->pricesWanted(20, true);
-        if (ids.empty()) {
-            platform::sleepMs(300);
-            continue;
-        }
-        std::map<std::string, xcloud::Price> got;
-        std::string err;
-        if (!xcloud::fetchPrices(ids, market, language, got, err)) XC_LOGW("%s", err.c_str());
-        std::map<std::string, ui::PriceInfo> texts;
-        now = static_cast<int64_t>(std::time(nullptr));
-        for (const auto& [id, p] : got) {
-            texts[id] = priceTexts(p);
-            json::Value v = json::Value::object();
-            v.set("list", p.list);
-            v.set("msrp", p.msrp);
-            v.set("cur", p.currency);
-            v.set("t", now);
-            cache.set(id, v);
-        }
-        if (!texts.empty()) {
-            g_ui->setPrices(texts);
-            platform::writeFileAtomic(pricesPath(), cache.dump());
-        }
-    }
-}
-// The note on the home screen after a stream: who ended it, when known.
-std::string endedToast(const std::string& result) {
-    if (result.find("KickForStopCommand") != std::string::npos) return ui::tr(ui::Str::EndedOnXbox);
-    if (result.find("KickByNewSession") != std::string::npos) return ui::tr(ui::Str::EndedByOtherDevice);
-    if (result.find("KickForServerShutdown") != std::string::npos) return ui::tr(ui::Str::EndedXboxOff);
-    return ui::tr(ui::Str::StreamEnded);
-}
-
-// "My consoles": the account's own Xbox consoles (Remote Play, the xhome
-// offering, logged in with the same Xbox token).
-void loadConsoles(auth::AuthManager& am, xcloud::GssvClient& home) {
-    std::string err;
-    std::vector<xcloud::Console> consoles;
-    bool fresh = home.session().expiresAt > auth::unixNow() + 120;
-    if ((!fresh && !am.loginOffering(home, err)) || !home.listConsoles(consoles, err)) {
-        XC_LOGW("consoles: %s", err.c_str());
-        g_ui->setConsoles({}, true);
-        return;
-    }
-    std::vector<ui::ConsoleTile> tiles;
-    for (const auto& c : consoles) tiles.push_back({c.serverId, c.deviceName, c.consoleType, c.powerState});
-    std::string states;
-    for (const auto& c : consoles) states += (states.empty() ? "" : ", ") + c.powerState;
-    XC_LOGI("consoles: %zu (%s)", tiles.size(), states.c_str());  // not their names or ids
-    g_ui->setConsoles(std::move(tiles), true);
-}
-
-void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
-    g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
-    std::string err;
-    auto onCode = [](const auth::DeviceCode& dc) { g_ui->showSignIn(dc.userCode, dc.verificationUri); };
-    if (!am.signIn(gssv, onCode, err, &g_cancel)) {
-        XC_LOGE("sign-in failed: %s", err.c_str());
-        g_ui->showError(ui::trf(ui::Str::SignInFailed, err));
-        if (!g_autoplayTitle.empty()) XC_LOGI("AUTOPLAY END: sign-in failed");
-        return;
-    }
-    if (g_autoplayConsoles || g_autoplayTitle == "XHOME") {
-        // Remote Play probe: the user's own consoles. Not their names nor
-        // full ids in the log.
-        xcloud::GssvClient home("xhome");
-        std::vector<xcloud::Console> consoles;
-        if (!am.loginOffering(home, err) || !home.listConsoles(consoles, err)) {
-            XC_LOGI("AUTOPLAY END: consoles: %s", err.c_str());
-            return;
-        }
-        XC_LOGI("xhome: %zu console(s), region %s", consoles.size(), home.region().name.c_str());
-        for (const auto& c : consoles)
-            XC_LOGI("xhome console %.4s...: %s, power %s, path %s%s%s", c.serverId.c_str(), c.consoleType.c_str(),
-                    c.powerState.c_str(), c.playPath.c_str(), c.outOfHomeWarning ? ", out-of-home warning" : "",
-                    c.wirelessWarning ? ", wireless warning" : "");
-        if (g_autoplayTitle == "XHOME" && !consoles.empty()) {
-            // Remote Play: the first console, as "My consoles" plays it.
-            std::lock_guard<std::mutex> lock(g_argMutex);
-            g_playTile = {};
-            g_playTile.titleId = consoles.front().serverId;
-            g_playTile.name = "Xbox";
-            g_playTile.homeConsole = true;
-            g_command = kPlay;
-            return;
-        }
-        XC_LOGI("AUTOPLAY END: consoles listed");
-        return;
-    }
-    g_ui->setProfile(am.profile().gamertag, am.profile().gamerpicUrl);
-    {
-        std::lock_guard<std::mutex> lock(g_argMutex);
-        g_xblAuth = am.profile().xblAuthorization;
-    }
-    platform::notify(ui::trf(ui::Str::SignedInAs, am.profile().gamertag), "signed in (notification)");
-    static bool updateChecked = false;
-    if (!updateChecked && g_autoplayTitle.empty()) {
-        updateChecked = true;
-        std::thread([] {
-            std::string tag = app::latestReleaseTag();
-            XC_LOGI("latest release: %s (this is %s)", tag.empty() ? "unknown" : tag.c_str(), XC_APP_VERSION);
-            if (app::isNewerVersion(tag, XC_APP_VERSION)) platform::notify(ui::trf(ui::Str::UpdateAvailable, tag));
-        }).detach();
-    }
-    std::vector<std::string> regions;
-    for (const auto& r : gssv.session().regions) regions.push_back(r.name);
-    const xcloud::Region* def = gssv.session().defaultRegion();
-    g_ui->setRegions(regions, def ? def->name : std::string());
-    loadLibrary(gssv);
-}
-
-void loadLibrary(xcloud::GssvClient& gssv) {
-    std::string err;
-    g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
-    stopHydration();
-    auto library = std::make_shared<app::Library>();
-    library->setCachePath(platform::dataDir() + "/library.json");
-    {
-        std::lock_guard<std::mutex> lock(g_priceMutex);
-        g_priceMarket = gssv.session().market.empty() ? "US" : gssv.session().market;
-        g_priceLanguage = ui::catalogLanguage();
-    }
-    bool shown = false;
-    // Hands the library's current state to the UI (copies).
-    auto publish = [](const app::Library& lib) {
-        g_ui->setRows(lib.rows());
-        g_ui->setOwned(lib.owned(), lib.purchasable(), lib.ownedKnown());
-        g_ui->setSearchPools(lib.gamePassSearchPool(), lib.librarySearchPool());
-        auto p = lib.progress();
-        g_ui->setLoading(p.active, p.done, p.total);
-    };
-    bool ok = library->load(gssv, ui::catalogLanguage(),
-                            [&] {
-                                publish(*library);
-                                if (!shown) {
-                                    shown = true;
-                                    g_ui->showHome();
-                                }
-                            },
-                            err);
-    if (!ok) {
-        g_ui->showError(ui::trf(ui::Str::LibraryFailed, err));
-        return;
-    }
-    std::vector<ui::GameRow> rows = library->rows();
-    // The account's own games, the catalog names for the search, then hero
-    // art and descriptions keep arriving while the user browses/plays. The
-    // thread gets its own GssvClient copy.
-    g_stopHydration = false;
-    std::string xblAuth;
-    {
-        std::lock_guard<std::mutex> lock(g_argMutex);
-        xblAuth = g_xblAuth;
-    }
-    platform::startThread(g_hydrationThread, [library, publish, owned = gssv, xblAuth] {
-        auto changed = [&] { publish(*library); };
-        library->loadFirstScreen(xblAuth, changed, &g_stopHydration);
-        library->loadOwned(owned, changed, &g_stopHydration);
-        library->loadCatalogNames(changed, &g_stopHydration);
-        library->loadPlatforms(xblAuth, changed, &g_stopHydration);
-        library->hydrate(changed, &g_stopHydration);
-    });
-    if (!g_autoplayTitle.empty() && g_autoplayTitle != "BENCH" && !g_autoplayDetailTest && !g_autoplayLibraryTest &&
-        !g_autoplayConsolesTab && !g_autoplaySettingsTest &&
-        !g_autoplayImeTest && !g_autoplayVibeTest) {
-        platform::sleepMs(6000);  // leave the home screen up for ui.ppm
-        ui::GameTile tile;
-        tile.titleId = g_autoplayTitle;
-        tile.name = g_autoplayTitle;
-        for (const auto& row : rows)
-            for (const auto& t : row.tiles)
-                if (t.titleId == g_autoplayTitle && tile.productId.empty()) tile = t;
-        std::lock_guard<std::mutex> lock(g_argMutex);
-        g_playTile = tile;
-        g_command = kPlay;
-    }
-}
-
-void worker() {
-    if (g_autoplayTitle == "BENCH") {
-        platform::Thread t;  // same big stack as the stream's video thread
-        platform::startThread(t, runDecodeBench);
-        t.join();
-        for (;;) platform::sleepMs(1000);
-    }
-    auth::AuthManager am(platform::dataDir() + "/account.json");
-    xcloud::GssvClient gssv, home("xhome");
-    for (;;) {
-        int cmd = g_command.exchange(kNone);
-        g_cancel = false;
-        switch (cmd) {
-            case kSignIn:
-                signInAndLoad(am, gssv);
-                loadConsoles(am, home);  // empty when the sign-in failed
-                break;
-            case kConsoles: loadConsoles(am, home); break;
-            case kReloadLibrary: loadLibrary(gssv); break;  // e.g. after a language change
-            case kSignOut:
-                am.signOut();
-                g_ui->setProfile({}, {});
-                g_ui->setConsoles({}, false);
-                signInAndLoad(am, gssv);
-                loadConsoles(am, home);
-                break;
-            case kPlay: {
-                ui::GameTile tile;
-                {
-                    std::lock_guard<std::mutex> lock(g_argMutex);
-                    tile = g_playTile;
-                }
-                bool failed = false;
-                if (tile.homeConsole) {
-                    // The user's own Xbox. One that sleeps too deeply fails
-                    // at once ("... State WaitingForServerToRegister"): asked
-                    // again, it often wakes.
-                    std::string result;
-                    g_playingHome = true;
-                    int rejoins = 0;
-                    for (int attempt = 0; attempt < 3 && !g_cancel; ++attempt) {
-                        if (attempt) {
-                            g_ui->setLaunchStatus(ui::tr(ui::Str::WakingConsole));
-                            platform::sleepMs(5000);
-                        }
-                        result = play(am, home, tile, failed);
-                        XC_LOGI("%s", result.c_str());
-                        // The connection dropped mid-stream: a new session on
-                        // the same Xbox picks up where it was (twice at most).
-                        if (!failed && !g_cancel && result.find("couldn't be restored") != std::string::npos &&
-                            rejoins < 2) {
-                            ++rejoins;
-                            XC_LOGI("own Xbox: connection lost, new session (%d)", rejoins);
-                            platform::notify(ui::tr(ui::Str::Reconnecting));
-                            attempt = -1;  // a new start, not a wake-up retry
-                            continue;
-                        }
-                        if (!failed || result.find("WaitingForServerToRegister") == std::string::npos) break;
-                    }
-                    if (failed && result.find("Cloud Streaming Service to be ready") != std::string::npos)
-                        // Reached the Xbox, but its streaming service is stuck
-                        // (after "Turn off" mid-stream, it stayed on and never
-                        // streamed again until restarted).
-                        g_ui->showPlayError(ui::trf(ui::Str::StreamingStuck, tile.name), tile);
-                    else if (failed && (result.find("WaitingForServerToRegister") != std::string::npos ||
-                                        result.find("ConsoleDidNotWake") != std::string::npos))
-                        g_ui->showPlayError(ui::trf(ui::Str::WakeFailed, tile.name), tile);
-                    else if (failed)
-                        g_ui->showPlayError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result, tile);
-                    else
-                        g_ui->showHome(endedToast(result));
-                    g_playingHome = false;
-                    autoplayFinished(result);
-                    loadConsoles(am, home);  // its state changed
-                    break;
-                }
-                bool automatic;
-                {
-                    std::lock_guard<std::mutex> lock(g_settingsMutex);
-                    automatic = g_settings.region.empty();
-                }
-                std::string region = automatic && g_regionFallback.count(tile.titleId) ? g_regionFallback[tile.titleId] : "";
-                std::string result = play(am, gssv, tile, failed, region);
-                XC_LOGI("%s", result.c_str());
-                // Some games fail to start in one region only (Dead Cells in
-                // Brazil South quit at once with 0x8027025B, now and then, and
-                // ran in East US): with the region on automatic, try the
-                // nearest other one once.
-                if (failed && g_gameClosedOnServer && automatic && !g_cancel) {
-                    // The nearest other region: measured in past sessions, or
-                    // estimated from the distance (xcloud/regions.h).
-                    std::string tried = gssv.region().name, next;
-                    std::vector<std::string> names;
-                    for (const auto& r : gssv.session().regions) names.push_back(r.name);
-                    std::map<std::string, int> measured;
-                    {
-                        std::lock_guard<std::mutex> lock(g_settingsMutex);
-                        measured = g_settings.regionRtt;
-                    }
-                    auto order = xcloud::regionsByExpectedRtt(tried, names, measured);
-                    if (!order.empty()) next = order.front();
-                    if (!next.empty()) {
-                        XC_LOGI("%s closed on the server in %s; trying %s", tile.titleId.c_str(), tried.c_str(),
-                                next.c_str());
-                        result = play(am, gssv, tile, failed, next);
-                        XC_LOGI("%s", result.c_str());
-                        if (!failed) g_regionFallback[tile.titleId] = next;
-                    }
-                }
-                if (failed && result.find("NoEntitlement") != std::string::npos) {
-                    // Not on the account: a free game not got yet in the
-                    // store (it can be, on the phone, and tried again here),
-                    // or one outside the subscription.
-                    g_ui->showPlayError(ui::trf(tile.freeInStore ? ui::Str::NoEntitlementFree : ui::Str::NoEntitlement,
-                                                tile.name),
-                                        tile);
-                } else if (failed) {
-                    g_ui->showError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result);
-                }
-                else
-                    g_ui->showHome(endedToast(result));
-                autoplayFinished(result);
-                break;
-            }
-            default: platform::sleepMs(50); break;
-        }
-    }
 }
 
 // --- Input ---------------------------------------------------------------------
@@ -979,13 +115,13 @@ int main(int argc, char** argv) {
             g_settings.region.empty() ? "auto" : g_settings.region.c_str());
     sceSystemServiceHideSplashScreen();
 
-    if (g_autoplayVkTest) {
+    if (g_autoplay.vkTest) {
         bool ok = display::gpu::init();
         if (ok) display::gpu::probe(300);
         XC_LOGI("AUTOPLAY END: vktest %s", ok ? "ran" : "failed");
         for (;;) platform::sleepMs(1000);
     }
-    bool haveDisplay = display::init(!g_autoplayCpuDisplay);
+    bool haveDisplay = display::init(!g_autoplay.cpuDisplay);
     if (!input::init()) XC_LOGE("controller init failed");
 
     ui::Fonts fonts;
@@ -996,7 +132,7 @@ int main(int argc, char** argv) {
         },
         160u << 20, platform::dataDir() + "/imgcache");
     g_ui = std::make_unique<ui::AppUi>(fonts, *g_images);
-    platform::startThread(g_priceThread, priceLoop);
+    startPriceLoop();
     {
         ui::SettingsChoice choice;
         choice.language = static_cast<int>(ui::language());
@@ -1016,12 +152,12 @@ int main(int argc, char** argv) {
     }
     ui::Canvas canvas(display::kWidth, display::kHeight);
 
-    if (!net::initTls(g_autoplayBadCa ? platform::assetDir() + "/missing.pem" : platform::caBundlePath())) {
+    if (!net::initTls(g_autoplay.badCa ? platform::assetDir() + "/missing.pem" : platform::caBundlePath())) {
         // The step that failed, and where the log is: what a bug report needs.
         platform::notify("PSBox: secure connections unavailable");
         g_ui->showError("Secure connections could not be set up: " + net::tlsInitError() + ". Log: " +
                         platform::dataDir() + "/xcloud.log");
-        if (g_autoplayBadCa) XC_LOGI("AUTOPLAY END: TLS setup error shown");
+        if (g_autoplay.badCa) XC_LOGI("AUTOPLAY END: TLS setup error shown");
     } else {
         std::thread(worker).detach();
     }
@@ -1029,67 +165,14 @@ int main(int argc, char** argv) {
     // Never return from main: the app is closed from the home screen.
     input::ControllerState prev{}, pad{};
     Repeater up, down, left, right;
-    // The in-game menu and what is laid over the game.
-    ui::StreamMenu menu(fonts);
-    const app::StreamPlayer* overlayPlayer = nullptr;
-    int streamResolution = 0;  // as SettingsChoice::resolution
-    bool showStats = false, overlayShown = false;
-    bool touchEnabled = false;  // touch input announced on (StreamPlayer::setTouchEnabled)
-    struct {
-        bool active = false, fired = false;
-        float x = 0, y = 0;  // where the finger came down
-    } swipe;
-    bool swipeMenu = false;  // a swipe asked for the game menu
-    int sharpness = 0;  // 0..3, as Settings::sharpness
-    int deband = 3;     // 0..3, as Settings::deband
-    // "Auto": the level in use, and a new one waiting for 3 s of its bitrate.
-    int debandInUse = 1, debandNext = -1, debandStreak = 0, debandSeconds = 0;
-    uint32_t debandSeq = 0;
-    auto applyDeband = [&] { display::setDeband(deband == 3 ? debandInUse : deband); };
-    int upscaler = 0;   // as Settings::upscaler
-    // How much CAS each sharpness level mixes in (display::setSharpness).
-    static constexpr int kSharpAmount[] = {0, 96, 176, 256};
-    bool padReleased = true;
-    bool padAttached[input::kMaxPads] = {};  // controllers 1..3 announced to the stream
-    uint32_t playerReconnects = 0;
+    StreamScreen streamScreen(fonts);  // the game's menu and what is laid over it
     uint64_t padsCheckedAt = 0;
     unsigned padChecks = 0;
     uint64_t lightBarAt = 0;
     bool lightBarSet = false;  // false from the menu/keyboard until the buttons are let go
-    uint32_t overlaySeq = 0;  // g_infoSeq + 1 when drawn; 0 = redraw
-    uint64_t homeSince = 0, launchSince = 0;
-    bool uiSaved = false, launchSaved = false;
-    bool settingsShot = false;  // autoplay "settingstest": save the screen now
     for (;;) {
         input::poll(pad);
-        // Autoplay runs unattended: the physical pad must not interfere
-        // (unless "pad": someone is playing along, and each press is logged).
-        if (!g_autoplayTitle.empty() && !g_autoplayPad) pad = input::ControllerState{};
-        if (g_autoplayPad) {
-            static std::string lastPressed;
-            std::string pressed;
-            auto add = [&](bool on, const char* name) {
-                if (on) pressed += pressed.empty() ? name : std::string(" ") + name;
-            };
-            add(pad.btnA, "cross");
-            add(pad.btnB, "circle");
-            add(pad.btnX, "square");
-            add(pad.btnY, "triangle");
-            add(pad.dpadUp, "up");
-            add(pad.dpadDown, "down");
-            add(pad.dpadLeft, "left");
-            add(pad.dpadRight, "right");
-            add(pad.btnL1, "L1");
-            add(pad.btnR1, "R1");
-            add(pad.btnOptions, "options");
-            add(pad.btnTouchpad, "touchpad");
-            add(pad.triggerL2 > 0.5f, "L2");
-            add(pad.triggerR2 > 0.5f, "R2");
-            add(std::abs(pad.leftStickX) > 0.5f || std::abs(pad.leftStickY) > 0.5f, "lstick");
-            add(std::abs(pad.rightStickX) > 0.5f || std::abs(pad.rightStickY) > 0.5f, "rstick");
-            if (pressed != lastPressed && !pressed.empty()) XC_LOGI("pad: %s", pressed.c_str());
-            lastPressed = pressed;
-        }
+        autoplayPad(pad);
         uint64_t now = platform::nowMs();
         if (now - lightBarAt >= 100) {  // the light bar follows the game in focus
             lightBarAt = now;
@@ -1119,10 +202,8 @@ int main(int argc, char** argv) {
             for (int i = 0; i < input::kMaxPads; ++i)
                 slots[static_cast<size_t>(i)] = {input::padConnected(i), input::padUserName(i)};
             g_ui->setPads(slots);
-            menu.setPads(slots);
-            if (menu.isOpen()) overlaySeq = 0;
+            streamScreen.setPads(slots);
         }
-        if (!g_keyboardFor.empty() && g_ui->screen() != ui::Screen::Streaming) updateTextInput(nullptr);
 
         ui::NavInput nav;
         nav.up = up.update(pad.dpadUp || pad.leftStickY < -0.6f, now);
@@ -1143,248 +224,13 @@ int main(int argc, char** argv) {
         nav.nowMs = now;
         bool menuCombo = pad.btnOptions && pad.btnTouchpad && !(prev.btnOptions && prev.btnTouchpad);
         prev = pad;
-        if (g_autoplayMenuTest && g_ui->screen() == ui::Screen::Streaming) {
-            // Menu, down five times to the resolution, left to 720p, accept; at
-            // 35 s right (back to 1080p) and accept.
-            static uint64_t since = 0;
-            static int step = 0;
-            if (!since) since = now;
-            const uint64_t at[] = {12000, 13000, 13200, 13400, 13600, 13800, 14000, 14500, 35000, 35500};
-            if (step < 10 && now - since >= at[step]) {
-                nav = ui::NavInput{};
-                if (step == 0) menuCombo = true;
-                if (step >= 1 && step <= 5) nav.down = true;
-                if (step == 6) nav.left = true;
-                if (step == 7 || step == 9) nav.accept = true;
-                if (step == 8) nav.right = true;
-                XC_LOGI("autoplay: menu step %d", step);
-                ++step;
-            }
-        }
-
-        if (g_autoplaySettingsTest && uiSaved) {
-            // Settings, down to the resolution, open its list; saved 2 s later.
-            static uint64_t since = 0;
-            static int step = 0;
-            if (!since) since = now;
-            const uint64_t at[] = {500, 1500, 2500, 4500};
-            if (step < 4 && now - since >= at[step]) {
-                if (step == 0) nav.options = true;
-                if (step == 1) nav.down = true;
-                if (step == 2) nav.accept = true;
-                if (step == 3) {
-                    settingsShot = true;  // saved below, once drawn
-                    g_autoplaySettingsTest = false;
-                }
-                ++step;
-            }
-        }
+        autoplayNav(nav, menuCombo, now);
         if (g_ui->screen() == ui::Screen::Streaming) {
-            std::lock_guard<std::mutex> lock(g_playerMutex);
-            if (g_player != overlayPlayer || (g_player && g_player->reconnects() != playerReconnects)) {
-                // A new stream, or a new session after a reconnection: the
-                // other controllers are announced again.
-                for (bool& a : padAttached) a = false;
-                playerReconnects = g_player ? g_player->reconnects() : 0;
-            }
-            if (g_player != overlayPlayer) {  // a new stream
-                overlayPlayer = g_player;
-                menu.close();
-                std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
-                streamResolution = g_settings.resolution == "720p" ? 1 : g_settings.resolution == "1440p" ? 2 : 0;
-                showStats = g_settings.streamStats;
-                sharpness = g_autoplaySharpness >= 0 ? g_autoplaySharpness : g_settings.sharpness;
-                display::setSharpness(kSharpAmount[std::clamp(sharpness, 0, 3)]);
-                deband = g_autoplayDeband >= 0 ? g_autoplayDeband : g_settings.deband;
-                debandInUse = 1;
-                debandNext = -1;
-                debandStreak = 0;
-                debandSeconds = 0;
-                applyDeband();
-                upscaler = g_autoplayUpscaler >= 0 ? g_autoplayUpscaler : g_settings.upscaler;
-                if (g_autoplayRestore) upscaler = (upscaler & 1) | 2;
-                applyUpscaler(upscaler);
-                overlaySeq = 0;
-            }
-            if (g_player) {
-                updateTextInput(g_player);
-                // OPTIONS + TOUCHPAD opens the menu (and closes it again).
-                bool wasOpen = menu.isOpen();
-                if (!wasOpen && (menuCombo || swipeMenu) && g_keyboardFor.empty()) {
-                    swipeMenu = false;
-                    menu.setCircleConfirms(g_settings.circleConfirms);
-                    bool allow1440;
-                    {
-                        std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
-                        allow1440 = allow1440Locked();
-                    }
-                    menu.setDebandInUse(debandInUse);
-                    menu.open(streamResolution, showStats, sharpness, deband, upscaler, g_playingHome, allow1440);
-                    overlaySeq = 0;
-                } else if (wasOpen) {
-                    switch (menu.handle(nav)) {
-                    case ui::MenuAction::Leave: g_cancel = true; break;
-                    case ui::MenuAction::XboxButton:
-                        // A short press, once the menu is gone: the Xbox guide opens.
-                        g_xboxButtonUntil = platform::nowMs() + 250;
-                        g_player->requestKeyframe();
-                        XC_LOGI("menu: Xbox button");
-                        break;
-                    case ui::MenuAction::Close: g_player->requestKeyframe(); break;  // a clean picture back in the game
-                    case ui::MenuAction::Resolution:
-                        streamResolution = menu.resolution();
-                        g_tierPicked = true;
-                        // The user's own Xbox: 1080p is its top tier ("1440").
-                        g_player->requestResolution(streamResolution == 1 ? "720HQ"
-                                                    : streamResolution == 2 || g_playingHome ? "1440"
-                                                                                              : "1080HQ");
-                        break;
-                    case ui::MenuAction::Sharpness: {
-                        sharpness = menu.sharpness();
-                        display::setSharpness(kSharpAmount[sharpness]);
-                        std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
-                        g_settings.sharpness = sharpness;
-                        g_settings.save(settingsPath());
-                        break;
-                    }
-                    case ui::MenuAction::Upscaler: {
-                        upscaler = menu.upscaler();
-                        applyUpscaler(upscaler);
-                        std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
-                        g_settings.upscaler = upscaler;
-                        g_settings.save(settingsPath());
-                        break;
-                    }
-                    case ui::MenuAction::Deband: {
-                        deband = menu.deband();
-                        applyDeband();
-                        std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
-                        g_settings.deband = deband;
-                        g_settings.save(settingsPath());
-                        break;
-                    }
-                    case ui::MenuAction::Stats: {
-                        showStats = menu.statsOn();
-                        std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
-                        g_settings.streamStats = showStats;
-                        g_settings.save(settingsPath());
-                        break;
-                    }
-                    default: break;
-                    }
-                    overlaySeq = 0;
-                }
-                input::ControllerState sent = pad;
-                if (g_syntheticA) sent.btnA = true;
-                // While another window has the focus on the cloud console (a
-                // publisher's page such as NetEase's terms in Marvel Rivals,
-                // which then shows its own pad-driven cursor), touch input is
-                // on, as the web client has it on touch screens.
-                bool unfocused = !g_player->titleFocused();
-                if (unfocused != touchEnabled) {
-                    touchEnabled = unfocused;
-                    g_player->setTouchEnabled(unfocused);
-                }
-                // The menu and the keyboard have the pad while they are up,
-                // and the buttons that closed them until they are let go.
-                bool held = pad.dpadUp || pad.dpadDown || pad.dpadLeft || pad.dpadRight || pad.btnA || pad.btnB ||
-                            pad.btnX || pad.btnY || pad.btnOptions || pad.btnTouchpad;
-                if (menu.isOpen() || !g_keyboardFor.empty()) padReleased = false;
-                else if (!held) padReleased = true;
-                if (!padReleased || menuCombo) sent = input::ControllerState{};
-                // Swiping up or right on the touchpad is the Xbox button (once
-                // per swipe; the games never see the touchpad's touches).
-                if (pad.touching && !menu.isOpen() && g_keyboardFor.empty()) {
-                    if (!swipe.active) swipe = {true, false, pad.touchX, pad.touchY};
-                    float dx = pad.touchX - swipe.x, dy = swipe.y - pad.touchY;  // dy > 0: up
-                    bool right = dx > 0.30f && std::abs(dy) < 0.30f, up = dy > 0.40f && std::abs(dx) < 0.30f;
-                    bool left = dx < -0.30f && std::abs(dy) < 0.30f, down = dy < -0.40f && std::abs(dx) < 0.30f;
-                    if (!swipe.fired && (right || up)) {
-                        swipe.fired = true;
-                        g_xboxButtonUntil = platform::nowMs() + 250;
-                        XC_LOGI("touchpad swipe %s: Xbox button", right ? "right" : "up");
-                    } else if (!swipe.fired && (left || down)) {
-                        swipe.fired = true;
-                        swipeMenu = true;  // opened on the next pass, as by OPTIONS + TOUCHPAD
-                        XC_LOGI("touchpad swipe %s: game menu", left ? "left" : "down");
-                    }
-                } else {
-                    swipe.active = false;
-                }
-                if (platform::nowMs() < g_xboxButtonUntil) sent.btnNexus = true;
-                g_player->sendInput(sent);
-                // The other players' controllers, straight to the game.
-                for (int i = 1; i < input::kMaxPads; ++i) {
-                    input::ControllerState other;
-                    bool on = input::pollPad(i, other);
-                    if (on != padAttached[i]) {
-                        padAttached[i] = on;
-                        g_player->setPadConnected(i, on);
-                        std::string who = std::to_string(i + 1);
-                        std::string name = input::padUserName(i);
-                        if (!name.empty()) who += " (" + name + ")";
-                        // The PS5 user's name on the TV, not in the log.
-                        platform::notify(ui::trf(on ? ui::Str::PadConnected : ui::Str::PadDisconnected, who),
-                                         std::string("controller ") + std::to_string(i + 1) +
-                                             (on ? " connected" : " disconnected"));
-                    }
-                    if (on) g_player->sendInput(other, i);
-                }
-            }
-            // The overlay: the menu, else the statistics line, redrawn when
-            // the numbers or the menu change.
-            uint32_t seq = g_infoSeq;
-            if (deband == 3 && seq != debandSeq) {
-                // Auto block smoothing, once a second: a new level after 3 s.
-                debandSeq = seq;
-                double mbps;
-                {
-                    std::lock_guard<std::mutex> infoLock(g_infoMutex);
-                    mbps = g_streamInfo.mbps;
-                }
-                // Not in the first 5 s: the bitrate is still climbing.
-                int want = ++debandSeconds <= 5 ? -1 : debandForMbps(mbps, debandInUse);
-                if (want < 0 || want == debandInUse) {
-                    debandStreak = 0;
-                } else if (want == debandNext && ++debandStreak >= 3) {
-                    debandInUse = want;
-                    debandStreak = 0;
-                    applyDeband();
-                    menu.setDebandInUse(debandInUse);
-                    overlaySeq = 0;
-                    XC_LOGI("block smoothing auto: %s at %.1f Mbps", want == 2 ? "high" : want == 1 ? "low" : "off", mbps);
-                } else if (want != debandNext) {
-                    debandNext = want;
-                    debandStreak = 1;
-                }
-            }
-            if (overlaySeq != seq + 1) {
-                overlaySeq = seq + 1;
-                ui::StreamInfo info;
-                {
-                    std::lock_guard<std::mutex> infoLock(g_infoMutex);
-                    info = g_streamInfo;
-                }
-                if (menu.isOpen()) {
-                    ui::Canvas c = menu.renderMenu(info);
-                    display::setOverlay(c.data(), ui::StreamMenu::kMenuX, ui::StreamMenu::kMenuY, c.width(), c.height(), 235);
-                } else if (showStats && seq) {
-                    ui::Canvas c = menu.renderStats(info);
-                    display::setOverlay(c.data(), ui::StreamMenu::kStatsX, ui::StreamMenu::kStatsY, c.width(), c.height(), 200);
-                } else {
-                    display::setOverlay(nullptr, 0, 0, 0, 0, 0);
-                }
-                overlayShown = true;
-            }
+            streamScreen.update(pad, nav, menuCombo);
             platform::sleepMs(8);  // ~120 Hz input
             continue;
         }
-        touchEnabled = false;  // each stream starts with touch off
-        if (overlayShown) {
-            display::setOverlay(nullptr, 0, 0, 0, 0, 0);
-            overlayShown = false;
-            menu.close();
-        }
+        streamScreen.idle();
 
         ui::UiEvent ev = g_ui->handle(nav);
         switch (ev.action) {
@@ -1443,127 +289,7 @@ int main(int argc, char** argv) {
             case ui::Action::None: break;
         }
 
-        // Autoplay: save the rendered home and loading screens.
-        auto saveCanvas = [&](const char* name) {
-            std::string ppm = "P6\n1920 1080\n255\n";
-            ppm.reserve(ppm.size() + 1920u * 1080u * 3u);
-            for (size_t i = 0; i < 1920u * 1080u; ++i) {
-                uint32_t p = canvas.data()[i];
-                ppm += static_cast<char>(p & 0xFF);
-                ppm += static_cast<char>((p >> 8) & 0xFF);
-                ppm += static_cast<char>((p >> 16) & 0xFF);
-            }
-            XC_LOGI("ui snapshot %s: %s", name,
-                    platform::writeFileAtomic(platform::dataDir() + "/" + name, ppm) ? "ok" : "failed");
-        };
-        if (!g_autoplayTitle.empty() && !launchSaved && g_ui->screen() == ui::Screen::Launching) {
-            if (!launchSince) launchSince = now;
-            if (now - launchSince > 8000) {
-                launchSaved = true;
-                saveCanvas("launch.ppm");
-            }
-        }
-        if (g_autoplayLibraryTest && uiSaved) {
-            static uint64_t openedAt = 0;
-            static int saved = 0;
-            if (!openedAt) {
-                ui::NavInput r1;
-                r1.r1 = true;
-                g_ui->handle(r1);
-                openedAt = now;
-            } else if (saved == 0 && now - openedAt > 4000) {
-                saveCanvas("library.ppm");
-                saved = 1;
-            } else if (saved == 1 && now - openedAt > 25000) {
-                saveCanvas("library2.ppm");
-                g_autoplayLibraryTest = false;
-                XC_LOGI("AUTOPLAY END: library test");
-            }
-        }
-        if (g_autoplayVibeTest) {
-            // 10 s to pick the pad up, then each motor alone for 6 s, 3 s apart.
-            static uint64_t since = 0;
-            static int step = -1;
-            if (!since) since = now;
-            int want = now - since < 10000 ? -1 : static_cast<int>((now - since - 10000) / 9000);
-            bool on = want >= 0 && (now - since - 10000) % 9000 < 6000;
-            static const char* const kSteps[] = {"1/5: large motor (left grip, strong)", "2/5: small motor (right grip, fine)",
-                                                 "3/5: left trigger (L2)", "4/5: right trigger (R2)",
-                                                 "5/5: both triggers"};
-            if (want != step && on && want < 5) {
-                step = want;
-                input::setRumble(step == 0 ? 255 : 0, step == 1 ? 255 : 0, 6000);
-                input::setTriggerRumble(step == 2 || step == 4 ? 255 : 0, step == 3 || step == 4 ? 255 : 0, 6000);
-                platform::notify(std::string("Vibration test ") + kSteps[step]);
-                XC_LOGI("vibetest %s", kSteps[step]);
-            }
-            if (want >= 5) {
-                g_autoplayVibeTest = false;
-                XC_LOGI("AUTOPLAY END: vibration test");
-            }
-        }
-        if (g_autoplayImeTest && uiSaved) {
-            static uint64_t openedAt = 0;
-            std::string typed;
-            if (!openedAt) {
-                openedAt = now;
-                bool ok = platform::openSystemKeyboard("PSBox test", "hello", 64);
-                XC_LOGI("autoplay: system keyboard %s", ok ? "opened" : "unavailable");
-                if (!ok) g_autoplayImeTest = false;
-            } else if (auto st = platform::pollSystemKeyboard(typed); st != platform::KeyboardStatus::Open) {
-                XC_LOGI("AUTOPLAY END: keyboard %s, %zu bytes", st == platform::KeyboardStatus::Accepted ? "accepted" : "closed",
-                        typed.size());
-                g_autoplayImeTest = false;
-            }
-        }
-        if (!g_autoplayTitle.empty() && g_ui->screen() == ui::Screen::Error) {
-            // The error the run ended on, as shown (error.ppm), once drawn.
-            static uint64_t errorSince = 0;
-            if (!errorSince) errorSince = now;
-            else if (errorSince != 1 && now - errorSince > 500) {
-                saveCanvas("error.ppm");
-                errorSince = 1;
-            }
-        }
-        if (g_autoplayDetailTest && uiSaved) {
-            // A game to buy far down the list (no prefetched details): its
-            // page must fill in on its own. Or the game named, when known.
-            static uint64_t openedAt = 0;
-            ui::GameTile tile;
-            if (!openedAt && (g_ui->findTile(g_autoplayTitle, tile) || g_ui->purchasableAt(40, tile))) {
-                XC_LOGI("autoplay: opening %s (%s)", tile.name.c_str(), tile.productId.c_str());
-                g_ui->showDetails(tile);
-                openedAt = now;
-            } else if (openedAt && now - openedAt > 8000) {
-                saveCanvas("detail.ppm");
-                g_autoplayDetailTest = false;
-                XC_LOGI("AUTOPLAY END: detail test");
-            }
-        }
-        if (settingsShot) {
-            settingsShot = false;
-            saveCanvas("settings.ppm");
-            XC_LOGI("AUTOPLAY END: settings test");
-        }
-        if (g_autoplayConsolesTab && uiSaved) {
-            static uint64_t shownAt = 0;
-            if (!shownAt) {
-                g_ui->showTab(ui::Tab::Consoles);
-                if (g_autoplayConsolesEmpty) g_ui->setConsoles({}, true);
-                shownAt = now;
-            } else if (now - shownAt > 3000) {
-                saveCanvas("consoles.ppm");
-                g_autoplayConsolesTab = false;
-                XC_LOGI("AUTOPLAY END: consoles tab");
-            }
-        }
-        if (!g_autoplayTitle.empty() && !uiSaved && g_ui->screen() == ui::Screen::Home) {
-            if (!homeSince) homeSince = now;
-            if (now - homeSince > 5000) {
-                uiSaved = true;
-                saveCanvas("ui.ppm");
-            }
-        }
+        autoplayScreens(canvas, now);
 
         if (haveDisplay && g_ui->needsRedraw(now)) {
             uint64_t t0 = platform::nowMs();

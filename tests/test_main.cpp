@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 // Offline unit tests for the portable core (no network).
+#include "app/auto_deband.h"
 #include "app/settings.h"
 #include "app/update_check.h"
 #include "net/http.h"
@@ -291,7 +292,32 @@ static void testStreamMenu() {
     CHECK(menu.resolution() == 0);  // back to 1080p, never 1440p
 }
 
+static void testAutoDeband() {
+    using xc::app::debandForMbps;
+    CHECK(debandForMbps(0.3, 1) == -1);  // starting or standing still: no measure
+    CHECK(debandForMbps(3, 0) == 2 && debandForMbps(7, 0) == 1 && debandForMbps(12, 0) == 0);
+    // A 1 Mbps margin each way: near a limit the level in use stays.
+    CHECK(debandForMbps(5.5, 2) == 2 && debandForMbps(4.5, 1) == 1 && debandForMbps(10.5, 1) == 1);
+    CHECK(debandForMbps(9.5, 0) == 0 && debandForMbps(6.5, 2) == 1);
+
+    xc::app::AutoDeband a;
+    CHECK(a.level() == 1);
+    int changedAt = 0;
+    for (int s = 1; s <= 10 && !changedAt; ++s)
+        if (a.update(1.5)) changedAt = s;
+    CHECK(changedAt == 8);  // the first 5 s ignored, then 3 s in a row
+    CHECK(a.level() == 2);
+    // A one-second spike doesn't count; 3 s of a high bitrate do.
+    CHECK(!a.update(20) && !a.update(1.5) && !a.update(20) && !a.update(20));
+    CHECK(a.update(20) && a.level() == 0);
+    CHECK(!a.update(0.2) && a.level() == 0);  // no measure: kept
+    a.reset();
+    CHECK(a.level() == 1);
+    for (int s = 1; s <= 5; ++s) CHECK(!a.update(1.0));  // a new stream: the first 5 s again
+}
+
 int main() {
+    testAutoDeband();
     testAccentColor();
     testVersions();
     testStreamMenu();

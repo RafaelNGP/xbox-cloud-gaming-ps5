@@ -70,6 +70,7 @@ add_library(xcloud_ui STATIC
     src/app/library.cpp
     src/app/settings.cpp
     src/app/update_check.cpp
+    src/app/auto_deband.cpp
     extern/qrcodegen/qrcodegen.c
 )
 target_compile_definitions(xcloud_ui PUBLIC XC_APP_VERSION="${PROJECT_VERSION}")
@@ -82,6 +83,10 @@ if(XCLOUD_PS5)
     # The app itself: linked into eboot.bin by tools/ps5/link.sh.
     add_library(xcloud_app STATIC
         src/app/ps5_main.cpp
+        src/app/worker.cpp
+        src/app/stream_screen.cpp
+        src/app/price_loop.cpp
+        src/app/autoplay.cpp
         src/app/stream_player.cpp
         src/display/display.cpp
         src/display/gpu.cpp
