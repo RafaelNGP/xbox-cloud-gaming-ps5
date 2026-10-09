@@ -201,6 +201,15 @@ int main(int argc, char** argv) {
     // Never return from main: the app is closed from the home screen.
     input::ControllerState prev{}, pad{};
     Repeater up, down, left, right, dpadLeft, dpadRight;
+    // Smooth scrolling: rows / cards still to move (fractions carry over),
+    // the touchpad's last point, and its speed for the glide after release.
+    struct {
+        float rows = 0, cards = 0;
+        bool touching = false;
+        float x = 0, y = 0;
+        float vRows = 0, vCards = 0;  // per second
+        uint64_t lastMs = 0;
+    } scroll;
     StreamScreen streamScreen(fonts);  // the game's menu and what is laid over it
     uint64_t padsCheckedAt = 0;
     unsigned padChecks = 0;
@@ -217,6 +226,11 @@ int main(int argc, char** argv) {
         }
         input::poll(pad);
         autoplayPad(pad);
+        {
+            // The triggers' resistance: in a game and in its Settings tester only.
+            float l2, r2;
+            input::setTriggerResistanceActive(g_ui->screen() == ui::Screen::Streaming || g_ui->triggerTest(l2, r2));
+        }
         uint64_t now = platform::nowMs();
         if (now - lightBarAt >= 50) {  // the light bar: the game in focus, the user's colour or off
             lightBarAt = now;
@@ -274,6 +288,48 @@ int main(int argc, char** argv) {
         nav.dpadRight = dpadRight.update(pad.dpadRight, now);
         nav.rawLX = pad.rawLeftX, nav.rawLY = pad.rawLeftY, nav.rawRX = pad.rawRightX, nav.rawRY = pad.rawRightY;
         nav.l2Analog = pad.triggerL2, nav.r2Analog = pad.triggerR2;
+        // Smooth scrolling. The right stick: a speed that follows how far it
+        // is pushed (up to ~12 rows / 16 cards a second). The touchpad,
+        // touched (not pressed): the list follows the finger (its height ~6
+        // rows, its width ~8 cards; the finger up scrolls up), then glides on
+        // and slows down after release, like two fingers on a laptop's.
+        {
+            float dt = scroll.lastMs ? std::min(0.1f, (now - scroll.lastMs) / 1000.0f) : 0.0f;
+            scroll.lastMs = now;
+            auto speed = [](float v, float top) {
+                float m = (std::abs(v) - 0.15f) / 0.85f;
+                return m <= 0 ? 0.0f : (v < 0 ? -1.0f : 1.0f) * top * m * m;
+            };
+            scroll.rows += speed(pad.rightStickY, 12) * dt;
+            scroll.cards += speed(pad.rightStickX, 16) * dt;
+            constexpr float kRowsPerPad = 6, kCardsPerPad = 8;
+            bool touch = pad.touching && !pad.btnTouchpad && g_ui->screen() == ui::Screen::Home;
+            if (touch && scroll.touching) {
+                float dr = (pad.touchY - scroll.y) * kRowsPerPad, dc = (pad.touchX - scroll.x) * kCardsPerPad;
+                scroll.rows += dr;
+                scroll.cards += dc;
+                if (dt > 0) {  // the finger's speed, smoothed
+                    scroll.vRows = 0.6f * scroll.vRows + 0.4f * dr / dt;
+                    scroll.vCards = 0.6f * scroll.vCards + 0.4f * dc / dt;
+                }
+            } else if (!touch && dt > 0) {  // the glide, slowing down
+                scroll.rows += scroll.vRows * dt;
+                scroll.cards += scroll.vCards * dt;
+                float decay = std::exp(-4.0f * dt);
+                scroll.vRows *= decay;
+                scroll.vCards *= decay;
+                if (std::abs(scroll.vRows) < 0.8f) scroll.vRows = 0;
+                if (std::abs(scroll.vCards) < 0.8f) scroll.vCards = 0;
+            }
+            if (touch && !scroll.touching) scroll.vRows = scroll.vCards = 0;  // a new touch stops a glide
+            scroll.touching = touch;
+            scroll.x = pad.touchX, scroll.y = pad.touchY;
+            if (g_ui->screen() != ui::Screen::Home) scroll.rows = scroll.cards = scroll.vRows = scroll.vCards = 0;
+            nav.scrollRows = static_cast<int>(scroll.rows);
+            nav.scrollCards = static_cast<int>(scroll.cards);
+            scroll.rows -= static_cast<float>(nav.scrollRows);
+            scroll.cards -= static_cast<float>(nav.scrollCards);
+        }
         nav.nowMs = now;
         bool menuCombo = pad.btnOptions && pad.btnTouchpad && !(prev.btnOptions && prev.btnTouchpad);
         prev = pad;

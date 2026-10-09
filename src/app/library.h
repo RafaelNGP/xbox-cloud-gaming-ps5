@@ -82,6 +82,7 @@ private:
     struct RowIds {
         std::string title;
         bool badges = true;
+        bool isGrid = false;
         std::vector<Item> items;
     };
     ui::GameTile tile(const std::string& productId, const std::string& titleId) const;

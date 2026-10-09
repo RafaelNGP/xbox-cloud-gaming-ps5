@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <ctime>
 #include <map>
 
 namespace xc::app {
@@ -39,6 +40,7 @@ json::Value productToJson(const xcloud::Product& p) {
     v.set("categories", cats);
     if (p.detailed) {
         v.set("d", true);
+        v.set("at", p.detailedAt);
         v.set("modes", static_cast<int64_t>(p.modes));
         json::Value langs = json::Value::object();
         for (const auto& [lang, bits] : p.languages) langs.set(lang, static_cast<int64_t>(bits));
@@ -60,6 +62,8 @@ xcloud::Product productFromJson(const std::string& id, const json::Value& v) {
     p.heroUrl = v["hero"].str();
     for (const auto& c : v["categories"].items()) p.categories.push_back(xcloud::categoryName(c.str()));
     p.detailed = v["d"].asBool(false);
+    // Details from before their date was kept count from now (not all due at once).
+    p.detailedAt = v["at"].asInt(static_cast<int64_t>(std::time(nullptr)));
     p.modes = static_cast<uint32_t>(v["modes"].asInt(0));
     for (const auto& [lang, bits] : v["langs"].members()) p.languages[lang] = static_cast<uint8_t>(bits.asInt(0));
     return p;
@@ -195,6 +199,7 @@ std::vector<ui::GameRow> Library::rows() const {
         ui::GameRow row;
         row.title = r.title;
         row.gamePassBadges = r.badges;
+        row.isGrid = r.isGrid;
         for (const auto& [pid, tid] : r.items) {
             ui::GameTile t = tile(pid, tid);
             if (t.productId.empty() || t.titleId.empty()) continue;
@@ -353,7 +358,7 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
     // in "Your games").
     std::vector<xcloud::Title> recent;
     if (gssv.listTitles(recent, lastErr, true)) {
-        RowIds r{ui::tr(ui::Str::JumpBackIn), false, {}};
+        RowIds r{ui::tr(ui::Str::JumpBackIn), false, false, {}};
         std::vector<std::string> ids;
         for (const auto& t : recent) {
             if (t.productId.empty()) continue;
@@ -386,10 +391,11 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
                               {xcloud::sigl::kMostPopular, 40},
                               {xcloud::sigl::kFreeToPlay, 40},
                               {xcloud::sigl::kLeavingSoon, 40},
-                              {xcloud::sigl::kAllGames, 120}};
+                              {xcloud::sigl::kAllGames, 0}};
     for (const auto& spec : lists) {
         xcloud::ProductList list;
-        if (spec.sigl == xcloud::sigl::kAllGames && !all.productIds.empty()) {
+        bool isAllGames = std::string_view(spec.sigl) == xcloud::sigl::kAllGames;
+        if (isAllGames && !all.productIds.empty()) {
             list = all;
         } else if (!xcloud::fetchList(spec.sigl, market_, language_, list, e)) {
             XC_LOGW("%s", e.c_str());
@@ -415,7 +421,7 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
                 XC_LOGI("library: %s: %zu of %zu not in Game Pass, left out", list.title.c_str(),
                         before - list.productIds.size(), before);
         }
-        if (list.productIds.size() > spec.limit) list.productIds.resize(spec.limit);
+        if (spec.limit > 0 && list.productIds.size() > spec.limit) list.productIds.resize(spec.limit);
         std::vector<std::string> missing;
         for (const auto& id : list.productIds)
             if (!products_.count(id)) missing.push_back(id);
@@ -424,7 +430,7 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
             lastErr = e;
             continue;
         }
-        RowIds r{list.title, !freeToPlay, {}};
+        RowIds r{list.title, !freeToPlay, isAllGames, {}};
         for (const auto& id : list.productIds) r.items.emplace_back(id, std::string());
         layout_.push_back(std::move(r));
         changed();
@@ -528,6 +534,7 @@ void Library::loadCatalogNames(const Changed& changed, const std::atomic<bool>* 
                 if (p.description.empty() && !otherLanguage_.count(id)) p.description = old->second.description;
                 if (!p.detailed && old->second.detailed) {  // modes and languages don't change with the language
                     p.detailed = true;
+                    p.detailedAt = old->second.detailedAt;
                     p.modes = old->second.modes;
                     p.languages = old->second.languages;
                 }
@@ -659,6 +666,41 @@ void Library::hydrate(const Changed& changed, const std::atomic<bool>* stop) {
     ids.insert(ids.end(), allGames_.begin(), allGames_.end());
     uint64_t t0 = platform::nowMs();
     fetchFull(ids, changed, stop);
+    // The store changes descriptions and details now and then: the oldest
+    // few (over 30 days) are fetched again on each start, never all at once.
+    constexpr int64_t kRefreshAge = 30 * 24 * 3600;
+    constexpr size_t kRefreshPerStart = 40;
+    int64_t now = static_cast<int64_t>(std::time(nullptr));
+    std::vector<std::pair<int64_t, std::string>> old;
+    for (const auto& [id, p] : products_)
+        if (p.detailed && p.detailedAt && now - p.detailedAt > kRefreshAge) old.push_back({p.detailedAt, id});
+    std::sort(old.begin(), old.end());
+    if (old.size() > kRefreshPerStart) old.resize(kRefreshPerStart);
+    if (!old.empty() && !(stop && *stop)) {
+        std::vector<std::string> refresh;
+        for (const auto& [at, id] : old) refresh.push_back(id);
+        size_t done = 0;
+        for (size_t i = 0; i < refresh.size(); i += 20) {
+            std::vector<std::string> batch(refresh.begin() + static_cast<long>(i),
+                                           refresh.begin() + static_cast<long>(std::min(refresh.size(), i + 20)));
+            std::map<std::string, xcloud::Product> fresh;
+            std::string e;
+            if (!xcloud::fetchProducts(batch, market_, language_, fresh, e, true)) {
+                XC_LOGW("%s (refresh: next start)", e.c_str());
+                break;
+            }
+            for (const auto& id : batch) {
+                auto it = fresh.find(id);
+                if (it != fresh.end()) products_[id] = std::move(it->second), ++done;
+                else products_[id].detailedAt = now;  // gone from the catalog's details: not asked again for a while
+            }
+        }
+        XC_LOGI("library: %zu of %zu old details refreshed (%zu over 30 days in all)", done, refresh.size(),
+                static_cast<size_t>(std::count_if(products_.begin(), products_.end(), [&](const auto& kv) {
+                    return kv.second.detailed && now - kv.second.detailedAt > kRefreshAge;
+                })));
+        changed();
+    }
     saveCache();  // descriptions, hero art, modes and languages for next time
     size_t detailed = 0;
     for (const auto& [id, p] : products_) detailed += p.detailed;
