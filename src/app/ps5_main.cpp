@@ -25,6 +25,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 
 extern "C" int sceSystemServiceHideSplashScreen(void);
 
@@ -89,7 +90,8 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.deadzone = ui::kDeadzonePercent[choice.deadzone];
         g_settings.triggerRumble = choice.triggerRumble;
         g_settings.circleConfirms = choice.circleConfirms;
-        g_settings.lightBar = choice.lightBar;
+        g_settings.lightBarMode = choice.lightBarMode;
+        g_settings.lightBarColour = choice.lightBarColour;
         if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
         XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
                 g_settings.region.empty() ? "auto" : g_settings.region.c_str());
@@ -170,8 +172,10 @@ int main(int argc, char** argv) {
         choice.deadzone = deadzoneIndex(g_settings.deadzone);
         choice.triggerRumble = g_settings.triggerRumble;
         choice.circleConfirms = g_settings.circleConfirms;
-        choice.lightBar = g_settings.lightBar;
+        choice.lightBarMode = g_settings.lightBarMode;
+        choice.lightBarColour = g_settings.lightBarColour;
         g_ui->setAllow1440(allow1440Locked());
+        g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
         g_ui->setSettings(choice);
         applyControllerSettings();
         g_ui->setRegionLatency(g_settings.regionRtt);
@@ -212,18 +216,21 @@ int main(int argc, char** argv) {
         input::poll(pad);
         autoplayPad(pad);
         uint64_t now = platform::nowMs();
-        if (now - lightBarAt >= 100) {  // the light bar follows the game in focus
+        if (now - lightBarAt >= 50) {  // the light bar: the game in focus, the user's colour or off
             lightBarAt = now;
-            bool on;
-            {
-                std::lock_guard<std::mutex> lock(g_settingsMutex);
-                on = g_settings.lightBar;
-            }
+            int mode;
             ui::Color c;
-            if (!on) {
+            if (!g_ui->settingsLightBar(mode, c)) {  // Settings shows a choice at once, before it is saved
+                std::lock_guard<std::mutex> lock(g_settingsMutex);
+                mode = g_settings.lightBarMode;
+                c = g_settings.lightBarColour;
+            }
+            if (mode == 2) {
                 if (lightBarSet) input::resetLightBar(0);
                 lightBarSet = false;
-            } else if (g_ui->accentColor(c)) {
+            } else if (mode == 1 || g_ui->accentColor(c)) {
+                static ui::Color logged = 0;
+                if (!g_autoplay.title.empty() && c != logged) XC_LOGI("light bar: #%06X", c & 0xFFFFFF), logged = c;
                 input::setLightBar(static_cast<uint8_t>(c), static_cast<uint8_t>(c >> 8), static_cast<uint8_t>(c >> 16));
                 lightBarSet = true;
             }
@@ -259,6 +266,8 @@ int main(int argc, char** argv) {
         nav.l2 = pad.triggerL2 > 0.5f && prev.triggerL2 <= 0.5f;
         nav.r2 = pad.triggerR2 > 0.5f && prev.triggerR2 <= 0.5f;
         nav.touchpad = pad.btnTouchpad;
+        nav.stickX = pad.leftStickX;
+        nav.stickY = pad.leftStickY;
         nav.nowMs = now;
         bool menuCombo = pad.btnOptions && pad.btnTouchpad && !(prev.btnOptions && prev.btnTouchpad);
         prev = pad;
@@ -271,6 +280,13 @@ int main(int argc, char** argv) {
         streamScreen.idle();
 
         ui::UiEvent ev = g_ui->handle(nav);
+        if (bool circle = g_ui->circleConfirms(); circle != input::circleConfirms()) {
+            // The confirm button just changed in Settings: the pad follows at
+            // once, and a button still held from choosing it isn't a new press.
+            input::setCircleConfirms(circle);
+            std::swap(prev.btnA, prev.btnB);
+            XC_LOGI("confirm button: %s", circle ? "circle" : "cross");
+        }
         switch (ev.action) {
             case ui::Action::Play: {
                 std::lock_guard<std::mutex> lock(g_argMutex);

@@ -114,8 +114,6 @@ enum class Str {
     ConfirmButton,    // settings: which button is Xbox A
     Activated,        // feminine on/off where the language needs it
     Deactivated,
-    ButtonCross,
-    ButtonCircle,
     UpdateAvailable,  // the update pop-up's title; "%s" = the new version
     Controllers,      // in-game menu: the pads in use
     PadConnected,     // "%s" = "2 (user name)"
@@ -124,7 +122,7 @@ enum class Str {
     StatOnScreen,     // network arrival to on the TV
     Reconnecting,     // the connection dropped mid-game
     Reconnected,
-    LightBar,         // settings: the light bar takes the game's colour
+    LightBar,         // settings: the DualSense light bar's colour
     MenuUpscaler,     // game menu: how the picture is upscaled to 4K
     UpscalerAi,       // the Anime4K network
     FreeToPlay,       // details: a free-to-play game not on the account yet
@@ -170,6 +168,10 @@ enum class Str {
     UpdateRestarting,
     UpdateReopen,       // notification when it couldn't restart
     UpdateFailed,       // toast; nothing was changed
+    LightBarGame,       // Settings > Light bar: the game's colour
+    LightBarCustom,     // Settings > Light bar: one the user picks
+    LightBarColour,     // the colour picker's title
+    ColourPickerHelp,   // under the colour picker
     Count
 };
 

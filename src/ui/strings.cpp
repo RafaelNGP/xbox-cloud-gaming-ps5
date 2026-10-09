@@ -137,8 +137,6 @@ constexpr Column kEnglish = {
     "Confirm button",                                // ConfirmButton
     "On",                                            // Activated
     "Off",                                           // Deactivated
-    "Cross",                                     // ButtonCross
-    "Circle",                                    // ButtonCircle
     "Version %s available",                          // UpdateAvailable
     "Controllers",                                   // Controllers
     "Controller %s connected",                       // PadConnected
@@ -147,7 +145,7 @@ constexpr Column kEnglish = {
     "On screen after",                               // StatOnScreen
     "Connection lost: reconnecting...",              // Reconnecting
     "Reconnected",                                   // Reconnected
-    "Light bar in the game's colour",                // LightBar
+    "Light bar",                                     // LightBar
     "Upscaling",                                     // MenuUpscaler
     "AI (Anime4K)",                                  // UpscalerAi
     "Free to play",                                  // FreeToPlay
@@ -193,6 +191,10 @@ constexpr Column kEnglish = {
     "Updated. Restarting...",                        // UpdateRestarting
     "PSBox updated: open the app again",             // UpdateReopen
     "Update failed: nothing was changed",            // UpdateFailed
+    "Game colour",                                   // LightBarGame
+    "Custom colour",                                 // LightBarCustom
+    "Light bar colour",                              // LightBarColour
+    "Left stick or D-pad: colour    L2 / R2: brightness", // ColourPickerHelp
 };
 
 constexpr Column kPortugueseBR = {
@@ -300,8 +302,6 @@ constexpr Column kPortugueseBR = {
     "Botão de confirmar",
     "Ativada",
     "Desativada",
-    "Xis",
-    "Círculo",
     "Versão %s disponível",
     "Controles",
     "Controle %s conectado",
@@ -310,7 +310,7 @@ constexpr Column kPortugueseBR = {
     "Na tela após",
     "Conexão perdida: reconectando...",
     "Reconectado",
-    "Barra de luz com a cor do jogo",
+    "Barra de luz",
     "Ampliação",
     "IA (Anime4K)",
     "Grátis para jogar",
@@ -356,6 +356,10 @@ constexpr Column kPortugueseBR = {
     "Atualizado. Reiniciando...",
     "PSBox atualizado: abra o app de novo",
     "A atualização falhou: nada foi alterado",
+    "Cor do jogo",
+    "Cor personalizada",
+    "Cor da barra de luz",
+    "Analógico esquerdo ou direcional: cor    L2 / R2: brilho",
 };
 
 constexpr Column kSpanish = {
@@ -463,8 +467,6 @@ constexpr Column kSpanish = {
     "Botón de confirmar",
     "Activada",
     "Desactivada",
-    "Equis",
-    "Círculo",
     "Versión %s disponible",
     "Mandos",
     "Mando %s conectado",
@@ -473,7 +475,7 @@ constexpr Column kSpanish = {
     "En pantalla tras",
     "Conexión perdida: reconectando...",
     "Reconectado",
-    "Barra de luz con el color del juego",
+    "Barra de luz",
     "Escalado",
     "IA (Anime4K)",
     "Gratis para jugar",
@@ -519,6 +521,10 @@ constexpr Column kSpanish = {
     "Actualizado. Reiniciando...",
     "PSBox actualizado: abre la app de nuevo",
     "La actualización falló: no se cambió nada",
+    "Color del juego",
+    "Color personalizado",
+    "Color de la barra de luz",
+    "Stick izquierdo o cruceta: color    L2 / R2: brillo",
 };
 
 constexpr Column kFrench = {
@@ -626,8 +632,6 @@ constexpr Column kFrench = {
     "Bouton de validation",
     "Activée",
     "Désactivée",
-    "Croix",
-    "Rond",
     "Version %s disponible",
     "Manettes",
     "Manette %s connectée",
@@ -636,7 +640,7 @@ constexpr Column kFrench = {
     "À l'écran après",
     "Connexion perdue : reconnexion...",
     "Reconnecté",
-    "Barre lumineuse aux couleurs du jeu",
+    "Barre lumineuse",
     "Mise à l'échelle",
     "IA (Anime4K)",
     "Gratuit",
@@ -682,6 +686,10 @@ constexpr Column kFrench = {
     "Mis à jour. Redémarrage...",
     "PSBox mis à jour : rouvrez l'app",
     "Échec de la mise à jour : rien n'a changé",
+    "Couleur du jeu",
+    "Couleur personnalisée",
+    "Couleur de la barre lumineuse",
+    "Joystick gauche ou croix : couleur    L2 / R2 : luminosité",
 };
 
 constexpr Column kGerman = {
@@ -789,8 +797,6 @@ constexpr Column kGerman = {
     "Bestätigungstaste",
     "An",
     "Aus",
-    "Kreuz",
-    "Kreis",
     "Version %s verfügbar",
     "Controller",
     "Controller %s verbunden",
@@ -799,7 +805,7 @@ constexpr Column kGerman = {
     "Auf dem Bildschirm nach",
     "Verbindung verloren: neu verbinden...",
     "Wieder verbunden",
-    "Lichtleiste in der Farbe des Spiels",
+    "Lichtleiste",
     "Hochskalierung",
     "KI (Anime4K)",
     "Free-to-play",
@@ -845,6 +851,10 @@ constexpr Column kGerman = {
     "Aktualisiert. Neustart...",
     "PSBox aktualisiert: App erneut öffnen",
     "Update fehlgeschlagen: nichts wurde geändert",
+    "Farbe des Spiels",
+    "Eigene Farbe",
+    "Farbe der Lichtleiste",
+    "Linker Stick oder Steuerkreuz: Farbe    L2 / R2: Helligkeit",
 };
 
 constexpr Column kItalian = {
@@ -952,8 +962,6 @@ constexpr Column kItalian = {
     "Tasto di conferma",
     "Attivata",
     "Disattivata",
-    "Croce",
-    "Cerchio",
     "Versione %s disponibile",
     "Controller",
     "Controller %s connesso",
@@ -962,7 +970,7 @@ constexpr Column kItalian = {
     "Sullo schermo dopo",
     "Connessione persa: riconnessione...",
     "Riconnesso",
-    "Barra luminosa con il colore del gioco",
+    "Barra luminosa",
     "Upscaling",
     "IA (Anime4K)",
     "Free to play",
@@ -1008,6 +1016,10 @@ constexpr Column kItalian = {
     "Aggiornato. Riavvio...",
     "PSBox aggiornato: riapri l'app",
     "Aggiornamento non riuscito: nulla è cambiato",
+    "Colore del gioco",
+    "Colore personalizzato",
+    "Colore della barra luminosa",
+    "Levetta sinistra o croce: colore    L2 / R2: luminosità",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

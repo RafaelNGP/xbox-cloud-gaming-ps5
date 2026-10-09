@@ -236,6 +236,16 @@ static void testSettingsMigration() {
     CHECK(old.save(path));
     xc::app::Settings again;
     CHECK(again.load(path) && again.deband == 3 && again.upscaler == 2);
+    // The light bar's on/off before its colour could be chosen.
+    CHECK(loadFrom(R"({"lightBar":false})").lightBarMode == 2 && loadFrom(R"({"lightBar":true})").lightBarMode == 0);
+    xc::app::Settings custom;
+    custom.lightBarMode = 1;
+    custom.lightBarColour = xc::ui::rgba(0x12, 0x34, 0x56);
+    CHECK(custom.save(path));
+    std::string text;
+    CHECK(xc::platform::readFile(path, text) && text.find("\"#123456\"") != std::string::npos);
+    xc::app::Settings back;
+    CHECK(back.load(path) && back.lightBarMode == 1 && back.lightBarColour == xc::ui::rgba(0x12, 0x34, 0x56));
     std::remove(path.c_str());
 }
 

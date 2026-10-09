@@ -21,11 +21,13 @@ using PadSlots = std::array<PadSlot, 4>;
 // green, pink.
 Color playerColor(int index);
 
-// One pad, `w` wide and w * 2 / 3 high, numbered `index + 1`: in the
-// player's colour when connected, dim when not.
-void drawPadIcon(Canvas& c, const Font& font, int x, int y, int w, int index, bool connected);
+// One pad, a DualSense `w` wide with its number `index + 1` below
+// (padIconHeight(w) in all): in the player's colour when connected, dim
+// when not. Its buttons are cut out in `background`, the colour behind it.
+void drawPadIcon(Canvas& c, const Font& font, int x, int y, int w, int index, bool connected, Color background);
+int padIconHeight(int w);
 
 // The four side by side, `gap` apart; returns the width taken.
-int drawPadRow(Canvas& c, const Font& font, int x, int y, int w, int gap, const PadSlots& pads);
+int drawPadRow(Canvas& c, const Font& font, int x, int y, int w, int gap, const PadSlots& pads, Color background);
 
 }  // namespace xc::ui
