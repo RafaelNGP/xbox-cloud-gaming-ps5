@@ -138,7 +138,8 @@ public:
     // --- Model -------------------------------------------------------------
     void showSplash(const std::string& status);
     void showSignIn(const std::string& code, const std::string& url);
-    void setProfile(const std::string& gamertag, const std::string& gamerpicUrl);
+    // The signed-in account, top right; `gamerscore` (digits) under the name.
+    void setProfile(const std::string& gamertag, const std::string& gamerpicUrl, const std::string& gamerscore = {});
     // Replaces the rows, keeping the focus on the same game when possible.
     void setRows(std::vector<GameRow> rows);
     // "Your games": the account's games, then those to buy; `known` false
@@ -334,7 +335,7 @@ private:
     bool dirty_ = true;
     std::string status_;
     std::string code_, codeUrl_;
-    std::string gamertag_, gamerpicUrl_;
+    std::string gamertag_, gamerpicUrl_, gamerscore_;
     std::vector<GameRow> rows_;
     int focusRow_ = 0;
     std::vector<int> focusCol_;

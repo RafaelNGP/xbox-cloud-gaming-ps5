@@ -132,7 +132,7 @@ bool AuthManager::loginOffering(xcloud::GssvClient& other, std::string& err) con
 
 void AuthManager::fetchGamerpic(const XblToken& xsts) {
     net::Request req;
-    req.url = "https://profile.xboxlive.com/users/me/profile/settings?settings=GameDisplayPicRaw";
+    req.url = "https://profile.xboxlive.com/users/me/profile/settings?settings=GameDisplayPicRaw,Gamerscore";
     req.headers = {{"Authorization", xsts.authorizationHeader()}, {"x-xbl-contract-version", "2"}};
     auto r = net::perform(req);
     auto j = json::parse(r.body);
@@ -142,6 +142,7 @@ void AuthManager::fetchGamerpic(const XblToken& xsts) {
     }
     for (const auto& s : (*j)["profileUsers"][0]["settings"].items())
         if (s["id"].str() == "GameDisplayPicRaw") profile_.gamerpicUrl = s["value"].str();
+        else if (s["id"].str() == "Gamerscore") profile_.gamerscore = s["value"].str();
 }
 
 bool AuthManager::signIn(xcloud::GssvClient& gssv, const DeviceCodeCallback& onCode, std::string& err,

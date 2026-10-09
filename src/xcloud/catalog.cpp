@@ -82,7 +82,7 @@ bool fetchProducts(const std::vector<std::string>& ids, const std::string& marke
             prod.posterUrl = imageUrl(p["Image_Poster"]);
             prod.heroUrl = imageUrl(p["Image_Hero"]);
             if (prod.heroUrl.empty()) prod.heroUrl = imageUrl(p["Image_TitledHero"]);
-            for (const auto& c : p["LocalizedCategories"].items()) prod.categories.push_back(c.str());
+            for (const auto& c : p["LocalizedCategories"].items()) prod.categories.push_back(categoryName(c.str()));
             if (full) {
                 // How it can be played, from the store's attributes.
                 prod.detailed = true;
@@ -111,6 +111,17 @@ bool fetchProducts(const std::vector<std::string>& ids, const std::string& marke
         }
     }
     return true;
+}
+
+std::string categoryName(const std::string& storeName) {
+    static const char* const kMoba[] = {"Multi-Player Online Battle Arena", "Multi-player Online Battle Arena",
+                                        "Arena de batalha online para vários jogadores",
+                                        "Campo de batalla en línea para varios jugadores",
+                                        "Arène de combat multijoueur en ligne", "Multiplayer-Onlinekampfarena",
+                                        "Arena per combattimenti online multiplayer"};
+    for (const char* name : kMoba)
+        if (storeName == name) return "MOBA";
+    return storeName;
 }
 
 }  // namespace xc::xcloud

@@ -60,6 +60,8 @@ struct Autoplay {
     bool updateTest = false;     // updatetest: accept the update pop-up, save update.ppm / updating.ppm
     bool updateSkip = false;     // updateskip: "Not now" on the update pop-up
     bool settingsUpdate = false; // settingsupdate: Settings > Updates, Cross
+    bool quickTest = false;      // quicktest: Hogwarts Legacy's badges, MOBA games, the lock on `lockTitle`
+    std::string lockTitle;       // locktitle=<xCloud title id>: logged playable or locked at once
     bool searchTest = false;     // searchtest: lowest price, Game Pass co-op + dubbed, the genres' list
                                  // (cheapest.ppm, filters.ppm, genres.ppm)
     bool tuneTest = false;       // tunetest: the dead zone's stick tester and the trigger tester (sticks.ppm, triggers.ppm)

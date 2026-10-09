@@ -175,10 +175,11 @@ void AppUi::showSignIn(const std::string& code, const std::string& url) {
     dirty_ = true;
 }
 
-void AppUi::setProfile(const std::string& gamertag, const std::string& gamerpicUrl) {
+void AppUi::setProfile(const std::string& gamertag, const std::string& gamerpicUrl, const std::string& gamerscore) {
     std::lock_guard<std::mutex> lock(mutex_);
     gamertag_ = gamertag;
     gamerpicUrl_ = gamerpicUrl;
+    gamerscore_ = gamerscore;
     dirty_ = true;
 }
 
@@ -1604,8 +1605,25 @@ void AppUi::drawTopBar(Canvas& c) {
         c.fillCircle(x + kAvatar / 2.0f, 72, kAvatar / 2.0f, kPanel);
     }
     if (!gamertag_.empty()) {
+        // The name, and the gamerscore under it (a "G" badge and the number,
+        // its thousands grouped as the language writes them).
+        bool score = !gamerscore_.empty();
         int w = fonts_.semibold.measure(gamertag_, 22);
-        fonts_.semibold.draw(c, gamertag_, x - 16 - w, 59, 22, kWhite);
+        fonts_.semibold.draw(c, gamertag_, x - 16 - w, score ? 46 : 59, 22, kWhite);
+        if (score) {
+            std::string n;
+            const char* sep = language() == Language::English ? "," : ".";
+            for (size_t i = 0; i < gamerscore_.size(); ++i) {
+                if (i && (gamerscore_.size() - i) % 3 == 0) n += sep;
+                n += gamerscore_[i];
+            }
+            int nw = fonts_.semibold.measure(n, 18);
+            int nx = x - 16 - nw;
+            fonts_.semibold.draw(c, n, nx, 76, 18, kGray);
+            float gx = nx - 14.0f, gy = 86;
+            c.strokeArc(gx, gy, 9, 2, 0, 6.2832f, kGray);
+            fonts_.bold.draw(c, "G", static_cast<int>(gx) - fonts_.bold.measure("G", 12) / 2, static_cast<int>(gy) - 8, 12, kGray);
+        }
     }
 }
 

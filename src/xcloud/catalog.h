@@ -53,6 +53,11 @@ struct ProductList {
     std::vector<std::string> productIds;
 };
 
+// A genre as the app shows it: the store's long name for multiplayer online
+// battle arenas, in any of the app's languages, becomes "MOBA" (the name
+// players use); the others stay as the store has them.
+std::string categoryName(const std::string& storeName);
+
 bool fetchList(const std::string& siglId, const std::string& market, const std::string& language, ProductList& out,
                std::string& err);
 // Details for `ids` (batched); products the catalog does not know are absent.
