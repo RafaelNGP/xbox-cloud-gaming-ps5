@@ -64,8 +64,8 @@ std::unique_ptr<ui::ImageCache> g_images;
 // Dead zone, trigger vibration and confirm button from g_settings.
 void applyControllerSettings() {
     std::lock_guard<std::mutex> lock(g_settingsMutex);
-    input::setDeadzone(g_settings.deadzone / 100.0f);
-    input::setTriggerFeel(g_settings.triggerStrength, input::kTriggerHz[std::clamp(g_settings.triggerHz, 0, 2)]);
+    input::setDeadzone(g_settings.deadzoneLeft / 100.0f, g_settings.deadzoneRight / 100.0f);
+    input::setTriggerFeel(g_settings.triggerStrength, g_settings.triggerHz, g_settings.triggerResistance, g_settings.triggerPulses);
     input::setCircleConfirms(g_settings.circleConfirms);
     if (g_ui) g_ui->setCircleConfirms(g_settings.circleConfirms);
 }
@@ -81,9 +81,12 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.language = code;
         g_settings.resolution = choice.resolution == 1 ? "720p" : choice.resolution == 2 ? "1440p" : "1080p";
         g_settings.region = choice.region;
-        g_settings.deadzone = choice.deadzone;
+        g_settings.deadzoneLeft = choice.deadzone[0];
+        g_settings.deadzoneRight = choice.deadzone[1];
         g_settings.triggerStrength = choice.triggerStrength;
         g_settings.triggerHz = choice.triggerHz;
+        g_settings.triggerResistance = choice.triggerResistance;
+        g_settings.triggerPulses = choice.triggerPulses;
         g_settings.circleConfirms = choice.circleConfirms;
         g_settings.lightBarMode = choice.lightBarMode;
         g_settings.lightBarColour = choice.lightBarColour;
@@ -164,9 +167,12 @@ int main(int argc, char** argv) {
         choice.language = static_cast<int>(ui::language());
         choice.resolution = g_settings.resolution == "720p" ? 1 : g_settings.resolution == "1440p" ? 2 : 0;
         choice.region = g_settings.region;
-        choice.deadzone = std::clamp(g_settings.deadzone, 0, ui::kMaxDeadzone);
+        choice.deadzone[0] = std::clamp(g_settings.deadzoneLeft, 0, ui::kMaxDeadzone);
+        choice.deadzone[1] = std::clamp(g_settings.deadzoneRight, 0, ui::kMaxDeadzone);
         choice.triggerStrength = g_settings.triggerStrength;
         choice.triggerHz = g_settings.triggerHz;
+        choice.triggerResistance = g_settings.triggerResistance;
+        choice.triggerPulses = g_settings.triggerPulses;
         choice.circleConfirms = g_settings.circleConfirms;
         choice.lightBarMode = g_settings.lightBarMode;
         choice.lightBarColour = g_settings.lightBarColour;
@@ -280,12 +286,15 @@ int main(int argc, char** argv) {
         streamScreen.idle();
 
         ui::UiEvent ev = g_ui->handle(nav);
-        if (int strength, hz; g_ui->settingsTriggerFeel(strength, hz)) {
-            // Settings: the trigger vibration as chosen there, at once; its
-            // tester makes the triggers vibrate as far as they are pressed.
-            input::setTriggerFeel(strength, input::kTriggerHz[std::clamp(hz, 0, 2)]);
+        int strength, hz, resistance;
+        bool pulses;
+        if (g_ui->settingsTriggerFeel(strength, hz, resistance, pulses)) {
+            // Settings: the triggers' feel as chosen there, at once; their
+            // tester makes them vibrate as far as they are pressed.
+            input::setTriggerFeel(strength, hz, resistance, pulses);
             float l2, r2;
             static bool testing = false;
+            input::setTriggerLogging(g_ui->triggerTest(l2, r2));
             if (g_ui->triggerTest(l2, r2)) {
                 input::setTriggerRumble(static_cast<uint8_t>(std::lround(l2 * 255)), static_cast<uint8_t>(std::lround(r2 * 255)), 500);
                 testing = true;

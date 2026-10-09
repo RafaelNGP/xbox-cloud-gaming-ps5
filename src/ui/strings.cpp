@@ -209,7 +209,11 @@ constexpr Column kEnglish = {
     "Right stick",                                   // StickRight
     "Stick position",                                // StickPosition
     "What the game gets",                            // StickGameGets
-    "D-pad ← / →: adjust    Move the sticks to see it", // StickTestHelp
+    "L1 / R1: choose the stick    D-pad ← / →: adjust    Move the sticks to see it", // StickTestHelp
+    "Resistance",                                    // TriggerResistance
+    "Style",                                         // TriggerStyle
+    "Vibration",                                     // StyleVibration
+    "Force pulses",                                  // StylePulses
 };
 
 constexpr Column kPortugueseBR = {
@@ -389,7 +393,11 @@ constexpr Column kPortugueseBR = {
     "Analógico direito",
     "Posição real",
     "O que o jogo recebe",
-    "Direcional ← / →: ajustar    Mova os analógicos para ver",
+    "L1 / R1: escolher o analógico    Direcional ← / →: ajustar    Mova os analógicos para ver",
+    "Resistência",
+    "Estilo",
+    "Vibração",
+    "Pulsos de força",
 };
 
 constexpr Column kSpanish = {
@@ -569,7 +577,11 @@ constexpr Column kSpanish = {
     "Stick derecho",
     "Posición real",
     "Lo que recibe el juego",
-    "Cruceta ← / →: ajustar    Mueve los sticks para verlo",
+    "L1 / R1: elegir el stick    Cruceta ← / →: ajustar    Mueve los sticks para verlo",
+    "Resistencia",
+    "Estilo",
+    "Vibración",
+    "Pulsos de fuerza",
 };
 
 constexpr Column kFrench = {
@@ -749,7 +761,11 @@ constexpr Column kFrench = {
     "Joystick droit",
     "Position réelle",
     "Ce que reçoit le jeu",
-    "Croix ← / → : régler    Bougez les joysticks pour le voir",
+    "L1 / R1 : choisir le joystick    Croix ← / → : régler    Bougez les joysticks pour le voir",
+    "Résistance",
+    "Style",
+    "Vibration",
+    "Impulsions de force",
 };
 
 constexpr Column kGerman = {
@@ -929,7 +945,11 @@ constexpr Column kGerman = {
     "Rechter Stick",
     "Tatsächliche Position",
     "Was das Spiel bekommt",
-    "Steuerkreuz ← / →: einstellen    Sticks bewegen zum Sehen",
+    "L1 / R1: Stick wählen    Steuerkreuz ← / →: einstellen    Sticks bewegen zum Sehen",
+    "Widerstand",
+    "Stil",
+    "Vibration",
+    "Kraftimpulse",
 };
 
 constexpr Column kItalian = {
@@ -1109,7 +1129,11 @@ constexpr Column kItalian = {
     "Levetta destra",
     "Posizione reale",
     "Ciò che riceve il gioco",
-    "Croce ← / →: regolare    Muovi le levette per vederlo",
+    "L1 / R1: scegliere la levetta    Croce ← / →: regolare    Muovi le levette per vederlo",
+    "Resistenza",
+    "Stile",
+    "Vibrazione",
+    "Impulsi di forza",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

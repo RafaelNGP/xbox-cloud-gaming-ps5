@@ -32,11 +32,13 @@ struct Settings {
     int upscaler = 2;
     // Controller: stick dead zone (percent), vibration in the triggers,
     // Circle as the confirm button (Xbox A).
-    int deadzone = 15;
+    int deadzoneLeft = 15, deadzoneRight = 15;  // percent, each stick's own
     // Trigger vibration: strength 0 (off) .. 4 (max), its frequency as an
     // index into input::kTriggerHz (input/tuning.h).
     int triggerStrength = 2;
     int triggerHz = 1;
+    int triggerResistance = 0;   // 0 off .. 3 strong (the triggers' weight)
+    bool triggerPulses = false;  // pulses of the resistance instead of the motor vibrating
     bool circleConfirms = false;
     // The DualSense light bar: 0 the colour of the game in focus, 1
     // lightBarColour, 2 off.

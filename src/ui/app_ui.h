@@ -83,9 +83,11 @@ struct SettingsChoice {
     int language = 0;      // ui::Language
     int resolution = 0;    // 0 = 1080p, 1 = 720p, 2 = 1440p (experimental)
     std::string region;    // gssv region name; empty = automatic
-    int deadzone = 15;     // percent of the stick's travel, 0..kMaxDeadzone
-    int triggerStrength = 2;  // 0 off .. 4 max (input/tuning.h)
-    int triggerHz = 1;        // index into input::kTriggerHz
+    int deadzone[2] = {15, 15};  // left, right stick: percent of the travel, 0..kMaxDeadzone
+    int triggerStrength = 2;     // 0 off .. 4 max (input/tuning.h)
+    int triggerHz = 1;           // index into input::kTriggerHz
+    int triggerResistance = 0;   // 0 off .. 3 strong
+    bool triggerPulses = false;  // force pulses instead of the motor vibrating
     bool circleConfirms = false;  // Circle is Xbox A (and Cross is B)
     int lightBarMode = 0;         // 0 the game's colour, 1 lightBarColour, 2 off
     Color lightBarColour = rgba(0, 112, 220);
@@ -194,7 +196,7 @@ public:
     // The same for the trigger vibration (strength, frequency index), and,
     // while its tester is open, how far each trigger is pressed: the app
     // makes them vibrate as a game asking that much would.
-    bool settingsTriggerFeel(int& strength, int& hzIndex) const;
+    bool settingsTriggerFeel(int& strength, int& hzIndex, int& resistance, bool& pulses) const;
     bool triggerTest(float& l2, float& r2) const;
     // Regions offered by the account's xCloud login; `defaultRegion` is the
     // one "Automatic" picks.
@@ -370,8 +372,9 @@ private:
     std::string updatingTo_, updateStatus_;
     float updateFraction_ = -1;
     Tester tester_ = Tester::None;
-    int testerBackup_[2] = {0, 0};  // what Circle puts back
-    int testerRow_ = 0;             // the trigger tester: 0 intensity, 1 frequency
+    SettingsChoice testerBackup_;  // what Circle puts back
+    int testerRow_ = 0;            // the trigger tester's row: intensity, frequency, resistance, style
+    int testerStick_ = 0;          // the stick tester: the one being adjusted (L1 / R1)
     float testSticks_[4] = {0, 0, 0, 0}, testL2_ = 0, testR2_ = 0;
     bool pickerOpen_ = false;
     float pickU_ = 0, pickV_ = 0;  // on the wheel: angle = hue, distance = saturation

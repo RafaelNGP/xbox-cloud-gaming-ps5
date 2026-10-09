@@ -187,6 +187,10 @@ enum class Str {
     StickPosition,      // legend: the grey dot
     StickGameGets,      // legend: the green dot
     StickTestHelp,      // under the stick tester
+    TriggerResistance,  // the trigger tester: the triggers' weight
+    TriggerStyle,       // the trigger tester: how the game's vibration is felt
+    StyleVibration,
+    StylePulses,        // the resistance pushing and letting go
     Count
 };
 

@@ -240,6 +240,11 @@ static void testSettingsMigration() {
     CHECK(again.load(path) && again.deband == 3 && again.upscaler == 2);
     // The triggers' on/off before their strength could be chosen.
     CHECK(loadFrom(R"({"triggerRumble":false})").triggerStrength == 0 && loadFrom("{}").triggerStrength == 2);
+    // One dead zone for both sticks, until each could have its own.
+    auto one = loadFrom(R"({"deadzone":22})");
+    CHECK(one.deadzoneLeft == 22 && one.deadzoneRight == 22);
+    auto two = loadFrom(R"({"deadzone":22,"deadzoneLeft":8,"deadzoneRight":30})");
+    CHECK(two.deadzoneLeft == 8 && two.deadzoneRight == 30);
     // The light bar's on/off before its colour could be chosen.
     CHECK(loadFrom(R"({"lightBar":false})").lightBarMode == 2 && loadFrom(R"({"lightBar":true})").lightBarMode == 0);
     xc::app::Settings custom;
@@ -405,6 +410,18 @@ static void testControllerTuning() {
     CHECK(triggerAmplitude(38, 0) == 0 && triggerAmplitude(0, 4) == 0);
     CHECK(triggerAmplitude(38, 1) == 2 && triggerAmplitude(38, 3) == 6 && triggerAmplitude(38, 4) == 8);
     CHECK(triggerAmplitude(255, 3) == 8 && triggerAmplitude(1, 1) == 1);
+
+    using xc::input::triggerCommand;
+    auto vib = triggerCommand(38, 2, 1, 2, false, 0);  // vibration style: the motor, 60 Hz
+    CHECK(vib.mode == 3 && vib.data[1] == 4 && vib.data[2] == 60);
+    auto still = triggerCommand(0, 2, 1, 2, false, 0);  // no request: the medium resistance (from 3, strength 4)
+    CHECK(still.mode == 1 && still.data[0] == 3 && still.data[1] == 4);
+    CHECK(triggerCommand(0, 2, 1, 0, false, 0).mode == 0);  // no resistance: off
+    // Pulses (20 Hz: 25 ms push, 25 ms release) keep the weight: base 3 + amplitude 4.
+    auto push = triggerCommand(38, 2, 1, 2, true, 0), release = triggerCommand(38, 2, 1, 2, true, 30);
+    CHECK(push.mode == 1 && push.data[1] == 7 && release.mode == 1 && release.data[1] == 3);
+    CHECK(triggerCommand(38, 2, 1, 0, true, 30).mode == 0);  // no resistance: released is off
+    CHECK(triggerCommand(38, 0, 1, 2, true, 0) == still);    // vibration off: only the weight
 }
 
 static void testAutoDeband() {

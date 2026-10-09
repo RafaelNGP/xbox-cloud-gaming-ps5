@@ -130,9 +130,10 @@ void autoplayPad(input::ControllerState& pad) {
     if (!g_autoplay.title.empty() && !g_autoplay.pad) pad = input::ControllerState{};
     if (g_autoplay.tuneTest && uiSaved) {
         // Settings, down to the dead zone, its tester: the left stick inside
-        // the dead zone, the right one out, the dead zone 15 -> 20 % (saved),
-        // Circle. Down to the trigger vibration, its tester: strong, high
-        // frequency, L2 a little and R2 60 % (saved), Circle.
+        // its dead zone, the right one out; left 15 -> 20 %, R1, right 15 ->
+        // 12 % (saved), Circle. Down to the trigger vibration, its tester:
+        // strong, high frequency, strong resistance, force pulses; L2 alone,
+        // then R2 alone (saved), Circle.
         static uint64_t since = 0;
         uint64_t now = platform::nowMs();
         if (!since) since = now;
@@ -144,15 +145,18 @@ void autoplayPad(input::ControllerState& pad) {
             return false;
         };
         pad.btnOptions = in(500, 150);
-        pad.dpadDown = pulses(1000, 3) || in(6500, 120) || in(7900, 120);
-        pad.btnA = in(2000, 150) || in(7000, 150);
-        pad.btnB = in(5500, 150) || in(11500, 150);
-        pad.dpadRight = pulses(3000, 5) || in(7500, 120) || in(8300, 120);
-        if (in(2500, 3500)) pad.rawLeftX = 0.1f, pad.rawLeftY = 0.06f, pad.rawRightX = 0.7f, pad.rawRightY = -0.4f;
-        if (in(8700, 2300)) pad.triggerL2 = 0.15f, pad.triggerR2 = 0.6f;
-        if (in(5000, 20)) tuneShot = "sticks.ppm";
-        if (in(10000, 20)) tuneShot = "triggers.ppm";
-        if (in(12500, 20)) {
+        pad.dpadDown = pulses(1000, 3) || in(8000, 120) || in(9400, 120) || in(10200, 120) || in(11600, 120);
+        pad.btnA = in(2000, 150) || in(8500, 150);
+        pad.btnB = in(7500, 150) || in(16500, 150);
+        pad.btnR1 = in(4600, 150);
+        pad.dpadRight = pulses(3000, 5) || in(9000, 120) || in(9800, 120) || pulses(10600, 3) || in(12000, 120);
+        pad.dpadLeft = pulses(5000, 3);
+        if (in(2500, 5000)) pad.rawLeftX = 0.1f, pad.rawLeftY = 0.06f, pad.rawRightX = 0.7f, pad.rawRightY = -0.4f;
+        if (in(12500, 1500)) pad.triggerL2 = 0.5f;  // each trigger alone: the log shows each one
+        if (in(14500, 1500)) pad.triggerR2 = 0.6f;
+        if (in(6500, 20)) tuneShot = "sticks.ppm";
+        if (in(15500, 20)) tuneShot = "triggers.ppm";
+        if (in(17500, 20)) {
             g_autoplay.tuneTest = false;
             XC_LOGI("AUTOPLAY END: tune test");
         }

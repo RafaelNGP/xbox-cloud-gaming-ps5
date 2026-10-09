@@ -71,13 +71,19 @@ void setRumble(uint8_t large, uint8_t small, uint32_t durationMs, int pad = 0);
 // DualSense's adaptive triggers vibrate along their whole travel.
 void setTriggerRumble(uint8_t left, uint8_t right, uint32_t durationMs, int pad = 0);
 // Stick dead zone, 0..0.5 of the travel.
-void setDeadzone(float deadzone);
+// Each stick's own dead zone (0..1 of the travel): a drifting stick can
+// have a bigger one.
+void setDeadzone(float left, float right);
 // Circle reported as Cross (Xbox A) and Cross as Circle, everywhere.
 void setCircleConfirms(bool on);
 bool circleConfirms();
-// How the triggers vibrate: strength 0 (off: setTriggerRumble() is ignored)
-// to kTriggerStrengths - 1, and the frequency in Hz (input/tuning.h).
-void setTriggerFeel(int strength, int hz);
+// How the triggers feel (input/tuning.h): vibration strength 0 (off:
+// setTriggerRumble() is ignored) to kTriggerStrengths - 1, the frequency
+// choice (index), the resistance (weight) and the style (pulses of the
+// resistance instead of the motor vibrating).
+void setTriggerFeel(int strength, int hzIndex, int resistance, bool pulses);
+// Logs each time a trigger starts or stops vibrating (the Settings tester).
+void setTriggerLogging(bool on);
 // The light bar eases (~0.4 s) to this colour; reset gives it back to the
 // system (the player's colour). Any thread; polling applies it.
 void setLightBar(uint8_t r, uint8_t g, uint8_t b, int pad = 0);
