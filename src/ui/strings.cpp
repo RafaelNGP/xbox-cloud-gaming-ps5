@@ -67,7 +67,7 @@ constexpr Column kEnglish = {
     "Automatic (%s)",                                 // RegionAuto
     "1080p (Full HD)",                                // Res1080
     "720p (uses less data)",                          // Res720
-    "1440p (experimental, where available)",          // Res1440
+    "Best (Auto)",                                    // ResBest
     "Resolution and region apply to the next game you start.",  // SettingsNote
     "Change",                                         // Change
     "Hold to sign out",                               // HoldSignOut
@@ -226,6 +226,11 @@ constexpr Column kEnglish = {
     "English",                                       // LanguageNoun
     "Subtitles in %s",                               // LangSubtitles
     "Audio in %s",                                   // LangAudio
+    "Game settings",                                 // GameSettings
+    "Profile",                                       // Profile
+    "Default",                                       // ProfileDefault
+    "Custom",                                        // ProfileCustom
+    "Reset to default",                              // ResetToDefault
 };
 
 constexpr Column kPortugueseBR = {
@@ -263,7 +268,7 @@ constexpr Column kPortugueseBR = {
     "Automática (%s)",
     "1080p (Full HD)",
     "720p (usa menos dados)",
-    "1440p (experimental, onde disponível)",
+    "Melhor (Auto)",
     "A resolução e a região valem a partir do próximo jogo.",
     "Alterar",
     "Segure para sair da conta",
@@ -422,6 +427,11 @@ constexpr Column kPortugueseBR = {
     "português",
     "Legendas em %s",
     "Dublado em %s",
+    "Configurações do jogo",
+    "Perfil",
+    "Padrão",
+    "Personalizado",
+    "Restaurar padrão",
 };
 
 constexpr Column kSpanish = {
@@ -459,7 +469,7 @@ constexpr Column kSpanish = {
     "Automática (%s)",
     "1080p (Full HD)",
     "720p (usa menos datos)",
-    "1440p (experimental, donde esté disponible)",
+    "Mejor (Auto)",
     "La resolución y la región se aplican al próximo juego que inicies.",
     "Cambiar",
     "Mantén para cerrar sesión",
@@ -618,6 +628,11 @@ constexpr Column kSpanish = {
     "español",
     "Subtítulos en %s",
     "Doblado al %s",
+    "Ajustes del juego",
+    "Perfil",
+    "Predeterminado",
+    "Personalizado",
+    "Restaurar predeterminado",
 };
 
 constexpr Column kFrench = {
@@ -655,7 +670,7 @@ constexpr Column kFrench = {
     "Automatique (%s)",
     "1080p (Full HD)",
     "720p (consomme moins de données)",
-    "1440p (expérimental, si disponible)",
+    "Meilleure (Auto)",
     "La résolution et la région s'appliquent au prochain jeu lancé.",
     "Modifier",
     "Maintenez pour vous déconnecter",
@@ -814,6 +829,11 @@ constexpr Column kFrench = {
     "français",
     "Sous-titres en %s",
     "Doublé en %s",
+    "Paramètres du jeu",
+    "Profil",
+    "Par défaut",
+    "Personnalisé",
+    "Réinitialiser",
 };
 
 constexpr Column kGerman = {
@@ -851,7 +871,7 @@ constexpr Column kGerman = {
     "Automatisch (%s)",
     "1080p (Full HD)",
     "720p (verbraucht weniger Daten)",
-    "1440p (experimentell, wo verfügbar)",
+    "Beste (Auto)",
     "Auflösung und Region gelten ab dem nächsten gestarteten Spiel.",
     "Ändern",
     "Halten zum Abmelden",
@@ -1010,6 +1030,11 @@ constexpr Column kGerman = {
     "Deutsch",
     "Untertitel: %s",
     "Sprachausgabe: %s",
+    "Spieleinstellungen",
+    "Profil",
+    "Standard",
+    "Benutzerdefiniert",
+    "Auf Standard zurücksetzen",
 };
 
 constexpr Column kItalian = {
@@ -1047,7 +1072,7 @@ constexpr Column kItalian = {
     "Automatica (%s)",
     "1080p (Full HD)",
     "720p (usa meno dati)",
-    "1440p (sperimentale, dove disponibile)",
+    "Migliore (Auto)",
     "Risoluzione e regione valgono dal prossimo gioco avviato.",
     "Cambia",
     "Tieni premuto per uscire",
@@ -1206,6 +1231,11 @@ constexpr Column kItalian = {
     "italiano",
     "Sottotitoli in %s",
     "Doppiato in %s",
+    "Impostazioni di gioco",
+    "Profilo",
+    "Predefinito",
+    "Personalizzato",
+    "Ripristina predefiniti",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

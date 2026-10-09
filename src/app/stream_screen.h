@@ -53,6 +53,12 @@ private:
     bool padAttached_[input::kMaxPads] = {};  // controllers 1..3 announced to the stream
     uint32_t playerReconnects_ = 0;
     uint32_t overlaySeq_ = 0;  // g_infoSeq + 1 when drawn; 0 = redraw
+    bool hasCustomProfile_ = false;
+    std::string gameKey_;
+    int triggerStrength_ = 2;
+    int deadzone_ = 15;
+    bool circleConfirms_ = false;
+    bool wasStreaming_ = false;
 };
 
 }  // namespace xc::app

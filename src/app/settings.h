@@ -10,6 +10,26 @@
 
 namespace xc::app {
 
+struct GameProfile {
+    // Picture
+    int sharpness = 0;           // 0 off, 1..3 low, medium, high
+    int deband = 3;              // 0 off, 1 low, 2 high, 3 auto
+    int upscaler = 2;            // 0 FSR 1, 1 Anime4K, 2 FSR + clean, 3 Anime4K + clean
+    int resolution = 0;          // 0 1080p, 1 720p, 2 1440p
+    // Controller: dead zone (percent), triggers, confirm button
+    int deadzoneLeft = 15, deadzoneRight = 15;
+    int triggerStrength = 2;     // 0 off .. 4 max
+    int triggerHz = 1;           // 0..2
+    int triggerResistance = 0;   // 0 off .. 3 strong
+    bool triggerPulses = false;
+    bool circleConfirms = false;
+};
+
+// Key to identify a game profile: productId first, else titleId.
+inline std::string gameProfileKey(const std::string& productId, const std::string& titleId) {
+    return !productId.empty() ? productId : titleId;
+}
+
 struct Settings {
     std::string language = "en";     // ui::languageCode()
     std::string resolution = "1080p";  // "1080p", "720p" or "1440p" (experimental)
@@ -51,6 +71,12 @@ struct Settings {
     // top tier, and when (unix s): 1440p is only offered once one did.
     int maxHeightCloud = 0, maxHeightHome = 0;
     int64_t probedCloud = 0, probedHome = 0;  // streams that showed the touchpad gestures' hint (three do)
+
+    // Per-game profiles overriding the general settings (productId or titleId -> profile).
+    std::map<std::string, GameProfile> perGame;
+
+    GameProfile defaultProfile() const;
+    GameProfile profileForGame(const std::string& productId, const std::string& titleId, bool* hasCustom = nullptr) const;
 
     bool load(const std::string& path);
     bool save(const std::string& path) const;

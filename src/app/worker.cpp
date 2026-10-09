@@ -207,7 +207,17 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     std::string err;
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
-        const std::string& res = g_autoplay.resolution.empty() ? g_settings.resolution : g_autoplay.resolution;
+        bool hasCustom = false;
+        GameProfile prof = g_settings.profileForGame(game.productId, game.titleId, &hasCustom);
+        std::string res;
+        if (!g_autoplay.resolution.empty()) {
+            res = g_autoplay.resolution;
+        } else if (hasCustom) {
+            res = prof.resolution == 1 ? "720p" : prof.resolution == 2 ? "best" : "1080p";
+        } else {
+            res = g_settings.resolution;
+        }
+        bool isBest = (res == "best" || res == "1440p");
         // What each kind of stream can deliver is measured, not assumed: the
         // first stream (and one a week) asks for the top tier and records
         // the picture's height. The user's own Xbox always gets the top tier
@@ -222,25 +232,27 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
         xcloud::Resolution tier;
         if (!g_autoplay.resolution.empty())
             tier = res == "720p"       ? xcloud::Resolution::P720
-                   : res == "1440p"    ? xcloud::Resolution::P1440
+                   : isBest            ? xcloud::Resolution::P1440
                    : res == "1080p-hq" ? xcloud::Resolution::P1080HQ
                                        : xcloud::Resolution::P1080;
         else if (res == "720p")
             tier = xcloud::Resolution::P720;
-        else if (home || g_probing || (res == "1440p" && known >= 1440))
+        else if (home || g_probing || (isBest && known >= 1440))
             tier = xcloud::Resolution::P1440;
+        else if (isBest)
+            tier = xcloud::Resolution::P1080HQ;
         else
             tier = xcloud::Resolution::P1080;
         // A cloud probe goes back to what the user chose once measured.
-        if (g_probing && !home && !(res == "1440p")) g_afterProbeAlias = "1080HQ";
+        if (g_probing && !home && !isBest) g_afterProbeAlias = "1080HQ";
         gssv.setResolution(tier);
         const xcloud::Region* region = gssv.session().defaultRegion();
         const std::string& wanted = regionName.empty() ? g_settings.region : regionName;
         for (const auto& r : gssv.session().regions)
             if (r.name == wanted) region = &r;
         if (region) gssv.setRegion(*region);
-        XC_LOGI("stream settings: %s, region %s, locale %s", g_settings.resolution.c_str(),
-                region ? region->name.c_str() : "?", ui::gameLocale());
+        XC_LOGI("stream settings: %s%s, region %s, locale %s", res.c_str(),
+                hasCustom ? " (per-game)" : "", region ? region->name.c_str() : "?", ui::gameLocale());
     }
     if (!gssv.startSession(game.titleId, ui::gameLocale(), err)) return err;
     if (game.heroUrl.empty() && !game.productId.empty()) {
@@ -536,7 +548,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     if (!g_autoplay.title.empty() && g_autoplay.title != "BENCH" && g_autoplay.title != "UPDATE" && !g_autoplay.detailTest && !g_autoplay.libraryTest &&
         !g_autoplay.consolesTab && !g_autoplay.settingsTest &&
         !g_autoplay.imeTest && !g_autoplay.vibeTest && !g_autoplay.searchTest && !g_autoplay.quickTest && !g_autoplay.scrollTest &&
-        !g_autoplay.gridTest) {
+        !g_autoplay.gridTest && !g_autoplay.gameSettingsTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
         tile.titleId = g_autoplay.title;

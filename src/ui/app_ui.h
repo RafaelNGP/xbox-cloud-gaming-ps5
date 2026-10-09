@@ -8,6 +8,7 @@
 // Model setters are thread-safe; handle() and render() run on the UI thread.
 #pragma once
 
+#include "app/settings.h"
 #include "ui/canvas.h"
 #include "ui/font.h"
 #include "ui/image_cache.h"
@@ -101,6 +102,9 @@ struct SettingsChoice {
     bool circleConfirms = false;  // Circle is Xbox A (and Cross is B)
     int lightBarMode = 0;         // 0 the game's colour, 1 lightBarColour, 2 off
     Color lightBarColour = rgba(0, 112, 220);
+    int sharpness = 0;
+    int deband = 3;
+    int upscaler = 2;
 };
 
 // The largest stick dead zone Settings offers, in percent of the travel.
@@ -111,7 +115,8 @@ constexpr int kSettingRows = 8;  // language, resolution, region, dead zone, tri
 // (with the settings, saved first when it came from Settings) / UpdateLater:
 // the answer to the update pop-up, or Updates in Settings.
 enum class Action {
-    None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, PrefsChanged, ConsolesShown, UpdateNow, UpdateLater
+    None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, PrefsChanged, ConsolesShown, UpdateNow, UpdateLater,
+    GameSettingsChanged
 };
 
 // How "Your games" is sorted (R3).
@@ -127,6 +132,8 @@ struct UiEvent {
     Action action = Action::None;
     GameTile game;
     SettingsChoice settings;  // SettingsChanged
+    app::GameProfile gameProfile;  // GameSettingsChanged
+    bool hasGameProfile = false;
     // PrefsChanged: hidden games (product ids) and the "Your games" order.
     std::vector<std::string> hidden;
     LibrarySort librarySort = LibrarySort::Recent;
@@ -177,6 +184,8 @@ public:
     void showDetails(const GameTile& tile);
     // The `index`-th game to buy, if loaded (autoplay tests).
     bool purchasableAt(size_t index, GameTile& out) const;
+    // Any loaded game on the home screen or catalog.
+    bool firstTile(GameTile& out) const;
     // The game with this xCloud title id on the home screen or in Your games.
     bool findTile(const std::string& titleId, GameTile& out) const;
     void showHome(const std::string& toast = {});
@@ -188,6 +197,11 @@ public:
     // on the phone meanwhile): Cross plays it again, Circle opens its page.
     void showPlayError(const std::string& message, const GameTile& game);
     void setSettings(const SettingsChoice& choice);
+    // Per-game settings
+    void setPerGameSettings(const std::map<std::string, app::GameProfile>& perGame);
+    bool gameSettingsOpen() const { return gameSettingsOpen_; }
+    void openGameSettings();
+    void closeGameSettings();
     // Whether 1440p is offered (a stream delivered it); false hides it.
     void setAllow1440(bool on);
     // The confirm button in force (the hints show it); Settings may be
@@ -430,6 +444,13 @@ private:
     uint64_t heroShownAt_ = 0;  // when its image first drew (0: not yet)
     uint64_t lastRender_ = 0;
     bool animating_ = false;
+    std::map<std::string, app::GameProfile> perGameSettings_;
+    bool gameSettingsOpen_ = false;
+    int gameSettingsRow_ = 0;
+    app::GameProfile activeGameProfile_;
+    bool activeGameHasCustom_ = false;
+    void handleGameSettings(const NavInput& in, UiEvent& ev);
+    void drawGameSettings(Canvas& c);
 };
 
 }  // namespace xc::ui

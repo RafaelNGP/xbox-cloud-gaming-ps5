@@ -79,7 +79,7 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         std::string code = ui::languageCode(static_cast<ui::Language>(choice.language));
         languageChanged = code != g_settings.language;
         g_settings.language = code;
-        g_settings.resolution = choice.resolution == 1 ? "720p" : choice.resolution == 2 ? "1440p" : "1080p";
+        g_settings.resolution = choice.resolution == 1 ? "720p" : choice.resolution == 2 ? "best" : "1080p";
         g_settings.region = choice.region;
         g_settings.deadzoneLeft = choice.deadzone[0];
         g_settings.deadzoneRight = choice.deadzone[1];
@@ -90,6 +90,9 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.circleConfirms = choice.circleConfirms;
         g_settings.lightBarMode = choice.lightBarMode;
         g_settings.lightBarColour = choice.lightBarColour;
+        g_settings.sharpness = choice.sharpness;
+        g_settings.deband = choice.deband;
+        g_settings.upscaler = choice.upscaler;
         if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
         XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
                 g_settings.region.empty() ? "auto" : g_settings.region.c_str());
@@ -165,7 +168,7 @@ int main(int argc, char** argv) {
     {
         ui::SettingsChoice choice;
         choice.language = static_cast<int>(ui::language());
-        choice.resolution = g_settings.resolution == "720p" ? 1 : g_settings.resolution == "1440p" ? 2 : 0;
+        choice.resolution = g_settings.resolution == "720p" ? 1 : (g_settings.resolution == "1440p" || g_settings.resolution == "best") ? 2 : 0;
         choice.region = g_settings.region;
         choice.deadzone[0] = std::clamp(g_settings.deadzoneLeft, 0, ui::kMaxDeadzone);
         choice.deadzone[1] = std::clamp(g_settings.deadzoneRight, 0, ui::kMaxDeadzone);
@@ -176,9 +179,13 @@ int main(int argc, char** argv) {
         choice.circleConfirms = g_settings.circleConfirms;
         choice.lightBarMode = g_settings.lightBarMode;
         choice.lightBarColour = g_settings.lightBarColour;
+        choice.sharpness = g_settings.sharpness;
+        choice.deband = g_settings.deband;
+        choice.upscaler = g_settings.upscaler;
         g_ui->setAllow1440(allow1440Locked());
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
         g_ui->setSettings(choice);
+        g_ui->setPerGameSettings(g_settings.perGame);
         applyControllerSettings();
         g_ui->setRegionLatency(g_settings.regionRtt);
         g_ui->setPrefs(g_settings.hidden, g_settings.librarySort == "az"        ? ui::LibrarySort::AZ
@@ -392,6 +399,19 @@ int main(int argc, char** argv) {
                                                                                        : "recent";
                 if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
                 XC_LOGI("prefs saved: %zu hidden, sort %s", g_settings.hidden.size(), g_settings.librarySort.c_str());
+                break;
+            }
+            case ui::Action::GameSettingsChanged: {
+                std::lock_guard<std::mutex> lock(g_settingsMutex);
+                std::string key = app::gameProfileKey(ev.game.productId, ev.game.titleId);
+                if (ev.hasGameProfile) {
+                    g_settings.perGame[key] = ev.gameProfile;
+                    XC_LOGI("per-game profile saved for %s (%s)", ev.game.name.c_str(), key.c_str());
+                } else {
+                    g_settings.perGame.erase(key);
+                    XC_LOGI("per-game profile reset to default for %s (%s)", ev.game.name.c_str(), key.c_str());
+                }
+                if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
                 break;
             }
             case ui::Action::SettingsChanged:

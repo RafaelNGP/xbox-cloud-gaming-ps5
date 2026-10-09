@@ -500,6 +500,25 @@ bool AppUi::purchasableAt(size_t index, GameTile& out) const {
     return true;
 }
 
+bool AppUi::firstTile(GameTile& out) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& row : rows_) {
+        if (!row.tiles.empty()) {
+            out = row.tiles.front();
+            return true;
+        }
+    }
+    if (!owned_.empty()) {
+        out = owned_.front();
+        return true;
+    }
+    if (!purchasable_.empty()) {
+        out = purchasable_.front();
+        return true;
+    }
+    return false;
+}
+
 void AppUi::showDetails(const GameTile& tile) {
     std::lock_guard<std::mutex> lock(mutex_);
     openDetails(tile);
@@ -575,6 +594,8 @@ Tab AppUi::tab() const {
 void AppUi::openDetails(const GameTile& tile) {
     // Caller holds mutex_.
     detail_ = tile;
+    gameSettingsOpen_ = false;
+    tester_ = Tester::None;
     auto info = detailInfo_.find(tile.productId);
     if (info != detailInfo_.end()) {
         if (detail_.description.empty()) detail_.description = info->second.description;
@@ -768,7 +789,7 @@ bool AppUi::settingsLightBar(int& mode, Color& colour) const {
 
 bool AppUi::settingsTriggerFeel(int& strength, int& hzIndex, int& resistance, bool& pulses) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (screen_ != Screen::Settings) return false;
+    if (screen_ != Screen::Settings && !gameSettingsOpen_) return false;
     strength = settings_.triggerStrength;
     hzIndex = settings_.triggerHz;
     resistance = settings_.triggerResistance;
@@ -778,7 +799,7 @@ bool AppUi::settingsTriggerFeel(int& strength, int& hzIndex, int& resistance, bo
 
 bool AppUi::triggerTest(float& l2, float& r2) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (screen_ != Screen::Settings || tester_ != Tester::Triggers) return false;
+    if ((screen_ != Screen::Settings && !gameSettingsOpen_) || tester_ != Tester::Triggers) return false;
     l2 = testL2_;
     r2 = testR2_;
     return true;
@@ -825,6 +846,18 @@ void AppUi::handleTester(const NavInput& in) {
         settings_.triggerResistance = testerBackup_.triggerResistance, settings_.triggerPulses = testerBackup_.triggerPulses;
     }
     if (in.accept || in.back) {
+        if (gameSettingsOpen_) {
+            if (in.accept) {
+                activeGameProfile_.deadzoneLeft = settings_.deadzone[0];
+                activeGameProfile_.deadzoneRight = settings_.deadzone[1];
+                activeGameProfile_.triggerStrength = settings_.triggerStrength;
+                activeGameProfile_.triggerHz = settings_.triggerHz;
+                activeGameProfile_.triggerResistance = settings_.triggerResistance;
+                activeGameProfile_.triggerPulses = settings_.triggerPulses;
+                activeGameHasCustom_ = true;
+            }
+            settings_ = testerBackup_;
+        }
         tester_ = Tester::None;
         testL2_ = testR2_ = 0;
         dirty_ = true;
@@ -922,6 +955,41 @@ void AppUi::setSettings(const SettingsChoice& choice) {
     dirty_ = true;
 }
 
+void AppUi::setPerGameSettings(const std::map<std::string, app::GameProfile>& perGame) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    perGameSettings_ = perGame;
+    dirty_ = true;
+}
+
+void AppUi::openGameSettings() {
+    gameSettingsOpen_ = true;
+    gameSettingsRow_ = 0;
+    std::string key = app::gameProfileKey(detail_.productId, detail_.titleId);
+    auto it = perGameSettings_.find(key);
+    if (it != perGameSettings_.end()) {
+        activeGameHasCustom_ = true;
+        activeGameProfile_ = it->second;
+    } else {
+        activeGameHasCustom_ = false;
+        activeGameProfile_.sharpness = settings_.sharpness;
+        activeGameProfile_.deband = settings_.deband;
+        activeGameProfile_.upscaler = settings_.upscaler;
+        activeGameProfile_.resolution = settings_.resolution;
+        activeGameProfile_.deadzoneLeft = settings_.deadzone[0];
+        activeGameProfile_.deadzoneRight = settings_.deadzone[1];
+        activeGameProfile_.triggerStrength = settings_.triggerStrength;
+        activeGameProfile_.triggerHz = settings_.triggerHz;
+        activeGameProfile_.triggerResistance = settings_.triggerResistance;
+        activeGameProfile_.triggerPulses = settings_.triggerPulses;
+        activeGameProfile_.circleConfirms = settings_.circleConfirms;
+    }
+}
+
+void AppUi::closeGameSettings() {
+    gameSettingsOpen_ = false;
+    tester_ = Tester::None;
+}
+
 void AppUi::setCircleConfirms(bool on) {
     std::lock_guard<std::mutex> lock(mutex_);
     circleConfirms_ = on;
@@ -997,8 +1065,7 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
     if (row == 0) {
         for (int i = 0; i < static_cast<int>(Language::Count); ++i) out.push_back(languageName(static_cast<Language>(i)));
     } else if (row == 1) {
-        out = {tr(Str::Res720), tr(Str::Res1080)};  // kResolutionOrder
-        if (allow1440_) out.push_back(tr(Str::Res1440));
+        out = {tr(Str::Res720), tr(Str::Res1080), tr(Str::ResBest)};  // kResolutionOrder
     } else if (row == 3) {
         // Left and right stick (the tester changes them).
         out = {std::to_string(settings_.deadzone[0]) + " %  \xC2\xB7  " + std::to_string(settings_.deadzone[1]) + " %"};
@@ -1024,7 +1091,6 @@ int AppUi::settingSelected(int row) const {
     // Caller holds mutex_.
     if (row == 0) return settings_.language;
     if (row == 1) {
-        if (settings_.resolution == 2 && !allow1440_) return 1;  // 1440p saved, not offered: 1080p
         for (int i = 0; i < 3; ++i)
             if (kResolutionOrder[i] == settings_.resolution) return i;
     }
@@ -1530,6 +1596,168 @@ void AppUi::handleSearchKeys(const NavInput& in) {
     if (in.up || in.down || in.left || in.right || edited) dirty_ = true;
 }
 
+void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
+    if (tester_ != Tester::None) {
+        handleTester(in);
+        return;
+    }
+    int rowCount = activeGameHasCustom_ ? 9 : 8;
+    if (in.up) {
+        gameSettingsRow_ = (gameSettingsRow_ + rowCount - 1) % rowCount;
+        dirty_ = true;
+    }
+    if (in.down) {
+        gameSettingsRow_ = (gameSettingsRow_ + 1) % rowCount;
+        dirty_ = true;
+    }
+    if (in.left || in.right) {
+        int dir = in.right ? 1 : -1;
+        switch (gameSettingsRow_) {
+        case 0:
+            activeGameHasCustom_ = !activeGameHasCustom_;
+            dirty_ = true;
+            break;
+        case 1: { // Upscaler (0 FSR, 2 FSR+clean, 1 AI, 3 AI+clean)
+            static constexpr int kOrder[4] = {0, 2, 1, 3};
+            int pos = 0;
+            for (int i = 0; i < 4; ++i) if (kOrder[i] == activeGameProfile_.upscaler) pos = i;
+            activeGameProfile_.upscaler = kOrder[(pos + 4 + dir) % 4];
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        }
+        case 2: // Sharpness (0..3)
+            activeGameProfile_.sharpness = std::clamp(activeGameProfile_.sharpness + dir, 0, 3);
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        case 3: // Deband (0..3)
+            activeGameProfile_.deband = std::clamp(activeGameProfile_.deband + dir, 0, 3);
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        case 4: { // Resolution (1 = 720p, 0 = 1080p, 2 = Best (Auto))
+            static constexpr int kOrder[3] = {1, 0, 2};
+            int pos = 0;
+            for (int i = 0; i < 3; ++i) if (kOrder[i] == activeGameProfile_.resolution) pos = i;
+            activeGameProfile_.resolution = kOrder[(pos + 3 + dir) % 3];
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        }
+        case 5: // Deadzone (0..30)
+            activeGameProfile_.deadzoneLeft = std::clamp(activeGameProfile_.deadzoneLeft + dir * 5, 0, 30);
+            activeGameProfile_.deadzoneRight = activeGameProfile_.deadzoneLeft;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        case 6: // Triggers (0..4)
+            activeGameProfile_.triggerStrength = std::clamp(activeGameProfile_.triggerStrength + dir, 0, 4);
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        case 7: // Confirm button
+            activeGameProfile_.circleConfirms = !activeGameProfile_.circleConfirms;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        default: break;
+        }
+    }
+    if (in.accept) {
+        switch (gameSettingsRow_) {
+        case 0:
+            activeGameHasCustom_ = !activeGameHasCustom_;
+            dirty_ = true;
+            break;
+        case 1: {
+            static constexpr int kOrder[4] = {0, 2, 1, 3};
+            int pos = 0;
+            for (int i = 0; i < 4; ++i) if (kOrder[i] == activeGameProfile_.upscaler) pos = i;
+            activeGameProfile_.upscaler = kOrder[(pos + 1) % 4];
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        }
+        case 2:
+            activeGameProfile_.sharpness = (activeGameProfile_.sharpness + 1) % 4;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        case 3:
+            activeGameProfile_.deband = (activeGameProfile_.deband + 1) % 4;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        case 4: {
+            static constexpr int kOrder[3] = {1, 0, 2};
+            int pos = 0;
+            for (int i = 0; i < 3; ++i) if (kOrder[i] == activeGameProfile_.resolution) pos = i;
+            activeGameProfile_.resolution = kOrder[(pos + 1) % 3];
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        }
+        case 5: { // Open stick tester
+            tester_ = Tester::Sticks;
+            testerBackup_ = settings_;
+            settings_.deadzone[0] = activeGameProfile_.deadzoneLeft;
+            settings_.deadzone[1] = activeGameProfile_.deadzoneRight;
+            testerStick_ = 0;
+            dirty_ = true;
+            break;
+        }
+        case 6: { // Open trigger tester
+            tester_ = Tester::Triggers;
+            testerBackup_ = settings_;
+            settings_.triggerStrength = activeGameProfile_.triggerStrength;
+            settings_.triggerHz = activeGameProfile_.triggerHz;
+            settings_.triggerResistance = activeGameProfile_.triggerResistance;
+            settings_.triggerPulses = activeGameProfile_.triggerPulses;
+            testerRow_ = 0;
+            dirty_ = true;
+            break;
+        }
+        case 7:
+            activeGameProfile_.circleConfirms = !activeGameProfile_.circleConfirms;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        case 8: // Reset to default
+            activeGameHasCustom_ = false;
+            activeGameProfile_.sharpness = settings_.sharpness;
+            activeGameProfile_.deband = settings_.deband;
+            activeGameProfile_.upscaler = settings_.upscaler;
+            activeGameProfile_.resolution = settings_.resolution;
+            activeGameProfile_.deadzoneLeft = settings_.deadzone[0];
+            activeGameProfile_.deadzoneRight = settings_.deadzone[1];
+            activeGameProfile_.triggerStrength = settings_.triggerStrength;
+            activeGameProfile_.triggerHz = settings_.triggerHz;
+            activeGameProfile_.triggerResistance = settings_.triggerResistance;
+            activeGameProfile_.triggerPulses = settings_.triggerPulses;
+            activeGameProfile_.circleConfirms = settings_.circleConfirms;
+            gameSettingsRow_ = 0;
+            dirty_ = true;
+            break;
+        default: break;
+        }
+    }
+    if (in.back || in.options) {
+        gameSettingsOpen_ = false;
+        std::string key = app::gameProfileKey(detail_.productId, detail_.titleId);
+        if (activeGameHasCustom_) {
+            perGameSettings_[key] = activeGameProfile_;
+        } else {
+            perGameSettings_.erase(key);
+        }
+        ev.action = Action::GameSettingsChanged;
+        ev.game = detail_;
+        ev.hasGameProfile = activeGameHasCustom_;
+        ev.gameProfile = activeGameProfile_;
+        dirty_ = true;
+    }
+}
+
 UiEvent AppUi::handle(const NavInput& in) {
     std::lock_guard<std::mutex> lock(mutex_);
     UiEvent ev;
@@ -1593,6 +1821,15 @@ UiEvent AppUi::handle(const NavInput& in) {
             }
             break;
         case Screen::Details:
+            if (gameSettingsOpen_) {
+                handleGameSettings(in, ev);
+                break;
+            }
+            if (in.options) {
+                openGameSettings();
+                dirty_ = true;
+                break;
+            }
             // A free game not on the account yet may already be (got on the
             // phone a moment ago): Play tries, and the server says.
             if (in.accept && (detail_.playable || detail_.freeInStore) && !detail_.titleId.empty()) {
@@ -2508,10 +2745,12 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         }
         if (g->freeInStore)
             drawHints(c, {{kIconCross, tr(Str::Play)},
+                          {kIconOptions, tr(Str::GameSettings)},
                           {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
                           {kIconCircle, tr(Str::Back)}});
         else
-            drawHints(c, {{kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
+            drawHints(c, {{kIconOptions, tr(Str::GameSettings)},
+                          {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
                           {kIconCircle, tr(Str::Back)}});
         drawToast(c, nowMs);
         return;
@@ -2522,7 +2761,9 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         c.fillRect(note, rgba(255, 255, 255, 40), 38);
         drawLock(c, note.x + 52, note.y + note.h / 2);
         fonts_.semibold.draw(c, tr(Str::NotPlayable), note.x + 90, note.y + 22, 28, kGray);
-        drawHints(c, {{kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)}, {kIconCircle, tr(Str::Back)}});
+        drawHints(c, {{kIconOptions, tr(Str::GameSettings)},
+                      {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
+                      {kIconCircle, tr(Str::Back)}});
         drawToast(c, nowMs);
         return;
     }
@@ -2536,6 +2777,7 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     c.line(tx - 8, ty + 13, tx + 13, ty, 4, kWhite);
     fonts_.semibold.draw(c, tr(Str::Play), play.x + 108, play.y + 20, 32, kWhite);
     drawHints(c, {{kIconCross, tr(Str::Play)},
+                  {kIconOptions, tr(Str::GameSettings)},
                   {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
                   {kIconCircle, tr(Str::Back)}});
     drawToast(c, nowMs);
@@ -2915,6 +3157,122 @@ void AppUi::drawSignOutHold(Canvas& c, uint64_t nowMs) {
     animating_ = true;
 }
 
+void AppUi::drawGameSettings(Canvas& c) {
+    if (tester_ == Tester::Sticks) {
+        drawStickTester(c);
+        return;
+    }
+    if (tester_ == Tester::Triggers) {
+        drawTriggerTester(c);
+        return;
+    }
+    std::string title = tr(Str::GameSettings);
+    if (!detail_.name.empty()) {
+        std::string full = title + "  \xE2\x80\xA2  " + detail_.name;
+        if (fonts_.bold.measure(full, 40) <= 960) {
+            title = full;
+        } else {
+            std::string cut = detail_.name;
+            while (!cut.empty() && fonts_.bold.measure(title + "  \xE2\x80\xA2  " + cut + "...", 40) > 960) {
+                do {
+                    cut.pop_back();
+                } while (!cut.empty() && (static_cast<uint8_t>(cut.back()) & 0xC0) == 0x80);
+            }
+            title = title + "  \xE2\x80\xA2  " + cut + "...";
+        }
+    }
+    constexpr int kModalW = 1140, kModalH = 740;
+    Rect panel = drawModal(c, kModalW, kModalH, title);
+
+    int rowCount = activeGameHasCustom_ ? 9 : 8;
+    constexpr int kRowH = 52, kGap = 8;
+    int y = panel.y + 110;
+
+    for (int i = 0; i < rowCount; ++i) {
+        Rect r{panel.x + 50, y, panel.w - 100, kRowH};
+        bool focused = (i == gameSettingsRow_);
+        c.fillRect(r, focused ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 14);
+        if (focused) c.strokeRect({r.x - 4, r.y - 4, r.w + 8, r.h + 8}, kWhite, 2, 18);
+
+        int ty = fonts_.semibold.centeredY(r.y, r.h, 26);
+
+        if (i == 8) {
+            const char* resetLabel = tr(Str::ResetToDefault);
+            int tw = fonts_.semibold.measure(resetLabel, 26);
+            fonts_.semibold.draw(c, resetLabel, r.x + (r.w - tw) / 2, ty, 26, focused ? kWhite : rgba(240, 100, 100));
+            y += kRowH + kGap;
+            continue;
+        }
+
+        const char* label = "";
+        std::string value;
+
+        switch (i) {
+        case 0:
+            label = tr(Str::Profile);
+            value = tr(activeGameHasCustom_ ? Str::ProfileCustom : Str::ProfileDefault);
+            break;
+        case 1:
+            label = tr(Str::MenuUpscaler);
+            value = activeGameProfile_.upscaler == 3 ? tr(Str::UpscalerAiClean)
+                  : activeGameProfile_.upscaler == 2 ? tr(Str::UpscalerFsrClean)
+                  : activeGameProfile_.upscaler == 1 ? tr(Str::UpscalerAi)
+                                                     : "FSR";
+            break;
+        case 2: {
+            label = tr(Str::MenuSharpness);
+            static constexpr Str kLevels[] = {Str::SharpOff, Str::SharpLow, Str::SharpMedium, Str::SharpHigh};
+            value = tr(kLevels[std::clamp(activeGameProfile_.sharpness, 0, 3)]);
+            break;
+        }
+        case 3: {
+            label = tr(Str::MenuDeband);
+            static constexpr Str kLevels[] = {Str::SharpOff, Str::SharpLow, Str::SharpHigh};
+            value = activeGameProfile_.deband == 3 ? "Auto"
+                                                   : tr(kLevels[std::clamp(activeGameProfile_.deband, 0, 2)]);
+            break;
+        }
+        case 4:
+            label = tr(Str::Resolution);
+            value = activeGameProfile_.resolution == 1 ? "720p" : activeGameProfile_.resolution == 2 ? tr(Str::ResBest) : "1080p";
+            break;
+        case 5:
+            label = tr(Str::Deadzone);
+            value = std::to_string(activeGameProfile_.deadzoneLeft) + " %";
+            break;
+        case 6: {
+            label = tr(Str::TriggerRumble);
+            static constexpr Str kStrengths[] = {Str::Deactivated, Str::TriggerLight, Str::TriggerMedium,
+                                                 Str::TriggerStrong, Str::TriggerMax};
+            value = tr(kStrengths[std::clamp(activeGameProfile_.triggerStrength, 0, 4)]);
+            break;
+        }
+        case 7:
+            label = tr(Str::ConfirmButton);
+            break;
+        default: break;
+        }
+
+        fonts_.semibold.draw(c, label, r.x + 28, ty, 26, kWhite);
+
+        if (i == 7) {
+            float cx = static_cast<float>(r.x + r.w - 50), cy = static_cast<float>(r.y + r.h / 2);
+            if (focused) {
+                fonts_.regular.draw(c, "\xE2\x80\xB9", static_cast<int>(cx) - 40, fonts_.regular.centeredY(r.y, r.h, 26), 26, kWhite);
+                fonts_.regular.draw(c, "\xE2\x80\xBA", static_cast<int>(cx) + 28, fonts_.regular.centeredY(r.y, r.h, 26), 26, kWhite);
+            }
+            drawFaceButton(c, activeGameProfile_.circleConfirms ? kIconCircle : kIconCross, cx, cy, 16);
+        } else {
+            std::string disp = focused ? ("\xE2\x80\xB9  " + value + "  \xE2\x80\xBA") : value;
+            int vw = fonts_.regular.measure(disp, 26);
+            fonts_.regular.draw(c, disp, r.x + r.w - 28 - vw, fonts_.regular.centeredY(r.y, r.h, 26), 26,
+                                focused ? kWhite : kGray);
+        }
+
+        y += kRowH + kGap;
+    }
+}
+
 void AppUi::render(Canvas& c, uint64_t nowMs) {
     std::lock_guard<std::mutex> lock(mutex_);
     float dt = lastRender_ ? std::min(0.1f, (nowMs - lastRender_) / 1000.0f) : 0.0f;
@@ -2928,7 +3286,10 @@ void AppUi::render(Canvas& c, uint64_t nowMs) {
         case Screen::Splash: drawSplash(c, nowMs); break;
         case Screen::SignIn: drawSignIn(c, nowMs); break;
         case Screen::Home: drawHome(c, nowMs); break;
-        case Screen::Details: drawDetails(c, nowMs); break;
+        case Screen::Details:
+            drawDetails(c, nowMs);
+            if (gameSettingsOpen_) drawGameSettings(c);
+            break;
         case Screen::Launching: drawLaunching(c, nowMs); break;
         case Screen::Error: drawError(c); break;
         case Screen::Settings: drawSettings(c); break;
