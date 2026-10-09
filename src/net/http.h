@@ -44,6 +44,8 @@ struct Url {
 // Loads trusted roots from a PEM bundle. Must be called once before any
 // request; returns false when the file is missing or holds no certificates.
 bool initTls(const std::string& caBundlePath);
+// Why initTls() failed (the step and Mbed TLS's message); empty otherwise.
+std::string tlsInitError();
 void shutdownTls();
 
 Response perform(const Request& req);

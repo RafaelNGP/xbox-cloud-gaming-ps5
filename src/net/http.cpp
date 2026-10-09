@@ -154,14 +154,27 @@ bool Url::parse(const std::string& url, Url& out) {
     return !out.host.empty() && (out.scheme == "https" || out.scheme == "http");
 }
 
+namespace {
+std::string g_initError;
+}
+
+std::string tlsInitError() {
+    std::lock_guard<std::mutex> lock(g.mutex);
+    return g_initError;
+}
+
 bool initTls(const std::string& caBundlePath) {
     std::lock_guard<std::mutex> lock(g.mutex);
     if (g.ready) return true;
-#if defined(MBEDTLS_PSA_CRYPTO_C)
-    if (psa_crypto_init() != PSA_SUCCESS) {
-        XC_LOGE("psa_crypto_init failed");
+    auto fail = [](std::string why) {
+        XC_LOGE("TLS setup: %s", why.c_str());
+        g_initError = std::move(why);
         return false;
-    }
+    };
+#if defined(MBEDTLS_PSA_CRYPTO_C)
+    // Gathers entropy from the system (getrandom / kern.arandom) first.
+    if (psa_status_t st = psa_crypto_init(); st != PSA_SUCCESS)
+        return fail("crypto init (system random source?): PSA error " + std::to_string(static_cast<int>(st)));
 #endif
     mbedtls_entropy_init(&g.entropy);
     mbedtls_ctr_drbg_init(&g.drbg);
@@ -170,15 +183,9 @@ bool initTls(const std::string& caBundlePath) {
     const char* pers = "xcloud-ps5";
     int rc = mbedtls_ctr_drbg_seed(&g.drbg, mbedtls_entropy_func, &g.entropy,
                                    reinterpret_cast<const unsigned char*>(pers), std::strlen(pers));
-    if (rc != 0) {
-        XC_LOGE("ctr_drbg_seed: %s", tlsError(rc).c_str());
-        return false;
-    }
+    if (rc != 0) return fail("random generator (system random source?): " + tlsError(rc));
     rc = mbedtls_x509_crt_parse_file(&g.ca, caBundlePath.c_str());
-    if (rc < 0) {
-        XC_LOGE("CA bundle %s: %s", caBundlePath.c_str(), tlsError(rc).c_str());
-        return false;
-    }
+    if (rc < 0) return fail("certificates " + caBundlePath + ": " + tlsError(rc));
     if (rc > 0) XC_LOGW("CA bundle: %d certificates could not be parsed (ignored)", rc);
     g.ready = true;
     return true;
