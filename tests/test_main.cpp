@@ -258,6 +258,76 @@ static void testSettingsMigration() {
     std::remove(path.c_str());
 }
 
+static void testPerGameSettings() {
+    std::string path = "/tmp/xcloud-tests-pergame.json";
+    xc::app::Settings s;
+    s.sharpness = 1;
+    s.deband = 2;
+    s.upscaler = 0;
+    s.deadzoneLeft = 12;
+    s.deadzoneRight = 18;
+    s.triggerStrength = 3;
+    s.circleConfirms = false;
+
+    // Default profile reflects global settings.
+    auto def = s.defaultProfile();
+    CHECK(def.sharpness == 1 && def.deband == 2 && def.upscaler == 0);
+    CHECK(def.deadzoneLeft == 12 && def.deadzoneRight == 18 && def.triggerStrength == 3);
+    CHECK(!def.circleConfirms);
+
+    // Unknown games return default profile with hasCustom = false.
+    bool hasCustom = true;
+    auto prof1 = s.profileForGame("GAME1", "", &hasCustom);
+    CHECK(!hasCustom);
+    CHECK(prof1.sharpness == 1 && prof1.deadzoneLeft == 12);
+
+    // Add per-game profile for GAME1.
+    xc::app::GameProfile p1;
+    p1.sharpness = 3;
+    p1.deband = 0;
+    p1.upscaler = 3;
+    p1.deadzoneLeft = 5;
+    p1.deadzoneRight = 8;
+    p1.triggerStrength = 1;
+    p1.circleConfirms = true;
+    s.perGame["GAME1"] = p1;
+
+    // Now GAME1 returns custom profile, while GAME2 still returns defaults.
+    auto prof1Custom = s.profileForGame("GAME1", "", &hasCustom);
+    CHECK(hasCustom);
+    CHECK(prof1Custom.sharpness == 3 && prof1Custom.upscaler == 3 && prof1Custom.circleConfirms);
+    CHECK(prof1Custom.deadzoneLeft == 5 && prof1Custom.triggerStrength == 1);
+
+    hasCustom = true;
+    auto prof2 = s.profileForGame("GAME2", "", &hasCustom);
+    CHECK(!hasCustom);
+    CHECK(prof2.sharpness == 1 && !prof2.circleConfirms);
+
+    // Title ID fallback when productId is empty.
+    s.perGame["CONSOLE_SERVER_1"] = p1;
+    auto consoleProf = s.profileForGame("", "CONSOLE_SERVER_1", &hasCustom);
+    CHECK(hasCustom);
+    CHECK(consoleProf.sharpness == 3 && consoleProf.circleConfirms);
+
+    // Save to disk and reload.
+    CHECK(s.save(path));
+    xc::app::Settings reloaded;
+    CHECK(reloaded.load(path));
+    CHECK(reloaded.perGame.size() == 2);
+    auto loadedP1 = reloaded.profileForGame("GAME1", "", &hasCustom);
+    CHECK(hasCustom);
+    CHECK(loadedP1.sharpness == 3 && loadedP1.upscaler == 3 && loadedP1.circleConfirms);
+    CHECK(loadedP1.deadzoneLeft == 5 && loadedP1.deadzoneRight == 8 && loadedP1.triggerStrength == 1);
+
+    // Remove game profile restores default.
+    reloaded.perGame.erase("GAME1");
+    auto afterErase = reloaded.profileForGame("GAME1", "", &hasCustom);
+    CHECK(!hasCustom);
+    CHECK(afterErase.sharpness == reloaded.sharpness);
+
+    std::remove(path.c_str());
+}
+
 static void testStreamMenu() {
     using xc::ui::MenuAction;
     xc::ui::Fonts fonts;  // not loaded: handle() never draws
@@ -273,6 +343,9 @@ static void testStreamMenu() {
     CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::XboxButton);  // first; it closes
     CHECK(!menu.isOpen());
     menu.open(0, false);
+    press([](xc::ui::NavInput& n) { n.down = true; });
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::ProfileToggle);
+    CHECK(menu.hasCustomProfile());
     press([](xc::ui::NavInput& n) { n.down = true; });
     CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Stats);
     CHECK(menu.statsOn());
@@ -299,19 +372,27 @@ static void testStreamMenu() {
     press([](xc::ui::NavInput& n) { n.left = true; });  // wraps to 1440p
     CHECK(menu.resolution() == 2);
     CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Resolution);
+    press([](xc::ui::NavInput& n) { n.down = true; });
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Triggers);
+    press([](xc::ui::NavInput& n) { n.down = true; });
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Deadzone);
+    press([](xc::ui::NavInput& n) { n.down = true; });
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::ConfirmButton);
     press([](xc::ui::NavInput& n) { n.down = true; });  // "Leave game", last
     CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Leave);
     CHECK(!menu.isOpen());
     menu.open(1, true);
     CHECK(press([](xc::ui::NavInput& n) { n.back = true; }) == MenuAction::Close);
-    // 1440p not offered: a saved 1440p shows as 1080p, and the row cycles 720p / 1080p.
+    // Best (Auto) offered as resolution 2; cycling is 720p (1) -> 1080p (0) -> Best (2).
     menu.open(2, false, 0, 1, 0, false, false);
-    CHECK(menu.resolution() == 0);
-    for (int i = 0; i < 5; ++i) press([](xc::ui::NavInput& n) { n.down = true; });  // to the resolution
+    CHECK(menu.resolution() == 2);
+    for (int i = 0; i < 6; ++i) press([](xc::ui::NavInput& n) { n.down = true; });  // to the resolution
     press([](xc::ui::NavInput& n) { n.right = true; });
-    CHECK(menu.resolution() == 1);  // 1080p -> wraps to 720p
+    CHECK(menu.resolution() == 1);  // Best (2) -> wraps to 720p (1)
     press([](xc::ui::NavInput& n) { n.right = true; });
-    CHECK(menu.resolution() == 0);  // back to 1080p, never 1440p
+    CHECK(menu.resolution() == 0);  // 720p -> 1080p
+    press([](xc::ui::NavInput& n) { n.right = true; });
+    CHECK(menu.resolution() == 2);  // 1080p -> Best (2)
 }
 
 // A zip archive of stored (uncompressed) files, as the test needs one.
@@ -456,6 +537,7 @@ int main() {
     testVersions();
     testStreamMenu();
     testSettingsMigration();
+    testPerGameSettings();
     testStrings();
     testRegions();
     testPrices();

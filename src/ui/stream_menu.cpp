@@ -20,7 +20,7 @@ constexpr Color kGreen = rgba(16, 124, 16);
 
 // Left to right on the resolution row: SettingsChoice::resolution values.
 constexpr int kResolutionOrder[] = {1, 0, 2};
-const char* resolutionName(int r) { return r == 1 ? "720p" : r == 2 ? "1440p" : "1080p"; }
+const char* resolutionName(int r) { return r == 1 ? "720p" : r == 2 ? tr(Str::ResBest) : "1080p"; }
 
 std::string fmt(const char* f, double v) {
     char b[32];
@@ -30,16 +30,33 @@ std::string fmt(const char* f, double v) {
 
 }  // namespace
 
+void StreamMenu::setProfileValues(int resolution, int sharpness, int deband, int upscaler,
+                                  int triggerStrength, int deadzone, bool circleConfirms,
+                                  bool hasCustomProfile) {
+    resolution_ = applied_ = resolution;
+    sharpness_ = sharpness;
+    deband_ = deband;
+    upscaler_ = upscaler;
+    triggerStrength_ = triggerStrength;
+    deadzone_ = deadzone;
+    circleConfirms_ = circleConfirms;
+    hasCustomProfile_ = hasCustomProfile;
+}
+
 void StreamMenu::open(int resolution, bool stats, int sharpness, int deband, int upscaler, bool homeConsole,
-                      bool allow1440) {
+                      bool allow1440, bool hasCustomProfile, int triggerStrength, int deadzone,
+                      bool circleConfirms) {
     open_ = true;
     homeConsole_ = homeConsole;
     allow1440_ = allow1440;
-    if (resolution == 2 && !allow1440) resolution = 0;
     stats_ = stats;
     sharpness_ = sharpness;
     deband_ = deband;
     upscaler_ = upscaler;
+    hasCustomProfile_ = hasCustomProfile;
+    triggerStrength_ = triggerStrength;
+    deadzone_ = deadzone;
+    circleConfirms_ = circleConfirms;
     selected_ = XboxButton;
     resolution_ = applied_ = resolution;
     resolutionAsked_ = false;
@@ -53,9 +70,13 @@ MenuAction StreamMenu::handle(const NavInput& in) {
     }
     if (in.up) selected_ = (selected_ + ItemCount - 1) % ItemCount;
     if (in.down) selected_ = (selected_ + 1) % ItemCount;
+    if (selected_ == Profile && (in.left || in.right || in.accept)) {
+        hasCustomProfile_ = !hasCustomProfile_;
+        return MenuAction::ProfileToggle;
+    }
     if (selected_ == Resolution && (in.left || in.right)) {
         int pos = 0;
-        int n = allow1440_ ? 3 : 2;  // 720p, 1080p (, 1440p)
+        int n = 3;  // 720p, 1080p, Best (Auto)
         for (int i = 0; i < n; ++i)
             if (kResolutionOrder[i] == resolution_) pos = i;
         pos = in.left ? (pos + n - 1) % n : (pos + 1) % n;
@@ -79,6 +100,19 @@ MenuAction StreamMenu::handle(const NavInput& in) {
         deband_ = in.left ? (deband_ + 3) % 4 : (deband_ + 1) % 4;
         return MenuAction::Deband;
     }
+    if (selected_ == Triggers && (in.left || in.right || in.accept)) {
+        triggerStrength_ = in.left ? (triggerStrength_ + 4) % 5 : (triggerStrength_ + 1) % 5;
+        return MenuAction::Triggers;
+    }
+    if (selected_ == DeadzoneItem && (in.left || in.right)) {
+        if (in.left && deadzone_ > 0) deadzone_ -= 5;
+        else if (in.right && deadzone_ < 30) deadzone_ += 5;
+        return MenuAction::Deadzone;
+    }
+    if (selected_ == ConfirmItem && (in.left || in.right || in.accept)) {
+        circleConfirms_ = !circleConfirms_;
+        return MenuAction::ConfirmButton;
+    }
     if (selected_ == Stats && (in.left || in.right)) {
         stats_ = !stats_;
         return MenuAction::Stats;
@@ -101,26 +135,34 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     c.clear(kPanel);
     c.fillRect({0, 0, kMenuW, 6}, kGreen);
     constexpr int kPad = 40;
-    fonts_.bold.draw(c, tr(Str::MenuTitle), kPad, 40, 34, kWhite);
+    fonts_.bold.draw(c, tr(Str::MenuTitle), kPad, 38, 32, kWhite);
 
     // The items: the selected one white, like the Xbox guide.
-    constexpr int kRowH = 54, kTop = 108, kPx = 24;
+    constexpr int kRowH = 46, kTop = 96, kPx = 22;
     for (int i = 0; i < ItemCount; ++i) {
-        Rect row{kPad - 16, kTop + i * kRowH, kMenuW - 2 * (kPad - 16), kRowH - 8};
+        Rect row{kPad - 16, kTop + i * kRowH, kMenuW - 2 * (kPad - 16), kRowH - 6};
         bool sel = i == selected_;
         if (sel) c.fillRect(row, kWhite, 8);
         Color fg = sel ? kDark : kWhite;
         int ty = fonts_.semibold.centeredY(row.y, row.h, kPx);
-        const char* label = i == XboxButton   ? tr(Str::MenuXboxButton)
-                            : i == Stats      ? tr(Str::MenuStats)
-                            : i == Sharpness  ? tr(Str::MenuSharpness)
-                            : i == Deband     ? tr(Str::MenuDeband)
-                            : i == Upscaler   ? tr(Str::MenuUpscaler)
-                            : i == Resolution ? tr(Str::MenuResolution)
-                            : homeConsole_    ? tr(Str::MenuEndStream)
-                                              : tr(Str::MenuLeave);
+        const char* label = i == XboxButton     ? tr(Str::MenuXboxButton)
+                            : i == Profile      ? tr(Str::Profile)
+                            : i == Stats        ? tr(Str::MenuStats)
+                            : i == Sharpness    ? tr(Str::MenuSharpness)
+                            : i == Deband       ? tr(Str::MenuDeband)
+                            : i == Upscaler     ? tr(Str::MenuUpscaler)
+                            : i == Resolution   ? tr(Str::MenuResolution)
+                            : i == Triggers     ? tr(Str::TriggerRumble)
+                            : i == DeadzoneItem ? tr(Str::Deadzone)
+                            : i == ConfirmItem  ? tr(Str::ConfirmButton)
+                            : homeConsole_      ? tr(Str::MenuEndStream)
+                                                : tr(Str::MenuLeave);
         fonts_.semibold.draw(c, label, row.x + 16, ty, kPx, fg);
         std::string value;
+        if (i == Profile) {
+            value = tr(hasCustomProfile_ ? Str::ProfileCustom : Str::ProfileDefault);
+            if (sel) value = "< " + value + " >";
+        }
         if (i == Stats) value = tr(stats_ ? Str::On : Str::Off);
         if (i == Sharpness) {
             static constexpr Str kLevels[] = {Str::SharpOff, Str::SharpLow, Str::SharpMedium, Str::SharpHigh};
@@ -144,23 +186,40 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
             value = resolutionName(resolution_);
             if (sel) value = "< " + value + " >";
         }
+        if (i == Triggers) {
+            static constexpr Str kStrengths[] = {Str::Deactivated, Str::TriggerLight, Str::TriggerMedium,
+                                                 Str::TriggerStrong, Str::TriggerMax};
+            value = tr(kStrengths[std::clamp(triggerStrength_, 0, 4)]);
+            if (sel) value = "< " + value + " >";
+        }
+        if (i == DeadzoneItem) {
+            value = std::to_string(deadzone_) + " %";
+            if (sel) value = "< " + value + " >";
+        }
+        if (i == ConfirmItem) {
+            value = circleConfirms_ ? "○" : "×";
+            if (sel) value = "< " + value + " >";
+        }
         if (!value.empty()) {
             int w = fonts_.semibold.measure(value, kPx);
             fonts_.semibold.draw(c, value, row.x + row.w - 16 - w, ty, kPx, sel ? kDark : kGray);
         }
     }
-    int y = kTop + ItemCount * kRowH;
-    if (resolutionAsked_) fonts_.regular.draw(c, tr(Str::ResolutionNote), kPad, y, 18, kDim);
-    y += 40;
+    int y = kTop + ItemCount * kRowH + 6;
+    if (resolutionAsked_) {
+        fonts_.regular.draw(c, tr(Str::ResolutionNote), kPad, y, 18, kDim);
+        y += 26;
+    }
+    y += 10;
 
     // The connection.
     c.fillRect({kPad, y, kMenuW - 2 * kPad, 2}, rgba(60, 60, 60));
-    y += 22;
+    y += 18;
     auto line = [&](Str label, const std::string& value) {
-        fonts_.regular.draw(c, tr(label), kPad, y, 22, kGray);
-        int w = fonts_.semibold.measure(value, 22);
-        fonts_.semibold.draw(c, value, kMenuW - kPad - w, y, 22, kWhite);
-        y += 36;
+        fonts_.regular.draw(c, tr(label), kPad, y, 20, kGray);
+        int w = fonts_.semibold.measure(value, 20);
+        fonts_.semibold.draw(c, value, kMenuW - kPad - w, y, 20, kWhite);
+        y += 30;
     };
     const std::string none = "-";
     line(Str::StatRegion, info.region.empty() ? none : info.region);

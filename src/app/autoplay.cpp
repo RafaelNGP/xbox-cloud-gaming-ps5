@@ -30,6 +30,7 @@ const char* pickerShot = nullptr;
 bool confirmShot = false, confirmHome = false;
 const char* tuneShot = nullptr;  // "tunetest": save this screen next  // "confirmtest": save confirm2.ppm / check the home screen  // "pickertest": save this screen next, once drawn
 const char* gridShot = nullptr;  // "gridtest": save grid screenshot
+const char* gameSettingsShot = nullptr; // "gamesettingstest": save screenshot
 bool acceptUpdate = false;  // "updatetest": Cross on the pop-up, next pass ("updateskip": Circle)
 }  // namespace
 
@@ -88,6 +89,7 @@ void loadAutoplay() {
         if (opt == "scrolltest") g_autoplay.scrollTest = true;
         if (opt.rfind("locktitle=", 0) == 0) g_autoplay.lockTitle = opt.substr(10);
         if (opt == "gridtest") g_autoplay.gridTest = true;
+        if (opt == "gamesettingstest") g_autoplay.gameSettingsTest = true;
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
@@ -165,6 +167,83 @@ void autoplayPad(input::ControllerState& pad) {
         if (in(17500, 20)) {
             g_autoplay.tuneTest = false;
             XC_LOGI("AUTOPLAY END: tune test");
+        }
+    }
+    if (g_autoplay.gameSettingsTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        uint64_t now = platform::nowMs();
+        if (!since) since = now;
+        uint64_t t = now - since;
+
+        // Step 0: Open details
+        if (step == 0 && t >= 500) {
+            ui::GameTile tile;
+            bool found = (!g_autoplay.title.empty() && g_ui->findTile(g_autoplay.title, tile)) ||
+                         g_ui->firstTile(tile) || g_ui->purchasableAt(0, tile);
+            if (found) {
+                g_ui->showDetails(tile);
+                step = 1;
+            }
+        }
+        // Step 1: Wait for details to draw, then take screenshot
+        if (step == 1 && t >= 2500) {
+            gameSettingsShot = "detail.ppm";
+            step = 2;
+        }
+        // Step 2: Press Options to open Game Settings
+        if (step == 2 && t >= 3200 && t < 3400) {
+            pad.btnOptions = true;
+        }
+        if (step == 2 && t >= 3500) {
+            step = 3;
+        }
+        // Step 3: Take screenshot of default Game Settings modal
+        if (step == 3 && t >= 4500) {
+            gameSettingsShot = "game_settings.ppm";
+            step = 4;
+        }
+        // Step 4: D-pad navigation and changes
+        if (step == 4 && t >= 5200 && t < 5400) {
+            pad.dpadDown = true;
+        }
+        if (step == 4 && t >= 6000 && t < 6200) {
+            pad.dpadRight = true;
+        }
+        if (step == 4 && t >= 6800 && t < 7000) {
+            pad.dpadDown = true;
+        }
+        if (step == 4 && t >= 7600 && t < 7800) {
+            pad.dpadRight = true;
+        }
+        if (step == 4 && t >= 8400 && t < 8600) {
+            pad.dpadDown = true;
+        }
+        if (step == 4 && t >= 9000) {
+            step = 5;
+        }
+        // Step 5: Take screenshot of Custom Game Settings modal
+        if (step == 5 && t >= 9800) {
+            gameSettingsShot = "game_settings_custom.ppm";
+            step = 6;
+        }
+        // Step 6: Press Circle (btnB) to save and close
+        if (step == 6 && t >= 10600 && t < 10800) {
+            pad.btnB = true;
+        }
+        if (step == 6 && t >= 11000) {
+            step = 7;
+        }
+        // Step 7: Take screenshot of detail after closing modal
+        if (step == 7 && t >= 12000) {
+            gameSettingsShot = "detail_after.ppm";
+            step = 8;
+        }
+        // Step 8: Finish
+        if (step == 8 && t >= 13000) {
+            g_autoplay.gameSettingsTest = false;
+            XC_LOGI("AUTOPLAY END: game settings test");
+            step = 9;
         }
     }
     if (g_autoplay.scrollTest && uiSaved) {
@@ -474,6 +553,10 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
     if (gridShot) {
         saveCanvas(gridShot);
         gridShot = nullptr;
+    }
+    if (gameSettingsShot) {
+        saveCanvas(gameSettingsShot);
+        gameSettingsShot = nullptr;
     }
     if (confirmShot) {
         confirmShot = false;

@@ -88,18 +88,40 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
     }
     if (g_player != overlayPlayer_) {  // a new stream
         overlayPlayer_ = g_player;
+        wasStreaming_ = true;
         menu_.close();
+        ui::GameTile tile;
+        {
+            std::lock_guard<std::mutex> argLock(g_argMutex);
+            tile = g_playTile;
+        }
+        gameKey_ = gameProfileKey(tile.productId, tile.titleId);
+
         std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
-        streamResolution_ = g_settings.resolution == "720p" ? 1 : g_settings.resolution == "1440p" ? 2 : 0;
+        bool hasCustom = false;
+        GameProfile prof = g_settings.profileForGame(tile.productId, tile.titleId, &hasCustom);
+        hasCustomProfile_ = hasCustom;
+
+        streamResolution_ = prof.resolution;
         showStats_ = g_settings.streamStats;
-        sharpness_ = g_autoplay.sharpness >= 0 ? g_autoplay.sharpness : g_settings.sharpness;
+        sharpness_ = g_autoplay.sharpness >= 0 ? g_autoplay.sharpness : prof.sharpness;
         display::setSharpness(kSharpAmount[std::clamp(sharpness_, 0, 3)]);
-        deband_ = g_autoplay.deband >= 0 ? g_autoplay.deband : g_settings.deband;
+        deband_ = g_autoplay.deband >= 0 ? g_autoplay.deband : prof.deband;
         autoDeband_.reset();
         applyDeband_();
-        upscaler_ = g_autoplay.upscaler >= 0 ? g_autoplay.upscaler : g_settings.upscaler;
+        upscaler_ = g_autoplay.upscaler >= 0 ? g_autoplay.upscaler : prof.upscaler;
         if (g_autoplay.restore) upscaler_ = (upscaler_ & 1) | 2;
         applyUpscaler(upscaler_);
+
+        // Apply controller profile settings
+        triggerStrength_ = prof.triggerStrength;
+        deadzone_ = prof.deadzoneLeft;
+        circleConfirms_ = prof.circleConfirms;
+        input::setDeadzone(prof.deadzoneLeft / 100.0f, prof.deadzoneRight / 100.0f);
+        input::setTriggerFeel(prof.triggerStrength, prof.triggerHz, prof.triggerResistance, prof.triggerPulses);
+        input::setCircleConfirms(prof.circleConfirms);
+        if (g_ui) g_ui->setCircleConfirms(prof.circleConfirms);
+
         overlaySeq_ = 0;
     }
     if (g_player) {
@@ -108,14 +130,15 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         bool wasOpen = menu_.isOpen();
         if (!wasOpen && (menuCombo || swipeMenu_) && g_keyboardFor.empty()) {
             swipeMenu_ = false;
-            menu_.setCircleConfirms(g_settings.circleConfirms);
+            menu_.setCircleConfirms(circleConfirms_);
             bool allow1440;
             {
                 std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
                 allow1440 = allow1440Locked();
             }
             menu_.setDebandInUse(autoDeband_.level());
-            menu_.open(streamResolution_, showStats_, sharpness_, deband_, upscaler_, g_playingHome, allow1440);
+            menu_.open(streamResolution_, showStats_, sharpness_, deband_, upscaler_, g_playingHome, allow1440,
+                       hasCustomProfile_, triggerStrength_, deadzone_, circleConfirms_);
             overlaySeq_ = 0;
         } else if (wasOpen) {
             switch (menu_.handle(nav)) {
@@ -134,29 +157,118 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 g_player->requestResolution(streamResolution_ == 1 ? "720HQ"
                                             : streamResolution_ == 2 || g_playingHome ? "1440"
                                                                                       : "1080HQ");
+                {
+                    std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                    if (hasCustomProfile_) {
+                        g_settings.perGame[gameKey_].resolution = streamResolution_;
+                        g_settings.save(settingsPath());
+                    }
+                }
                 break;
+            case ui::MenuAction::ProfileToggle: {
+                hasCustomProfile_ = menu_.hasCustomProfile();
+                std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                if (hasCustomProfile_) {
+                    GameProfile p;
+                    p.sharpness = sharpness_;
+                    p.deband = deband_;
+                    p.upscaler = upscaler_;
+                    p.resolution = streamResolution_;
+                    p.deadzoneLeft = deadzone_;
+                    p.deadzoneRight = deadzone_;
+                    p.triggerStrength = triggerStrength_;
+                    p.triggerHz = g_settings.triggerHz;
+                    p.triggerResistance = g_settings.triggerResistance;
+                    p.triggerPulses = g_settings.triggerPulses;
+                    p.circleConfirms = circleConfirms_;
+                    g_settings.perGame[gameKey_] = p;
+                } else {
+                    g_settings.perGame.erase(gameKey_);
+                    auto def = g_settings.defaultProfile();
+                    sharpness_ = def.sharpness;
+                    deband_ = def.deband;
+                    upscaler_ = def.upscaler;
+                    streamResolution_ = def.resolution;
+                    deadzone_ = def.deadzoneLeft;
+                    triggerStrength_ = def.triggerStrength;
+                    circleConfirms_ = def.circleConfirms;
+                    display::setSharpness(kSharpAmount[sharpness_]);
+                    applyDeband_();
+                    applyUpscaler(upscaler_);
+                    input::setDeadzone(deadzone_ / 100.0f, deadzone_ / 100.0f);
+                    input::setTriggerFeel(triggerStrength_, g_settings.triggerHz, g_settings.triggerResistance, g_settings.triggerPulses);
+                    input::setCircleConfirms(circleConfirms_);
+                    menu_.setProfileValues(streamResolution_, sharpness_, deband_, upscaler_,
+                                           triggerStrength_, deadzone_, circleConfirms_, false);
+                }
+                g_settings.save(settingsPath());
+                if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
+                break;
+            }
             case ui::MenuAction::Sharpness: {
                 sharpness_ = menu_.sharpness();
                 display::setSharpness(kSharpAmount[sharpness_]);
                 std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
-                g_settings.sharpness = sharpness_;
+                if (hasCustomProfile_) g_settings.perGame[gameKey_].sharpness = sharpness_;
+                else g_settings.sharpness = sharpness_;
                 g_settings.save(settingsPath());
+                if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 break;
             }
             case ui::MenuAction::Upscaler: {
                 upscaler_ = menu_.upscaler();
                 applyUpscaler(upscaler_);
                 std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
-                g_settings.upscaler = upscaler_;
+                if (hasCustomProfile_) g_settings.perGame[gameKey_].upscaler = upscaler_;
+                else g_settings.upscaler = upscaler_;
                 g_settings.save(settingsPath());
+                if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 break;
             }
             case ui::MenuAction::Deband: {
                 deband_ = menu_.deband();
                 applyDeband_();
                 std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
-                g_settings.deband = deband_;
+                if (hasCustomProfile_) g_settings.perGame[gameKey_].deband = deband_;
+                else g_settings.deband = deband_;
                 g_settings.save(settingsPath());
+                if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
+                break;
+            }
+            case ui::MenuAction::Triggers: {
+                triggerStrength_ = menu_.triggerStrength();
+                std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                input::setTriggerFeel(triggerStrength_, g_settings.triggerHz, g_settings.triggerResistance, g_settings.triggerPulses);
+                if (hasCustomProfile_) g_settings.perGame[gameKey_].triggerStrength = triggerStrength_;
+                else g_settings.triggerStrength = triggerStrength_;
+                g_settings.save(settingsPath());
+                if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
+                break;
+            }
+            case ui::MenuAction::Deadzone: {
+                deadzone_ = menu_.deadzone();
+                std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                input::setDeadzone(deadzone_ / 100.0f, deadzone_ / 100.0f);
+                if (hasCustomProfile_) {
+                    g_settings.perGame[gameKey_].deadzoneLeft = deadzone_;
+                    g_settings.perGame[gameKey_].deadzoneRight = deadzone_;
+                } else {
+                    g_settings.deadzoneLeft = deadzone_;
+                    g_settings.deadzoneRight = deadzone_;
+                }
+                g_settings.save(settingsPath());
+                if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
+                break;
+            }
+            case ui::MenuAction::ConfirmButton: {
+                circleConfirms_ = menu_.circleConfirms();
+                input::setCircleConfirms(circleConfirms_);
+                if (g_ui) g_ui->setCircleConfirms(circleConfirms_);
+                std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                if (hasCustomProfile_) g_settings.perGame[gameKey_].circleConfirms = circleConfirms_;
+                else g_settings.circleConfirms = circleConfirms_;
+                g_settings.save(settingsPath());
+                if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 break;
             }
             case ui::MenuAction::Stats: {
@@ -273,6 +385,15 @@ void StreamScreen::idle() {
         display::setOverlay(nullptr, 0, 0, 0, 0, 0);
         overlayShown_ = false;
         menu_.close();
+    }
+    if (wasStreaming_) {
+        wasStreaming_ = false;
+        overlayPlayer_ = nullptr;
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        input::setDeadzone(g_settings.deadzoneLeft / 100.0f, g_settings.deadzoneRight / 100.0f);
+        input::setTriggerFeel(g_settings.triggerStrength, g_settings.triggerHz, g_settings.triggerResistance, g_settings.triggerPulses);
+        input::setCircleConfirms(g_settings.circleConfirms);
+        if (g_ui) g_ui->setCircleConfirms(g_settings.circleConfirms);
     }
 }
 

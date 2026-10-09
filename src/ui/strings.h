@@ -44,7 +44,7 @@ enum class Str {
     RegionAuto,    // "%s" = the account's default region
     Res1080,
     Res720,
-    Res1440,
+    ResBest,
     SettingsNote,
     Change,
     HoldSignOut,
@@ -203,6 +203,11 @@ enum class Str {
     LanguageNoun,       // this language's name, as the filters say it
     LangSubtitles,      // "%s" = LanguageNoun: subtitles or menus in it
     LangAudio,          // "%s" = LanguageNoun: spoken in it
+    GameSettings,       // game details hint and game settings modal title
+    Profile,            // game menu and settings: profile row
+    ProfileDefault,     // global/default profile
+    ProfileCustom,      // per-game custom profile
+    ResetToDefault,     // button to reset per-game profile to general settings
     Count
 };
 

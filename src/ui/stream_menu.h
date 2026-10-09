@@ -24,7 +24,10 @@ struct StreamInfo {
 };
 
 // Close: the menu went away (Circle, OPTIONS, or the Xbox button): a fresh key frame is asked for.
-enum class MenuAction { None, Close, Leave, Resolution, Stats, Sharpness, Deband, Upscaler, XboxButton };
+enum class MenuAction {
+    None, Close, Leave, Resolution, Stats, Sharpness, Deband, Upscaler, XboxButton,
+    ProfileToggle, Triggers, Deadzone, ConfirmButton
+};
 
 class StreamMenu {
 public:
@@ -41,7 +44,8 @@ public:
     // `homeConsole`: the user's own Xbox ("End the stream" instead of "Leave the game").
     // `allow1440`: offered only once a stream delivered it.
     void open(int resolution, bool stats, int sharpness = 0, int deband = 1, int upscaler = 0, bool homeConsole = false,
-              bool allow1440 = true);
+              bool allow1440 = true, bool hasCustomProfile = false, int triggerStrength = 2, int deadzone = 15,
+              bool circleConfirms = false);
     void close() { open_ = false; }
     bool isOpen() const { return open_; }
     MenuAction handle(const NavInput& in);
@@ -50,10 +54,21 @@ public:
     int sharpness() const { return sharpness_; }
     int deband() const { return deband_; }
     int upscaler() const { return upscaler_; }
+    bool hasCustomProfile() const { return hasCustomProfile_; }
+    void setHasCustomProfile(bool custom) { hasCustomProfile_ = custom; }
+    int triggerStrength() const { return triggerStrength_; }
+    void setTriggerStrength(int strength) { triggerStrength_ = strength; }
+    int deadzone() const { return deadzone_; }
+    void setDeadzone(int deadzone) { deadzone_ = deadzone; }
+    bool circleConfirms() const { return circleConfirms_; }
+    void setCircleConfirms(bool cc) { circleConfirms_ = cc; }
     // The block smoothing level "auto" picked for the bitrate (shown as "Auto (low)").
     void setDebandInUse(int level) { debandInUse_ = level; }
     // Circle confirms: the hints swap their buttons.
-    void setCircleConfirms(bool on) { circleConfirms_ = on; }
+    // Update active profile values without resetting cursor position.
+    void setProfileValues(int resolution, int sharpness, int deband, int upscaler,
+                          int triggerStrength, int deadzone, bool circleConfirms,
+                          bool hasCustomProfile);
     // The controllers in use, under the connection.
     void setPads(const PadSlots& pads) { pads_ = pads; }
 
@@ -61,7 +76,20 @@ public:
     Canvas renderStats(const StreamInfo& info) const;
 
 private:
-    enum Item { XboxButton, Stats, Upscaler, Sharpness, Deband, Resolution, Leave, ItemCount };
+    enum Item {
+        XboxButton,
+        Profile,
+        Stats,
+        Upscaler,
+        Sharpness,
+        Deband,
+        Resolution,
+        Triggers,
+        DeadzoneItem,
+        ConfirmItem,
+        Leave,
+        ItemCount
+    };
 
     const Fonts& fonts_;
     bool open_ = false, stats_ = false;
@@ -71,6 +99,9 @@ private:
     bool resolutionAsked_ = false;
     bool circleConfirms_ = false;
     bool homeConsole_ = false, allow1440_ = true;
+    bool hasCustomProfile_ = false;
+    int triggerStrength_ = 2;
+    int deadzone_ = 15;
     PadSlots pads_{};
 };
 

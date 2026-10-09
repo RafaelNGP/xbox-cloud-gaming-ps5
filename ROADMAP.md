@@ -140,11 +140,20 @@ is rolled back at the next start), then the app restarts itself
 - Cached game details older than 30 days are fetched again, 40 per start,
   oldest first.
 
+### Per-game settings — done (v0.9.2)
+- Custom profile per game (picture: sharpness, deband, upscaler, resolution;
+  triggers: strength, Hz, resistance, pulses; dead zones: left, right; controls:
+  circleConfirms).
+- Overrides general settings for that game only; games without one seamlessly
+  use global settings.
+- Configurable directly from the game details screen (`Screen::Details` via Options button) and in-game from the stream overlay menu (`StreamMenu`).
+- Interactive stick and trigger testers accessible directly within the modal.
+- "Restaurar padrão" (Reset to default) option cleanly restores global settings.
+
 ## Next
 
 | Item | Why | Size |
 | --- | --- | --- |
-| Per-game settings (next release) | A profile per game (picture, triggers, dead zones, controls) that overrides the general settings for that game only; games without one use the general ones | medium |
 | Publisher filter | 918 publishers: the most frequent first, studios of one owner grouped | medium |
 | Friends playing now | Xbox social / presence APIs; privacy to handle | large |
 | Keyboard and mouse filter / icon | The store marks games that take them; together with keyboard and mouse support | small |
