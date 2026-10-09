@@ -5,6 +5,7 @@
 #include "net/http.h"
 #include "util/json.h"
 
+#include <cstdio>
 #include <vector>
 
 namespace xc::app {
@@ -34,15 +35,42 @@ bool isNewerVersion(const std::string& tag, const std::string& current) {
     return !a.empty() && !b.empty() && a > b;
 }
 
-std::string latestReleaseTag() {
+std::string contentVersionOf(const std::string& version) {
+    auto p = parts(version);
+    if (p.empty() || p[0] > 99 || p[1] > 9 || p[2] > 99) return {};
+    char out[16];
+    std::snprintf(out, sizeof out, "%02d.%d%02d.000", p[0], p[1], p[2]);
+    return out;
+}
+
+bool findLatestRelease(Release& out, std::string& err, const std::string& feedUrl) {
     net::Request req;
-    req.url = kLatestRelease;
+    req.url = feedUrl.empty() ? kLatestRelease : feedUrl;
     req.headers = {{"Accept", "application/vnd.github+json"}, {"User-Agent", "PSBox-Cloud-Gaming"}};
     req.timeoutMs = 10000;
     auto r = net::perform(req);
-    if (!r.ok()) return {};
+    if (!r.ok()) {
+        err = r.status ? "HTTP " + std::to_string(r.status) : r.error;
+        return false;
+    }
     auto j = json::parse(r.body);
-    return j ? (*j)["tag_name"].str() : std::string();
+    if (!j || (*j)["tag_name"].str().empty()) {
+        err = "no release in the answer";
+        return false;
+    }
+    out = {};
+    out.tag = (*j)["tag_name"].str();
+    const auto& assets = (*j)["assets"];
+    for (size_t i = 0; i < assets.size(); ++i) {
+        const auto& a = assets[i];
+        if (a["name"].str() == "PPSA99810.zip") {
+            out.zipUrl = a["browser_download_url"].str();
+            out.zipSize = static_cast<long>(a["size"].asInt(-1));
+        } else if (a["name"].str() == "PPSA99810.zip.sig") {
+            out.sigUrl = a["browser_download_url"].str();
+        }
+    }
+    return true;
 }
 
 }  // namespace xc::app

@@ -13,7 +13,9 @@
 // 720p, back to 1080p), res=720p|1080p|1080p-hq|1440p, sharp=0..3 and
 // deband=0..3 and ai (Anime4K) instead of the settings.
 // The title "BENCH" decodes <dataDir>/sample.h264 instead; "XHOME" plays
-// the account's first own console.
+// the account's first own console; "UPDATE" stays on the home screen (the
+// update test: updatefeed=<url> of a release, testca to trust
+// <dataDir>/test-ca.pem, updatetest to accept the pop-up, norestart).
 #pragma once
 
 #include "input/controller.h"
@@ -53,6 +55,12 @@ struct Autoplay {
     int deband = -1;             // deband=0..3: instead of the setting
     int sharpness = -1;          // sharp=0..3: instead of the setting
     std::string resolution;      // res=720p|1080p|1440p: instead of the setting
+    std::string updateFeed;      // updatefeed=<url>: the release JSON instead of GitHub's
+    bool testCa = false;         // testca: also trust <dataDir>/test-ca.pem (the feed's server)
+    bool updateTest = false;     // updatetest: accept the update pop-up, save update.ppm / updating.ppm
+    bool updateSkip = false;     // updateskip: "Not now" on the update pop-up
+    bool settingsUpdate = false; // settingsupdate: Settings > Updates, Cross
+    bool noRestart = false;      // norestart: after an update, close instead of restarting
 };
 extern Autoplay g_autoplay;
 extern std::atomic<bool> g_syntheticA;  // A held down for the game

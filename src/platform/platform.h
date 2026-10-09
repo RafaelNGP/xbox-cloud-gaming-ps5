@@ -62,6 +62,10 @@ bool openSystemKeyboard(const std::string& title, const std::string& text, size_
 // Accepted/Cancelled once, when the player closes it; `text` (UTF-8) on Accepted.
 KeyboardStatus pollSystemKeyboard(std::string& text);
 
+// Starts the app again from its eboot.bin (after an update); returns only
+// when it can't (false; the host never can).
+bool restartApp();
+
 bool readFile(const std::string& path, std::string& out);
 bool writeFileAtomic(const std::string& path, const std::string& data);
 

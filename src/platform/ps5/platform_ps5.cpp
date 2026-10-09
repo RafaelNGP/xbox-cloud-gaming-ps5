@@ -17,6 +17,7 @@
 #include <sys/socket.h>
 
 extern "C" {
+int sceSystemServiceLoadExec(const char* path, char* const argv[]);
 int sceKernelSendNotificationRequest(int device, void* request, size_t size, int blocking);
 int sceNetInit(void);
 int sceNetPoolCreate(const char* name, int size, int flags);
@@ -108,6 +109,15 @@ extern "C" int xc_resolve_ipv4(const char* host, uint32_t* addr) {
 }
 
 namespace xc::platform {
+
+bool restartApp() {
+    // Replaces this process with /app0/eboot.bin (the console showed it
+    // takes under a second, and the new eboot.bin is the one that starts).
+    char* argv[] = {nullptr};
+    int rc = sceSystemServiceLoadExec("/app0/eboot.bin", argv);
+    XC_LOGE("restart: sceSystemServiceLoadExec returned 0x%08x", static_cast<unsigned>(rc));
+    return false;
+}
 
 void notify(const std::string& text) { notify(text, text); }
 

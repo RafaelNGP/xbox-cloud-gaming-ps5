@@ -9,6 +9,7 @@
 #include "app/ps5_app.h"
 #include "app/settings.h"
 #include "app/stream_screen.h"
+#include "app/updater.h"
 #include "display/display.h"
 #include "display/gpu.h"
 #include "input/controller.h"
@@ -19,6 +20,7 @@
 #include "util/log.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -45,6 +47,7 @@ std::atomic<uint32_t> g_infoSeq{0};
 std::atomic<bool> g_playingHome{false};
 std::atomic<bool> g_tierPicked{false};
 std::atomic<uint64_t> g_xboxButtonUntil{0};
+std::atomic<bool> g_restartWanted{false};
 
 }  // namespace xc::app
 
@@ -70,6 +73,29 @@ void applyControllerSettings() {
     input::setTriggerRumbleEnabled(g_settings.triggerRumble);
     input::setCircleConfirms(g_settings.circleConfirms);
     if (g_ui) g_ui->setCircleConfirms(g_settings.circleConfirms);
+}
+
+// Saves what Settings edits (and applies the controller's part); true when
+// the language changed.
+bool saveSettings(const ui::SettingsChoice& choice) {
+    bool languageChanged;
+    {
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        std::string code = ui::languageCode(static_cast<ui::Language>(choice.language));
+        languageChanged = code != g_settings.language;
+        g_settings.language = code;
+        g_settings.resolution = choice.resolution == 1 ? "720p" : choice.resolution == 2 ? "1440p" : "1080p";
+        g_settings.region = choice.region;
+        g_settings.deadzone = ui::kDeadzonePercent[choice.deadzone];
+        g_settings.triggerRumble = choice.triggerRumble;
+        g_settings.circleConfirms = choice.circleConfirms;
+        g_settings.lightBar = choice.lightBar;
+        if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
+        XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
+                g_settings.region.empty() ? "auto" : g_settings.region.c_str());
+    }
+    applyControllerSettings();
+    return languageChanged;
 }
 
 // --- Input ---------------------------------------------------------------------
@@ -109,6 +135,9 @@ int main(int argc, char** argv) {
     log::setFile((platform::dataDir() + "/xcloud.log").c_str());
     XC_LOGI("=== PSBox Cloud Gaming starting ===");
     loadAutoplay();
+    // An update cut short: the old files went back, and the old eboot.bin
+    // is the one to run.
+    if (recoverUpdate(platform::dataDir())) platform::restartApp();
     g_settings.load(settingsPath());
     ui::setLanguage(ui::languageFromCode(g_settings.language));
     XC_LOGI("settings: language %s, %s, region %s", g_settings.language.c_str(), g_settings.resolution.c_str(),
@@ -159,6 +188,7 @@ int main(int argc, char** argv) {
                         platform::dataDir() + "/xcloud.log");
         if (g_autoplay.badCa) XC_LOGI("AUTOPLAY END: TLS setup error shown");
     } else {
+        if (g_autoplay.testCa) net::addTrustedCa(platform::dataDir() + "/test-ca.pem");
         std::thread(worker).detach();
     }
 
@@ -171,6 +201,14 @@ int main(int argc, char** argv) {
     uint64_t lightBarAt = 0;
     bool lightBarSet = false;  // false from the menu/keyboard until the buttons are let go
     for (;;) {
+        if (g_restartWanted) {
+            // After an update: the new version, started in place of this one.
+            if (!g_autoplay.noRestart) platform::restartApp();
+            // It couldn't start again by itself: closed, the next start is the new version.
+            platform::notify(ui::tr(ui::Str::UpdateReopen), "update installed, restart failed: closing");
+            platform::sleepMs(2000);
+            std::exit(0);
+        }
         input::poll(pad);
         autoplayPad(pad);
         uint64_t now = platform::nowMs();
@@ -261,31 +299,18 @@ int main(int argc, char** argv) {
                 XC_LOGI("prefs saved: %zu hidden, sort %s", g_settings.hidden.size(), g_settings.librarySort.c_str());
                 break;
             }
-            case ui::Action::SettingsChanged: {
-                bool languageChanged;
-                {
-                    std::lock_guard<std::mutex> lock(g_settingsMutex);
-                    std::string code = ui::languageCode(static_cast<ui::Language>(ev.settings.language));
-                    languageChanged = code != g_settings.language;
-                    g_settings.language = code;
-                    g_settings.resolution = ev.settings.resolution == 1   ? "720p"
-                                            : ev.settings.resolution == 2 ? "1440p"
-                                                                          : "1080p";
-                    g_settings.region = ev.settings.region;
-                    g_settings.deadzone = ui::kDeadzonePercent[ev.settings.deadzone];
-                    g_settings.triggerRumble = ev.settings.triggerRumble;
-                    g_settings.circleConfirms = ev.settings.circleConfirms;
-                    g_settings.lightBar = ev.settings.lightBar;
-                    if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
-                    XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
-                            g_settings.region.empty() ? "auto" : g_settings.region.c_str());
-                }
-                applyControllerSettings();
+            case ui::Action::SettingsChanged:
                 // Row titles and game details come from the catalog in the
                 // chosen language.
-                if (languageChanged) g_command = kReloadLibrary;
+                if (saveSettings(ev.settings)) g_command = kReloadLibrary;
+                break;
+            case ui::Action::UpdateNow: {
+                if (g_ui->screen() == ui::Screen::Settings) saveSettings(ev.settings);
+                int idle = kNone;
+                if (!g_command.compare_exchange_strong(idle, kUpdate)) XC_LOGW("update: the worker is busy");
                 break;
             }
+            case ui::Action::UpdateLater: skipOfferedUpdate(); break;
             case ui::Action::None: break;
         }
 

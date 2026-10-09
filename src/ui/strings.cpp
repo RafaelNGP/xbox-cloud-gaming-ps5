@@ -139,7 +139,7 @@ constexpr Column kEnglish = {
     "Off",                                           // Deactivated
     "Cross",                                     // ButtonCross
     "Circle",                                    // ButtonCircle
-    "PSBox Cloud Gaming %s is out: get it on GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",// UpdateAvailable
+    "Version %s available",                          // UpdateAvailable
     "Controllers",                                   // Controllers
     "Controller %s connected",                       // PadConnected
     "Controller %s disconnected",                    // PadDisconnected
@@ -179,6 +179,20 @@ constexpr Column kEnglish = {
     "FSR + clean-up",                                // UpscalerFsrClean
     "AI + clean-up",                                 // UpscalerAiClean
     "Auto (%s)",                                     // DebandAuto
+    "Update now? The app restarts by itself when it's done.", // UpdatePrompt
+    "Update now",                                    // UpdateNow
+    "Not now",                                       // NotNow
+    "Updates",                                       // Updates
+    "Up to date (%s)",                               // UpToDate
+    "%s available: update",                          // UpdateReady
+    "Checking...",                                   // UpdateChecking
+    "Updating to %s",                                // UpdatingTo
+    "Downloading... %s",                             // UpdateDownloading
+    "Checking the signature...",                     // UpdateVerifying
+    "Installing...",                                 // UpdateInstalling
+    "Updated. Restarting...",                        // UpdateRestarting
+    "PSBox updated: open the app again",             // UpdateReopen
+    "Update failed: nothing was changed",            // UpdateFailed
 };
 
 constexpr Column kPortugueseBR = {
@@ -288,7 +302,7 @@ constexpr Column kPortugueseBR = {
     "Desativada",
     "Xis",
     "Círculo",
-    "Saiu o PSBox Cloud Gaming %s: baixe no GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Versão %s disponível",
     "Controles",
     "Controle %s conectado",
     "Controle %s desconectado",
@@ -328,6 +342,20 @@ constexpr Column kPortugueseBR = {
     "FSR + limpeza",
     "IA + limpeza",
     "Auto (%s)",
+    "Atualizar agora? O app reinicia sozinho ao terminar.",
+    "Atualizar agora",
+    "Agora não",
+    "Atualizações",
+    "Atualizado (%s)",
+    "%s disponível: atualizar",
+    "Verificando...",
+    "Atualizando para %s",
+    "Baixando... %s",
+    "Conferindo a assinatura...",
+    "Instalando...",
+    "Atualizado. Reiniciando...",
+    "PSBox atualizado: abra o app de novo",
+    "A atualização falhou: nada foi alterado",
 };
 
 constexpr Column kSpanish = {
@@ -437,7 +465,7 @@ constexpr Column kSpanish = {
     "Desactivada",
     "Equis",
     "Círculo",
-    "Ya está disponible PSBox Cloud Gaming %s: descárgalo en GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Versión %s disponible",
     "Mandos",
     "Mando %s conectado",
     "Mando %s desconectado",
@@ -477,6 +505,20 @@ constexpr Column kSpanish = {
     "FSR + limpieza",
     "IA + limpieza",
     "Auto (%s)",
+    "¿Actualizar ahora? La app se reinicia sola al terminar.",
+    "Actualizar ahora",
+    "Ahora no",
+    "Actualizaciones",
+    "Al día (%s)",
+    "%s disponible: actualizar",
+    "Comprobando...",
+    "Actualizando a %s",
+    "Descargando... %s",
+    "Comprobando la firma...",
+    "Instalando...",
+    "Actualizado. Reiniciando...",
+    "PSBox actualizado: abre la app de nuevo",
+    "La actualización falló: no se cambió nada",
 };
 
 constexpr Column kFrench = {
@@ -586,7 +628,7 @@ constexpr Column kFrench = {
     "Désactivée",
     "Croix",
     "Rond",
-    "PSBox Cloud Gaming %s est disponible : téléchargez-le sur GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Version %s disponible",
     "Manettes",
     "Manette %s connectée",
     "Manette %s déconnectée",
@@ -626,6 +668,20 @@ constexpr Column kFrench = {
     "FSR + nettoyage",
     "IA + nettoyage",
     "Auto (%s)",
+    "Mettre à jour maintenant ? L'app redémarre toute seule à la fin.",
+    "Mettre à jour",
+    "Plus tard",
+    "Mises à jour",
+    "À jour (%s)",
+    "%s disponible : mettre à jour",
+    "Vérification...",
+    "Mise à jour vers %s",
+    "Téléchargement... %s",
+    "Vérification de la signature...",
+    "Installation...",
+    "Mis à jour. Redémarrage...",
+    "PSBox mis à jour : rouvrez l'app",
+    "Échec de la mise à jour : rien n'a changé",
 };
 
 constexpr Column kGerman = {
@@ -735,7 +791,7 @@ constexpr Column kGerman = {
     "Aus",
     "Kreuz",
     "Kreis",
-    "PSBox Cloud Gaming %s ist da: auf GitHub herunterladen (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Version %s verfügbar",
     "Controller",
     "Controller %s verbunden",
     "Controller %s getrennt",
@@ -775,6 +831,20 @@ constexpr Column kGerman = {
     "FSR + Bereinigung",
     "KI + Bereinigung",
     "Auto (%s)",
+    "Jetzt aktualisieren? Die App startet danach von selbst neu.",
+    "Jetzt aktualisieren",
+    "Nicht jetzt",
+    "Updates",
+    "Aktuell (%s)",
+    "%s verfügbar: aktualisieren",
+    "Wird geprüft...",
+    "Aktualisierung auf %s",
+    "Wird geladen... %s",
+    "Signatur wird geprüft...",
+    "Wird installiert...",
+    "Aktualisiert. Neustart...",
+    "PSBox aktualisiert: App erneut öffnen",
+    "Update fehlgeschlagen: nichts wurde geändert",
 };
 
 constexpr Column kItalian = {
@@ -884,7 +954,7 @@ constexpr Column kItalian = {
     "Disattivata",
     "Croce",
     "Cerchio",
-    "È disponibile PSBox Cloud Gaming %s: scaricalo da GitHub (RafaelNGP/xbox-cloud-gaming-ps5)",
+    "Versione %s disponibile",
     "Controller",
     "Controller %s connesso",
     "Controller %s disconnesso",
@@ -924,6 +994,20 @@ constexpr Column kItalian = {
     "FSR + pulizia",
     "IA + pulizia",
     "Auto (%s)",
+    "Aggiornare ora? L'app si riavvia da sola alla fine.",
+    "Aggiorna ora",
+    "Non ora",
+    "Aggiornamenti",
+    "Aggiornato (%s)",
+    "%s disponibile: aggiorna",
+    "Verifica...",
+    "Aggiornamento a %s",
+    "Download... %s",
+    "Verifica della firma...",
+    "Installazione...",
+    "Aggiornato. Riavvio...",
+    "PSBox aggiornato: riapri l'app",
+    "Aggiornamento non riuscito: nulla è cambiato",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

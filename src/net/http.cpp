@@ -191,6 +191,14 @@ bool initTls(const std::string& caBundlePath) {
     return true;
 }
 
+bool addTrustedCa(const std::string& pemPath) {
+    std::lock_guard<std::mutex> lock(g.mutex);
+    if (!g.ready) return false;
+    int rc = mbedtls_x509_crt_parse_file(&g.ca, pemPath.c_str());
+    XC_LOGI("extra CA %s: %s", pemPath.c_str(), rc == 0 ? "trusted" : tlsError(rc).c_str());
+    return rc == 0;
+}
+
 void shutdownTls() {
     std::lock_guard<std::mutex> lock(g.mutex);
     if (!g.ready) return;
@@ -288,6 +296,8 @@ Response performOnce(const Request& req) {
     size_t headerEnd = std::string::npos;
     long contentLength = -1;
     bool chunked = false;
+    bool streaming = false;  // the body goes to req.onBody
+    size_t streamed = 0;
     unsigned char buf[16384];
     for (;;) {
         rc = mbedtls_ssl_read(&ssl, buf, sizeof buf);
@@ -299,6 +309,13 @@ Response performOnce(const Request& req) {
         if (rc < 0) {
             if (headerEnd != std::string::npos && contentLength < 0 && !chunked) break;  // EOF-delimited
             return finish("TLS read: " + tlsError(rc));
+        }
+        if (streaming) {
+            if (!req.onBody(reinterpret_cast<char*>(buf), static_cast<size_t>(rc))) return finish("download stopped");
+            streamed += static_cast<size_t>(rc);
+            if (req.onProgress) req.onProgress(streamed, contentLength);
+            if (contentLength >= 0 && streamed >= static_cast<size_t>(contentLength)) break;
+            continue;
         }
         raw.append(reinterpret_cast<char*>(buf), static_cast<size_t>(rc));
 
@@ -325,6 +342,16 @@ Response performOnce(const Request& req) {
             if (resp.headers.count("content-length")) contentLength = std::atol(resp.headers["content-length"].c_str());
             chunked = lower(resp.header("transfer-encoding")).find("chunked") != std::string::npos;
             if (req.method == "HEAD" || resp.status == 204 || resp.status == 304) contentLength = 0;
+            if (req.onBody && resp.ok() && !chunked) {
+                // What came with the headers, then each read as it arrives.
+                streaming = true;
+                streamed = raw.size() - (headerEnd + 4);
+                if (streamed && !req.onBody(raw.data() + headerEnd + 4, streamed)) return finish("download stopped");
+                raw.resize(headerEnd + 4);
+                if (req.onProgress) req.onProgress(streamed, contentLength);
+                if (contentLength >= 0 && streamed >= static_cast<size_t>(contentLength)) break;
+                continue;
+            }
         }
         size_t bodyLen = raw.size() - (headerEnd + 4);
         if (contentLength >= 0 && bodyLen >= static_cast<size_t>(contentLength)) break;
@@ -333,6 +360,10 @@ Response performOnce(const Request& req) {
     mbedtls_ssl_close_notify(&ssl);
 
     if (headerEnd == std::string::npos) return finish("no HTTP response from " + url.host);
+    if (streaming) {
+        if (contentLength >= 0 && streamed < static_cast<size_t>(contentLength)) return finish("download cut short");
+        return finish({});
+    }
     std::string body = raw.substr(headerEnd + 4);
     if (chunked) {
         if (!dechunk(body, resp.body)) return finish("malformed chunked body");
@@ -344,9 +375,7 @@ Response performOnce(const Request& req) {
     return finish({});
 }
 
-}  // namespace
-
-Response perform(const Request& req) {
+Response performRetrying(const Request& req) {
     Response resp = performOnce(req);
     // A GET that got no answer at all (the connection or the handshake
     // failed, or timed out) is asked once more: they are seldom and
@@ -358,6 +387,35 @@ Response perform(const Request& req) {
         XC_LOGW("%s: %s; asking again", url.host.c_str(), resp.error.c_str());
         platform::sleepMs(300);
         resp = performOnce(req);
+    }
+    return resp;
+}
+
+}  // namespace
+
+Response perform(const Request& req) {
+    Response resp = performRetrying(req);
+    Request next = req;
+    for (int hops = 0; req.followRedirects && hops < 5; ++hops) {
+        int s = resp.status;
+        std::string location = resp.header("location");
+        if ((s != 301 && s != 302 && s != 303 && s != 307 && s != 308) || location.empty()) break;
+        Url from, to;
+        Url::parse(next.url, from);
+        if (location[0] == '/') {
+            bool defaultPort = from.port == (from.scheme == "https" ? 443 : 80);
+            location = from.scheme + "://" + from.host + (defaultPort ? "" : ":" + std::to_string(from.port)) + location;
+        }
+        if (!Url::parse(location, to)) break;
+        if (to.host != from.host)
+            for (auto it = next.headers.begin(); it != next.headers.end();)
+                it = lower(it->first) == "authorization" ? next.headers.erase(it) : it + 1;
+        if (s == 303) {
+            next.method = "GET";
+            next.body.clear();
+        }
+        next.url = location;
+        resp = performRetrying(next);
     }
     return resp;
 }

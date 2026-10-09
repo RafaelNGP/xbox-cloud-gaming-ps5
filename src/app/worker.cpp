@@ -8,6 +8,7 @@
 #include "app/ps5_app.h"
 #include "app/stream_player.h"
 #include "app/update_check.h"
+#include "app/updater.h"
 #include "auth/auth_manager.h"
 #include "platform/platform.h"
 #include "ui/strings.h"
@@ -16,7 +17,9 @@
 #include "xcloud/gssv.h"
 #include "xcloud/regions.h"
 
+#include <cstdlib>
 #include <map>
+#include <sys/stat.h>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -315,6 +318,92 @@ void loadLibrary(xcloud::GssvClient& gssv);
 // Profile token for titlehub (memory only).
 std::string g_xblAuth;
 
+// --- Updates -------------------------------------------------------------------
+
+// The newer release found at start (empty tag: none).
+std::mutex g_releaseMutex;
+Release g_release;
+
+// Asks for the latest release; a newer one with a signed package is offered
+// (the pop-up, unless the user said "Not now" to it) and shown in Settings.
+void checkForUpdate() {
+    g_ui->setUpdateState(XC_APP_VERSION, {}, true);
+    Release r;
+    std::string err;
+    bool found = findLatestRelease(r, err, g_autoplay.updateFeed);
+    XC_LOGI("latest release: %s (this is %s)", found ? r.tag.c_str() : err.c_str(), XC_APP_VERSION);
+    bool offer = found && isNewerVersion(r.tag, XC_APP_VERSION) && !r.zipUrl.empty() && !r.sigUrl.empty();
+    if (found && isNewerVersion(r.tag, XC_APP_VERSION) && !offer) XC_LOGW("%s has no signed package", r.tag.c_str());
+    {
+        std::lock_guard<std::mutex> lock(g_releaseMutex);
+        g_release = offer ? r : Release{};
+    }
+    g_ui->setUpdateState(XC_APP_VERSION, offer ? r.tag : std::string(), false);
+    bool skipped;
+    {
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        skipped = g_settings.skippedUpdate == r.tag;
+    }
+    if (offer && !skipped) g_ui->offerUpdate();
+}
+
+// The update itself, then the restart into the new version. A failure
+// changes nothing and goes back to the home screen.
+void runUpdate() {
+    Release r;
+    {
+        std::lock_guard<std::mutex> lock(g_releaseMutex);
+        r = g_release;
+    }
+    if (r.tag.empty()) return;
+    XC_LOGI("update to %s: starting", r.tag.c_str());
+    g_ui->showUpdating(r.tag);
+    // Only where the app runs from (/app0 is the data folder): installed
+    // elsewhere, it would write next to the wrong eboot.bin.
+    std::string dir = platform::dataDir(), err;
+    struct stat here {}, running {};
+    bool ok = ::stat((dir + "/eboot.bin").c_str(), &here) == 0 && ::stat("/app0/eboot.bin", &running) == 0 &&
+              here.st_ino == running.st_ino;
+    if (!ok) err = "the app doesn't run from " + dir;
+    int lastPct = -1;
+    ok = ok && installRelease(r, dir, XC_APP_VERSION, [&](UpdateStep step, double f) {
+        if (step == UpdateStep::Downloading) {
+            int pct = f < 0 ? 0 : static_cast<int>(f * 100);
+            if (pct == lastPct) return;
+            lastPct = pct;
+            g_ui->setUpdateStatus(ui::trf(ui::Str::UpdateDownloading, std::to_string(pct) + " %"), static_cast<float>(f));
+        } else {
+            g_ui->setUpdateStatus(ui::tr(step == UpdateStep::Verifying ? ui::Str::UpdateVerifying : ui::Str::UpdateInstalling), -1);
+        }
+    }, err);
+    if (!ok) {
+        XC_LOGE("update to %s failed: %s", r.tag.c_str(), err.c_str());
+        g_ui->showHome(ui::tr(ui::Str::UpdateFailed));
+        if (!g_autoplay.title.empty()) XC_LOGI("AUTOPLAY END: update failed");
+        return;
+    }
+    g_ui->setUpdateStatus(ui::tr(ui::Str::UpdateRestarting), 1);
+    platform::sleepMs(1500);
+    XC_LOGI("update to %s: restarting", r.tag.c_str());
+    g_restartWanted = true;
+}
+
+}  // namespace
+
+void skipOfferedUpdate() {
+    std::string tag;
+    {
+        std::lock_guard<std::mutex> lock(g_releaseMutex);
+        tag = g_release.tag;
+    }
+    std::lock_guard<std::mutex> lock(g_settingsMutex);
+    g_settings.skippedUpdate = tag;
+    g_settings.save(settingsPath());
+    XC_LOGI("update %s: not now", tag.c_str());
+}
+
+namespace {
+
 // The note on the home screen after a stream: who ended it, when known.
 std::string endedToast(const std::string& result) {
     if (result.find("KickForStopCommand") != std::string::npos) return ui::tr(ui::Str::EndedOnXbox);
@@ -386,13 +475,9 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     }
     platform::notify(ui::trf(ui::Str::SignedInAs, am.profile().gamertag), "signed in (notification)");
     static bool updateChecked = false;
-    if (!updateChecked && g_autoplay.title.empty()) {
+    if (!updateChecked && (g_autoplay.title.empty() || !g_autoplay.updateFeed.empty())) {
         updateChecked = true;
-        std::thread([] {
-            std::string tag = app::latestReleaseTag();
-            XC_LOGI("latest release: %s (this is %s)", tag.empty() ? "unknown" : tag.c_str(), XC_APP_VERSION);
-            if (app::isNewerVersion(tag, XC_APP_VERSION)) platform::notify(ui::trf(ui::Str::UpdateAvailable, tag));
-        }).detach();
+        std::thread(checkForUpdate).detach();
     }
     std::vector<std::string> regions;
     for (const auto& r : gssv.session().regions) regions.push_back(r.name);
@@ -448,7 +533,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         library->loadPlatforms(xblAuth, changed, &g_stopHydration);
         library->hydrate(changed, &g_stopHydration);
     });
-    if (!g_autoplay.title.empty() && g_autoplay.title != "BENCH" && !g_autoplay.detailTest && !g_autoplay.libraryTest &&
+    if (!g_autoplay.title.empty() && g_autoplay.title != "BENCH" && g_autoplay.title != "UPDATE" && !g_autoplay.detailTest && !g_autoplay.libraryTest &&
         !g_autoplay.consolesTab && !g_autoplay.settingsTest &&
         !g_autoplay.imeTest && !g_autoplay.vibeTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
@@ -484,6 +569,7 @@ void worker() {
                 loadConsoles(am, home);  // empty when the sign-in failed
                 break;
             case kConsoles: loadConsoles(am, home); break;
+            case kUpdate: runUpdate(); break;
             case kReloadLibrary: loadLibrary(gssv); break;  // e.g. after a language change
             case kSignOut:
                 am.signOut();

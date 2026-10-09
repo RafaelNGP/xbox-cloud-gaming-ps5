@@ -37,6 +37,8 @@ struct Settings {
     // The DualSense light bar takes the colour of the game in focus.
     bool lightBar = true;
     int gestureHints = 0;
+    // The release the user said "Not now" to: not offered again on start.
+    std::string skippedUpdate;
     // The tallest picture each kind of stream delivered when asked for its
     // top tier, and when (unix s): 1440p is only offered once one did.
     int maxHeightCloud = 0, maxHeightHome = 0;

@@ -32,6 +32,7 @@ bool Settings::load(const std::string& path) {
     circleConfirms = (*j)["circleConfirms"].asBool(circleConfirms);
     lightBar = (*j)["lightBar"].asBool(lightBar);
     gestureHints = static_cast<int>((*j)["gestureHints"].asInt(gestureHints));
+    skippedUpdate = (*j)["skippedUpdate"].str();
     maxHeightCloud = static_cast<int>((*j)["maxHeightCloud"].asInt(0));
     maxHeightHome = static_cast<int>((*j)["maxHeightHome"].asInt(0));
     probedCloud = (*j)["probedCloud"].asInt(0);
@@ -71,6 +72,7 @@ bool Settings::save(const std::string& path) const {
     v.set("circleConfirms", circleConfirms);
     v.set("lightBar", lightBar);
     v.set("gestureHints", gestureHints);
+    v.set("skippedUpdate", skippedUpdate);
     v.set("maxHeightCloud", maxHeightCloud);
     v.set("maxHeightHome", maxHeightHome);
     v.set("probedCloud", probedCloud);

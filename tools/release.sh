@@ -9,11 +9,16 @@
 # CMakeLists.txt and ps5/sce_sys/param.json (contentVersion 0X.YZZ.000, above
 # the last release's), no tag yet, and no token or private file in the
 # changes since the last release. Then: PS5 build -> link -> package WITHOUT
-# the account -> zip + sha256, and checks inside the zip (no private files,
+# the account -> zip + sha256 + signature, and checks inside the zip (no private files,
 # README.txt and param.json at this version, no token in eboot.bin, the
 # version compiled in, the licenses). With --console (PS5_HOST set), a cloud
 # and an own-Xbox stream on the console. Last, it prints the commands that
 # publish the release and the catalog record.
+#
+# The in-app updater installs only a zip signed by the project's key:
+# PSBOX_SIGNING_KEY (default ~/.config/psbox-release/signing-key.pem, kept
+# by the maintainer, never in the repository) signs it, and must be the key
+# whose public half src/app/updater.cpp carries.
 set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
@@ -29,6 +34,7 @@ for a in "$@"; do
     esac
 done
 out=${out:-$root/build-ps5/release-v$version}
+key=${PSBOX_SIGNING_KEY:-$HOME/.config/psbox-release/signing-key.pem}
 tag=v$version
 fail() { echo "release: $*" >&2; exit 1; }
 ok() { echo "  ok  $*"; }
@@ -57,6 +63,12 @@ if [[ -n $last ]]; then
 fi
 if git ls-files | grep -nE "$private"; then fail "private files are tracked"; fi
 ok "no private file tracked"
+[[ -r $key ]] || fail "no signing key at $key (PSBOX_SIGNING_KEY)"
+pub=$(openssl pkey -in "$key" -pubout 2>/dev/null) || fail "$key is not a private key"
+while read -r line; do
+    [[ $line == -----* ]] || grep -qF "\"$line\n\"" src/app/updater.cpp || fail "$key is not the key src/app/updater.cpp trusts"
+done <<<"$pub"
+ok "signing key matches the app's"
 
 echo "== build"
 buildlog=$(mktemp)
@@ -70,6 +82,10 @@ env -u XC_INCLUDE_ACCOUNT XC_VERSION="$tag" tools/ps5/package.sh build-ps5 "$out
 (cd "$out" && zip -qr PPSA99810.zip PPSA99810 && sha256sum PPSA99810.zip > PPSA99810.zip.sha256)
 sha=$(cut -d' ' -f1 "$out/PPSA99810.zip.sha256")
 ok "$out/PPSA99810.zip ($(du -h "$out/PPSA99810.zip" | cut -f1)), sha256 $sha"
+openssl dgst -sha256 -sign "$key" -out "$out/PPSA99810.zip.sig" "$out/PPSA99810.zip"
+openssl dgst -sha256 -verify <(echo "$pub") -signature "$out/PPSA99810.zip.sig" "$out/PPSA99810.zip" >/dev/null ||
+    fail "the signature doesn't verify"
+ok "signed: $out/PPSA99810.zip.sig"
 
 echo "== checks in the package"
 zip=$out/PPSA99810.zip
@@ -100,7 +116,7 @@ if [[ $console == 1 ]]; then
 fi
 
 echo "== all checks passed; to publish (with release notes in notes.md):"
-echo "  gh release create $tag \"$zip\" \"$out/PPSA99810.zip.sha256\" --target $(git rev-parse HEAD) --title \"PSBox Cloud Gaming $tag\" --notes-file notes.md"
+echo "  gh release create $tag \"$zip\" \"$out/PPSA99810.zip.sha256\" \"$out/PPSA99810.zip.sig\" --target $(git rev-parse HEAD) --title \"PSBox Cloud Gaming $tag\" --notes-file notes.md"
 echo "== catalog record (apps/PPSA99810.json):"
 echo "  \"version\": \"$version\","
 echo "  \"artifact_url\": \"https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/releases/download/$tag/PPSA99810.zip\","

@@ -30,8 +30,11 @@ Installation
 2. Wait for the loader (e.g. ShadowMountPlus) to add the
    "PSBox Cloud Gaming" icon to the Home screen, then launch it.
 
-Updating: close the app and copy the new @TITLE_ID@ folder over the old
-one. Your sign-in is kept.
+Updating: when a new version is out, the app offers it after sign-in
+("Update now" / "Not now"; also in Settings > Updates). It downloads it,
+checks that it was signed by this project, installs it and restarts by
+itself; your sign-in and settings are kept. By hand: close the app and
+copy the new @TITLE_ID@ folder over the old one.
 
 
 First launch
@@ -105,7 +108,6 @@ the light bar in the colour of the game in focus, and the confirm button (Cross,
 then acts as Xbox A in games too). Saved in
 /data/homebrew/@TITLE_ID@/settings.json.
 
-When a new version is out, a notification says so after sign-in.
 
 
 My consoles (Remote Play)

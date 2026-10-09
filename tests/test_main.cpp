@@ -4,6 +4,7 @@
 #include "app/auto_deband.h"
 #include "app/settings.h"
 #include "app/update_check.h"
+#include "app/updater.h"
 #include "net/http.h"
 #include "platform/platform.h"
 #include "stream/input_packet.h"
@@ -17,6 +18,8 @@
 #include "xcloud/regions.h"
 
 #include <cstdio>
+#include <cstdlib>
+#include <vector>
 #include <string>
 
 using namespace xc;
@@ -292,6 +295,81 @@ static void testStreamMenu() {
     CHECK(menu.resolution() == 0);  // back to 1080p, never 1440p
 }
 
+// A zip archive of stored (uncompressed) files, as the test needs one.
+static std::string storedZip(const std::vector<std::pair<std::string, std::string>>& files) {
+    auto le = [](std::string& s, uint32_t v, int bytes) {
+        for (int i = 0; i < bytes; ++i) s += static_cast<char>((v >> (8 * i)) & 0xFF);
+    };
+    std::string out, dir;
+    for (const auto& [name, data] : files) {
+        uint32_t at = static_cast<uint32_t>(out.size()), n = static_cast<uint32_t>(data.size());
+        le(out, 0x04034b50, 4), le(out, 20, 2), le(out, 0, 2), le(out, 0, 2), le(out, 0, 4), le(out, 0, 4);
+        le(out, n, 4), le(out, n, 4), le(out, static_cast<uint32_t>(name.size()), 2), le(out, 0, 2);
+        out += name + data;
+        le(dir, 0x02014b50, 4), le(dir, 20, 2), le(dir, 20, 2), le(dir, 0, 2), le(dir, 0, 2), le(dir, 0, 4), le(dir, 0, 4);
+        le(dir, n, 4), le(dir, n, 4), le(dir, static_cast<uint32_t>(name.size()), 2), le(dir, 0, 2), le(dir, 0, 2);
+        le(dir, 0, 2), le(dir, 0, 2), le(dir, 0, 4), le(dir, at, 4);
+        dir += name;
+    }
+    uint32_t dirAt = static_cast<uint32_t>(out.size());
+    out += dir;
+    le(out, 0x06054b50, 4), le(out, 0, 2), le(out, 0, 2), le(out, static_cast<uint32_t>(files.size()), 2);
+    le(out, static_cast<uint32_t>(files.size()), 2), le(out, static_cast<uint32_t>(dir.size()), 4), le(out, dirAt, 4);
+    le(out, 0, 2);
+    return out;
+}
+
+static void testUpdater() {
+    using namespace xc::app;
+    CHECK(contentVersionOf("v0.8.1") == "00.801.000" && contentVersionOf("1.10.0").empty());
+    CHECK(updatablePath("eboot.bin") && updatablePath("sce_sys/param.json") && updatablePath("assets/fonts/a.ttf"));
+    CHECK(!updatablePath("../eboot.bin") && !updatablePath("/data/x") && !updatablePath("a//b") && !updatablePath("a/./b"));
+    CHECK(!updatablePath("account.json") && !updatablePath("settings.json") && !updatablePath("imgcache/x"));
+    CHECK(!updatablePath("update.old/eboot.bin") && !updatablePath("update.journal") && !updatablePath("frame.ppm"));
+
+    // A signature by a throwaway key (made for this test only).
+    const char* pub =
+        "-----BEGIN PUBLIC KEY-----\n"
+        "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAETaRKE8e1bXOEYcQDqc3yvrCF4reo\n"
+        "nn1S6x6D3sFYl8eHLd7qogQNmh7Nseqx41gMcXh5TVqOjvMS+7mpqk0Wxg==\n"
+        "-----END PUBLIC KEY-----\n";
+    const char* hex =
+        "3045022021a9fa17a6717284e6d5989fcffb6363d371f97ea00b4e9ecec4adaa11a01a050221008053381afe913f3071594281868a44"
+        "cd57589796b296b1818b37a6e3c8880514";
+    std::string sig;
+    for (size_t i = 0; hex[i] && hex[i + 1]; i += 2) sig += static_cast<char>(std::stoi(std::string(hex + i, 2), nullptr, 16));
+    std::string err;
+    CHECK(verifySignature("PSBox test", sig, pub, err));
+    CHECK(!verifySignature("PSBox tesT", sig, pub, err));
+    CHECK(!verifySignature("PSBox test", sig, kReleaseKey, err));  // another key
+
+    std::vector<ZipEntry> files;
+    CHECK(unzip(storedZip({{"PPSA99810/eboot.bin", "elf"}, {"PPSA99810/sce_sys/param.json", "{}"}}), "PPSA99810/", files,
+                err));
+    CHECK(files.size() == 2 && files[0].path == "eboot.bin" && files[0].data == "elf" && files[1].path == "sce_sys/param.json");
+    CHECK(!unzip(storedZip({{"PPSA99810/../evil", "x"}}), "PPSA99810/", files, err));
+    CHECK(!unzip(storedZip({{"PPSA99810/account.json", "x"}}), "PPSA99810/", files, err));
+    CHECK(!unzip(storedZip({{"other/eboot.bin", "x"}}), "PPSA99810/", files, err));
+    CHECK(!unzip("not a zip", "PPSA99810/", files, err));
+
+    // An update cut short while files moved: the old ones go back.
+    std::string dir = "/tmp/xcloud-updater-test";
+    std::system(("rm -rf " + dir + " && mkdir -p " + dir + "/update.old/sce_sys").c_str());
+    xc::platform::writeFileAtomic(dir + "/eboot.bin", "new");
+    xc::platform::writeFileAtomic(dir + "/update.old/eboot.bin", "old");
+    xc::platform::writeFileAtomic(dir + "/update.old/sce_sys/param.json", "old param");
+    xc::platform::writeFileAtomic(dir + "/account.json", "mine");
+    xc::platform::writeFileAtomic(dir + "/update.journal", "swapping\n");
+    CHECK(recoverUpdate(dir));
+    std::string text;
+    CHECK(xc::platform::readFile(dir + "/eboot.bin", text) && text == "old");
+    CHECK(xc::platform::readFile(dir + "/sce_sys/param.json", text) && text == "old param");
+    CHECK(xc::platform::readFile(dir + "/account.json", text) && text == "mine");
+    CHECK(!xc::platform::readFile(dir + "/update.journal", text) && !xc::platform::readFile(dir + "/update.old/eboot.bin", text));
+    CHECK(!recoverUpdate(dir));  // nothing left to do
+    std::system(("rm -rf " + dir).c_str());
+}
+
 static void testAutoDeband() {
     using xc::app::debandForMbps;
     CHECK(debandForMbps(0.3, 1) == -1);  // starting or standing still: no measure
@@ -318,6 +396,7 @@ static void testAutoDeband() {
 
 int main() {
     testAutoDeband();
+    testUpdater();
     testAccentColor();
     testVersions();
     testStreamMenu();
