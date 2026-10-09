@@ -84,6 +84,9 @@ bool circleConfirms();
 void setTriggerFeel(int strength, int hzIndex, int resistance, bool pulses);
 // Logs each time a trigger starts or stops vibrating (the Settings tester).
 void setTriggerLogging(bool on);
+// The resistance (setTriggerFeel) only weighs the triggers while this is on:
+// in a game and in the Settings tester, not while browsing the menus.
+void setTriggerResistanceActive(bool on);
 // The light bar eases (~0.4 s) to this colour; reset gives it back to the
 // system (the player's colour). Any thread; polling applies it.
 void setLightBar(uint8_t r, uint8_t g, uint8_t b, int pad = 0);

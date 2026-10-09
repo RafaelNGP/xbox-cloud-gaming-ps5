@@ -156,7 +156,7 @@ Pad g_pads[kMaxPads];
 std::atomic<float> g_deadzone[2] = {0.15f, 0.15f};
 std::atomic<bool> g_circleConfirms{false};
 std::atomic<int> g_triggerStrength{kTriggerMedium}, g_triggerHz{1}, g_triggerResistance{0};
-std::atomic<bool> g_triggerPulses{false}, g_triggerLogging{false};
+std::atomic<bool> g_triggerPulses{false}, g_triggerLogging{false}, g_resistanceActive{false};
 bool g_rumbleLogged = false;
 
 inline float normStick(uint8_t val) {
@@ -245,7 +245,7 @@ void applyRumble(Pad& pad) {
     // own) and sent when either changes.
     v = pad.triggers.current();
     const uint8_t level[2] = {static_cast<uint8_t>(v >> 8), static_cast<uint8_t>(v)};
-    int strength = g_triggerStrength, hz = g_triggerHz, resistance = g_triggerResistance;
+    int strength = g_triggerStrength, hz = g_triggerHz, resistance = g_resistanceActive ? g_triggerResistance.load() : 0;
     bool pulses = g_triggerPulses;
     uint64_t now = platform::nowMs();
     TriggerCommand want[2];
@@ -314,6 +314,7 @@ void setTriggerFeel(int strength, int hzIndex, int resistance, bool pulses) {
 }
 
 void setTriggerLogging(bool on) { g_triggerLogging = on; }
+void setTriggerResistanceActive(bool on) { g_resistanceActive = on; }
 
 void setDeadzone(float left, float right) {
     g_deadzone[0] = std::clamp(left, 0.0f, 0.5f);
@@ -457,6 +458,7 @@ bool padConnected(int index) { return index == 0; }
 std::string padUserName(int index) { return index == 0 ? "Player" : ""; }
 void setTriggerFeel(int, int, int, bool) {}
 void setTriggerLogging(bool) {}
+void setTriggerResistanceActive(bool) {}
 } // namespace xc::input
 
 #endif

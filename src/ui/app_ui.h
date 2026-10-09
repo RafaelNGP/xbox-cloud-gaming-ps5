@@ -81,9 +81,9 @@ struct NavInput {
     bool dpadLeft = false, dpadRight = false;
     float rawLX = 0, rawLY = 0, rawRX = 0, rawRY = 0;
     float l2Analog = 0, r2Analog = 0;
-    // Fast scrolling (the right stick, or a swipe on the touchpad): a page
-    // up / down / left / right in the lists of games.
-    bool pageUp = false, pageDown = false, pageLeft = false, pageRight = false;
+    // Smooth scrolling (the right stick, or the touchpad with inertia):
+    // rows down (+) / up (-) and cards right (+) / left (-) to move now.
+    int scrollRows = 0, scrollCards = 0;
     uint64_t nowMs = 0;
 };
 

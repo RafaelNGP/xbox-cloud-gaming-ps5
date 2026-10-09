@@ -1145,21 +1145,24 @@ AppUi::LibraryLayout AppUi::libraryLayout() const {
 
 void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
     // Caller holds mutex_.
-    if ((in.pageUp || in.pageDown || in.pageLeft || in.pageRight) && !(searching_ && searchOnKeys_)) {
-        // A page: several steps at once (rows up or down, cards sideways).
-        NavInput step;
-        step.up = in.pageUp, step.down = in.pageDown, step.left = in.pageLeft, step.right = in.pageRight;
-        step.nowMs = in.nowMs;
-        constexpr int kPageRows = 3, kPageCards = 6;
-        int steps = in.pageUp || in.pageDown ? kPageRows : kPageCards;
-        // Sideways in the search's results stops at the row's edge (left of
-        // it is the keyboard).
-        if (searching_ && (in.pageLeft || in.pageRight)) steps = std::min(steps, kResultCols - 1);
-        for (int k = 0; k < steps; ++k) {
-            if (searching_ && searchOnKeys_) break;  // went back to the keys
-            if (searching_ && step.left && resultFocus_ % kResultCols == 0) break;
-            handleHome(step, ev);
-        }
+    if ((in.scrollRows || in.scrollCards) && !(searching_ && searchOnKeys_)) {
+        // Smooth scrolling: the rows and cards it moved by since the last
+        // pass, one step at a time (the view glides after the focus).
+        auto steps = [&](int n, bool vertical) {
+            NavInput step;
+            step.nowMs = in.nowMs;
+            (vertical ? (n > 0 ? step.down : step.up) : (n > 0 ? step.right : step.left)) = true;
+            for (int k = 0; k < std::abs(n); ++k) {
+                // In the search's results, sideways stops at the row's edge
+                // (left of it is the keyboard).
+                if (searching_ && !vertical && (n < 0 ? resultFocus_ % kResultCols == 0
+                                                      : (resultFocus_ + 1) % kResultCols == 0))
+                    break;
+                handleHome(step, ev);
+            }
+        };
+        if (in.scrollRows) steps(in.scrollRows, true);
+        if (in.scrollCards) steps(in.scrollCards, false);
         return;
     }
     if (in.l1 || in.r1) {
