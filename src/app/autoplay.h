@@ -74,6 +74,7 @@ struct Autoplay {
     bool gridTest = false;       // gridtest: navigate to All games grid, verify 2D navigation and capture screenshots
     bool gameSettingsTest = false; // gamesettingstest: test details and game settings modal
     bool publisherTest = false;  // publishertest: test publisher filter dropdown and search results
+    bool friendsTest = false;    // friendstest: test friends playing row and card badge
 };
 extern Autoplay g_autoplay;
 extern std::atomic<bool> g_syntheticA;  // A held down for the game

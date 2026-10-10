@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 RafaelNGP
 cmake_minimum_required(VERSION 3.20)
-project(xcloud_ps5 VERSION 0.9.3 LANGUAGES C CXX)
+project(xcloud_ps5 VERSION 0.9.4 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,6 +24,7 @@ add_library(xcloud_core STATIC
     src/xcloud/titlehub.cpp
     src/xcloud/regions.cpp
     src/xcloud/prices.cpp
+    src/xcloud/social.cpp
     src/platform/posix_common.cpp
 )
 target_include_directories(xcloud_core PUBLIC src)

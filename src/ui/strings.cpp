@@ -234,6 +234,7 @@ constexpr Column kEnglish = {
     "Publisher",                                     // FilterPublisher
     "All publishers",                                // PublisherAll
     "Indies & Others",                               // PublisherIndies
+    "Friends playing now",                           // FriendsPlayingNow
 };
 
 constexpr Column kPortugueseBR = {
@@ -438,6 +439,7 @@ constexpr Column kPortugueseBR = {
     "Editora",
     "Todas as editoras",
     "Indies & Outras",
+    "Amigos jogando agora",
 };
 
 constexpr Column kSpanish = {
@@ -642,6 +644,7 @@ constexpr Column kSpanish = {
     "Distribuidora",
     "Todas las distribuidoras",
     "Indies y otras",
+    "Amigos jugando ahora",
 };
 
 constexpr Column kFrench = {
@@ -846,6 +849,7 @@ constexpr Column kFrench = {
     "Éditeur",
     "Tous les éditeurs",
     "Indépendants et autres",
+    "Amis en train de jouer",
 };
 
 constexpr Column kGerman = {
@@ -1050,6 +1054,7 @@ constexpr Column kGerman = {
     "Publisher",
     "Alle Publisher",
     "Indies & Andere",
+    "Freunde spielen jetzt",
 };
 
 constexpr Column kItalian = {
@@ -1254,6 +1259,7 @@ constexpr Column kItalian = {
     "Editore",
     "Tutti gli editori",
     "Indie e altri",
+    "Amici che giocano ora",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

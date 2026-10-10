@@ -540,16 +540,18 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     platform::startThread(g_hydrationThread, [library, publish, owned = gssv, xblAuth] {
         auto changed = [&] { publish(*library); };
         library->loadFirstScreen(xblAuth, changed, &g_stopHydration);
+        library->loadFriends(xblAuth, changed, &g_stopHydration);
         library->loadOwned(owned, changed, &g_stopHydration);
         library->loadCatalogNames(changed, &g_stopHydration);
         library->loadPlatforms(xblAuth, changed, &g_stopHydration);
         library->hydrate(changed, &g_stopHydration);
+        library->loadFriends(xblAuth, changed, &g_stopHydration);
     });
     if (!g_autoplay.title.empty() && g_autoplay.title != "BENCH" && g_autoplay.title != "UPDATE" && g_autoplay.title != "AUTOTEST" &&
         !g_autoplay.detailTest && !g_autoplay.libraryTest &&
         !g_autoplay.consolesTab && !g_autoplay.settingsTest &&
         !g_autoplay.imeTest && !g_autoplay.vibeTest && !g_autoplay.searchTest && !g_autoplay.quickTest && !g_autoplay.scrollTest &&
-        !g_autoplay.gridTest && !g_autoplay.gameSettingsTest && !g_autoplay.publisherTest) {
+        !g_autoplay.gridTest && !g_autoplay.gameSettingsTest && !g_autoplay.publisherTest && !g_autoplay.friendsTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
         tile.titleId = g_autoplay.title;

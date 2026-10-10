@@ -47,6 +47,7 @@ public:
     void gradientV(Rect r, Color top, Color bottom);
     void gradientH(Rect r, Color left, Color right);
     void fillCircle(float cx, float cy, float radius, Color c);
+    void strokeCircle(float cx, float cy, float radius, float thickness, Color c);
     // Ring segment; angles in radians, 0 = 3 o'clock, clockwise.
     void strokeArc(float cx, float cy, float radius, float thickness, float start, float sweep, Color c);
     void line(float x0, float y0, float x1, float y1, float thickness, Color c);
