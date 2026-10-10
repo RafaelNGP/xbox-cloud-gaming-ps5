@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-09, after v0.9.0.
+Last update: 2026-10-10, after v0.9.4.
 
 ## Now
 
@@ -155,11 +155,17 @@ is rolled back at the next start), then the app restarts itself
 - Non-game add-ons and digital extras (artbooks, soundtracks, upgrade packs) filtered out from library, shelves, and search pools.
 - PS5 120 Hz high frame rate output declaration (`attribute3 = 524352` / `0x80040`) enabled in `param.json` for supported HDMI 2.1 displays with graceful fallback to 59.94 Hz.
 
+### Friends playing now, UI decluttering and Gamerscore precision — done (v0.9.4)
+- "Amigos jogando agora" dynamic Home shelf powered by Xbox Live PeopleHub v2 API, querying online friends and mapped to store products.
+- Strict entitlement verification: only games that the user has access to (`playable == true`) appear; if no friends are in accessible games, the row has zero visual footprint.
+- Multiple friends playing the same game are grouped onto a single card with circular gamerpic avatars, gamertags and `+N` badge indicator.
+- Presence pill badge positioned in the bottom-left corner of cards in the friends row; redundant "GAME PASS" badge removed across all cards.
+- Solid uniform 360° Gamerscore circle rendering via `Canvas::strokeCircle(...)` and pixel-perfect centering of the `'G'` glyph.
+
 ## Next
 
 | Item | Why | Size |
 | --- | --- | --- |
-| Friends playing now | Xbox social / presence APIs (`userpresence.xboxlive.com`); privacy policies | large |
 | Voice chat (microphone) | xCloud WebRTC `chatV1` channel; requires PS5 audio capture (`libSceAudioIn`) and Opus encoding | large |
 | USB keyboard & mouse + badges (v1.0+) | Some xCloud games accept native keyboard and mouse input; deferred to v1.0+ | medium |
 
