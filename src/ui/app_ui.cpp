@@ -108,6 +108,84 @@ std::string withoutSpaces(std::string s) {
     return s;
 }
 
+bool matchesPublisher(const std::string& rawPublisher, int filter) {
+    if (filter <= 0) return true;
+    std::string p = fold(rawPublisher);
+
+    auto isXbox = [&]() {
+        return p.find("xbox game studios") != std::string::npos ||
+               p.find("microsoft") != std::string::npos ||
+               p.find("bethesda") != std::string::npos ||
+               p.find("mojang") != std::string::npos ||
+               p.find("activision") != std::string::npos ||
+               p.find("blizzard") != std::string::npos ||
+               p.find("zenimax") != std::string::npos ||
+               p.find("id software") != std::string::npos ||
+               p.find("obsidian") != std::string::npos ||
+               p.find("ninja theory") != std::string::npos ||
+               p.find("double fine") != std::string::npos;
+    };
+    auto isEA = [&]() {
+        return p.find("electronic arts") != std::string::npos ||
+               p.find("ea swiss") != std::string::npos ||
+               p.find("ea sports") != std::string::npos ||
+               p == "ea" || p.find("ea ") == 0 ||
+               p.find(" ea ") != std::string::npos;
+    };
+    auto isUbisoft = [&]() { return p.find("ubisoft") != std::string::npos; };
+    auto isSquareEnix = [&]() { return p.find("square enix") != std::string::npos; };
+    auto isWarner = [&]() { return p.find("warner") != std::string::npos || p.find("wb games") != std::string::npos; };
+    auto is2K = [&]() {
+        return p.find("2k") != std::string::npos ||
+               p.find("take-two") != std::string::npos ||
+               p.find("take two") != std::string::npos ||
+               p.find("rockstar") != std::string::npos ||
+               p.find("private division") != std::string::npos;
+    };
+    auto isCapcom = [&]() { return p.find("capcom") != std::string::npos; };
+    auto isSega = [&]() { return p.find("sega") != std::string::npos || p.find("atlus") != std::string::npos; };
+    auto isBandai = [&]() {
+        return p.find("bandai namco") != std::string::npos ||
+               p.find("namco bandai") != std::string::npos ||
+               p.find("bandai") != std::string::npos;
+    };
+    auto isTHQ = [&]() {
+        return p.find("thq nordic") != std::string::npos ||
+               p.find("plaion") != std::string::npos ||
+               p.find("deep silver") != std::string::npos ||
+               p.find("koch media") != std::string::npos ||
+               p.find("handygames") != std::string::npos ||
+               p.find("embracer") != std::string::npos;
+    };
+    auto isFocus = [&]() { return p.find("focus entertainment") != std::string::npos || p.find("focus home") != std::string::npos || p == "focus"; };
+    auto isDevolver = [&]() { return p.find("devolver") != std::string::npos; };
+    auto isAnnapurna = [&]() { return p.find("annapurna") != std::string::npos; };
+    auto isTeam17 = [&]() { return p.find("team17") != std::string::npos || p.find("team 17") != std::string::npos; };
+
+    switch (filter) {
+    case 1: return isXbox();
+    case 2: return isEA();
+    case 3: return isUbisoft();
+    case 4: return isSquareEnix();
+    case 5: return isWarner();
+    case 6: return is2K();
+    case 7: return isCapcom();
+    case 8: return isSega();
+    case 9: return isBandai();
+    case 10: return isTHQ();
+    case 11: return isFocus();
+    case 12: return isDevolver();
+    case 13: return isAnnapurna();
+    case 14: return isTeam17();
+    case 15: // Indies & Outras
+        return !isXbox() && !isEA() && !isUbisoft() && !isSquareEnix() &&
+               !isWarner() && !is2K() && !isCapcom() && !isSega() &&
+               !isBandai() && !isTHQ() && !isFocus() && !isDevolver() &&
+               !isAnnapurna() && !isTeam17();
+    default: return true;
+    }
+}
+
 constexpr uint64_t kSignOutHoldMs = 5000;
 
 }  // namespace
@@ -547,6 +625,7 @@ void AppUi::showFilteredSearch(Tab tab, bool cheapest, int mode, const std::stri
     filterMode_ = mode;
     filterGenre_ = genre;
     filterLanguage_ = language;
+    filterPublisher_ = 0;
     runSearch();
     keyRow_ = kKeyRows + 2;  // the row of lists
     keyCol_ = std::max(0, openList);
@@ -657,6 +736,8 @@ void AppUi::runSearch() {
         if (filterLanguage_ == 1 && !(t.languages & (xcloud::kLangInterface | xcloud::kLangSubtitles))) continue;
         if (filterLanguage_ == 2 && !(t.languages & xcloud::kLangAudio)) continue;
         if (!filterGenre_.empty() && std::find(t.categories.begin(), t.categories.end(), filterGenre_) == t.categories.end())
+            continue;
+        if (filterPublisher_ && !matchesPublisher(t.publisher, filterPublisher_))
             continue;
         auto price = prices_.find(t.productId);
         bool priced = price != prices_.end();
@@ -1436,13 +1517,13 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
 bool AppUi::anyFilter() const {
     // Caller holds mutex_. Free and Lowest price only count in "Your games".
     bool library = tab_ == Tab::Library && (filterFree_ || filterCheapest_);
-    return library || filterConsole_ || filterMode_ || !filterGenre_.empty() || filterLanguage_;
+    return library || filterConsole_ || filterMode_ || !filterGenre_.empty() || filterPublisher_ || filterLanguage_;
 }
 
 std::vector<AppUi::Filter> AppUi::filterRow(int row) const {
     // Caller holds mutex_. Prices only matter in "Your games" (Game Pass
     // games aren't bought).
-    if (row == 1) return {Filter::Mode, Filter::Genre, Filter::Language};
+    if (row == 1) return {Filter::Mode, Filter::Genre, Filter::Publisher, Filter::Language};
     if (tab_ == Tab::GamePass) return {Filter::Console};
     return {Filter::Free, Filter::Cheapest, Filter::Console};
 }
@@ -1471,6 +1552,25 @@ std::vector<std::string> AppUi::filterOptions(Filter f) const {
         for (auto& g : poolGenres()) out.push_back(std::move(g));
         return out;
     }
+    case Filter::Publisher:
+        return {
+            tr(Str::PublisherAll),
+            "Xbox Game Studios / Bethesda",
+            "Electronic Arts",
+            "Ubisoft",
+            "Square Enix",
+            "Warner Bros. Games",
+            "2K / Take-Two",
+            "Capcom",
+            "SEGA / Atlus",
+            "Bandai Namco",
+            "THQ Nordic / Plaion",
+            "Focus Entertainment",
+            "Devolver Digital",
+            "Annapurna Interactive",
+            "Team17",
+            tr(Str::PublisherIndies)
+        };
     case Filter::Language:
         return {tr(Str::LanguageAll), trf(Str::LangSubtitles, tr(Str::LanguageNoun)), trf(Str::LangAudio, tr(Str::LanguageNoun))};
     default: return {};
@@ -1481,6 +1581,7 @@ int AppUi::filterSelected(Filter f) const {
     // Caller holds mutex_.
     if (f == Filter::Console) return filterConsole_;
     if (f == Filter::Mode) return filterMode_;
+    if (f == Filter::Publisher) return filterPublisher_;
     if (f == Filter::Language) return filterLanguage_;
     if (f == Filter::Genre) {
         auto genres = poolGenres();
@@ -1491,14 +1592,21 @@ int AppUi::filterSelected(Filter f) const {
 }
 
 void AppUi::chooseFilter(Filter f, int index) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    chooseFilterLocked(f, index);
+}
+
+void AppUi::chooseFilterLocked(Filter f, int index) {
     // Caller holds mutex_.
     if (f == Filter::Console) filterConsole_ = index;
     if (f == Filter::Mode) filterMode_ = index;
+    if (f == Filter::Publisher) filterPublisher_ = index;
     if (f == Filter::Language) filterLanguage_ = index;
     if (f == Filter::Genre) {
         auto genres = poolGenres();
         filterGenre_ = index > 0 && index <= static_cast<int>(genres.size()) ? genres[static_cast<size_t>(index - 1)] : "";
     }
+    filterList_ = -1;
     runSearch();
     dirty_ = true;
 }
@@ -1512,7 +1620,7 @@ std::string AppUi::filterText(Filter f) const {
         auto options = filterOptions(f);
         if (sel < static_cast<int>(options.size())) return options[static_cast<size_t>(sel)];
     }
-    return tr(f == Filter::Mode ? Str::FilterMode : f == Filter::Genre ? Str::FilterGenre : Str::FilterLanguage);
+    return tr(f == Filter::Mode ? Str::FilterMode : f == Filter::Genre ? Str::FilterGenre : f == Filter::Publisher ? Str::FilterPublisher : Str::FilterLanguage);
 }
 
 bool AppUi::filterOn(Filter f) const {
@@ -1545,7 +1653,7 @@ void AppUi::handleSearchKeys(const NavInput& in) {
         int n = static_cast<int>(filterOptions(f).size());
         if (in.down && filterListIndex_ + 1 < n) ++filterListIndex_;
         if (in.up && filterListIndex_ > 0) --filterListIndex_;
-        if (in.accept) chooseFilter(f, filterListIndex_);
+        if (in.accept) chooseFilterLocked(f, filterListIndex_);
         if (in.accept || in.back) filterList_ = -1;
         dirty_ = true;
         return;

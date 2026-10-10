@@ -150,15 +150,18 @@ is rolled back at the next start), then the app restarts itself
 - Interactive stick and trigger testers accessible directly within the modal.
 - "Restaurar padrão" (Reset to default) option cleanly restores global settings.
 
+### Publisher filter, non-game add-on exclusion and 120 Hz display declaration — done (v0.9.3)
+- Search filter by Publisher: 14 major publishers and parent groups (Xbox/Bethesda, EA, Ubisoft, Square Enix, Warner Bros, 2K, Capcom, SEGA, Bandai Namco, THQ Nordic, Focus, Devolver, Annapurna, Team17) plus Indies & Others, fully localized in all 6 languages.
+- Non-game add-ons and digital extras (artbooks, soundtracks, upgrade packs) filtered out from library, shelves, and search pools.
+- PS5 120 Hz high frame rate output declaration (`attribute3 = 524352` / `0x80040`) enabled in `param.json` for supported HDMI 2.1 displays with graceful fallback to 59.94 Hz.
+
 ## Next
 
 | Item | Why | Size |
 | --- | --- | --- |
-| Publisher filter | 918 publishers: the most frequent first, studios of one owner grouped | medium |
-| Friends playing now | Xbox social / presence APIs; privacy to handle | large |
-| Keyboard and mouse filter / icon | The store marks games that take them; together with keyboard and mouse support | small |
-| Voice chat (microphone) | xCloud has a chat channel; needs PS5 audio capture | large |
-| USB keyboard and mouse | Some xCloud games accept them | medium |
+| Friends playing now | Xbox social / presence APIs (`userpresence.xboxlive.com`); privacy policies | large |
+| Voice chat (microphone) | xCloud WebRTC `chatV1` channel; requires PS5 audio capture (`libSceAudioIn`) and Opus encoding | large |
+| USB keyboard & mouse + badges (v1.0+) | Some xCloud games accept native keyboard and mouse input; deferred to v1.0+ | medium |
 
 ## Dropped (and why)
 

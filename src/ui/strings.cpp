@@ -231,6 +231,9 @@ constexpr Column kEnglish = {
     "Default",                                       // ProfileDefault
     "Custom",                                        // ProfileCustom
     "Reset to default",                              // ResetToDefault
+    "Publisher",                                     // FilterPublisher
+    "All publishers",                                // PublisherAll
+    "Indies & Others",                               // PublisherIndies
 };
 
 constexpr Column kPortugueseBR = {
@@ -432,6 +435,9 @@ constexpr Column kPortugueseBR = {
     "Padrão",
     "Personalizado",
     "Restaurar padrão",
+    "Editora",
+    "Todas as editoras",
+    "Indies & Outras",
 };
 
 constexpr Column kSpanish = {
@@ -633,6 +639,9 @@ constexpr Column kSpanish = {
     "Predeterminado",
     "Personalizado",
     "Restaurar predeterminado",
+    "Distribuidora",
+    "Todas las distribuidoras",
+    "Indies y otras",
 };
 
 constexpr Column kFrench = {
@@ -834,6 +843,9 @@ constexpr Column kFrench = {
     "Par défaut",
     "Personnalisé",
     "Réinitialiser",
+    "Éditeur",
+    "Tous les éditeurs",
+    "Indépendants et autres",
 };
 
 constexpr Column kGerman = {
@@ -1035,6 +1047,9 @@ constexpr Column kGerman = {
     "Standard",
     "Benutzerdefiniert",
     "Auf Standard zurücksetzen",
+    "Publisher",
+    "Alle Publisher",
+    "Indies & Andere",
 };
 
 constexpr Column kItalian = {
@@ -1236,6 +1251,9 @@ constexpr Column kItalian = {
     "Predefinito",
     "Personalizzato",
     "Ripristina predefiniti",
+    "Editore",
+    "Tutti gli editori",
+    "Indie e altri",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

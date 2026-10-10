@@ -90,6 +90,7 @@ void loadAutoplay() {
         if (opt.rfind("locktitle=", 0) == 0) g_autoplay.lockTitle = opt.substr(10);
         if (opt == "gridtest") g_autoplay.gridTest = true;
         if (opt == "gamesettingstest") g_autoplay.gameSettingsTest = true;
+        if (opt == "publishertest") g_autoplay.publisherTest = true;
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
@@ -607,6 +608,25 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             saveCanvas("genres.ppm");
             g_autoplay.searchTest = false;
             XC_LOGI("AUTOPLAY END: search test");
+        }
+    }
+    if (g_autoplay.publisherTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        if (step == 0 && now - since > 2000) {
+            // Abre busca no Game Pass com o dropdown de editora aberto (linha 1, índice 2)
+            g_ui->showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, 2);
+            ++step;
+        } else if (step == 1 && now - since > 4000) {
+            saveCanvas("publisher_menu.ppm");
+            // Filtra por Xbox Game Studios / Bethesda (índice 1)
+            g_ui->chooseFilter(ui::AppUi::Filter::Publisher, 1);
+            ++step;
+        } else if (step == 2 && now - since > 6000) {
+            saveCanvas("publisher_results.ppm");
+            g_autoplay.publisherTest = false;
+            XC_LOGI("AUTOPLAY END: publisher test");
         }
     }
     if (pickerShot) {

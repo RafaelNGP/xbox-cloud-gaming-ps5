@@ -6,11 +6,11 @@
   "applicationDrmType": "free",
   "attribute": 0,
   "attribute2": 0,
-  "attribute3": 0,
+  "attribute3": 524352,
   "conceptId": "99810",
   "contentBadgeType": 1,
   "contentId": "UP9000-PPSA99810_00-XCLOUDPS5CLI0000",
-  "contentVersion": "00.902.000",
+  "contentVersion": "00.903.000",
   "downloadDataSize": 256,
   "gameIntent": {
     "permittedIntents": [

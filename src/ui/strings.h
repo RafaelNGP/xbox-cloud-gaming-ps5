@@ -208,6 +208,9 @@ enum class Str {
     ProfileDefault,     // global/default profile
     ProfileCustom,      // per-game custom profile
     ResetToDefault,     // button to reset per-game profile to general settings
+    FilterPublisher,    // search filter (a list)
+    PublisherAll,
+    PublisherIndies,
     Count
 };
 

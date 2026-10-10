@@ -244,6 +244,8 @@ public:
     // `openList` (0 mode, 1 genre, 2 language) open; and the first results.
     void showFilteredSearch(Tab tab, bool cheapest, int mode, const std::string& genre, int language, int openList = -1);
     std::vector<std::pair<std::string, PriceInfo>> searchResults(size_t max) const;
+    enum class Filter { Free, Cheapest, Console, Mode, Genre, Publisher, Language };
+    void chooseFilter(Filter f, int index);
     // Autoplay tests: where the focus is ("Game Pass row 2 card 6", ...).
     std::string focusDescription() const;
     void invalidate();
@@ -303,16 +305,15 @@ private:
     void prefsEvent(UiEvent& ev) const;
     // The filter buttons of the current tab's search.
     // The search's filters, in two rows: Free, Lowest price (in "Your games"
-    // only) and Console; then Mode, Genre and Language. The lists open a
+    // only) and Console; then Mode, Genre, Publisher and Language. The lists open a
     // drop-down; Free and Lowest price turn on and off.
-    enum class Filter { Free, Cheapest, Console, Mode, Genre, Language };
     std::vector<Filter> filterRow(int row) const;
     bool isList(Filter f) const { return f != Filter::Free && f != Filter::Cheapest; }
     std::string filterText(Filter f) const;  // the chip's label: its choice when one is made
     bool filterOn(Filter f) const;
     std::vector<std::string> filterOptions(Filter f) const;
     int filterSelected(Filter f) const;
-    void chooseFilter(Filter f, int index);
+    void chooseFilterLocked(Filter f, int index);
     void pressFilter(Filter f);
     std::vector<std::string> poolGenres() const;  // the genres of the tab's games, most common first
     bool anyFilter() const;
@@ -381,6 +382,7 @@ private:
     int filterMode_ = 0;      // 0 all, single, online multiplayer, online co-op, local
     std::string filterGenre_;  // empty: all
     int filterLanguage_ = 0;  // 0 any, 1 subtitles (or menus) in the app's language, 2 audio
+    int filterPublisher_ = 0; // 0 all, 1 Xbox/Bethesda, 2 EA, 3 Ubisoft, etc.
     // The filter whose drop-down is open (-1: none), its focus and first row.
     int filterList_ = -1, filterListIndex_ = 0, filterListTop_ = 0;
     bool ownedKnown_ = false;

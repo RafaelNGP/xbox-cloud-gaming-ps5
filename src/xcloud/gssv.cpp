@@ -7,6 +7,7 @@
 #include "util/json.h"
 #include "platform/platform.h"
 #include "util/log.h"
+#include "xcloud/catalog.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -288,7 +289,7 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
             // (CALLISTO for Game Pass in the cloud) or F2P; none when bought.
             for (const auto& program : t["details"]["userPrograms"].items())
                 if (program.str() != "F2P") title.viaSubscription = true;
-            if (!title.titleId.empty()) out.push_back(std::move(title));
+            if (!title.titleId.empty() && !isNonGameAddon(title.titleId)) out.push_back(std::move(title));
         }
         continuation = recentOnly ? std::string() : (*j)["continuationToken"].str();
     } while (!continuation.empty() && out.size() < 5000);
