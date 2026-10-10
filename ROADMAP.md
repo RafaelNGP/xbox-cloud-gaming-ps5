@@ -175,6 +175,7 @@ is rolled back at the next start), then the app restarts itself
 
 | Item | Why | Size |
 | --- | --- | --- |
+| Region bypass & server selection (unsupported regions) | Allow users in countries without official Xbox Cloud Gaming support to start and stream sessions via `X-Forwarded-For` header injection (Better xCloud approach) and custom Azure server region selector in Settings, keeping WebRTC streaming direct with zero added latency | small |
 | USB keyboard & mouse + badges (v1.0+) | Some xCloud games accept native keyboard and mouse input; deferred to v1.0+ | medium |
 | Dedicated voice chat output routing | Route voice chat audio independently to DualSense controller speaker or headset while keeping game audio on TV (if xCloud exposes separate voice track) | medium |
 
