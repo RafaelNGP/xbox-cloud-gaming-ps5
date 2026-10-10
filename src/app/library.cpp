@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
-#include "app/autoplay.h"
 #include "app/library.h"
 
 #include "platform/platform.h"
@@ -777,19 +776,6 @@ void Library::loadFriends(const std::string& xblAuth, const Changed& changed, co
     }
 
     friendsTiles_ = std::move(tiles);
-    if (g_autoplay.friendsTest && friendsTiles_.empty()) {
-        for (const auto& r : layout_) {
-            for (const auto& [pid, tid] : r.items) {
-                ui::GameTile t = tile(pid, tid);
-                if (t.productId.empty() || !t.playable) continue;
-                t.friends.push_back({"MajorNelson", ""});
-                t.friends.push_back({"PhilSpencer", ""});
-                friendsTiles_.push_back(std::move(t));
-                break;
-            }
-            if (!friendsTiles_.empty()) break;
-        }
-    }
     if (!friendsTiles_.empty()) {
         XC_LOGI("library: %zu friends playing %zu accessible games now", presence.size(), friendsTiles_.size());
         changed();
