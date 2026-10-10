@@ -31,7 +31,8 @@ Para qualquer alteração em arquivos de interface (`src/app_ui.cpp`, `src/app/a
    PS5_HOST=192.168.15.17 ./tools/ps5/deploy.sh build-ps5
    ```
 4. **Configurar teste autônomo (`autoplay.txt`)**:
-   - Enviar `/data/homebrew/PPSA99810/autoplay.txt` via FTP (ex: `GRID 30 gridtest` para testar a grade de jogos, ou comando apropriado para a tela modificada).
+   - Enviar `/data/homebrew/PPSA99810/autoplay.txt` via FTP.
+   - **Regra obrigatória para testes de UI**: Sempre utilize o prefixo `AUTOTEST` (ex: `AUTOTEST 30 gamesettingstest`, `AUTOTEST 30 librarytest`, etc.) para testes de telas/modais sem streaming. NUNCA use nomes arbitrários no primeiro argumento que possam ser interpretados como IDs de jogos pelo loop de streaming (`worker.cpp`).
    - Remover capturas `.ppm` antigas antes de iniciar.
 5. **Iniciar a aplicação remotamente**:
    ```bash
