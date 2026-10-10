@@ -75,6 +75,7 @@ struct Autoplay {
     bool gameSettingsTest = false; // gamesettingstest: test details and game settings modal
     bool publisherTest = false;  // publishertest: test publisher filter dropdown and search results
     bool friendsTest = false;    // friendstest: test friends playing row and card badge
+    bool streamMenuTest = false; // streammenutest: render StreamMenu with mic and audio route options
 };
 extern Autoplay g_autoplay;
 extern std::atomic<bool> g_syntheticA;  // A held down for the game

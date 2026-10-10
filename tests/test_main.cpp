@@ -5,6 +5,7 @@
 #include "app/settings.h"
 #include "app/update_check.h"
 #include "app/updater.h"
+#include "media/audio_encoder.h"
 #include "input/tuning.h"
 #include "net/http.h"
 #include "platform/platform.h"
@@ -529,7 +530,26 @@ static void testAutoDeband() {
     for (int s = 1; s <= 5; ++s) CHECK(!a.update(1.0));  // a new stream: the first 5 s again
 }
 
+static void testAudioEncoder() {
+    xc::media::AudioEncoder enc;
+    CHECK(enc.init(24000));
+    CHECK(xc::media::AudioEncoder::kFrameSize == 960);
+
+    // 960 samples of 440 Hz tone
+    std::vector<int16_t> pcm(960);
+    for (size_t i = 0; i < pcm.size(); ++i) {
+        pcm[i] = static_cast<int16_t>(10000.0 * std::sin(2.0 * M_PI * 440.0 * i / 48000.0));
+    }
+    for (int frame = 0; frame < 10; ++frame) {
+        std::vector<uint8_t> opus;
+        CHECK(enc.encode(pcm.data(), pcm.size(), opus));
+        CHECK(!opus.empty());
+        CHECK(opus.size() > 5 && opus.size() < 1000);
+    }
+}
+
 int main() {
+    testAudioEncoder();
     testAutoDeband();
     testControllerTuning();
     testUpdater();

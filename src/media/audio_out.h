@@ -8,8 +8,15 @@
 
 namespace xc::media {
 
+enum class AudioRoute {
+    Main = 0,  // TV / HDMI / Default output
+    Pad = 1    // DualSense Controller Speaker / Headset
+};
+
 bool audioStart();
 void audioStop();
+void audioSetRoute(AudioRoute route);
+AudioRoute audioRoute();
 // Drops the oldest samples when more than ~120 ms is queued, to keep
 // latency bounded when the network delivers a burst.
 void audioPush(const float* interleaved, size_t frames);

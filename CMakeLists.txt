@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 RafaelNGP
 cmake_minimum_required(VERSION 3.20)
-project(xcloud_ps5 VERSION 0.9.4 LANGUAGES C CXX)
+project(xcloud_ps5 VERSION 0.9.5 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -54,7 +54,7 @@ endif()
 
 # --- Media: H.264 / Opus decoding -------------------------------------------
 include(cmake/deps/ffmpeg.cmake)
-add_library(xcloud_media STATIC src/media/decoder.cpp src/media/audio_out.cpp)
+add_library(xcloud_media STATIC src/media/decoder.cpp src/media/audio_out.cpp src/media/audio_in.cpp src/media/audio_encoder.cpp)
 target_link_libraries(xcloud_media PUBLIC xcloud_core PRIVATE xc_ffmpeg)
 
 # --- Menus: software-rendered UI, Game Pass library ---------------------------
@@ -106,6 +106,6 @@ else()
 
     enable_testing()
     add_executable(xcloud-tests tests/test_main.cpp)
-    target_link_libraries(xcloud-tests PRIVATE xcloud_stream xcloud_ui)
+    target_link_libraries(xcloud-tests PRIVATE xcloud_stream xcloud_media xcloud_ui xc_ffmpeg)
     add_test(NAME unit COMMAND xcloud-tests)
 endif()

@@ -10,6 +10,7 @@
 #include "app/update_check.h"
 #include "app/updater.h"
 #include "auth/auth_manager.h"
+#include "media/audio_out.h"
 #include "platform/platform.h"
 #include "ui/strings.h"
 #include "util/log.h"
@@ -61,6 +62,11 @@ std::string stream(xcloud::GssvClient& gssv) {
     if (g_autoplay.dump) player.dumpVideo(platform::dataDir() + "/stream.aus", 20);
     player.setDecodeThreads(g_autoplay.decodeThreads);
     player.setHwDecodeProbe(g_autoplay.hwDecode);
+    {
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        player.setMicGain(g_settings.micGain);
+        media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
+    }
     std::string err;
     if (!player.start(err)) return "ERROR: " + ui::trf(ui::Str::StreamFailed, err);
     {

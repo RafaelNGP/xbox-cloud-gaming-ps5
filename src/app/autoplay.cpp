@@ -6,9 +6,11 @@
 #include "app/ps5_app.h"
 #include "display/display.h"
 #include "display/gpu.h"
+#include "media/audio_in.h"
 #include "media/decoder.h"
 #include "platform/platform.h"
 #include "ui/canvas.h"
+#include "ui/stream_menu.h"
 #include "util/log.h"
 
 #include <cmath>
@@ -92,6 +94,7 @@ void loadAutoplay() {
         if (opt == "gamesettingstest") g_autoplay.gameSettingsTest = true;
         if (opt == "publishertest") g_autoplay.publisherTest = true;
         if (opt == "friendstest") g_autoplay.friendsTest = true;
+        if (opt == "streammenutest") g_autoplay.streamMenuTest = true;
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
@@ -646,6 +649,76 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             saveCanvas("friends_row.ppm");
             g_autoplay.friendsTest = false;
             XC_LOGI("AUTOPLAY END: friends test");
+        }
+    }
+    if (g_autoplay.streamMenuTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        if (step == 0 && now - since > 2000) {
+            static media::AudioIn s_audioInProbe;
+            bool ok = s_audioInProbe.open([](const int16_t*, size_t){});
+            XC_LOGI("AUTOPLAY: AudioIn probe open result: %s (recording: %s)",
+                    ok ? "SUCCESS" : "FAILED", s_audioInProbe.isRecording() ? "YES" : "NO");
+
+            ui::StreamMenu menu(g_ui->fonts());
+            menu.open(0, false, 1, 1, 0, false, true, false, 2, 15, false, 0.65f, false);
+            ui::StreamInfo info;
+            info.region = "East US";
+            info.rttMs = 18;
+            info.fps = 60.0;
+            info.mbps = 14.5;
+            info.lossPct = 0.0;
+            info.decodeMs = 2.1;
+            info.onScreenMs = 12.4;
+            info.width = 1920;
+            info.height = 1080;
+            ui::PadSlots pads{};
+            pads[0].connected = true;
+            pads[0].name = "Player 1";
+            menu.setPads(pads);
+            ui::Canvas menuCanvas = menu.renderMenu(info);
+            std::string ppm = "P6\n" + std::to_string(menuCanvas.width()) + " " + std::to_string(menuCanvas.height()) + "\n255\n";
+            ppm.reserve(ppm.size() + static_cast<size_t>(menuCanvas.width() * menuCanvas.height() * 3));
+            for (size_t i = 0; i < static_cast<size_t>(menuCanvas.width() * menuCanvas.height()); ++i) {
+                uint32_t p = menuCanvas.data()[i];
+                ppm += static_cast<char>(p & 0xFF);
+                ppm += static_cast<char>((p >> 8) & 0xFF);
+                ppm += static_cast<char>((p >> 16) & 0xFF);
+            }
+            platform::writeFileAtomic(platform::dataDir() + "/stream_menu.ppm", ppm);
+            XC_LOGI("AUTOPLAY: stream_menu.ppm saved");
+            ++step;
+        } else if (step == 1 && now - since > 4000) {
+            ui::StreamMenu menu(g_ui->fonts());
+            menu.open(0, false, 1, 1, 0, false, true, false, 2, 15, false, 0.0f, true);
+            ui::StreamInfo info;
+            info.region = "East US";
+            info.rttMs = 18;
+            info.fps = 60.0;
+            info.mbps = 14.5;
+            info.lossPct = 0.0;
+            info.decodeMs = 2.1;
+            info.onScreenMs = 12.4;
+            info.width = 1920;
+            info.height = 1080;
+            ui::PadSlots pads{};
+            pads[0].connected = true;
+            pads[0].name = "Player 1";
+            menu.setPads(pads);
+            ui::Canvas menuCanvas = menu.renderMenu(info);
+            std::string ppm = "P6\n" + std::to_string(menuCanvas.width()) + " " + std::to_string(menuCanvas.height()) + "\n255\n";
+            ppm.reserve(ppm.size() + static_cast<size_t>(menuCanvas.width() * menuCanvas.height() * 3));
+            for (size_t i = 0; i < static_cast<size_t>(menuCanvas.width() * menuCanvas.height()); ++i) {
+                uint32_t p = menuCanvas.data()[i];
+                ppm += static_cast<char>(p & 0xFF);
+                ppm += static_cast<char>((p >> 8) & 0xFF);
+                ppm += static_cast<char>((p >> 16) & 0xFF);
+            }
+            platform::writeFileAtomic(platform::dataDir() + "/stream_menu_muted.ppm", ppm);
+            g_autoplay.streamMenuTest = false;
+            XC_LOGI("AUTOPLAY END: stream menu test");
+            ++step;
         }
     }
     if (pickerShot) {

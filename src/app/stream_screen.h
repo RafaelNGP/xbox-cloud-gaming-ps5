@@ -59,6 +59,7 @@ private:
     int deadzone_ = 15;
     bool circleConfirms_ = false;
     bool wasStreaming_ = false;
+    uint64_t lastMenuRedrawMs_ = 0;
 };
 
 }  // namespace xc::app

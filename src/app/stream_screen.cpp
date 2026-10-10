@@ -7,6 +7,7 @@
 #include "app/ps5_app.h"
 #include "app/stream_player.h"
 #include "display/display.h"
+#include "media/audio_out.h"
 #include "platform/platform.h"
 #include "ui/strings.h"
 #include "util/log.h"
@@ -122,6 +123,11 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         input::setCircleConfirms(prof.circleConfirms);
         if (g_ui) g_ui->setCircleConfirms(prof.circleConfirms);
 
+        media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
+        if (g_player) {
+            g_player->setMicGain(g_settings.micGain);
+        }
+
         overlaySeq_ = 0;
     }
     if (g_player) {
@@ -136,9 +142,11 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
                 allow1440 = allow1440Locked();
             }
+            float micLvl = g_player ? g_player->micLevel() : 0.0f;
+            bool micMuted = g_player ? (g_player->micMuted() || g_player->isMicHardwareMuted()) : false;
             menu_.setDebandInUse(autoDeband_.level());
             menu_.open(streamResolution_, showStats_, sharpness_, deband_, upscaler_, g_playingHome, allow1440,
-                       hasCustomProfile_, triggerStrength_, deadzone_, circleConfirms_);
+                       hasCustomProfile_, triggerStrength_, deadzone_, circleConfirms_, micLvl, micMuted);
             overlaySeq_ = 0;
         } else if (wasOpen) {
             switch (menu_.handle(nav)) {
@@ -358,14 +366,21 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             XC_LOGI("block smoothing auto: %s at %.1f Mbps", level == 2 ? "high" : level == 1 ? "low" : "off", mbps);
         }
     }
-    if (overlaySeq_ != seq + 1) {
+    uint64_t nowMs = platform::nowMs();
+    bool menuRedraw = menu_.isOpen() && (nowMs - lastMenuRedrawMs_ >= 40);
+    if (overlaySeq_ != seq + 1 || menuRedraw) {
         overlaySeq_ = seq + 1;
+        if (menuRedraw) lastMenuRedrawMs_ = nowMs;
         ui::StreamInfo info;
         {
             std::lock_guard<std::mutex> infoLock(g_infoMutex);
             info = g_streamInfo;
         }
         if (menu_.isOpen()) {
+            float micLvl = g_player ? g_player->micLevel() : 0.0f;
+            bool micMuted = g_player ? (g_player->micMuted() || g_player->isMicHardwareMuted()) : false;
+            menu_.setMicLevel(micLvl);
+            menu_.setMicMuted(micMuted);
             ui::Canvas c = menu_.renderMenu(info);
             display::setOverlay(c.data(), ui::StreamMenu::kMenuX, ui::StreamMenu::kMenuY, c.width(), c.height(), 235);
         } else if (showStats_ && seq) {

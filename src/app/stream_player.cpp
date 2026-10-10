@@ -5,6 +5,8 @@
 #include "display/display.h"
 #include "input/controller.h"
 #include "media/audio_out.h"
+#include "media/audio_in.h"
+#include "media/audio_encoder.h"
 #include "media/decoder.h"
 #include "media/hw_decoder.h"
 #include "platform/platform.h"
@@ -99,9 +101,48 @@ struct StreamPlayer::Impl {
     std::deque<stream::TextInputRequest> textRequests;
     std::set<std::string> textWithdrawn;
 
+    media::AudioIn audioIn;
+    media::AudioEncoder audioEncoder;
+    std::atomic<bool> micEnabled{true};
+    std::atomic<bool> micMuted{false};
+    std::atomic<float> micGain{1.0f};
+    std::atomic<uint32_t> audioSendTimestamp{0};
+    bool encoderInitialized = false;
+
+    void updateMicState() {
+        if (!running) return;
+        if (!audioIn.isRecording()) {
+            if (!encoderInitialized) {
+                encoderInitialized = audioEncoder.init(24000);
+                if (!encoderInitialized) {
+                    XC_LOGW("audio encoder: Opus init failed, mic input & meter will still operate");
+                }
+            }
+            audioIn.setMuted(micMuted.load());
+            audioIn.setGain(micGain.load());
+            audioIn.open([this](const int16_t* pcmFrames, size_t samples) {
+                if (!running) return;
+                if (!encoderInitialized) return;
+                auto s = current();
+                if (!s || !s->isOpen()) return;
+                std::vector<uint8_t> opus;
+                if (audioEncoder.encode(pcmFrames, samples, opus)) {
+                    uint32_t ts = audioSendTimestamp.fetch_add(static_cast<uint32_t>(samples));
+                    s->sendAudio(opus.data(), opus.size(), ts);
+                }
+            });
+            input::setEmbeddedMicActive(true);
+        } else {
+            audioIn.setMuted(micMuted.load());
+            audioIn.setGain(micGain.load());
+        }
+    }
+
     explicit Impl(xcloud::GssvClient& g) : gssv(g) {}
 
     void end(const std::string& reason) {
+        audioIn.close();
+        input::setEmbeddedMicActive(false);
         {
             std::lock_guard<std::mutex> lock(mutex);
             if (endReason.empty()) endReason = reason;
@@ -408,6 +449,7 @@ struct StreamPlayer::Impl {
             end(err);
             return false;
         }
+        updateMicState();
         return true;
     }
 
@@ -459,6 +501,7 @@ struct StreamPlayer::Impl {
             std::lock_guard<std::mutex> lock(sessionMutex);
             session = next;
         }
+        updateMicState();
         XC_LOGI("reconnected after %d attempt(s)", reconnectAttempts);
         reconnectAttempts = 0;
         silentTicks = 0;
@@ -555,6 +598,8 @@ struct StreamPlayer::Impl {
             std::lock_guard<std::mutex> lock(sessionMutex);
             session.reset();
         }
+        audioIn.close();
+        input::setEmbeddedMicActive(false);
         media::audioStop();
         for (int i = 0; i < input::kMaxPads; ++i) {
             input::setRumble(0, 0, 0, i);
@@ -712,6 +757,41 @@ StreamPlayer::Stats StreamPlayer::stats() const {
         st.queued = impl_->frames.size();
     }
     return st;
+}
+
+void StreamPlayer::setMicEnabled(bool enabled) {
+    impl_->micEnabled = enabled;
+    impl_->updateMicState();
+}
+
+bool StreamPlayer::micEnabled() const {
+    return impl_->micEnabled;
+}
+
+void StreamPlayer::setMicMuted(bool muted) {
+    impl_->micMuted = muted;
+    impl_->audioIn.setMuted(muted);
+}
+
+bool StreamPlayer::micMuted() const {
+    return impl_->micMuted;
+}
+
+bool StreamPlayer::isMicHardwareMuted() const {
+    return impl_ ? impl_->audioIn.isHardwareMuted() : false;
+}
+
+void StreamPlayer::setMicGain(float gain) {
+    impl_->micGain = gain;
+    impl_->audioIn.setGain(gain);
+}
+
+float StreamPlayer::micGain() const {
+    return impl_->micGain;
+}
+
+float StreamPlayer::micLevel() const {
+    return impl_ ? impl_->audioIn.level() : 0.0f;
 }
 
 }  // namespace xc::app

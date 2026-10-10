@@ -56,6 +56,15 @@ public:
     void dumpVideo(const std::string& path, int seconds);
     // Writes the next decoded picture, half size, as a binary PPM.
     void requestSnapshot(const std::string& path);
+    // Voice chat / microphone controls
+    void setMicEnabled(bool enabled);
+    bool micEnabled() const;
+    void setMicMuted(bool muted);
+    bool micMuted() const;
+    bool isMicHardwareMuted() const;
+    void setMicGain(float gain);
+    float micGain() const;
+    float micLevel() const;
 
     struct Stats {
         uint64_t videoFrames = 0, decodedFrames = 0, droppedFrames = 0, audioPackets = 0;

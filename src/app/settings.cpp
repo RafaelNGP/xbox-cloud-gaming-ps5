@@ -48,6 +48,9 @@ bool Settings::load(const std::string& path) {
         lightBarColour = 0xFF000000u | (rgb >> 16 & 0xFF) | (rgb & 0xFF00) | (rgb & 0xFF) << 16;
     }
     gestureHints = static_cast<int>((*j)["gestureHints"].asInt(gestureHints));
+    micEnabled = (*j)["micEnabled"].asBool(micEnabled);
+    micGain = static_cast<int>(std::clamp<int64_t>((*j)["micGain"].asInt(micGain), 0, 2));
+    audioRoute = static_cast<int>(std::clamp<int64_t>((*j)["audioRoute"].asInt(audioRoute), 0, 1));
     skippedUpdate = (*j)["skippedUpdate"].str();
     maxHeightCloud = static_cast<int>((*j)["maxHeightCloud"].asInt(0));
     maxHeightHome = static_cast<int>((*j)["maxHeightHome"].asInt(0));
@@ -148,6 +151,9 @@ bool Settings::save(const std::string& path) const {
                   static_cast<unsigned>(lightBarColour >> 8 & 0xFF), static_cast<unsigned>(lightBarColour >> 16 & 0xFF));
     v.set("lightBarColour", std::string(hex));
     v.set("gestureHints", gestureHints);
+    v.set("micEnabled", micEnabled);
+    v.set("micGain", micGain);
+    v.set("audioRoute", audioRoute);
     v.set("skippedUpdate", skippedUpdate);
     v.set("maxHeightCloud", maxHeightCloud);
     v.set("maxHeightHome", maxHeightHome);

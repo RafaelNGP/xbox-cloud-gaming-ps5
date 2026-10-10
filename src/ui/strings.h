@@ -212,6 +212,12 @@ enum class Str {
     PublisherAll,
     PublisherIndies,
     FriendsPlayingNow,  // "Friends playing now"
+    MenuMicrophone,     // "Microphone"
+    MicMuted,           // "Muted"
+    MicActive,          // "Active"
+    MenuAudioOutput,    // "Audio output"
+    AudioRouteTv,       // "TV"
+    AudioRoutePad,      // "DualSense Speaker"
     Count
 };
 
