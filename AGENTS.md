@@ -82,3 +82,19 @@ Para evitar degradação de desempenho, latência alta e manter a interação á
   - Evitar despejar comandos com saídas verbosas desnecessárias (usar filtros, flags resumidas ou subagentes).
   - O agente principal deve atuar na orquestração, decisão e interação com o usuário, preservando o contexto limpo e rápido.
 
+---
+
+## 6. Protocolo Obrigatório de Publicação de Releases (In-App Updater)
+
+- **NUNCA crie uma release no GitHub sem anexar os assets assinados.** O in-app updater do console (`src/app/updater.cpp` e `src/app/worker.cpp`) rejeita qualquer versão que não possua tanto o pacote `.zip` quanto a assinatura criptográfica `.sig`.
+- **Assets Mandatórios em TODA Release (`vX.Y.Z`)**:
+  1. `PPSA99810.zip` (pacote limpo sem contas/tokens, empacotado sem `XC_INCLUDE_ACCOUNT`).
+  2. `PPSA99810.zip.sig` (assinatura ECDSA gerada com `~/.config/psbox-release/signing-key.pem`).
+  3. `PPSA99810.zip.sha256` (checksum para integridade).
+- **Fluxo Mandatório de Publicação**:
+  1. Delegar o empacotamento e assinatura para subagente (preservando o contexto).
+  2. Gerar o pacote através de `tools/release.sh <X.Y.Z>` ou do pipeline de empacotamento oficial.
+  3. Publicar ou anexar com `gh release create vX.Y.Z PPSA99810.zip PPSA99810.zip.sig PPSA99810.zip.sha256 ...` (ou `gh release upload --clobber`).
+  4. **Verificação Obrigatória**: Sempre executar `gh release view vX.Y.Z` e confirmar que todos os 3 assets estão listados e públicos antes de considerar o release finalizado.
+
+
