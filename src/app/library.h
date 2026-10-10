@@ -59,6 +59,8 @@ public:
     // batches: the rows, the account's games, then the rest of the search's
     // games; stops early when `stop` is set.
     void hydrate(const Changed& changed, const std::atomic<bool>* stop = nullptr);
+    // Active friends playing cloud-accessible games now.
+    void loadFriends(const std::string& xblAuth, const Changed& changed, const std::atomic<bool>* stop = nullptr);
 
     std::vector<ui::GameRow> rows() const;
     std::vector<ui::GameTile> owned() const;
@@ -85,7 +87,7 @@ private:
         bool isGrid = false;
         std::vector<Item> items;
     };
-    ui::GameTile tile(const std::string& productId, const std::string& titleId) const;
+    ui::GameTile tile(const std::string& productId, const std::string& titleId = {}) const;
     std::vector<ui::GameTile> tiles(const std::vector<Item>& items) const;
     // Full details (hero art, description) for `ids` lacking them, in batches,
     // `changed` after each; false on a network error.
@@ -124,6 +126,7 @@ private:
     mutable std::set<std::string> seriesSiblings_;
     mutable std::set<std::string> sharedXbox_;  // Xbox title ids two products share (cross-gen pairs)
     mutable size_t siblingsFor_ = 0;
+    std::vector<ui::GameTile> friendsTiles_;
 };
 
 }  // namespace xc::app

@@ -2328,6 +2328,69 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
         fonts_.bold.draw(c, p, badge.x + (kBadgeW - fonts_.bold.measure(p, 13)) / 2,
                          fonts_.bold.centeredY(badge.y, badge.h, 13), 13, kWhite);
     }
+    // Top-left: Friends playing this game now
+    if (!t.friends.empty()) {
+        int numAvatars = std::min<int>(static_cast<int>(t.friends.size()), 2);
+        int extraCount = static_cast<int>(t.friends.size()) - numAvatars;
+        constexpr int kAvatarSz = 26;
+        constexpr int kAvatarOverlap = 16;
+        constexpr int kPillH = 32;
+        constexpr int kPadX = 5;
+        constexpr int kPadY = 3;
+
+        int avatarsW = numAvatars == 1 ? kAvatarSz : (kAvatarSz + (numAvatars - 1) * kAvatarOverlap);
+        std::string tagText;
+        if (t.friends.size() == 1) {
+            tagText = t.friends[0].gamertag;
+        } else if (extraCount > 0) {
+            tagText = "+" + std::to_string(extraCount);
+        } else if (t.friends.size() == 2) {
+            tagText = t.friends[0].gamertag;
+        }
+        int maxTextW = kCard - 20 - avatarsW - kPadX * 2 - 12;
+        int textW = !tagText.empty() ? fonts_.semibold.measure(tagText, 13) + 8 : 0;
+        if (textW > maxTextW && maxTextW > 20) {
+            while (!tagText.empty() && fonts_.semibold.measure(tagText + "…", 13) + 8 > maxTextW) {
+                tagText.pop_back();
+            }
+            tagText += "…";
+            textW = fonts_.semibold.measure(tagText, 13) + 8;
+        }
+
+        int pillW = kPadX * 2 + avatarsW + textW;
+        Rect pill{x + 10, y + 10, pillW, kPillH};
+        c.fillRect(pill, rgba(0, 0, 0, 215), 16);
+        c.strokeRect(pill, rgba(255, 255, 255, 50), 1, 16);
+
+        int curX = pill.x + kPadX;
+        int curY = pill.y + kPadY;
+        for (int i = 0; i < numAvatars; ++i) {
+            int ax = curX + i * kAvatarOverlap;
+            const auto& friendInfo = t.friends[static_cast<size_t>(i)];
+            if (auto pic = images_.get(friendInfo.gamerpicUrl, kAvatarSz, kAvatarSz)) {
+                c.drawImage(*pic, ax, curY, 255, -1);
+            } else {
+                c.fillCircle(ax + kAvatarSz / 2.0f, curY + kAvatarSz / 2.0f, kAvatarSz / 2.0f, rgba(48, 56, 68, 255));
+                if (!friendInfo.gamertag.empty()) {
+                    std::string initial(1, static_cast<char>(std::toupper(static_cast<unsigned char>(friendInfo.gamertag[0]))));
+                    int iw = fonts_.bold.measure(initial, 12);
+                    fonts_.bold.draw(c, initial, ax + (kAvatarSz - iw) / 2,
+                                     fonts_.bold.centeredY(curY, kAvatarSz, 12), 12, kWhite);
+                }
+            }
+            c.strokeArc(ax + kAvatarSz / 2.0f, curY + kAvatarSz / 2.0f, kAvatarSz / 2.0f, 1.2f, 0, 6.2832f, rgba(255, 255, 255, 200));
+        }
+
+        if (!tagText.empty()) {
+            int tx = curX + avatarsW + 5;
+            int ty = fonts_.semibold.centeredY(pill.y, pill.h, 13);
+            if (extraCount > 0 && numAvatars == 2) {
+                fonts_.bold.draw(c, tagText, tx, ty, 13, rgba(16, 124, 16, 255));
+            } else {
+                fonts_.semibold.draw(c, tagText, tx, ty, 13, kWhite);
+            }
+        }
+    }
     if (focused) c.strokeRect({x - 7, y - 7, kCard + 14, kCard + 14}, kWhite, 4, 16);
 }
 

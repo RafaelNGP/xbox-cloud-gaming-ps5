@@ -211,6 +211,7 @@ enum class Str {
     FilterPublisher,    // search filter (a list)
     PublisherAll,
     PublisherIndies,
+    FriendsPlayingNow,  // "Friends playing now"
     Count
 };
 

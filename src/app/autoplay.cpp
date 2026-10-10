@@ -91,6 +91,7 @@ void loadAutoplay() {
         if (opt == "gridtest") g_autoplay.gridTest = true;
         if (opt == "gamesettingstest") g_autoplay.gameSettingsTest = true;
         if (opt == "publishertest") g_autoplay.publisherTest = true;
+        if (opt == "friendstest") g_autoplay.friendsTest = true;
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
@@ -305,6 +306,14 @@ void autoplayPad(input::ControllerState& pad) {
             g_autoplay.gridTest = false;
             XC_LOGI("AUTOPLAY END: grid test");
         }
+    }
+    if (g_autoplay.friendsTest && uiSaved) {
+        static uint64_t since = 0;
+        uint64_t now = platform::nowMs();
+        if (!since) since = now;
+        uint64_t t = now - since;
+        auto in = [&](uint64_t at, uint64_t len) { return t >= at && t < at + len; };
+        pad.dpadDown = in(2000, 150);
     }
     if (!g_autoplay.pad) return;
     static std::string lastPressed;
@@ -542,7 +551,8 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
     }
     if (!g_autoplay.title.empty() && !uiSaved && g_ui->screen() == ui::Screen::Home) {
         if (!homeSince) homeSince = now;
-        if (now - homeSince > 5000) {
+        uint64_t waitMs = g_autoplay.friendsTest ? 8000 : 5000;
+        if (now - homeSince > waitMs) {
             uiSaved = true;
             saveCanvas("ui.ppm");
         }
@@ -627,6 +637,15 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             saveCanvas("publisher_results.ppm");
             g_autoplay.publisherTest = false;
             XC_LOGI("AUTOPLAY END: publisher test");
+        }
+    }
+    if (g_autoplay.friendsTest && uiSaved) {
+        static uint64_t since = 0;
+        if (!since) since = now;
+        if (now - since > 5000) {
+            saveCanvas("friends_row.ppm");
+            g_autoplay.friendsTest = false;
+            XC_LOGI("AUTOPLAY END: friends test");
         }
     }
     if (pickerShot) {

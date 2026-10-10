@@ -24,6 +24,7 @@ add_library(xcloud_core STATIC
     src/xcloud/titlehub.cpp
     src/xcloud/regions.cpp
     src/xcloud/prices.cpp
+    src/xcloud/social.cpp
     src/platform/posix_common.cpp
 )
 target_include_directories(xcloud_core PUBLIC src)

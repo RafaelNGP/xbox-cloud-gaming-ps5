@@ -23,6 +23,11 @@
 
 namespace xc::ui {
 
+struct FriendPlaying {
+    std::string gamertag;
+    std::string gamerpicUrl;
+};
+
 struct GameTile {
     std::string productId;
     std::string titleId;  // xCloud title id used to start the session
@@ -50,6 +55,8 @@ struct GameTile {
     bool detailed = false;
     uint32_t modes = 0;
     uint8_t languages = 0;
+    // Active friends playing this game now
+    std::vector<FriendPlaying> friends;
 };
 
 // One of the user's own consoles, as "My consoles" shows it.

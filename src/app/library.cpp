@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
+#include "app/autoplay.h"
 #include "app/library.h"
 
 #include "platform/platform.h"
@@ -7,6 +8,7 @@
 #include "util/json.h"
 #include "util/log.h"
 #include "xcloud/catalog.h"
+#include "xcloud/social.h"
 #include "xcloud/titlehub.h"
 
 #include <algorithm>
@@ -208,6 +210,27 @@ std::vector<ui::GameRow> Library::rows() const {
         }
         if (!row.tiles.empty()) rows.push_back(std::move(row));
     }
+
+    // Insert "Friends playing now" dynamically if any friend is playing an accessible title
+    if (!friendsTiles_.empty()) {
+        ui::GameRow friendsRow;
+        friendsRow.title = ui::tr(ui::Str::FriendsPlayingNow);
+        friendsRow.gamePassBadges = false;
+        friendsRow.isGrid = false;
+        friendsRow.tiles = friendsTiles_;
+
+        // Place right after "Jump back in" if present, otherwise at index 0
+        size_t insertIdx = 0;
+        if (!rows.empty() && rows[0].title == ui::tr(ui::Str::JumpBackIn)) {
+            insertIdx = 1;
+        }
+        if (insertIdx < rows.size()) {
+            rows.insert(rows.begin() + static_cast<long>(insertIdx), std::move(friendsRow));
+        } else {
+            rows.push_back(std::move(friendsRow));
+        }
+    }
+
     return rows;
 }
 
@@ -342,8 +365,6 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
     freeInStore_.clear();
     otherLanguage_.clear();
     progress_ = {};
-    xboxTitleOf_.clear();
-    platform_.clear();
     std::string lastErr;
 
     // The Game Pass catalog first: it decides what the other lists may show.
@@ -712,6 +733,67 @@ void Library::hydrate(const Changed& changed, const std::atomic<bool>* stop) {
     for (const auto& [id, p] : products_) detailed += p.detailed;
     XC_LOGI("library: %zu rows, %zu of %zu products with details (%llu s)", layout_.size(), detailed, products_.size(),
             static_cast<unsigned long long>((platform::nowMs() - t0) / 1000));
+}
+
+void Library::loadFriends(const std::string& xblAuth, const Changed& changed, const std::atomic<bool>* stop) {
+    if (xblAuth.empty() || (stop && *stop)) return;
+    std::vector<xcloud::FriendPresence> presence;
+    std::string err;
+    if (!xcloud::fetchFriendsPresence(xblAuth, presence, err, language_)) return;
+    if (stop && *stop) return;
+
+    // Map Xbox Live Title ID -> Store Product ID
+    std::map<std::string, std::string> productByXbox;
+    for (const auto& [pid, xid] : xboxTitleOf_) {
+        if (!xid.empty()) productByXbox[xid] = pid;
+    }
+    for (const auto& [pid, prod] : products_) {
+        if (!prod.xboxTitleId.empty() && !productByXbox.count(prod.xboxTitleId)) {
+            productByXbox[prod.xboxTitleId] = pid;
+        }
+    }
+
+    // Group friends playing accessible games
+    std::map<std::string, std::vector<ui::FriendPlaying>> friendsByProduct;
+    for (const auto& fp : presence) {
+        if (fp.presenceState != "Online" || fp.titleId.empty()) continue;
+        auto it = productByXbox.find(fp.titleId);
+        if (it == productByXbox.end()) continue;
+        const std::string& pid = it->second;
+
+        // Check if game is playable on this account (Game Pass or owned)
+        ui::GameTile t = tile(pid);
+        if (!t.playable) continue;
+
+        friendsByProduct[pid].push_back({fp.gamertag, fp.gamerpicUrl});
+    }
+
+    std::vector<ui::GameTile> tiles;
+    for (auto& [pid, friendsList] : friendsByProduct) {
+        ui::GameTile t = tile(pid);
+        if (t.productId.empty() || !t.playable) continue;
+        t.friends = std::move(friendsList);
+        tiles.push_back(std::move(t));
+    }
+
+    friendsTiles_ = std::move(tiles);
+    if (g_autoplay.friendsTest && friendsTiles_.empty()) {
+        for (const auto& r : layout_) {
+            for (const auto& [pid, tid] : r.items) {
+                ui::GameTile t = tile(pid, tid);
+                if (t.productId.empty() || !t.playable) continue;
+                t.friends.push_back({"MajorNelson", ""});
+                t.friends.push_back({"PhilSpencer", ""});
+                friendsTiles_.push_back(std::move(t));
+                break;
+            }
+            if (!friendsTiles_.empty()) break;
+        }
+    }
+    if (!friendsTiles_.empty()) {
+        XC_LOGI("library: %zu friends playing %zu accessible games now", presence.size(), friendsTiles_.size());
+        changed();
+    }
 }
 
 }  // namespace xc::app
