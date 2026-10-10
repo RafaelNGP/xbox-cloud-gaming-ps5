@@ -65,6 +65,10 @@ struct Settings {
     int lightBarMode = 0;
     uint32_t lightBarColour = 0xFFDC7000;  // as ui::Color: 0xAABBGGRR, opaque (blue)
     int gestureHints = 0;
+    // Voice chat & Audio routing
+    bool micEnabled = true;
+    int micGain = 1;        // 0: 50%, 1: 100%, 2: 150%
+    int audioRoute = 0;     // 0: TV/HDMI (Main), 1: DualSense Speaker / Headset (Pad)
     // The release the user said "Not now" to: not offered again on start.
     std::string skippedUpdate;
     // The tallest picture each kind of stream delivered when asked for its

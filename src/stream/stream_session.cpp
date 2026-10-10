@@ -412,6 +412,7 @@ struct StreamSession::Impl {
 
         // Same channels, in the same order, as the web client.
         chat = makeChannel("chat", "chatV1");
+        chat->onMessage([](rtc::message_variant m) { XC_LOGI("chat channel: %s", asText(m).c_str()); });
         control = makeChannel("control", "controlV1");
         input = makeChannel("input", "1.0");
         message = makeChannel("message", "messageV1");
@@ -442,12 +443,20 @@ struct StreamSession::Impl {
             }
         });
 
-        // Audio: sendrecv like the browser (the send side carries chat later).
+        // Audio: sendrecv like the browser (the send side carries chat).
         rtc::Description::Audio a("0", rtc::Description::Direction::SendRecv);
         a.addOpusCodec(111, "minptime=10;useinbandfec=1;stereo=1");
+        a.addSSRC(1, "audio");
         audio = pc->addTrack(a);
+
         auto audioDepacketizer = std::make_shared<rtc::OpusRtpDepacketizer>();
         audioDepacketizer->addToChain(std::make_shared<RtcpReporter>(48000, 0));
+
+        auto rtpConfig = std::make_shared<rtc::RtpPacketizationConfig>(
+            1, "audio", 111, rtc::OpusRtpPacketizer::DefaultClockRate);
+        auto audioPacketizer = std::make_shared<rtc::OpusRtpPacketizer>(rtpConfig);
+        audioDepacketizer->addToChain(audioPacketizer);
+
         audio->setMediaHandler(audioDepacketizer);
         audio->onFrame([this](rtc::binary data, rtc::FrameInfo info) {
             if (cb.audio) cb.audio(reinterpret_cast<const uint8_t*>(data.data()), data.size(), info.timestamp);
@@ -651,6 +660,15 @@ bool StreamSession::isOpen() const { return impl_->open; }
 void StreamSession::sendGamepad(const GamepadFrame& frame) {
     if (!impl_->open) return;
     Impl::sendBinary(impl_->input, gamepadReport(impl_->inputSequence++, impl_->nowMs(), frame));
+}
+
+void StreamSession::sendAudio(const uint8_t* opus, size_t size, uint32_t timestamp) {
+    if (!impl_ || !impl_->open || !impl_->audio || !opus || size == 0) return;
+    try {
+        rtc::FrameInfo info(timestamp);
+        impl_->audio->sendFrame(reinterpret_cast<const rtc::byte*>(opus), size, info);
+    } catch (const std::exception&) {
+    }
 }
 
 void StreamSession::setTouchEnabled(bool on) {

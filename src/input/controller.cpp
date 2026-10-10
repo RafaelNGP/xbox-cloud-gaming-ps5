@@ -96,6 +96,7 @@ struct ScePadColor {
 };
 int scePadSetLightBar(int32_t handle, const ScePadColor* color);
 int scePadResetLightBar(int32_t handle);
+int scePadSetVibrationTriggerEffectWeakWhileEmbeddedMicInUse(int32_t handle, bool enable);
 }
 
 namespace xc::input {
@@ -303,6 +304,17 @@ std::string padUserName(int index) {
     return index >= 0 && index < kMaxPads && g_pads[index].handle >= 0 ? g_pads[index].name : "";
 }
 
+int32_t padUserId(int index) {
+    if (index >= 0 && index < kMaxPads && g_pads[index].handle >= 0 && g_pads[index].userId >= 0) {
+        return g_pads[index].userId;
+    }
+    int32_t uid = -1;
+    if (sceUserServiceGetInitialUser(&uid) == 0 && uid >= 0) {
+        return uid;
+    }
+    return -1;
+}
+
 void setTriggerFeel(int strength, int hzIndex, int resistance, bool pulses) {
     g_triggerStrength = std::clamp(strength, 0, kTriggerStrengths - 1);
     g_triggerHz = std::clamp(hzIndex, 0, 2);
@@ -432,6 +444,19 @@ bool pollPad(int index, ControllerState& out) {
     return true;
 }
 
+void setEmbeddedMicActive(bool active, int pad) {
+    if (pad < 0 || pad >= kMaxPads) return;
+    int32_t handle = g_pads[pad].handle;
+    if (handle >= 0) {
+        int rc = scePadSetVibrationTriggerEffectWeakWhileEmbeddedMicInUse(handle, active);
+        if (rc < 0) {
+            XC_LOGW("scePadSetVibrationTriggerEffectWeakWhileEmbeddedMicInUse: 0x%08x", static_cast<unsigned>(rc));
+        } else {
+            XC_LOGI("pad %d embedded mic vibration suppression: %s", pad, active ? "enabled" : "disabled");
+        }
+    }
+}
+
 } // namespace xc::input
 
 #else
@@ -456,9 +481,11 @@ void setLightBar(uint8_t, uint8_t, uint8_t, int) {}
 void resetLightBar(int) {}
 bool padConnected(int index) { return index == 0; }
 std::string padUserName(int index) { return index == 0 ? "Player" : ""; }
+int32_t padUserId(int) { return 0; }
 void setTriggerFeel(int, int, int, bool) {}
 void setTriggerLogging(bool) {}
 void setTriggerResistanceActive(bool) {}
+void setEmbeddedMicActive(bool, int) {}
 } // namespace xc::input
 
 #endif

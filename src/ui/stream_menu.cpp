@@ -45,7 +45,7 @@ void StreamMenu::setProfileValues(int resolution, int sharpness, int deband, int
 
 void StreamMenu::open(int resolution, bool stats, int sharpness, int deband, int upscaler, bool homeConsole,
                       bool allow1440, bool hasCustomProfile, int triggerStrength, int deadzone,
-                      bool circleConfirms) {
+                      bool circleConfirms, float micLevel, bool micMuted) {
     open_ = true;
     homeConsole_ = homeConsole;
     allow1440_ = allow1440;
@@ -57,6 +57,8 @@ void StreamMenu::open(int resolution, bool stats, int sharpness, int deband, int
     triggerStrength_ = triggerStrength;
     deadzone_ = deadzone;
     circleConfirms_ = circleConfirms;
+    micLevel_ = micLevel;
+    micMuted_ = micMuted;
     selected_ = XboxButton;
     resolution_ = applied_ = resolution;
     resolutionAsked_ = false;
@@ -138,25 +140,25 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     fonts_.bold.draw(c, tr(Str::MenuTitle), kPad, 38, 32, kWhite);
 
     // The items: the selected one white, like the Xbox guide.
-    constexpr int kRowH = 46, kTop = 96, kPx = 22;
+    constexpr int kRowH = 40, kTop = 84, kPx = 20;
     for (int i = 0; i < ItemCount; ++i) {
-        Rect row{kPad - 16, kTop + i * kRowH, kMenuW - 2 * (kPad - 16), kRowH - 6};
+        Rect row{kPad - 16, kTop + i * kRowH, kMenuW - 2 * (kPad - 16), kRowH - 4};
         bool sel = i == selected_;
         if (sel) c.fillRect(row, kWhite, 8);
         Color fg = sel ? kDark : kWhite;
         int ty = fonts_.semibold.centeredY(row.y, row.h, kPx);
-        const char* label = i == XboxButton     ? tr(Str::MenuXboxButton)
-                            : i == Profile      ? tr(Str::Profile)
-                            : i == Stats        ? tr(Str::MenuStats)
-                            : i == Sharpness    ? tr(Str::MenuSharpness)
-                            : i == Deband       ? tr(Str::MenuDeband)
-                            : i == Upscaler     ? tr(Str::MenuUpscaler)
-                            : i == Resolution   ? tr(Str::MenuResolution)
-                            : i == Triggers     ? tr(Str::TriggerRumble)
-                            : i == DeadzoneItem ? tr(Str::Deadzone)
-                            : i == ConfirmItem  ? tr(Str::ConfirmButton)
-                            : homeConsole_      ? tr(Str::MenuEndStream)
-                                                : tr(Str::MenuLeave);
+        const char* label = i == XboxButton       ? tr(Str::MenuXboxButton)
+                            : i == Profile        ? tr(Str::Profile)
+                            : i == Stats          ? tr(Str::MenuStats)
+                            : i == Sharpness      ? tr(Str::MenuSharpness)
+                            : i == Deband         ? tr(Str::MenuDeband)
+                            : i == Upscaler       ? tr(Str::MenuUpscaler)
+                            : i == Resolution     ? tr(Str::MenuResolution)
+                            : i == Triggers       ? tr(Str::TriggerRumble)
+                            : i == DeadzoneItem   ? tr(Str::Deadzone)
+                            : i == ConfirmItem    ? tr(Str::ConfirmButton)
+                            : homeConsole_        ? tr(Str::MenuEndStream)
+                                                  : tr(Str::MenuLeave);
         fonts_.semibold.draw(c, label, row.x + 16, ty, kPx, fg);
         std::string value;
         if (i == Profile) {
@@ -207,19 +209,19 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     }
     int y = kTop + ItemCount * kRowH + 6;
     if (resolutionAsked_) {
-        fonts_.regular.draw(c, tr(Str::ResolutionNote), kPad, y, 18, kDim);
-        y += 26;
+        fonts_.regular.draw(c, tr(Str::ResolutionNote), kPad, y, 16, kDim);
+        y += 22;
     }
-    y += 10;
+    y += 6;
 
     // The connection.
     c.fillRect({kPad, y, kMenuW - 2 * kPad, 2}, rgba(60, 60, 60));
-    y += 18;
+    y += 14;
     auto line = [&](Str label, const std::string& value) {
-        fonts_.regular.draw(c, tr(label), kPad, y, 20, kGray);
-        int w = fonts_.semibold.measure(value, 20);
-        fonts_.semibold.draw(c, value, kMenuW - kPad - w, y, 20, kWhite);
-        y += 30;
+        fonts_.regular.draw(c, tr(label), kPad, y, 18, kGray);
+        int w = fonts_.semibold.measure(value, 18);
+        fonts_.semibold.draw(c, value, kMenuW - kPad - w, y, 18, kWhite);
+        y += 24;
     };
     const std::string none = "-";
     line(Str::StatRegion, info.region.empty() ? none : info.region);
@@ -234,45 +236,88 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
 
     // The controllers: numbered pads, each connected one with its user.
     y += 8;
-    fonts_.regular.draw(c, tr(Str::Controllers), kPad, y, 22, kGray);
-    y += 38;
+    fonts_.regular.draw(c, tr(Str::Controllers), kPad, y, 20, kGray);
+
+    // Real-time Mic VU meter bar on the right side of the Controllers line:
+    {
+        int barW = 140, barH = 12;
+        int barX = kMenuW - kPad - barW;
+        int barY = y + 4;
+        std::string micLabel = tr(Str::MenuMicrophone);
+        int mw = fonts_.regular.measure(micLabel, 16);
+        fonts_.regular.draw(c, micLabel, barX - mw - 10, y + 2, 16, micMuted_ ? kDim : kGray);
+
+        // Dark background pill
+        c.fillRect({barX, barY, barW, barH}, rgba(40, 40, 40), 6);
+        c.strokeRect({barX, barY, barW, barH}, rgba(70, 70, 70), 1, 6);
+
+        if (micMuted_) {
+            int tw = fonts_.semibold.measure(tr(Str::MicMuted), 13);
+            fonts_.semibold.draw(c, tr(Str::MicMuted), barX + (barW - tw) / 2, barY - 1, 13, rgba(230, 120, 50));
+        } else {
+            float lvl = std::clamp(micLevel_, 0.0f, 1.0f);
+            int fillW = static_cast<int>(lvl * (barW - 4));
+            if (fillW > 0) {
+                // Vibrant green sound level bar
+                c.fillRect({barX + 2, barY + 2, fillW, barH - 4}, rgba(30, 215, 96), 4);
+                if (lvl > 0.85f) {
+                    // Yellow peak indicator
+                    int peakW = static_cast<int>((lvl - 0.85f) / 0.15f * (barW - 4));
+                    c.fillRect({barX + barW - 2 - peakW, barY + 2, peakW, barH - 4}, rgba(255, 204, 0), 4);
+                }
+            } else {
+                // Minimum idle listening dot
+                c.fillCircle(barX + 7, barY + barH / 2, 2.5f, rgba(30, 215, 96, 160));
+            }
+        }
+    }
+
+    y += 28;
     const int slotW = (kMenuW - 2 * kPad) / static_cast<int>(pads_.size());
     for (int i = 0; i < static_cast<int>(pads_.size()); ++i) {
         int sx = kPad + i * slotW;
-        constexpr int kIconW = 60;
+        constexpr int kIconW = 56;
         drawPadIcon(c, fonts_.bold, sx + (slotW - kIconW) / 2, y, kIconW, i, pads_[i].connected, kPanel);
         if (!pads_[i].connected || pads_[i].name.empty()) continue;
-        auto name = fonts_.regular.wrap(pads_[i].name, 16, slotW - 8, 1);
+        auto name = fonts_.regular.wrap(pads_[i].name, 15, slotW - 8, 1);
         if (!name.empty())
-            fonts_.regular.draw(c, name[0], sx + (slotW - fonts_.regular.measure(name[0], 16)) / 2,
-                                y + padIconHeight(kIconW) + 4, 16, kGray);
+            fonts_.regular.draw(c, name[0], sx + (slotW - fonts_.regular.measure(name[0], 15)) / 2,
+                                y + padIconHeight(kIconW) + 2, 15, kGray);
+        if (i == 0) {
+            if (micMuted_) {
+                // Orange mic dot matching DualSense hardware mute LED
+                c.fillCircle(sx + (slotW + kIconW) / 2 - 2, y + 8, 3.5f, rgba(230, 120, 50));
+            } else {
+                // Little green mic dot next to controller 1
+                c.fillCircle(sx + (slotW + kIconW) / 2 - 2, y + 8, 3.5f, rgba(30, 215, 96));
+            }
+        }
     }
 
-    // Cross selects, Circle goes back to the game (swapped with Circle
-    // confirming).
-    int hy = kMenuH - 56, x = kPad;
+    // Cross selects, Circle goes back to the game (swapped with Circle confirming).
+    int hy = kMenuH - 50, x = kPad;
     {
         // The touchpad's gestures, small, above the button hints.
-        auto lines = fonts_.regular.wrap(tr(Str::MenuGestureHint), 18, kMenuW - 2 * kPad, 2);
-        int gy = hy - 20 - static_cast<int>(lines.size()) * 26;
+        auto lines = fonts_.regular.wrap(tr(Str::MenuGestureHint), 16, kMenuW - 2 * kPad, 2);
+        int gy = hy - 14 - static_cast<int>(lines.size()) * 22;
         for (const auto& l : lines) {
-            fonts_.regular.draw(c, l, kPad, gy, 18, kDim);
-            gy += 26;
+            fonts_.regular.draw(c, l, kPad, gy, 16, kDim);
+            gy += 22;
         }
     }
     auto icon = [&](bool cross) {
-        c.fillCircle(x + 14, hy + 13, 14, rgba(255, 255, 255, 40));
+        c.fillCircle(x + 13, hy + 12, 13, rgba(255, 255, 255, 40));
         if (cross) {
-            c.line(x + 8, hy + 7, x + 20, hy + 19, 2.5f, rgba(124, 178, 232));
-            c.line(x + 20, hy + 7, x + 8, hy + 19, 2.5f, rgba(124, 178, 232));
+            c.line(x + 7, hy + 6, x + 19, hy + 18, 2.5f, rgba(124, 178, 232));
+            c.line(x + 19, hy + 6, x + 7, hy + 18, 2.5f, rgba(124, 178, 232));
         } else {
-            c.strokeArc(x + 14, hy + 13, 6.5f, 2.5f, 0, 6.2832f, rgba(255, 102, 102));
+            c.strokeArc(x + 13, hy + 12, 6.0f, 2.5f, 0, 6.2832f, rgba(255, 102, 102));
         }
     };
     icon(!circleConfirms_);
-    x = fonts_.semibold.draw(c, tr(Str::Select), x + 38, hy, 22, kGray) + 36;
+    x = fonts_.semibold.draw(c, tr(Str::Select), x + 34, hy, 20, kGray) + 32;
     icon(circleConfirms_);
-    fonts_.semibold.draw(c, tr(Str::Back), x + 38, hy, 22, kGray);
+    fonts_.semibold.draw(c, tr(Str::Back), x + 34, hy, 20, kGray);
     return c;
 }
 
@@ -282,6 +327,7 @@ Canvas StreamMenu::renderStats(const StreamInfo& info) const {
     text += fmt("%.0f fps", info.fps) + "  " + fmt("%.1f Mbps", info.mbps);
     if (info.rttMs > 0) text += "  " + std::to_string(info.rttMs) + " ms";
     text += "  " + fmt("%.1f%%", info.lossPct);
+    if (!micMuted_) text += "  MIC";
     constexpr int kPx = 20, kH = 36;
     int w = fonts_.semibold.measure(text, kPx) + 28;
     Canvas c(w, kH);

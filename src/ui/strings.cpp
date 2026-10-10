@@ -235,6 +235,12 @@ constexpr Column kEnglish = {
     "All publishers",                                // PublisherAll
     "Indies & Others",                               // PublisherIndies
     "Friends playing now",                           // FriendsPlayingNow
+    "Microphone",                                    // MenuMicrophone
+    "Muted",                                         // MicMuted
+    "Active",                                        // MicActive
+    "Audio output",                                  // MenuAudioOutput
+    "TV",                                            // AudioRouteTv
+    "DualSense Speaker",                             // AudioRoutePad
 };
 
 constexpr Column kPortugueseBR = {
@@ -440,6 +446,12 @@ constexpr Column kPortugueseBR = {
     "Todas as editoras",
     "Indies & Outras",
     "Amigos jogando agora",
+    "Microfone",
+    "Mutado",
+    "Ativo",
+    "Saída de áudio",
+    "TV",
+    "Alto-falante do controle",
 };
 
 constexpr Column kSpanish = {
@@ -645,6 +657,12 @@ constexpr Column kSpanish = {
     "Todas las distribuidoras",
     "Indies y otras",
     "Amigos jugando ahora",
+    "Micrófono",
+    "Silenciado",
+    "Activo",
+    "Salida de audio",
+    "TV",
+    "Altavoz del mando",
 };
 
 constexpr Column kFrench = {
@@ -850,6 +868,12 @@ constexpr Column kFrench = {
     "Tous les éditeurs",
     "Indépendants et autres",
     "Amis en train de jouer",
+    "Microphone",
+    "Coupé",
+    "Actif",
+    "Sortie audio",
+    "TV",
+    "Haut-parleur de la manette",
 };
 
 constexpr Column kGerman = {
@@ -1055,6 +1079,12 @@ constexpr Column kGerman = {
     "Alle Publisher",
     "Indies & Andere",
     "Freunde spielen jetzt",
+    "Mikrofon",
+    "Stumm",
+    "Aktiv",
+    "Audioausgabe",
+    "TV",
+    "Controller-Lautsprecher",
 };
 
 constexpr Column kItalian = {
@@ -1260,6 +1290,12 @@ constexpr Column kItalian = {
     "Tutti gli editori",
     "Indie e altri",
     "Amici che giocano ora",
+    "Microfono",
+    "Disattivato",
+    "Attivo",
+    "Uscita audio",
+    "TV",
+    "Altoparlante del controller",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

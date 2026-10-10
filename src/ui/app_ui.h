@@ -153,6 +153,8 @@ class AppUi {
 public:
     AppUi(const Fonts& fonts, ImageCache& images);
 
+    const Fonts& fonts() const { return fonts_; }
+
     // --- Model -------------------------------------------------------------
     void showSplash(const std::string& status);
     void showSignIn(const std::string& code, const std::string& url);

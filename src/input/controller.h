@@ -64,6 +64,7 @@ void refreshPads();
 // (empty when the slot is free).
 bool padConnected(int index);
 std::string padUserName(int index);
+int32_t padUserId(int index = 0);
 // Rumble, 0..255 per motor (large = low frequency, small = high frequency),
 // for `durationMs` (0 = until changed). Any thread; polling applies it.
 void setRumble(uint8_t large, uint8_t small, uint32_t durationMs, int pad = 0);
@@ -91,5 +92,7 @@ void setTriggerResistanceActive(bool on);
 // system (the player's colour). Any thread; polling applies it.
 void setLightBar(uint8_t r, uint8_t g, uint8_t b, int pad = 0);
 void resetLightBar(int pad = 0);
+// DualSense: suppresses vibration and trigger effect bleed while embedded mic is active
+void setEmbeddedMicActive(bool active, int pad = 0);
 
 } // namespace xc::input

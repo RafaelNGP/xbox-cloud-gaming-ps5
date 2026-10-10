@@ -20,8 +20,8 @@ int sceAudioInClose(int handle) {
     return -1;
 }
 
-int sceAudioInGetStatus(int handle, unsigned int *status) {
-    (void)handle; (void)status;
+int sceAudioInGetSilentState(int handle) {
+    (void)handle;
     return -1;
 }
 

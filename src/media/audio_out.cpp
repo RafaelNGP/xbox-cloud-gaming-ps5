@@ -35,6 +35,7 @@ std::thread g_thread;
 
 #if defined(XCLOUD_PS5)
 int g_handle = -1;
+std::atomic<AudioRoute> g_route{AudioRoute::Main};
 
 void loop() {
     std::vector<float> grain(kGrain * 2);
@@ -46,14 +47,22 @@ void loop() {
             g_queue.erase(g_queue.begin(), g_queue.begin() + static_cast<long>(n));
             std::fill(grain.begin() + static_cast<long>(n), grain.end(), 0.0f);
         }
+        int h = g_handle;
+        if (h < 0) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            continue;
+        }
         // Blocks until the hardware wants the next grain (5.3 ms).
-        int rc = sceAudioOutOutput(g_handle, grain.data());
+        int rc = sceAudioOutOutput(h, grain.data());
         if (rc < 0) {
-            XC_LOGE("sceAudioOutOutput: 0x%08x", static_cast<unsigned>(rc));
-            break;
+            XC_LOGW("sceAudioOutOutput: 0x%08x", static_cast<unsigned>(rc));
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            if (!g_running) break;
         }
     }
 }
+#else
+std::atomic<AudioRoute> g_route{AudioRoute::Main};
 #endif
 
 }  // namespace
@@ -72,7 +81,8 @@ bool audioStart() {
         }
         initialised = true;
     }
-    // The system user (0xFF), MAIN port, float stereo.
+    // Port 0 (MAIN): primary system output. PS5 OS automatically routes
+    // to HDMI/TV or connected headphones (DualSense 3.5mm / USB / Bluetooth).
     g_handle = sceAudioOutOpen(0xFF, 0, 0, kGrain, kRate, 4);
     if (g_handle < 0) {
         XC_LOGE("sceAudioOutOpen: 0x%08x", static_cast<unsigned>(g_handle));
@@ -80,11 +90,19 @@ bool audioStart() {
     }
     g_running = true;
     g_thread = std::thread(loop);
-    XC_LOGI("audio output open (48 kHz float stereo)");
+    XC_LOGI("audio output open (48 kHz float stereo, handle %d)", g_handle);
 #else
     g_running = true;
 #endif
     return true;
+}
+
+void audioSetRoute(AudioRoute route) {
+    g_route.store(route);
+}
+
+AudioRoute audioRoute() {
+    return g_route.load();
 }
 
 void audioStop() {
