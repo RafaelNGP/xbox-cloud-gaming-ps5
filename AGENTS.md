@@ -67,3 +67,18 @@ Para qualquer alteração em arquivos de interface (`src/app_ui.cpp`, `src/app/a
   - Inspecione `git diff` detalhadamente.
   - Se houver trabalho em andamento que precise ser isolado, utilize `git stash` ou crie uma branch temporária de segurança.
 - Mantenha commits atômicos, focados e com mensagens claras.
+
+---
+
+## 5. Gestão de Contexto e Uso de Subagentes
+
+Para evitar degradação de desempenho, latência alta e manter a interação ágil e leve:
+
+- **Delegação Mandatória de Tarefas Pesadas**:
+  - **Pesquisa e Varredura de Código**: Delegar para subagentes (`research` ou `self`) tarefas que envolvam ler múltiplos arquivos, buscar padrões no codebase ou analisar grandes trechos de código/documentação.
+  - **Análise de Logs Extensos**: Usar subagentes para processar ou depurar saídas longas (builds, WebRTC, traces), retornando apenas o diagnóstico e resumo executivo ao contexto principal.
+  - **Inspeção de Imagens e Testes Intermediários**: Quando houver rotinas com múltiplas validações de telas ou passos intermediários de build, priorizar subagentes para evitar inflar o histórico principal com tokens de imagens e logs.
+- **Saídas Enxutas no Contexto Principal**:
+  - Evitar despejar comandos com saídas verbosas desnecessárias (usar filtros, flags resumidas ou subagentes).
+  - O agente principal deve atuar na orquestração, decisão e interação com o usuário, preservando o contexto limpo e rápido.
+

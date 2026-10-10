@@ -127,4 +127,39 @@ std::string categoryName(const std::string& storeName) {
     return storeName;
 }
 
+bool isNonGameAddon(const std::string& titleId, const std::string& titleName) {
+    static const char* const kBadTitleIdTokens[] = {
+        "ARTBOOK",
+        "SOUNDTRACK",
+        "DIGITALSTORYART",
+        "INSTALLPACK",
+        "DIGITALEXTRAS",
+        "BONUSCONTENT",
+    };
+    for (const char* token : kBadTitleIdTokens) {
+        if (titleId.find(token) != std::string::npos) return true;
+    }
+    if (!titleName.empty()) {
+        std::string lower;
+        lower.reserve(titleName.size());
+        for (char c : titleName) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+
+        static const char* const kBadNameTokens[] = {
+            "artbook",
+            "soundtrack",
+            "trilha sonora",
+            "livro de arte",
+            "história e arte",
+            "historia e arte",
+            "digital story & art",
+            "install pack",
+            "upgrade pack",
+        };
+        for (const char* token : kBadNameTokens) {
+            if (lower.find(token) != std::string::npos) return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace xc::xcloud

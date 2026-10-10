@@ -187,6 +187,7 @@ std::vector<ui::GameTile> Library::tiles(const std::vector<Item>& items) const {
     std::vector<ui::GameTile> out;
     for (const auto& [pid, tid] : items) {
         ui::GameTile t = tile(pid, tid);
+        if (xcloud::isNonGameAddon(t.titleId, t.name)) continue;
         if (!t.productId.empty() && !t.titleId.empty() && !t.name.empty()) out.push_back(std::move(t));
     }
     dedupeByTitle(out);
@@ -202,7 +203,7 @@ std::vector<ui::GameRow> Library::rows() const {
         row.isGrid = r.isGrid;
         for (const auto& [pid, tid] : r.items) {
             ui::GameTile t = tile(pid, tid);
-            if (t.productId.empty() || t.titleId.empty()) continue;
+            if (t.productId.empty() || t.titleId.empty() || xcloud::isNonGameAddon(t.titleId, t.name)) continue;
             row.tiles.push_back(std::move(t));
         }
         if (!row.tiles.empty()) rows.push_back(std::move(row));
@@ -262,9 +263,13 @@ bool Library::loadCache() {
     for (const auto& p : (*j)["ownedProducts"].items()) ownedProducts_.insert(p.str());
     for (const auto& p : (*j)["gamePass"].items()) knownGamePass_.insert(p.str());
     owned_.clear();
-    for (const auto& o : (*j)["owned"].items()) owned_.emplace_back(o["p"].str(), o["t"].str());
+    for (const auto& o : (*j)["owned"].items()) {
+        if (xcloud::isNonGameAddon(o["t"].str())) continue;
+        owned_.emplace_back(o["p"].str(), o["t"].str());
+    }
     purchasable_.clear();
     for (const auto& o : (*j)["purchasable"].items()) {
+        if (xcloud::isNonGameAddon(o["t"].str())) continue;
         purchasable_.emplace_back(o["p"].str(), o["t"].str());
         purchasableSet_.insert(o["p"].str());
     }
@@ -456,6 +461,7 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
     std::vector<Item> mine;
     std::map<std::string, std::string> toBuy;  // productId -> titleId
     for (const auto& t : titles) {
+        if (xcloud::isNonGameAddon(t.titleId)) continue;
         if (!t.productId.empty() && !t.xboxTitleId.empty()) xboxTitleOf_[t.productId] = t.xboxTitleId;
         if (t.isFreeInStore && !t.productId.empty()) freeInStore_.insert(t.productId);
         if (t.hasEntitlement) {

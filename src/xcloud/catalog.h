@@ -59,6 +59,9 @@ struct ProductList {
 // players use); the others stay as the store has them.
 std::string categoryName(const std::string& storeName);
 
+// Returns true if titleId or titleName corresponds to a non-game add-on (artbook, soundtrack, install pack).
+bool isNonGameAddon(const std::string& titleId, const std::string& titleName = "");
+
 bool fetchList(const std::string& siglId, const std::string& market, const std::string& language, ProductList& out,
                std::string& err);
 // Details for `ids` (batched); products the catalog does not know are absent.
