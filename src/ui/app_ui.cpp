@@ -2039,9 +2039,12 @@ void AppUi::drawTopBar(Canvas& c) {
             int nw = fonts_.semibold.measure(n, 18);
             int nx = x - 16 - nw;
             fonts_.semibold.draw(c, n, nx, 76, 18, kGray);
-            float gx = nx - 14.0f, gy = 86;
-            c.strokeArc(gx, gy, 9, 2, 0, 6.2832f, kGray);
-            fonts_.bold.draw(c, "G", static_cast<int>(gx) - fonts_.bold.measure("G", 12) / 2, static_cast<int>(gy) - 8, 12, kGray);
+            float gx = nx - 14.0f, gy = 86.0f;
+            c.strokeCircle(gx, gy, 8.5f, 1.6f, kGray);
+            int gw = fonts_.bold.measure("G", 11);
+            int gxInt = static_cast<int>(std::round(gx)) - gw / 2;
+            int gyInt = fonts_.bold.centeredY(static_cast<int>(std::round(gy - 8.5f)), 17, 11);
+            fonts_.bold.draw(c, "G", gxInt, gyInt, 11, kGray);
         }
     }
 }
@@ -2313,29 +2316,13 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
     } else if (!t.playable) {
         c.fillRect({x, y, kCard, kCard}, rgba(0, 0, 0, 150), 10);
         drawLock(c, x + kCard - 34, y + 30);
-    } else if (gamePassBadge) {
-        Rect badge{x + 10, y + kCard - 34, 96, 24};
-        c.fillRect(badge, rgba(0, 0, 0, 220), 4);
-        fonts_.bold.draw(c, "GAME PASS", badge.x + (96 - fonts_.bold.measure("GAME PASS", 13)) / 2,
-                         fonts_.bold.centeredY(badge.y, badge.h, 13), 13,
-                         kWhite);
-    }
-    // Bottom-right: the console it was made for; one style and width for all.
-    if (const char* p = platformLabel(t.platform)) {
-        constexpr int kBadgeW = 96;
-        Rect badge{x + kCard - 10 - kBadgeW, y + kCard - 34, kBadgeW, 24};
-        c.fillRect(badge, rgba(0, 0, 0, 220), 4);
-        fonts_.bold.draw(c, p, badge.x + (kBadgeW - fonts_.bold.measure(p, 13)) / 2,
-                         fonts_.bold.centeredY(badge.y, badge.h, 13), 13, kWhite);
-    }
-    // Top-left: Friends playing this game now
-    if (!t.friends.empty()) {
+    } else if (!t.friends.empty()) {
         int numAvatars = std::min<int>(static_cast<int>(t.friends.size()), 2);
         int extraCount = static_cast<int>(t.friends.size()) - numAvatars;
-        constexpr int kAvatarSz = 26;
-        constexpr int kAvatarOverlap = 16;
-        constexpr int kPillH = 32;
-        constexpr int kPadX = 5;
+        constexpr int kAvatarSz = 20;
+        constexpr int kAvatarOverlap = 13;
+        constexpr int kPillH = 26;
+        constexpr int kPadX = 4;
         constexpr int kPadY = 3;
 
         int avatarsW = numAvatars == 1 ? kAvatarSz : (kAvatarSz + (numAvatars - 1) * kAvatarOverlap);
@@ -2347,20 +2334,23 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
         } else if (t.friends.size() == 2) {
             tagText = t.friends[0].gamertag;
         }
-        int maxTextW = kCard - 20 - avatarsW - kPadX * 2 - 12;
-        int textW = !tagText.empty() ? fonts_.semibold.measure(tagText, 13) + 8 : 0;
-        if (textW > maxTextW && maxTextW > 20) {
-            while (!tagText.empty() && fonts_.semibold.measure(tagText + "…", 13) + 8 > maxTextW) {
+
+        bool hasPlatform = platformLabel(t.platform) != nullptr;
+        int maxPillW = hasPlatform ? (kCard - 20 - 96 - 8) : (kCard - 20);
+        int maxTextW = maxPillW - avatarsW - kPadX * 2 - 8;
+        int textW = !tagText.empty() ? fonts_.semibold.measure(tagText, 12) + 6 : 0;
+        if (textW > maxTextW && maxTextW > 15) {
+            while (!tagText.empty() && fonts_.semibold.measure(tagText + "…", 12) + 6 > maxTextW) {
                 tagText.pop_back();
             }
             tagText += "…";
-            textW = fonts_.semibold.measure(tagText, 13) + 8;
+            textW = fonts_.semibold.measure(tagText, 12) + 6;
         }
 
         int pillW = kPadX * 2 + avatarsW + textW;
-        Rect pill{x + 10, y + 10, pillW, kPillH};
-        c.fillRect(pill, rgba(0, 0, 0, 215), 16);
-        c.strokeRect(pill, rgba(255, 255, 255, 50), 1, 16);
+        Rect pill{x + 10, y + kCard - 10 - kPillH, pillW, kPillH};
+        c.fillRect(pill, rgba(0, 0, 0, 215), kPillH / 2);
+        c.strokeRect(pill, rgba(255, 255, 255, 50), 1, kPillH / 2);
 
         int curX = pill.x + kPadX;
         int curY = pill.y + kPadY;
@@ -2373,23 +2363,31 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
                 c.fillCircle(ax + kAvatarSz / 2.0f, curY + kAvatarSz / 2.0f, kAvatarSz / 2.0f, rgba(48, 56, 68, 255));
                 if (!friendInfo.gamertag.empty()) {
                     std::string initial(1, static_cast<char>(std::toupper(static_cast<unsigned char>(friendInfo.gamertag[0]))));
-                    int iw = fonts_.bold.measure(initial, 12);
-                    fonts_.bold.draw(c, initial, ax + (kAvatarSz - iw) / 2,
-                                     fonts_.bold.centeredY(curY, kAvatarSz, 12), 12, kWhite);
+                    int iw = fonts_.bold.measure(initial, 11);
+                    int iy = fonts_.bold.centeredY(curY, kAvatarSz, 11);
+                    fonts_.bold.draw(c, initial, ax + (kAvatarSz - iw) / 2, iy, 11, kWhite);
                 }
             }
-            c.strokeArc(ax + kAvatarSz / 2.0f, curY + kAvatarSz / 2.0f, kAvatarSz / 2.0f, 1.2f, 0, 6.2832f, rgba(255, 255, 255, 200));
+            c.strokeCircle(ax + kAvatarSz / 2.0f, curY + kAvatarSz / 2.0f, kAvatarSz / 2.0f, 1.2f, rgba(255, 255, 255, 200));
         }
 
         if (!tagText.empty()) {
-            int tx = curX + avatarsW + 5;
-            int ty = fonts_.semibold.centeredY(pill.y, pill.h, 13);
+            int tx = curX + avatarsW + 4;
+            int ty = fonts_.semibold.centeredY(pill.y, pill.h, 12);
             if (extraCount > 0 && numAvatars == 2) {
-                fonts_.bold.draw(c, tagText, tx, ty, 13, rgba(16, 124, 16, 255));
+                fonts_.bold.draw(c, tagText, tx, ty, 12, rgba(16, 124, 16, 255));
             } else {
-                fonts_.semibold.draw(c, tagText, tx, ty, 13, kWhite);
+                fonts_.semibold.draw(c, tagText, tx, ty, 12, kWhite);
             }
         }
+    }
+    // Bottom-right: the console it was made for; one style and width for all.
+    if (const char* p = platformLabel(t.platform)) {
+        constexpr int kBadgeW = 96;
+        Rect badge{x + kCard - 10 - kBadgeW, y + kCard - 34, kBadgeW, 24};
+        c.fillRect(badge, rgba(0, 0, 0, 220), 4);
+        fonts_.bold.draw(c, p, badge.x + (kBadgeW - fonts_.bold.measure(p, 13)) / 2,
+                         fonts_.bold.centeredY(badge.y, badge.h, 13), 13, kWhite);
     }
     if (focused) c.strokeRect({x - 7, y - 7, kCard + 14, kCard + 14}, kWhite, 4, 16);
 }

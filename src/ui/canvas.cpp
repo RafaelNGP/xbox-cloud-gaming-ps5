@@ -137,6 +137,22 @@ void Canvas::fillCircle(float cx, float cy, float radius, Color c) {
         }
 }
 
+void Canvas::strokeCircle(float cx, float cy, float radius, float thickness, Color c) {
+    float outer = radius + thickness / 2, inner = radius - thickness / 2;
+    Rect r{static_cast<int>(cx - outer - 1), static_cast<int>(cy - outer - 1), static_cast<int>(outer * 2 + 3),
+           static_cast<int>(outer * 2 + 3)};
+    Rect b = intersect(r, clip_);
+    uint32_t a = alphaOf(c);
+    for (int y = b.y; y < b.y + b.h; ++y)
+        for (int x = b.x; x < b.x + b.w; ++x) {
+            float dx = x + 0.5f - cx, dy = y + 0.5f - cy;
+            float d = std::sqrt(dx * dx + dy * dy);
+            uint32_t cov = std::min(clampCoverage(outer + 0.5f - d), clampCoverage(d - inner + 0.5f));
+            if (!cov) continue;
+            blend(px_[static_cast<size_t>(y) * w_ + x], c, (a * cov + 127) / 255);
+        }
+}
+
 void Canvas::strokeArc(float cx, float cy, float radius, float thickness, float start, float sweep, Color c) {
     float outer = radius + thickness / 2, inner = radius - thickness / 2;
     Rect r{static_cast<int>(cx - outer - 1), static_cast<int>(cy - outer - 1), static_cast<int>(outer * 2 + 3),
