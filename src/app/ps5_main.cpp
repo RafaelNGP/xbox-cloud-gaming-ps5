@@ -165,6 +165,7 @@ int main(int argc, char** argv) {
     platform::init();
     log::setFile((platform::dataDir() + "/xcloud.log").c_str());
     XC_LOGI("=== PSBox Cloud Gaming starting ===");
+    XC_LOGI("firmware %s, PSBox %s", platform::firmwareVersion().c_str(), XC_APP_VERSION);
     // Did the last session go down? (A crash leaves a marker; being closed
     // from the system's menu doesn't.) Offered as a report once signed in.
     g_lastCrash = crash::takePrevious(crashMarkerPath());
