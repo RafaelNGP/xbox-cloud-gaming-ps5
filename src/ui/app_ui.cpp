@@ -266,6 +266,14 @@ std::string AppUi::gamertag() const {
     return gamertag_;
 }
 
+std::vector<std::string> AppUi::consoleNames() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> out;
+    for (const auto& c : consoles_)
+        if (!c.name.empty()) out.push_back(c.name);
+    return out;
+}
+
 void AppUi::showReport(const std::string& url, const std::string& heading) {
     std::lock_guard<std::mutex> lock(mutex_);
     reportOpen_ = true;
@@ -530,6 +538,11 @@ void AppUi::setPrices(const std::map<std::string, PriceInfo>& prices) {
     if (searching_ && searchOnKeys_ && tab_ == Tab::Library && (filterCheapest_ || filterFree_))
         runSearch();
     dirty_ = true;
+}
+
+void AppUi::pricesFailed(const std::vector<std::string>& productIds) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& id : productIds) pricesAsked_.erase(id);
 }
 
 std::vector<std::string> AppUi::pricesWanted(size_t max, bool background) {

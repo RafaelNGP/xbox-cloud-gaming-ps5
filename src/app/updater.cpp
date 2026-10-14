@@ -136,13 +136,18 @@ bool download(const std::string& url, long size, std::string& out, const std::fu
     return true;
 }
 
-// The files in place go back where they were (an update cut short).
-bool rollBack(const std::string& dir) {
+// The files in place go back where they were (an update cut short). True
+// when there were some; `complete` false when one couldn't go back (then
+// update.old and the journal must stay, for the next start to try again).
+bool rollBack(const std::string& dir, bool& complete) {
     std::vector<std::string> old;
     listFiles(dir + "/update.old", "", old);
+    complete = true;
     for (const auto& rel : old)
-        if (!makeParents(dir + "/" + rel) || ::rename((dir + "/update.old/" + rel).c_str(), (dir + "/" + rel).c_str()) != 0)
+        if (!makeParents(dir + "/" + rel) || ::rename((dir + "/update.old/" + rel).c_str(), (dir + "/" + rel).c_str()) != 0) {
             XC_LOGE("update: could not put back %s (errno %d)", rel.c_str(), errno);
+            complete = false;
+        }
     return !old.empty();
 }
 
@@ -202,6 +207,7 @@ bool unzip(const std::string& zip, const std::string& prefix, std::vector<ZipEnt
     }
     size_t count = le16(zip, eocd + 10), at = le32(zip, eocd + 16);
     size_t total = 0;
+    std::set<std::string> seen;
     for (size_t n = 0; n < count; ++n) {
         if (at + 46 > zip.size() || le32(zip, at) != 0x02014b50) {
             err = "damaged zip directory";
@@ -219,6 +225,10 @@ bool unzip(const std::string& zip, const std::string& prefix, std::vector<ZipEnt
         if (!name.empty() && name.back() == '/') continue;  // a folder
         if (name.rfind(prefix, 0) != 0 || !updatablePath(name.substr(prefix.size()))) {
             err = "unexpected file in the archive: " + name;
+            return false;
+        }
+        if (!seen.insert(name).second) {  // twice: the second would replace the first's backup
+            err = "file twice in the archive: " + name;
             return false;
         }
         if (local + 30 > zip.size() || le32(zip, local) != 0x04034b50) {
@@ -295,6 +305,10 @@ bool installRelease(const Release& release, const std::string& dir, const std::s
 
     report(UpdateStep::Installing, -1);
     recoverUpdate(dir);  // leftovers of an earlier try
+    if (exists(dir + "/update.journal")) {  // its old files couldn't all go back: not over them
+        err = "an earlier update could not be undone";
+        return false;
+    }
     const std::string staged = dir + "/update.new", old = dir + "/update.old";
     for (const auto& f : files) {
         std::string p = staged + "/" + f.path;
@@ -320,7 +334,9 @@ bool installRelease(const Release& release, const std::string& dir, const std::s
                                          ::rename(target.c_str(), (old + "/" + f.path).c_str()) == 0);
         if (!moved || !makeParents(target) || ::rename((staged + "/" + f.path).c_str(), target.c_str()) != 0) {
             err = "could not put " + f.path + " in place (errno " + std::to_string(errno) + ")";
-            rollBack(dir);
+            bool complete;
+            rollBack(dir, complete);
+            if (!complete) return false;  // the journal stays: the next start tries again
             ::unlink((dir + "/update.journal").c_str());
             removeTree(staged);
             removeTree(old);
@@ -337,7 +353,13 @@ bool recoverUpdate(const std::string& dir) {
     bool rolledBack = false;
     if (exists(dir + "/update.journal")) {
         XC_LOGW("update: the last one was cut short; the old files go back");
-        rolledBack = rollBack(dir);
+        bool complete;
+        rolledBack = rollBack(dir, complete);
+        if (!complete) {
+            // What is left of the old files stays where it is, for the next try.
+            XC_LOGE("update: the old files could not all go back; trying again at the next start");
+            return rolledBack;
+        }
         ::unlink((dir + "/update.journal").c_str());
     }
     removeTree(dir + "/update.new");

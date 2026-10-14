@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <map>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <memory>
 #include <thread>
 #include <vector>
@@ -211,7 +212,7 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
                  const std::string& regionName = {}) {
     failed = true;
     // A home session's id is the console's: only its start in the log.
-    XC_LOGI("starting %s (%s)", game.name.c_str(),
+    XC_LOGI("starting %s (%s)", gssv.isHome() ? "own Xbox" : game.name.c_str(),  // not the console's name
             gssv.isHome() ? (game.titleId.substr(0, 4) + "...").c_str() : game.titleId.c_str());
     g_ui->showLaunching(game, regionName.empty() ? ui::tr(ui::Str::Connecting)
                                                  : ui::trf(ui::Str::TryingRegion, ui::prettyRegion(regionName)));
@@ -617,9 +618,21 @@ void worker() {
             case kUpdate: runUpdate(); break;
             case kReloadLibrary: loadLibrary(gssv); break;  // e.g. after a language change
             case kSignOut:
+                // Nothing of this account stays for the next one: its library
+                // stops loading, its cache goes, the lists empty.
+                stopHydration();
                 am.signOut();
+                ::unlink((platform::dataDir() + "/library.json").c_str());
+                {
+                    std::lock_guard<std::mutex> lock(g_argMutex);
+                    g_xblAuth.clear();
+                }
                 g_ui->setProfile({}, {});
                 g_ui->setConsoles({}, false);
+                g_ui->setRows({});
+                g_ui->setOwned({}, {}, false);
+                g_ui->setSearchPools({}, {});
+                XC_LOGI("signed out: library and its cache cleared");
                 signInAndLoad(am, gssv);
                 loadConsoles(am, home);
                 break;

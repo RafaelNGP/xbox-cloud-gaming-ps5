@@ -16,6 +16,7 @@
 #define STB_IMAGE_RESIZE_STATIC
 #include "stb_image_resize2.h"
 
+#include <atomic>
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -95,7 +96,7 @@ std::shared_ptr<const Image> ImageCache::get(const std::string& url, int w, int 
     std::lock_guard<std::mutex> lock(mutex_);
     Entry& e = entries_[key];
     e.lastUse = ++clock_;
-    if (!e.image && !e.loading && !e.failed) {
+    if (!e.image && !e.loading && (!e.failed || (e.retryAt && platform::nowMs() >= e.retryAt))) {
         e.loading = true;
         jobs_.push_front({key, url, w, h});
         cv_.notify_one();
@@ -182,7 +183,9 @@ void ImageCache::loop() {
         } else {
             r = net::perform(req);
             if (r.ok() && !path.empty() && decodeImage(r.body, decoded)) {
-                platform::writeFileAtomic(path, r.body);
+                static std::atomic<bool> warned{false};  // once: a full disk would say it for every image
+                if (!platform::writeFileAtomic(path, r.body) && !warned.exchange(true))
+                    XC_LOGW("image cache: could not save to %s", diskDir_.c_str());
             } else if (r.ok()) {
                 decodeImage(r.body, decoded);
             }
@@ -205,6 +208,8 @@ void ImageCache::loop() {
                 evict();
             } else {
                 e.failed = true;
+                bool passing = r.status == 0 || r.status >= 500;
+                e.retryAt = passing && ++e.failures <= 3 ? platform::nowMs() + 30000u * e.failures : 0;
             }
         }
         if (result && onReady_) onReady_();

@@ -34,4 +34,7 @@ std::string logExcerpt(const std::string& logText, bool previousSession, size_t 
 // hexadecimal ids as <id>.
 std::string sanitize(const std::string& text, const std::vector<std::string>& privateWords);
 
+// `text` cut to `maxBytes` at most, not inside a UTF-8 character.
+std::string shorten(const std::string& text, size_t maxBytes);
+
 }  // namespace xc::app::report

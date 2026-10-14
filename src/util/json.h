@@ -46,7 +46,10 @@ public:
 
     bool asBool(bool def = false) const { return isBool() ? bool_ : def; }
     double asNumber(double def = 0) const { return isNumber() ? num_ : def; }
-    int64_t asInt(int64_t def = 0) const { return isNumber() ? static_cast<int64_t>(num_) : def; }
+    // `def` too for a number no int64_t holds (1e400 is infinity).
+    int64_t asInt(int64_t def = 0) const {
+        return isNumber() && num_ > -9.2e18 && num_ < 9.2e18 ? static_cast<int64_t>(num_) : def;
+    }
     const std::string& asString() const;
     std::string str(std::string def = {}) const { return isString() ? str_ : def; }
 

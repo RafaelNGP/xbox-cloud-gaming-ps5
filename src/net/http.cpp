@@ -121,23 +121,31 @@ int connectTcp(const std::string& host, int port, int timeoutMs, std::string& er
     return fd;
 }
 
-// Decodes a chunked body in place. Returns false on malformed framing.
+std::function<Response(const Request&)> g_testTransport;
+
+}  // namespace
+
 bool dechunk(const std::string& in, std::string& out) {
     size_t pos = 0;
     out.clear();
     for (;;) {
         size_t eol = in.find("\r\n", pos);
         if (eol == std::string::npos) return false;
-        size_t size = std::strtoul(in.substr(pos, eol - pos).c_str(), nullptr, 16);
+        std::string line = in.substr(pos, eol - pos);
+        char* end = nullptr;
+        unsigned long long size = std::strtoull(line.c_str(), &end, 16);
+        // A hexadecimal size, then nothing or an extension (";...").
+        if (end == line.c_str() || (*end && *end != ';' && *end != ' ')) return false;
         pos = eol + 2;
         if (size == 0) return true;
-        if (pos + size > in.size()) return false;
+        if (size > in.size() - pos || in.size() - pos - size < 2 || in.compare(pos + size, 2, "\r\n") != 0)
+            return false;
         out.append(in, pos, size);
-        pos += size + 2;  // skip trailing CRLF
+        pos += size + 2;
     }
 }
 
-}  // namespace
+void setTestTransport(std::function<Response(const Request&)> transport) { g_testTransport = std::move(transport); }
 
 bool Url::parse(const std::string& url, Url& out) {
     size_t s = url.find("://");
@@ -381,14 +389,27 @@ Response performOnce(const Request& req) {
 
     if (headerEnd == std::string::npos) return finish("no HTTP response from " + url.host);
     if (streaming) {
-        if (contentLength >= 0 && streamed < static_cast<size_t>(contentLength)) return finish("download cut short");
+        if (contentLength >= 0 && streamed < static_cast<size_t>(contentLength)) {
+            resp.status = 0;
+            return finish("download cut short");
+        }
         return finish({});
     }
     std::string body = raw.substr(headerEnd + 4);
     if (chunked) {
-        if (!dechunk(body, resp.body)) return finish("malformed chunked body");
+        if (!dechunk(body, resp.body)) {
+            resp.status = 0;  // not an answer (Response::ok() false)
+            resp.body.clear();
+            return finish("malformed chunked body");
+        }
     } else {
         resp.body = std::move(body);
+        // The connection closed before all of it came: not an answer.
+        if (contentLength >= 0 && resp.body.size() < static_cast<size_t>(contentLength)) {
+            resp.status = 0;
+            resp.body.clear();
+            return finish("response cut short");
+        }
         if (contentLength >= 0 && resp.body.size() > static_cast<size_t>(contentLength))
             resp.body.resize(static_cast<size_t>(contentLength));
     }
@@ -414,6 +435,7 @@ Response performRetrying(const Request& req) {
 }  // namespace
 
 Response perform(const Request& req) {
+    if (g_testTransport) return g_testTransport(req);
     Response resp = performRetrying(req);
     Request next = req;
     for (int hops = 0; req.followRedirects && hops < 5; ++hops) {

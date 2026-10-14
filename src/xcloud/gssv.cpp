@@ -155,7 +155,8 @@ const std::string& deviceInfo(Resolution res) {
 std::string describe(const net::Response& r) {
     if (r.status == 0) return r.error;
     std::string s = "HTTP " + std::to_string(r.status);
-    if (!r.body.empty()) s += ": " + r.body.substr(0, 300);
+    std::string fields = errorFields(r.body);
+    if (!fields.empty()) s += ": " + fields;
     return s;
 }
 
@@ -214,6 +215,22 @@ static net::Request authed(Resolution res, const GssvLogin& l, std::string metho
                    {"X-MS-Device-Info", deviceInfo(res)}};
     if (!req.body.empty() || req.method == "POST") req.headers.emplace_back("Content-Type", "application/json");
     return req;
+}
+
+std::string errorFields(const std::string& body) {
+    auto j = json::parse(body);
+    if (!j || !j->isObject()) return {};
+    std::string out;
+    auto add = [&](const json::Value& v) {
+        for (const char* key : {"status", "code", "errorCode", "message", "errorMessage", "reason"}) {
+            const auto& f = v[key];
+            std::string text = f.isString() ? f.str() : f.isNumber() ? std::to_string(f.asInt()) : std::string();
+            if (!text.empty()) out += (out.empty() ? "" : ", ") + std::string(key) + "=" + text.substr(0, 200);
+        }
+    };
+    add(*j);
+    add((*j)["errorDetails"]);
+    return out;
 }
 
 const char* loginCountryAddress(const std::string& country) {
@@ -284,6 +301,7 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
     out.clear();
     uint64_t started = platform::nowMs();
     std::string continuation;
+    int pages = 0;
     do {
         std::string path = recentOnly ? "/v2/titles/mru?mr=25" : "/v2/titles?mr=200";
         if (!continuation.empty()) path += "&ct=" + net::urlEncode(continuation);
@@ -310,7 +328,15 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
                 if (program.str() != "F2P") title.viaSubscription = true;
             if (!title.titleId.empty() && !isNonGameAddon(title.titleId)) out.push_back(std::move(title));
         }
-        continuation = recentOnly ? std::string() : (*j)["continuationToken"].str();
+        // The next page; a token that repeats, an empty page or too many
+        // pages end the list (a server that always says "more" can't loop).
+        std::string next = recentOnly ? std::string() : (*j)["continuationToken"].str();
+        ++pages;
+        if (!next.empty() && (next == continuation || (*j)["results"].items().empty() || pages >= 50)) {
+            XC_LOGW("title list: stopped paging after %d page(s), %zu titles", pages, out.size());
+            next.clear();
+        }
+        continuation = next;
     } while (!continuation.empty() && out.size() < 5000);
     XC_LOGI("title list%s: %zu titles in %llu ms", recentOnly ? " (recent)" : "", out.size(),
             static_cast<unsigned long long>(platform::nowMs() - started));
@@ -426,7 +452,7 @@ bool GssvClient::startSession(const std::string& titleId, const std::string& loc
         return false;
     }
     sessionPath_ = (*j)["sessionPath"].str();
-    XC_LOGI("session created: %s", sessionPath_.c_str());
+    XC_LOGI("session created");  // not its id
     return true;
 }
 
@@ -511,7 +537,7 @@ bool GssvClient::pollSdpAnswer(std::string& answer, std::string& err) {
     auto payload = exchangePayload(*j);
     if (!payload) return true;
     if ((*payload)["status"].str("success") != "success") {
-        err = "SDP negotiation rejected: " + payload->dump();
+        err = "SDP negotiation rejected: " + errorFields(payload->dump());
         return false;
     }
     answer = (*payload)["sdp"].str();
@@ -571,7 +597,7 @@ bool GssvClient::keepalive(std::string& err) {
 void GssvClient::stopSession() {
     if (sessionPath_.empty()) return;
     auto r = net::perform(authed(resolution_, login_, "DELETE", sessionUrl("")));
-    XC_LOGI("session stopped: %s (%s)", sessionPath_.c_str(), r.ok() ? "ok" : describe(r).c_str());
+    XC_LOGI("session stopped (%s)", r.ok() ? "ok" : describe(r).c_str());
     sessionPath_.clear();
 }
 

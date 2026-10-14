@@ -171,6 +171,7 @@ public:
     // The signed-in account, top right; `gamerscore` (digits) under the name.
     void setProfile(const std::string& gamertag, const std::string& gamerpicUrl, const std::string& gamerscore = {});
     std::string gamertag() const;  // for keeping it out of reports
+    std::vector<std::string> consoleNames() const;  // the same: the user's names for their consoles
     // "Report a problem": a QR code of `url` (the GitHub bug form, filled
     // in) over whatever is on screen, with `heading`; Circle closes it.
     void showReport(const std::string& url, const std::string& heading);
@@ -197,6 +198,8 @@ public:
     // for yet; with `background`, any other game to buy once those are done
     // (never while streaming). Marks them asked.
     std::vector<std::string> pricesWanted(size_t max, bool background = false);
+    // Their request failed (offline...): asked for again later.
+    void pricesFailed(const std::vector<std::string>& productIds);
     // The game whose page is open, if its description or hero art hasn't
     // arrived; asked again every 5 s while missing (empty otherwise).
     std::string detailWanted(uint64_t nowMs);
