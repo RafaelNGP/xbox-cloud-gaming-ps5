@@ -694,6 +694,67 @@ int main(int argc, char** argv) {
         check(app.screen() == ui::Screen::Error, "other errors: no list, no Settings");
         save("region_plain_error");
         return failures ? 1 : 0;
+    } else if (cmd == "ui-search" && argi < argc) {
+        // Offline: the search keyboard's up / down go to the item under the
+        // focused one on screen (the rows hold 6, 3 and a few items).
+        ui::Fonts fonts;
+        if (!fonts.load("assets/fonts")) return 1;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+        ui::Canvas canvas(1920, 1080);
+        auto press = [&](auto set) {
+            ui::NavInput n;
+            set(n);
+            app.handle(n);
+        };
+        auto down = [&] { press([](ui::NavInput& n) { n.down = true; }); };
+        auto up = [&] { press([](ui::NavInput& n) { n.up = true; }); };
+        auto right = [&] { press([](ui::NavInput& n) { n.right = true; }); };
+        int failures = 0;
+        auto expect = [&](int row, int col, const char* what) {
+            auto [r, c] = app.searchKeyFocus();
+            bool ok = r == row && c == col;
+            std::printf("%s: %s (at %d,%d)\n", ok ? "ok" : "FAILED", what, r, c);
+            failures += !ok;
+        };
+        auto save = [&](const std::string& name) {
+            app.render(canvas, 1000);
+            std::string path = std::string(argv[argi]) + "/" + name + ".png";
+            stbi_write_png(path.c_str(), canvas.width(), canvas.height(), 4, canvas.data(), canvas.width() * 4);
+        };
+        // Game Pass: one filter on the first row, four on the second.
+        app.showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+        for (int i = 0; i < 8; ++i) up();  // from the row of lists to the first letters
+        for (int i = 0; i < 5; ++i) right();
+        expect(0, 5, "letter F");
+        for (int i = 0; i < 6; ++i) down();
+        expect(6, 2, "F, down to the wide keys: Clear");
+        down();
+        expect(7, 0, "Clear, down: the only filter of the first row");
+        down();
+        expect(8, 1, "the centred filter, down: the one under it (not the leftmost)");
+        save("search_gamepass");
+        up();
+        up();
+        expect(6, 1, "up twice: Delete, over the filter");
+        // Your games: three filters, then four.
+        app.showFilteredSearch(ui::Tab::Library, false, 0, "", 0, -1);
+        for (int i = 0; i < 2; ++i) up();
+        expect(6, 0, "Space");
+        right();
+        right();
+        down();
+        expect(7, 2, "Clear, down: the rightmost filter");
+        down();
+        expect(8, 3, "rightmost filter, down: the rightmost list");
+        save("search_library");
+        up();
+        expect(7, 2, "up: back to it");
+        up();
+        expect(6, 2, "up: Clear");
+        up();
+        expect(5, 5, "up: the letter over Clear");
+        return failures ? 1 : 0;
     } else if (cmd == "ui-settings" && argi < argc) {
         // Offline: Settings with the region list open, then the language list.
         ui::Fonts fonts;

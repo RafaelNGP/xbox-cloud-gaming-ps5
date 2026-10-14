@@ -273,6 +273,8 @@ public:
     // `language` as their lists' index, `genre` "" for all), optionally with
     // `openList` (0 mode, 1 genre, 2 language) open; and the first results.
     void showFilteredSearch(Tab tab, bool cheapest, int mode, const std::string& genre, int language, int openList = -1);
+    // The search keyboard's focus (row, column), for the tests.
+    std::pair<int, int> searchKeyFocus() const;
     std::vector<std::pair<std::string, PriceInfo>> searchResults(size_t max) const;
     enum class Filter { Free, Cheapest, Console, Mode, Genre, Publisher, Language };
     void chooseFilter(Filter f, int index);
@@ -349,6 +351,10 @@ private:
     bool anyFilter() const;
     void handleHome(const NavInput& in, UiEvent& ev);
     void handleSearchKeys(const NavInput& in);
+    // The x of the middle of each item on a row of the search keyboard
+    // (letters, wide keys, the two rows of filters), as drawn: up / down
+    // go to the nearest one on screen.
+    std::vector<int> keyCenters(int row) const;
     void runSearch();
     void openDetails(const GameTile& tile);
     void refreshDetail();
