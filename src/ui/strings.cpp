@@ -241,6 +241,10 @@ constexpr Column kEnglish = {
     "Audio output",                                  // MenuAudioOutput
     "TV",                                            // AudioRouteTv
     "DualSense Speaker",                             // AudioRoutePad
+    "Report a problem",                              // ReportProblem
+    "Scan it with your phone: GitHub's bug form opens, filled in. You review it before sending it.", // ReportScan
+    "It includes the app's version, the error and lines of its log, without personal data.", // ReportIncludes
+    "PSBox closed unexpectedly last time",           // CrashedLastTime
 };
 
 constexpr Column kPortugueseBR = {
@@ -452,6 +456,10 @@ constexpr Column kPortugueseBR = {
     "Saída de áudio",
     "TV",
     "Alto-falante do controle",
+    "Relatar problema",
+    "Escaneie com o celular: o formulário de bug do GitHub abre preenchido. Você revisa antes de enviar.",
+    "Inclui a versão do app, o erro e linhas do log, sem dados pessoais.",
+    "O PSBox fechou inesperadamente da última vez",
 };
 
 constexpr Column kSpanish = {
@@ -663,6 +671,10 @@ constexpr Column kSpanish = {
     "Salida de audio",
     "TV",
     "Altavoz del mando",
+    "Informar de un problema",
+    "Escanéalo con el móvil: se abre el formulario de errores de GitHub, ya rellenado. Lo revisas antes de enviarlo.",
+    "Incluye la versión de la app, el error y líneas del registro, sin datos personales.",
+    "PSBox se cerró inesperadamente la última vez",
 };
 
 constexpr Column kFrench = {
@@ -874,6 +886,10 @@ constexpr Column kFrench = {
     "Sortie audio",
     "TV",
     "Haut-parleur de la manette",
+    "Signaler un problème",
+    "Scannez-le avec votre téléphone : le formulaire de bug de GitHub s'ouvre, déjà rempli. Vous le relisez avant de l'envoyer.",
+    "Il contient la version de l'app, l'erreur et des lignes du journal, sans données personnelles.",
+    "PSBox s'est fermé de façon inattendue la dernière fois",
 };
 
 constexpr Column kGerman = {
@@ -1085,6 +1101,10 @@ constexpr Column kGerman = {
     "Audioausgabe",
     "TV",
     "Controller-Lautsprecher",
+    "Problem melden",
+    "Mit dem Handy scannen: Das Fehlerformular auf GitHub öffnet sich ausgefüllt. Du prüfst es vor dem Senden.",
+    "Enthalten sind die App-Version, der Fehler und Zeilen des Logs, ohne persönliche Daten.",
+    "PSBox wurde beim letzten Mal unerwartet beendet",
 };
 
 constexpr Column kItalian = {
@@ -1296,6 +1316,10 @@ constexpr Column kItalian = {
     "Uscita audio",
     "TV",
     "Altoparlante del controller",
+    "Segnala un problema",
+    "Inquadralo con il telefono: si apre il modulo dei bug di GitHub già compilato. Lo controlli prima di inviarlo.",
+    "Include la versione dell'app, l'errore e righe del log, senza dati personali.",
+    "PSBox si è chiuso inaspettatamente l'ultima volta",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

@@ -123,7 +123,8 @@ constexpr int kSettingRows = 8;  // language, resolution, region, dead zone, tri
 // the answer to the update pop-up, or Updates in Settings.
 enum class Action {
     None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, PrefsChanged, ConsolesShown, UpdateNow, UpdateLater,
-    GameSettingsChanged
+    GameSettingsChanged,
+    Report  // "Report a problem" (Triangle on an error or in Settings): reportWhat is the error shown
 };
 
 // How "Your games" is sorted (R3).
@@ -144,6 +145,7 @@ struct UiEvent {
     // PrefsChanged: hidden games (product ids) and the "Your games" order.
     std::vector<std::string> hidden;
     LibrarySort librarySort = LibrarySort::Recent;
+    std::string reportWhat;  // Report: the error on screen (empty from Settings)
 };
 
 // "SOUTHCENTRALUS" -> "South Central US".
@@ -160,6 +162,11 @@ public:
     void showSignIn(const std::string& code, const std::string& url);
     // The signed-in account, top right; `gamerscore` (digits) under the name.
     void setProfile(const std::string& gamertag, const std::string& gamerpicUrl, const std::string& gamerscore = {});
+    std::string gamertag() const;  // for keeping it out of reports
+    // "Report a problem": a QR code of `url` (the GitHub bug form, filled
+    // in) over whatever is on screen, with `heading`; Circle closes it.
+    void showReport(const std::string& url, const std::string& heading);
+    bool reportOpen() const;
     // Replaces the rows, keeping the focus on the same game when possible.
     void setRows(std::vector<GameRow> rows);
     // "Your games": the account's games, then those to buy; `known` false
@@ -336,6 +343,7 @@ private:
     void drawError(Canvas& c);
     void drawSettings(Canvas& c);
     void drawUpdatePrompt(Canvas& c);
+    void drawReport(Canvas& c);
     // The light bar's colour picker (Settings > Light bar > Custom colour).
     void openColourPicker(int previousMode);
     void handleColourPicker(const NavInput& in);
@@ -426,6 +434,8 @@ private:
     std::map<std::string, DetailInfo> detailInfo_;  // fetched on demand, by product id
     std::string updateCurrent_, updateAvailable_;
     bool updateChecking_ = false;
+    bool reportOpen_ = false;  // the report's QR code is up
+    std::string reportUrl_, reportHeading_;
     bool updatePrompt_ = false;  // the pop-up is up (on the home screen)
     int promptFocus_ = 0;        // 0 Update now, 1 Not now
     std::string updatingTo_, updateStatus_;

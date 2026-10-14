@@ -94,4 +94,6 @@ KeyboardStatus pollSystemKeyboard(std::string&) { return KeyboardStatus::Closed;
 
 bool restartApp() { return false; }
 
+std::string firmwareVersion() { return {}; }
+
 }  // namespace xc::platform

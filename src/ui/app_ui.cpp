@@ -253,6 +253,24 @@ void AppUi::showSignIn(const std::string& code, const std::string& url) {
     dirty_ = true;
 }
 
+std::string AppUi::gamertag() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return gamertag_;
+}
+
+void AppUi::showReport(const std::string& url, const std::string& heading) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    reportOpen_ = true;
+    reportUrl_ = url;
+    reportHeading_ = heading;
+    dirty_ = true;
+}
+
+bool AppUi::reportOpen() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return reportOpen_;
+}
+
 void AppUi::setProfile(const std::string& gamertag, const std::string& gamerpicUrl, const std::string& gamerscore) {
     std::lock_guard<std::mutex> lock(mutex_);
     gamertag_ = gamertag;
@@ -1869,6 +1887,10 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
 UiEvent AppUi::handle(const NavInput& in) {
     std::lock_guard<std::mutex> lock(mutex_);
     UiEvent ev;
+    if (reportOpen_) {  // the report's QR code: Circle (or Cross) closes it
+        if (in.back || in.accept) reportOpen_ = false, dirty_ = true;
+        return ev;
+    }
     if (screen_ == Screen::Home && updatePrompt_) {
         // The update pop-up has the pad: left / right, Cross picks, Circle is "Not now".
         if (in.left || in.right) promptFocus_ = 1 - promptFocus_, dirty_ = true;
@@ -1926,6 +1948,8 @@ UiEvent AppUi::handle(const NavInput& in) {
                 dirty_ = true;
                 ev.action = Action::SettingsChanged;
                 ev.settings = settings_;
+            } else if (in.triangle) {
+                ev.action = Action::Report;  // "Report a problem"
             }
             break;
         case Screen::Details:
@@ -1967,6 +1991,10 @@ UiEvent AppUi::handle(const NavInput& in) {
                 }
             } else if (in.accept) {
                 ev.action = Action::Retry;
+            }
+            if (in.triangle) {  // "Report a problem", with the error shown
+                ev.action = Action::Report;
+                ev.reportWhat = error_;
             }
             break;
         default: break;
@@ -2254,9 +2282,10 @@ namespace {
 
 // A QR code of `url` on a white card whose top-right corner is (right, top),
 // about `target` px of code; the card's rect (empty when it can't be encoded).
-Rect drawQr(Canvas& c, const std::string& url, int right, int top, int target) {
+Rect drawQr(Canvas& c, const std::string& url, int right, int top, int target,
+            qrcodegen_Ecc ecc = qrcodegen_Ecc_MEDIUM) {
     uint8_t qr[qrcodegen_BUFFER_LEN_MAX], tmp[qrcodegen_BUFFER_LEN_MAX];
-    if (!qrcodegen_encodeText(url.c_str(), tmp, qr, qrcodegen_Ecc_MEDIUM, qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
+    if (!qrcodegen_encodeText(url.c_str(), tmp, qr, ecc, qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
                               qrcodegen_Mask_AUTO, true))
         return {};
     int n = qrcodegen_getSize(qr);
@@ -2977,9 +3006,10 @@ void AppUi::drawError(Canvas& c) {
         y += 38;
     }
     if (!errorGame_.titleId.empty())
-        drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconCircle, tr(Str::Back)}});
+        drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
     else
-        drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
+        drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconTriangle, tr(Str::ReportProblem)},
+                      {kIconTouchpad, tr(Str::HoldSignOut)}});
 }
 
 void AppUi::drawSettings(Canvas& c) {
@@ -3091,8 +3121,36 @@ void AppUi::drawSettings(Canvas& c) {
         }
         drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
     } else {
-        drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconCircle, tr(Str::Back)}});
+        drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
     }
+}
+
+void AppUi::drawReport(Canvas& c) {
+    // A panel over the screen: the heading and what the QR code does on the
+    // left, the code on the right (dense: about 1.8 KB, so large).
+    c.fillRect({0, 0, kW, kH}, rgba(0, 0, 0, 170));
+    constexpr int kPanelW = 1500, kPanelH = 720;
+    Rect panel{(kW - kPanelW) / 2, (kH - kPanelH) / 2 - 30, kPanelW, kPanelH};
+    c.fillRect({panel.x + 8, panel.y + 12, panel.w, panel.h}, rgba(0, 0, 0, 120), 26);
+    c.fillRect(panel, kPanel, 24);
+    c.strokeRect(panel, rgba(255, 255, 255, 50), 2, 24);
+    Rect qr = drawQr(c, reportUrl_, panel.x + panel.w - 48, panel.y + 48, 600, qrcodegen_Ecc_LOW);
+    int textW = (qr.w ? qr.x : panel.x + panel.w) - panel.x - 112;
+    int y = panel.y + 56;
+    for (const auto& line : fonts_.bold.wrap(reportHeading_, 40, textW, 3)) {
+        fonts_.bold.draw(c, line, panel.x + 56, y, 40, kWhite);
+        y += 54;
+    }
+    y += 24;
+    for (Str s : {Str::ReportScan, Str::ReportIncludes}) {
+        for (const auto& line : fonts_.regular.wrap(tr(s), 26, textW, 4)) {
+            fonts_.regular.draw(c, line, panel.x + 56, y, 26, kGray);
+            y += 38;
+        }
+        y += 20;
+    }
+    c.fillRect({0, kH - 80, kW, 80}, kBg);
+    drawHints(c, {{kIconCircle, tr(Str::Back)}});
 }
 
 void AppUi::drawUpdatePrompt(Canvas& c) {
@@ -3466,6 +3524,7 @@ void AppUi::render(Canvas& c, uint64_t nowMs) {
         case Screen::Streaming: break;
     }
     if (screen_ == Screen::Home && updatePrompt_) drawUpdatePrompt(c);
+    if (reportOpen_) drawReport(c);
     if ((screen_ == Screen::Home && !updatePrompt_) || screen_ == Screen::Error) drawSignOutHold(c, nowMs);
     if (!toast_.empty()) animating_ = true;  // to expire it
 }

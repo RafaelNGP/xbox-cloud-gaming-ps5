@@ -81,6 +81,8 @@ add_library(xcloud_ui STATIC
     src/app/library.cpp
     src/app/settings.cpp
     src/app/update_check.cpp
+    src/app/report.cpp
+    src/app/crash_guard.cpp
     src/app/updater.cpp
     src/app/auto_deband.cpp
     extern/qrcodegen/qrcodegen.c
