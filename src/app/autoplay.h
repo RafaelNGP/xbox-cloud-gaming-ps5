@@ -60,6 +60,7 @@ struct Autoplay {
     bool updateTest = false;     // updatetest: accept the update pop-up, save update.ppm / updating.ppm
     bool updateSkip = false;     // updateskip: "Not now" on the update pop-up
     bool settingsUpdate = false; // settingsupdate: Settings > Updates, Cross
+    bool crashTest = false;      // crashtest: a SIGSEGV on the home screen (the next start must offer its report)
     bool scrollTest = false;     // scrolltest: the right stick and a touchpad swipe page through the lists (logged)
     bool quickTest = false;      // quicktest: cross-gen pairs' badges, MOBA games, the lock on `lockTitle`
     std::string lockTitle;       // locktitle=<xCloud title id>: logged playable or locked at once

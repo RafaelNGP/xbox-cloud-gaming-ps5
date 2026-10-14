@@ -14,6 +14,7 @@
 #include "util/log.h"
 
 #include <cmath>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 
@@ -87,6 +88,7 @@ void loadAutoplay() {
         if (opt == "confirmtest") g_autoplay.confirmTest = true;
         if (opt == "tunetest") g_autoplay.tuneTest = true;
         if (opt == "searchtest") g_autoplay.searchTest = true;
+        if (opt == "crashtest") g_autoplay.crashTest = true;
         if (opt == "quicktest") g_autoplay.quickTest = true;
         if (opt == "scrolltest") g_autoplay.scrollTest = true;
         if (opt.rfind("locktitle=", 0) == 0) g_autoplay.lockTitle = opt.substr(10);
@@ -581,6 +583,10 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         g_autoplay.confirmTest = false;
         saveCanvas("home.ppm");
         XC_LOGI("AUTOPLAY END: confirm test, on the %s screen", g_ui->screen() == ui::Screen::Home ? "home" : "WRONG");
+    }
+    if (g_autoplay.crashTest && uiSaved) {
+        XC_LOGI("AUTOPLAY END: crash test (SIGSEGV now)");
+        std::raise(SIGSEGV);
     }
     if (g_autoplay.quickTest && uiSaved) {
         g_autoplay.quickTest = false;
