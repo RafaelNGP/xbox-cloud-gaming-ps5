@@ -13,6 +13,15 @@ permissions:
   contents: read
 
 jobs:
+  triage-rules:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/triage
+      - name: Issue triage rules
+        run: cd .github/triage && python3 -m unittest -v test_triage
+
   build:
     runs-on: ubuntu-24.04
     steps:

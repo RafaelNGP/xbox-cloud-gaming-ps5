@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# A new or edited issue: labels and one comment from .github/triage/rules.json
+# (known problems, the release, what's missing). No AI, no secrets: only the
+# workflow's own token, allowed to label and comment, nothing else.
+name: Issue triage
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  # By hand, for an issue that was already there (Actions > Issue triage).
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number
+        required: true
+
+permissions:
+  issues: write
+
+concurrency:
+  group: triage-${{ github.event.issue.number || inputs.issue }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'workflow_dispatch' || github.event.issue.pull_request == null
+    steps:
+      # The rules and the script as they are on the default branch (an
+      # issue can't change them).
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/triage
+          persist-credentials: false
+
+      # The issue's text reaches the script only through the event file,
+      # never through the command line.
+      - name: Triage
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TRIAGE_ISSUE: ${{ inputs.issue }}
+        run: python3 .github/triage/triage.py

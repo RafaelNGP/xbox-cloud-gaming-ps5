@@ -1,0 +1,104 @@
+{
+  "_comment": "Known problems, matched against the issue's title and text (case-insensitive regular expressions). label: added to the issue. fixed_in: the release that fixes it (the reply asks to update when the reporter's release is older). reply: one paragraph for the triage comment. Keep replies short and in English. where: the parts searched (\"title\", \"what\", \"log\"; all when absent) - words common in logs only in title/what.",
+  "rules": [
+    {
+      "id": "ca-unreadable",
+      "label": "area: certificates",
+      "patterns": [
+        "-15872",
+        "cacert\\.pem",
+        "secure connections could not be set up"
+      ],
+      "fixed_in": "0.9.6",
+      "reply": "**Certificates file unreadable** (`assets/cacert.pem`, error -15872): since v0.9.6 the app uses a copy built into it, so updating fixes this. On an older version, copy the whole `PPSA99810` folder again (an incomplete copy is the usual cause)."
+    },
+    {
+      "id": "tls-verify",
+      "label": "area: certificates",
+      "patterns": [
+        "-9984",
+        "certificate verification failed"
+      ],
+      "reply": "**Certificate verification failed** (-9984): the most common cause is the console's **date and time** being wrong (Settings > System > Date and Time: set it correctly, or set it from the internet). A DNS server or proxy that intercepts Microsoft's sites can cause it too: try without it."
+    },
+    {
+      "id": "region",
+      "label": "area: region",
+      "patterns": [
+        "refused the sign-in",
+        "not available in this region",
+        "xcloud login failed: http 403",
+        "unsupported ?market",
+        "sign in as another country"
+      ],
+      "fixed_in": "0.9.6",
+      "reply": "**xCloud refused the sign-in**: cloud gaming may not be offered in your country, or the account has no Game Pass plan with cloud gaming. Since v0.9.6 that error offers *Sign in as another country* (opt-in, at your own risk)."
+    },
+    {
+      "id": "xbox-wake",
+      "label": "area: remote play",
+      "patterns": [
+        "waitingforservertoregister",
+        "consoledidnotwake",
+        "cloud streaming service to be ready",
+        "didn't wake",
+        "did not wake"
+      ],
+      "reply": "**Your Xbox didn't answer**: on the Xbox, Settings > General > Power options: choose *Sleep* (not *Shutdown*), and Settings > Devices & connections > Remote features: turn them on. If it was asleep for long, turn it on by hand once and try again."
+    },
+    {
+      "id": "no-entitlement",
+      "label": "area: catalog",
+      "patterns": [
+        "noentitlement",
+        "not entitled"
+      ],
+      "reply": "**Not on your account / plan**: xCloud says the account can't stream that game. It may need another Game Pass plan, or buying it."
+    },
+    {
+      "id": "free-to-play",
+      "label": "area: catalog",
+      "patterns": [
+        "free[- ]to[- ]play",
+        "fortnite"
+      ],
+      "reply": "**Free-to-play games**: they appear in the *Free to play* row once they are on your Microsoft account (get them free on xbox.com or in the Xbox app first).",
+      "where": [
+        "title",
+        "what"
+      ]
+    },
+    {
+      "id": "controller",
+      "label": "area: controller",
+      "patterns": [
+        "button",
+        "mapping",
+        "remap",
+        "dualsense",
+        "controller",
+        "trigger",
+        "vibration",
+        "rumble",
+        "bot[aã]o",
+        "controle"
+      ],
+      "reply": "**Controller**: the DualSense's Create button is kept by the PS5 (screenshots) and can't be used by apps. Xbox *View* is a touchpad click, Xbox *Menu* is OPTIONS. Button remapping is on the roadmap.",
+      "where": [
+        "title",
+        "what"
+      ]
+    },
+    {
+      "id": "crash",
+      "label": "crash",
+      "patterns": [
+        "closed unexpectedly",
+        "\\bsigsegv\\b",
+        "signal 11\\b",
+        "\\bstalled\\b"
+      ],
+      "reply": "**The app closed unexpectedly**: thanks for the report. The log lines above show what it was doing; if you can, tell us what you did just before."
+    }
+  ]
+}
