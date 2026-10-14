@@ -104,6 +104,7 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.language = code;
         g_settings.resolution = choice.resolution == 1 ? "720p" : choice.resolution == 2 ? "best" : "1080p";
         g_settings.region = choice.region;
+        g_settings.loginCountry = choice.loginCountry;
         g_settings.deadzoneLeft = choice.deadzone[0];
         g_settings.deadzoneRight = choice.deadzone[1];
         g_settings.triggerStrength = choice.triggerStrength;
@@ -198,6 +199,7 @@ int main(int argc, char** argv) {
         choice.language = static_cast<int>(ui::language());
         choice.resolution = g_settings.resolution == "720p" ? 1 : (g_settings.resolution == "1440p" || g_settings.resolution == "best") ? 2 : 0;
         choice.region = g_settings.region;
+        choice.loginCountry = g_settings.loginCountry;
         choice.deadzone[0] = std::clamp(g_settings.deadzoneLeft, 0, ui::kMaxDeadzone);
         choice.deadzone[1] = std::clamp(g_settings.deadzoneRight, 0, ui::kMaxDeadzone);
         choice.triggerStrength = g_settings.triggerStrength;
@@ -473,6 +475,12 @@ int main(int argc, char** argv) {
                 break;
             }
             case ui::Action::UpdateLater: skipOfferedUpdate(); break;
+            case ui::Action::LoginCountry:
+                // A new sign-in, as the country chosen (or the console's own).
+                saveSettings(ev.settings);
+                XC_LOGI("sign-in country: %s", ev.settings.loginCountry.empty() ? "off" : ev.settings.loginCountry.c_str());
+                g_command = kSignIn;
+                break;
             case ui::Action::Report: openReport(ev.reportWhat, false, ui::tr(ui::Str::ReportProblem)); break;
             case ui::Action::None: break;
         }

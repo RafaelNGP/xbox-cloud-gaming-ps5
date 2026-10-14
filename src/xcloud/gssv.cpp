@@ -216,6 +216,20 @@ static net::Request authed(Resolution res, const GssvLogin& l, std::string metho
     return req;
 }
 
+const char* loginCountryAddress(const std::string& country) {
+    static const struct {
+        const char* country;
+        const char* address;
+    } kAddresses[] = {{"br", "169.150.198.66"},
+                      {"jp", "138.199.21.239"},
+                      {"kr", "121.125.60.151"},
+                      {"pl", "45.134.212.66"},
+                      {"us", "143.244.47.65"}};
+    for (const auto& a : kAddresses)
+        if (country == a.country) return a.address;
+    return nullptr;
+}
+
 bool GssvClient::login(const auth::XblToken& gssvXsts, std::string& err) {
     json::Value body = json::Value::object();
     body.set("token", gssvXsts.token);
@@ -226,7 +240,12 @@ bool GssvClient::login(const auth::XblToken& gssvXsts, std::string& err) {
     req.url = "https://" + offering_ + ".gssv-play-prod.xboxlive.com/v2/login/user";
     req.headers = {{"Content-Type", "application/json"}, {"x-gssv-client", kClientHeader}};
     req.body = body.dump();
+    if (const char* address = loginCountryAddress(loginCountry_)) {
+        req.headers.emplace_back("X-Forwarded-For", address);
+        XC_LOGI("xCloud login as country %s", loginCountry_.c_str());  // not the address
+    }
     auto r = net::perform(req);
+    loginStatus_ = r.status;
     auto j = json::parse(r.body);
     if (!r.ok() || !j || !(*j)["gsToken"].isString()) {
         err = "xCloud login failed: " + describe(r);

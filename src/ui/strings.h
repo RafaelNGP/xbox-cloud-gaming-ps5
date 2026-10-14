@@ -222,6 +222,17 @@ enum class Str {
     ReportScan,         // the report panel
     ReportIncludes,
     CrashedLastTime,    // the report panel's heading after a crash
+    LoginCountry,       // Settings row: "Sign in as another country"
+    LoginCountryOff,    // its choice "off": the console's own country
+    TryOtherCountry,    // button hint on the refused sign-in
+    LoginCountryWarning,  // the country list's warning
+    RegionRefused,      // the sign-in refused by xCloud
+    RegionRefusedAs,    // "%s" = the country it was tried as
+    CountryBR,
+    CountryJP,
+    CountryKR,
+    CountryPL,
+    CountryUS,
     Count
 };
 

@@ -11,6 +11,7 @@
 #include "platform/platform.h"
 #include "ui/canvas.h"
 #include "ui/stream_menu.h"
+#include "ui/strings.h"
 #include "util/log.h"
 
 #include <cmath>
@@ -34,6 +35,7 @@ bool confirmShot = false, confirmHome = false;
 const char* tuneShot = nullptr;  // "tunetest": save this screen next  // "confirmtest": save confirm2.ppm / check the home screen  // "pickertest": save this screen next, once drawn
 const char* gridShot = nullptr;  // "gridtest": save grid screenshot
 const char* gameSettingsShot = nullptr; // "gamesettingstest": save screenshot
+const char* regionShot = nullptr;  // "regiontest": save this screen next
 bool acceptUpdate = false;  // "updatetest": Cross on the pop-up, next pass ("updateskip": Circle)
 }  // namespace
 
@@ -97,6 +99,7 @@ void loadAutoplay() {
         if (opt == "publishertest") g_autoplay.publisherTest = true;
         if (opt == "friendstest") g_autoplay.friendsTest = true;
         if (opt == "streammenutest") g_autoplay.streamMenuTest = true;
+        if (opt == "regiontest") g_autoplay.regionTest = true;
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
@@ -347,6 +350,35 @@ void autoplayPad(input::ControllerState& pad) {
 }
 
 void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
+    if (g_autoplay.regionTest && uiSaved) {
+        // The refused sign-in's screens, as the user goes through them; Circle
+        // leaves each, so the sign-in country stays as it was.
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        static const unsigned kAt[] = {500, 1500, 2000, 2400, 3200, 3700, 4200, 5000, 5500, 6500};
+        if (step < 10 && now - since >= kAt[step]) {
+            nav = ui::NavInput{};
+            switch (step) {
+                case 0: g_ui->showRegionRefused(ui::tr(ui::Str::RegionRefused)); break;
+                case 1: regionShot = "region.ppm"; break;
+                case 2: nav.square = true; break;
+                case 3: nav.down = true; break;
+                case 4: regionShot = "region_picker.ppm"; break;
+                case 5: nav.back = true; break;
+                case 6: nav.options = true; break;
+                case 7: regionShot = "region_settings.ppm"; break;
+                case 8: nav.back = true; break;
+                case 9:
+                    regionShot = "region_back.ppm";
+                    g_autoplay.regionTest = false;
+                    XC_LOGI("AUTOPLAY END: region test, back on the %s screen",
+                            g_ui->screen() == ui::Screen::Error ? "error" : "WRONG");
+                    break;
+            }
+            ++step;
+        }
+    }
     if (g_autoplay.settingsUpdate && uiSaved && !g_ui->updateOffered()) {
         // Settings, down to Updates (the last row), Cross.
         static uint64_t since = 0;
@@ -569,6 +601,10 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
     if (gridShot) {
         saveCanvas(gridShot);
         gridShot = nullptr;
+    }
+    if (regionShot) {
+        saveCanvas(regionShot);
+        regionShot = nullptr;
     }
     if (gameSettingsShot) {
         saveCanvas(gameSettingsShot);

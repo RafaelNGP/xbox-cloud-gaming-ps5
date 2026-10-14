@@ -77,6 +77,9 @@ struct Autoplay {
     bool publisherTest = false;  // publishertest: test publisher filter dropdown and search results
     bool friendsTest = false;    // friendstest: test friends playing row and card badge
     bool streamMenuTest = false; // streammenutest: render StreamMenu with mic and audio route options
+    bool regionTest = false;     // regiontest: the refused sign-in (region.ppm), its country list (region_picker.ppm,
+                                 // closed unchanged), Settings on the sign-in country (region_settings.ppm), back
+                                 // (region_back.ppm). The sign-in country is never changed.
 };
 extern Autoplay g_autoplay;
 extern std::atomic<bool> g_syntheticA;  // A held down for the game

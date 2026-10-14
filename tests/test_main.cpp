@@ -18,6 +18,7 @@
 #include "ui/stream_menu.h"
 #include "ui/strings.h"
 #include "util/json.h"
+#include "xcloud/gssv.h"
 #include "xcloud/prices.h"
 #include "xcloud/regions.h"
 
@@ -140,6 +141,32 @@ static void testTeredo() {
     CHECK(ip == "192.0.2.45" && port == 40000);
     CHECK(!stream::decodeTeredo("2a01::1", ip, port));
     CHECK(!stream::decodeTeredo("10.0.0.1", ip, port));
+}
+
+static void testLoginCountry() {
+    // Every country the UI offers has an address and a name; off and
+    // anything else sends none.
+    for (const char* country : ui::kLoginCountries) {
+        const char* address = xcloud::loginCountryAddress(country);
+        CHECK(address && std::string(address).find('.') != std::string::npos);
+        CHECK(!ui::loginCountryName(country).empty());
+    }
+    CHECK(!xcloud::loginCountryAddress("") && !xcloud::loginCountryAddress("xx") && !xcloud::loginCountryAddress("BR"));
+    CHECK(ui::loginCountryName("xx").empty());
+    // Saved, and off when the file has none.
+    std::string path = "/tmp/xcloud-tests-country.json";
+    app::Settings s;
+    s.loginCountry = "jp";
+    CHECK(s.save(path));
+    app::Settings back;
+    CHECK(back.load(path) && back.loginCountry == "jp");
+    xc::platform::writeFileAtomic(path, "{}");
+    app::Settings none;
+    CHECK(none.load(path) && none.loginCountry.empty());
+    std::remove(path.c_str());
+    // No login yet, or a new sign-in: not refused.
+    xcloud::GssvClient gssv;
+    CHECK(!gssv.loginRefused() && gssv.loginStatus() == 0);
 }
 
 static void testStrings() {
@@ -619,6 +646,7 @@ int main() {
     testReport();
     testCrashGuard();
     testBuiltinCa();
+    testLoginCountry();
     testAudioEncoder();
     testAutoDeband();
     testControllerTuning();
