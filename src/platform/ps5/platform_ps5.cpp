@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <sys/stat.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <stdlib.h> // arc4random_buf
@@ -126,6 +128,15 @@ bool restartApp() {
 }
 
 std::string firmwareVersion() {
+    // The kernel's: 0x13600007 is 13.60 (the version the console's settings
+    // show). sceKernelGetSystemSwVersion said "13.590.001" on a 13.60 console.
+    uint32_t sdk = 0;
+    size_t len = sizeof sdk;
+    if (sysctlbyname("kern.sdk_version", &sdk, &len, nullptr, 0) == 0 && len == sizeof sdk && sdk) {
+        char text[16];
+        std::snprintf(text, sizeof text, "%x.%02x", sdk >> 24, (sdk >> 16) & 0xFF);
+        return text;
+    }
     SceKernelSwVersion v{};
     v.size = sizeof v;
     if (sceKernelGetSystemSwVersion(&v) != 0) return {};
