@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-14, after v0.9.5 (with a survey of other xCloud clients and PS5 homebrew).
+Last update: 2026-10-14, v0.9.6.
 
 ## Now
 
@@ -171,16 +171,19 @@ is rolled back at the next start), then the app restarts itself
 - Fixed audio output muting by locking to primary `SCE_AUDIO_OUT_PORT_TYPE_MAIN` (port 0).
 - Cleaned up StreamMenu: removed obsolete manual microphone and audio routing toggles.
 
+### Reports, built-in certificates, region and store compatibility — done (v0.9.6)
+- Built-in certificates: when `assets/cacert.pem` can't be read (#20, #38), a copy inside `eboot.bin` is used (reproduced #38's -15872 on the console: signs in).
+- "Report a problem": Triangle on error screens and in Settings shows a QR code that opens the GitHub bug form filled in (version, firmware, the error, the log's important lines), private data removed (gamertag, PS5 user names, console names, IPs, tokens).
+- Unexpected-close detection: a crash (signal or watchdog) leaves a marker; the next start offers the report. Closing from the PS menu doesn't.
+- "Sign in as another country" (opt-in): offered only when xCloud refuses the sign-in; `X-Forwarded-For` on the login request only; Settings > Sign-in country. The real refusal is still to be checked with an account from an unsupported country.
+- ProsperoStore updates keep the sign-in and settings (brought back from the store's copy of the old folder, once); release zips as 0777.
+- Privacy and robustness: console names and raw service answers out of the log; sign-out clears the last account's library; the updater keeps its backup when a rollback fails; cut-short HTTP answers, 5xx/429 at sign-in, endless title paging, failed prices and images handled; request pacing to Microsoft's services; corrupt `settings.json` kept aside.
+- The firmware is read from the kernel (13.60, not 13.590.001).
+
 ## Next
 
 | Item | Why | Size |
 | --- | --- | --- |
-| **next** Built-in certificates as a fallback | When `assets/cacert.pem` is missing or unreadable (an incomplete copy: #20, #38), secure connections fail and nothing works; a copy inside `eboot.bin` is used then, and the log says so (the install stays visibly broken in reports) | small |
-| **next** "Report a problem" with a QR code | On error screens, in Settings and in the game menu: a QR code opens the GitHub bug form on the phone, filled in (version, firmware, the error, the log's error/warning lines and last lines, ~3 KB, filtered once more for private data). No token in the app; works with the PS5 offline | medium |
-| **next** Unexpected-close detection | The next start notices the last session didn't end normally and offers a report with the end of that session's log (what it was doing, not why it closed) | small |
-| **next** Region bypass (unsupported countries), opt-in | Built, to be checked on the console. Offered only where it is needed: when the xCloud login is refused (any 4xx answer, as Better xCloud), the error says the country may not be offered (or no Game Pass Ultimate: the service doesn't say which) and offers "Sign in as another country" (Square): a warning (Microsoft doesn't allow it, at your own risk, more delay), Off or one of Brazil, Japan, South Korea, Poland, United States, Cross. The login is then retried with `X-Forwarded-For` (Better xCloud's addresses), on that request only; the address is never logged. Refused again as a country: the error says it is probably the subscription. Off by default; changed later in Settings > Sign-in country (Options on that error opens it). Still to do: learn the refusal's exact answer with a secondary account | small |
-| **next** Homebrew store compatibility | Built (this PR), to be checked on the console. PSBox is listed on homebrew.page / ProsperoStore, whose updates replace the whole app folder (the old one goes to `/data/prosperostore/previous/PPSA99810`): the sign-in and settings now come back from there once. Release zips store every file as 0777 (the console refuses to start files that aren't: CE-107750-0; v0.9.5's were 644), and `tools/release.sh` checks it | small |
-| **next** Request pacing to Microsoft's services | Built (this PR). Five requests a second per `*.xboxlive.com` / `login.live.com` host at most, and nothing to a host for its `Retry-After` after an HTTP 429 (30 s at most): fewer bursts an account could be flagged for (as Nubix does) | small |
 | User data in `/download0` | The store's advice: user data outside the app folder survives any replacement of it (and an app on a USB drive). Console needed: is `/download0` writable under ShadowMountPlus, and where FTP sees it (logs, `autoplay.txt`, the tools). Then a one-time move with the old folder still read | small |
 | Real 120 Hz output | Declaring it in `param.json` isn't enough: `sceVideoOutIsOutputSupported` / `sceVideoOutConfigureOutput(handle, 15, ...)` switch the output (ProsperoLight, PS5MC), and only with the console set to 1440p output (PS5_Vulkan 252bf912). Our `attribute3` VRR bit (0x80000) is refused on some firmwares: 0x40 (120 Hz) + 0x40000 (VRR). Console needed | small |
 | VRR for the stream | `sceVideoOutVrrUnpegFromFixedRate` would absorb the 60 fps stream's jitter (ProsperoLight's "Paced + VRR"); needs an extended libSceVideoOut stub | medium |
