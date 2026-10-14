@@ -66,6 +66,9 @@ KeyboardStatus pollSystemKeyboard(std::string& text);
 // when it can't (false; the host never can).
 bool restartApp();
 
+// The console's system software ("13.00"); empty where unknown.
+std::string firmwareVersion();
+
 bool readFile(const std::string& path, std::string& out);
 bool writeFileAtomic(const std::string& path, const std::string& data);
 

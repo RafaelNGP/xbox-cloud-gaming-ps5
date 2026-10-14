@@ -6,6 +6,8 @@
 // (the game's menu, gestures and controllers while streaming),
 // price_loop.cpp (store prices) and autoplay.cpp (the unattended tests).
 #include "app/autoplay.h"
+#include "app/crash_guard.h"
+#include "app/report.h"
 #include "app/ps5_app.h"
 #include "app/settings.h"
 #include "app/stream_screen.h"
@@ -60,6 +62,27 @@ using namespace xc::app;
 namespace {
 
 std::unique_ptr<ui::ImageCache> g_images;
+crash::Previous g_lastCrash;
+std::string crashMarkerPath() { return platform::dataDir() + "/crash.marker"; }
+
+// "Report a problem": the bug form's link, filled in, as a QR code. `what`
+// is the error shown (empty from Settings); `previousSession` takes the log
+// of the session that went down instead of this one.
+void openReport(const std::string& what, bool previousSession, const std::string& heading) {
+    std::string logText;
+    platform::readFile(platform::dataDir() + "/xcloud.log", logText);
+    std::vector<std::string> privateWords = {g_ui->gamertag()};
+    for (int i = 0; i < input::kMaxPads; ++i) privateWords.push_back(input::padUserName(i));
+    report::Info info;
+    info.what = report::sanitize(what.empty() ? "Reported from Settings" : what, privateWords);
+    info.title = what.empty() ? "Problem report" : info.what.substr(0, 70);
+    info.release = XC_APP_VERSION;
+    info.firmware = platform::firmwareVersion();
+    info.log = report::sanitize(report::logExcerpt(logText, previousSession), privateWords);
+    std::string url = report::issueUrl(info);
+    XC_LOGI("report: QR code shown (%zu characters)", url.size());
+    g_ui->showReport(url, heading);
+}
 
 // Dead zone, trigger vibration and confirm button from g_settings.
 void applyControllerSettings() {
@@ -137,6 +160,11 @@ int main(int argc, char** argv) {
     platform::init();
     log::setFile((platform::dataDir() + "/xcloud.log").c_str());
     XC_LOGI("=== PSBox Cloud Gaming starting ===");
+    // Did the last session go down? (A crash leaves a marker; being closed
+    // from the system's menu doesn't.) Offered as a report once signed in.
+    g_lastCrash = crash::takePrevious(crashMarkerPath());
+    if (g_lastCrash.found) XC_LOGW("the last session went down: %s (%s)", g_lastCrash.kind.c_str(), g_lastCrash.stage.c_str());
+    crash::install(crashMarkerPath());
     loadAutoplay();
     // An update cut short: the old files went back, and the old eboot.bin
     // is the one to run.
@@ -201,6 +229,7 @@ int main(int argc, char** argv) {
                         platform::dataDir() + "/xcloud.log");
         if (g_autoplay.badCa) XC_LOGI("AUTOPLAY END: TLS setup error shown");
     } else {
+        if (g_autoplay.badCa) XC_LOGI("AUTOPLAY END: missing CA bundle, built-in copy %s", net::usingBuiltinCa() ? "used" : "NOT used");
         if (g_autoplay.testCa) net::addTrustedCa(platform::dataDir() + "/test-ca.pem");
         std::thread(worker).detach();
     }
@@ -222,7 +251,25 @@ int main(int argc, char** argv) {
     unsigned padChecks = 0;
     uint64_t lightBarAt = 0;
     bool lightBarSet = false;  // false from the menu/keyboard until the buttons are let go
+    crash::startWatchdog(15000);  // a main loop stuck for 15 s leaves a marker
+    ui::Screen stageScreen = ui::Screen::Splash;
     for (;;) {
+        crash::heartbeat();
+        if (ui::Screen sc = g_ui->screen(); sc != stageScreen) {
+            // What the app is doing, for a crash marker (the worker names
+            // the stream itself).
+            stageScreen = sc;
+            static const char* const kNames[] = {"splash", "sign-in", "home", "game page", "launching",
+                                                 "streaming", "error", "settings", "updating"};
+            size_t i = static_cast<size_t>(sc);
+            if (sc != ui::Screen::Streaming && sc != ui::Screen::Launching && i < std::size(kNames)) crash::setStage(kNames[i]);
+            // After a crash: its report, once the app is up again.
+            if (g_lastCrash.found && (sc == ui::Screen::Home || sc == ui::Screen::Error)) {
+                g_lastCrash.found = false;
+                openReport("Closed unexpectedly: " + g_lastCrash.kind + " while " + g_lastCrash.stage, true,
+                           ui::tr(ui::Str::CrashedLastTime));
+            }
+        }
         if (g_restartWanted) {
             // After an update: the new version, started in place of this one.
             if (!g_autoplay.noRestart) platform::restartApp();
@@ -426,6 +473,7 @@ int main(int argc, char** argv) {
                 break;
             }
             case ui::Action::UpdateLater: skipOfferedUpdate(); break;
+            case ui::Action::Report: openReport(ev.reportWhat, false, ui::tr(ui::Str::ReportProblem)); break;
             case ui::Action::None: break;
         }
 

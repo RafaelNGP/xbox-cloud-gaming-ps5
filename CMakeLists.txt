@@ -12,7 +12,17 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(XCLOUD_PS5 "Build for the PS5 (payload SDK)" OFF)
 
 # --- Portable core: auth, HTTPS, xCloud protocol -----------------------------
+# The CA bundle inside the binary too: used when assets/cacert.pem can't be read.
+set(XC_BUILTIN_CA "${CMAKE_CURRENT_BINARY_DIR}/generated/builtin_ca.cpp")
+add_custom_command(
+    OUTPUT "${XC_BUILTIN_CA}"
+    COMMAND ${CMAKE_COMMAND} -DIN=${CMAKE_CURRENT_SOURCE_DIR}/assets/cacert.pem -DOUT=${XC_BUILTIN_CA}
+            -DNAME=xc_builtin_ca_bundle -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_file.cmake
+    DEPENDS assets/cacert.pem cmake/embed_file.cmake
+    COMMENT "Embedding assets/cacert.pem")
+
 add_library(xcloud_core STATIC
+    ${XC_BUILTIN_CA}
     src/util/json.cpp
     src/util/log.cpp
     src/net/http.cpp
@@ -71,6 +81,8 @@ add_library(xcloud_ui STATIC
     src/app/library.cpp
     src/app/settings.cpp
     src/app/update_check.cpp
+    src/app/report.cpp
+    src/app/crash_guard.cpp
     src/app/updater.cpp
     src/app/auto_deband.cpp
     extern/qrcodegen/qrcodegen.c

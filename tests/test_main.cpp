@@ -5,6 +5,8 @@
 #include "app/settings.h"
 #include "app/update_check.h"
 #include "app/updater.h"
+#include "app/crash_guard.h"
+#include "app/report.h"
 #include "media/audio_encoder.h"
 #include "input/tuning.h"
 #include "net/http.h"
@@ -21,6 +23,9 @@
 
 #include <cmath>
 #include <cstdio>
+#include <csignal>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <cstdlib>
 #include <vector>
 #include <string>
@@ -506,6 +511,68 @@ static void testControllerTuning() {
     CHECK(triggerCommand(38, 0, 1, 2, true, 0) == still);    // vibration off: only the weight
 }
 
+static void testReport() {
+    using namespace xc::app::report;
+    // Private data out.
+    // Made-up values (the tokens put together here, so the source holds none).
+    const std::string jwt = std::string("ey") + "JmYWtlIjoidG9rZW4ifQ" + "QUJDREVGR0hJSktMTU5PUA.abc";
+    const std::string xbl = std::string("XBL3.0 x=") + "12345;" + "ey" + "Jfake";
+    std::string s = sanitize("signed in as SomePlayer from 203.0.113.7 token " + jwt + " auth " + xbl +
+                                 " mail me@example.com id 0123456789abcdef0123456789abcdef ok",
+                             {"SomePlayer"});
+    CHECK(s.find("SomePlayer") == std::string::npos && s.find("<name>") != std::string::npos);
+    CHECK(s.find("203.0.113") == std::string::npos && s.find("<ip>") != std::string::npos);
+    CHECK(s.find("ey" "J") == std::string::npos && s.find("12345") == std::string::npos && s.find("<token>") != std::string::npos);
+    CHECK(s.find("example.com") == std::string::npos && s.find("<email>") != std::string::npos);
+    CHECK(s.find("0123456789abcdef0123") == std::string::npos && s.find("<id>") != std::string::npos);
+    CHECK(sanitize("v0.9.5 at 1080p, 60 fps, 9 ms", {}) == "v0.9.5 at 1080p, 60 fps, 9 ms");  // nothing private
+
+    // The excerpt: the session wanted, its warnings / errors and last lines.
+    std::string log = "10:00 [I] === PSBox Cloud Gaming starting ===\n10:00 [E] old error\n"
+                      "11:00 [I] === PSBox Cloud Gaming starting ===\n";
+    for (int i = 0; i < 40; ++i) log += "11:01 [I] line " + std::to_string(i) + "\n";
+    log += "11:02 [W] a warning\n11:03 [I] tail\n";
+    std::string now = logExcerpt(log, false, 5), before = logExcerpt(log, true, 5);
+    CHECK(now.find("old error") == std::string::npos && now.find("a warning") != std::string::npos);
+    CHECK(now.find("line 39") != std::string::npos && now.find("line 3\n") == std::string::npos && now.find("...") != std::string::npos);
+    CHECK(before.find("old error") != std::string::npos && before.find("line") == std::string::npos);
+    CHECK(logExcerpt("no sessions\n", true).empty());
+
+    // The link fits the QR code; the log keeps its end.
+    Info info{"Error: certificates", "TLS setup failed", "0.9.6", "13.00", ""};
+    for (int i = 0; i < 200; ++i) info.log += "12:00 [I] a long line of the log number " + std::to_string(i) + "\n";
+    std::string url = issueUrl(info, 1800);
+    CHECK(url.size() <= 1800 && url.find("template=bug_report.yml") != std::string::npos);
+    CHECK(url.find("number+199") != std::string::npos && url.find("number+0%0A") == std::string::npos);
+    CHECK(url.find("release=0.9.6") != std::string::npos && url.find("title=Error:+certificates") != std::string::npos);
+}
+
+static void testCrashGuard() {
+    // A crash in a child process leaves the marker with its stage.
+    std::string marker = "/tmp/xcloud-tests-crash.marker";
+    std::remove(marker.c_str());
+    pid_t pid = fork();
+    if (pid == 0) {
+        xc::app::crash::install(marker);
+        xc::app::crash::setStage("streaming TEST");
+        std::raise(SIGSEGV);
+        _exit(0);
+    }
+    int status = 0;
+    waitpid(pid, &status, 0);
+    CHECK(WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV);  // still dies of it
+    auto prev = xc::app::crash::takePrevious(marker);
+    CHECK(prev.found && prev.kind == "signal 11 (SIGSEGV)" && prev.stage == "streaming TEST");
+    CHECK(!xc::app::crash::takePrevious(marker).found);  // taken once
+}
+
+static void testBuiltinCa() {
+    // A missing bundle (an incomplete copy of the app): the copy built in.
+    CHECK(xc::net::initTls("/nonexistent/cacert.pem"));
+    CHECK(xc::net::usingBuiltinCa());
+    xc::net::shutdownTls();
+}
+
 static void testAutoDeband() {
     using xc::app::debandForMbps;
     CHECK(debandForMbps(0.3, 1) == -1);  // starting or standing still: no measure
@@ -549,6 +616,9 @@ static void testAudioEncoder() {
 }
 
 int main() {
+    testReport();
+    testCrashGuard();
+    testBuiltinCa();
     testAudioEncoder();
     testAutoDeband();
     testControllerTuning();

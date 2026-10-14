@@ -18,6 +18,7 @@
 //   xcloud-cli logout
 #include "app/library.h"
 #include "app/updater.h"
+#include "app/report.h"
 #include "auth/auth_manager.h"
 #include "media/decoder.h"
 #include "net/http.h"
@@ -605,6 +606,38 @@ int main(int argc, char** argv) {
         }
         int seconds = pos.size() > 1 ? std::atoi(pos[1]) : 30;
         rc = cmdStream(am, pos[0], seconds > 0 ? seconds : 30, pos.size() > 2 ? pos[2] : nullptr, res, opts, region);
+    } else if (cmd == "ui-report" && argi < argc) {
+        // Offline: #38's error screen (Triangle: report), its report's QR
+        // code (a real link, from a made-up log), and Settings' hints.
+        ui::Fonts fonts;
+        if (!fonts.load("assets/fonts")) return 1;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+        ui::Canvas canvas(1920, 1080);
+        std::string out = argv[argi];
+        auto save = [&](const std::string& name) {
+            app.render(canvas, 1000);
+            std::string path = out + "/" + name + ".png";
+            stbi_write_png(path.c_str(), canvas.width(), canvas.height(), 4, canvas.data(), canvas.width() * 4);
+            std::printf("wrote %s\n", path.c_str());
+        };
+        std::string error = "Secure connections could not be set up: certificates /app0/assets/cacert.pem: PK - "
+                            "Read/write of file failed (-15872). Log: /data/homebrew/PPSA99810/xcloud.log";
+        app.showError(error);
+        save("report_error");
+        std::string log = "08:11:34 [I] === PSBox Cloud Gaming starting ===\n";
+        for (int i = 0; i < 30; ++i) log += "08:11:3" + std::to_string(i % 10) + " [I] gpu: something at step " + std::to_string(i) + "\n";
+        log += "08:11:37 [E] TLS setup: certificates /app0/assets/cacert.pem: PK - Read/write of file failed (-15872)\n"
+               "08:11:37 [I] NOTIFY: PSBox: secure connections unavailable\n";
+        app::report::Info info{error.substr(0, 70), error, XC_APP_VERSION, "13.00",
+                               app::report::sanitize(app::report::logExcerpt(log, false), {})};
+        std::string url = app::report::issueUrl(info);
+        std::printf("url: %zu characters\n%s\n", url.size(), url.c_str());
+        app.showReport(url, ui::tr(ui::Str::ReportProblem));
+        save("report_qr");
+        app.showReport(url, ui::tr(ui::Str::CrashedLastTime));
+        save("report_crash");
+        return 0;
     } else if (cmd == "ui-settings" && argi < argc) {
         // Offline: Settings with the region list open, then the language list.
         ui::Fonts fonts;

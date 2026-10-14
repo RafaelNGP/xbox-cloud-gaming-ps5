@@ -218,6 +218,10 @@ enum class Str {
     MenuAudioOutput,    // "Audio output"
     AudioRouteTv,       // "TV"
     AudioRoutePad,      // "DualSense Speaker"
+    ReportProblem,      // button hint: opens the report's QR code
+    ReportScan,         // the report panel
+    ReportIncludes,
+    CrashedLastTime,    // the report panel's heading after a crash
     Count
 };
 

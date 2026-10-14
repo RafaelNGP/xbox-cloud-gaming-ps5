@@ -37,7 +37,7 @@ struct Autoplay {
     bool consolesTab = false;    // "consolestab": open My consoles, save consoles.ppm
     bool consolesEmpty = false;  // with "consolestab": as if none were found
     bool settingsTest = false;   // "settingstest": open the resolution list, save settings.ppm
-    bool badCa = false;          // "badca": a missing CA bundle, to see the TLS setup error
+    bool badCa = false;          // "badca": a missing CA bundle: the built-in copy must be used
     bool consoles = false;       // "consoles": log the account's own consoles (xhome)
     bool pad = false;            // "pad": the physical pad stays in use, its buttons logged
     bool detailTest = false;     // open a game to buy far down the list, save its page
@@ -60,6 +60,7 @@ struct Autoplay {
     bool updateTest = false;     // updatetest: accept the update pop-up, save update.ppm / updating.ppm
     bool updateSkip = false;     // updateskip: "Not now" on the update pop-up
     bool settingsUpdate = false; // settingsupdate: Settings > Updates, Cross
+    bool crashTest = false;      // crashtest: a SIGSEGV on the home screen (the next start must offer its report)
     bool scrollTest = false;     // scrolltest: the right stick and a touchpad swipe page through the lists (logged)
     bool quickTest = false;      // quicktest: cross-gen pairs' badges, MOBA games, the lock on `lockTitle`
     std::string lockTitle;       // locktitle=<xCloud title id>: logged playable or locked at once

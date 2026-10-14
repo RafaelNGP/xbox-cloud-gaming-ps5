@@ -4,6 +4,7 @@
 // playing a title (queue -> /connect -> Provisioned -> StreamPlayer). It
 // owns AuthManager and the GssvClients and does all the network work.
 #include "app/autoplay.h"
+#include "app/crash_guard.h"
 #include "app/library.h"
 #include "app/ps5_app.h"
 #include "app/stream_player.h"
@@ -56,7 +57,11 @@ bool g_gameClosedOnServer = false;
 std::map<std::string, std::string> g_regionFallback;
 
 // Streams until the player ends or the user leaves; returns a status line.
+// The cloud title being played, for crash markers (set by play()).
+std::string g_stageTitle;
+
 std::string stream(xcloud::GssvClient& gssv) {
+    crash::setStage(gssv.isHome() ? "streaming own Xbox" : ("streaming " + g_stageTitle).c_str());
     g_gameClosedOnServer = false;
     app::StreamPlayer player(gssv);
     if (g_autoplay.dump) player.dumpVideo(platform::dataDir() + "/stream.aus", 20);
@@ -260,6 +265,9 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
         XC_LOGI("stream settings: %s%s, region %s, locale %s", res.c_str(),
                 hasCustom ? " (per-game)" : "", region ? region->name.c_str() : "?", ui::gameLocale());
     }
+    // For a crash marker: what is being started (a console's id stays out).
+    g_stageTitle = game.titleId;
+    crash::setStage(gssv.isHome() ? "starting own Xbox" : ("starting " + game.titleId).c_str());
     if (!gssv.startSession(game.titleId, ui::gameLocale(), err)) return err;
     if (game.heroUrl.empty() && !game.productId.empty()) {
         // Picked before the background hydration reached it: fetch the hero
@@ -556,7 +564,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     if (!g_autoplay.title.empty() && g_autoplay.title != "BENCH" && g_autoplay.title != "UPDATE" && g_autoplay.title != "AUTOTEST" &&
         !g_autoplay.detailTest && !g_autoplay.libraryTest &&
         !g_autoplay.consolesTab && !g_autoplay.settingsTest &&
-        !g_autoplay.imeTest && !g_autoplay.vibeTest && !g_autoplay.searchTest && !g_autoplay.quickTest && !g_autoplay.scrollTest &&
+        !g_autoplay.imeTest && !g_autoplay.vibeTest && !g_autoplay.searchTest && !g_autoplay.quickTest && !g_autoplay.crashTest && !g_autoplay.scrollTest &&
         !g_autoplay.gridTest && !g_autoplay.gameSettingsTest && !g_autoplay.publisherTest && !g_autoplay.friendsTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;

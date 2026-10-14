@@ -17,6 +17,12 @@
 #include <sys/socket.h>
 
 extern "C" {
+struct SceKernelSwVersion {
+    uint64_t size;
+    char versionString[0x1C];
+    uint32_t version;
+};
+int sceKernelGetSystemSwVersion(SceKernelSwVersion* version);
 int sceSystemServiceLoadExec(const char* path, char* const argv[]);
 int sceKernelSendNotificationRequest(int device, void* request, size_t size, int blocking);
 int sceNetInit(void);
@@ -117,6 +123,16 @@ bool restartApp() {
     int rc = sceSystemServiceLoadExec("/app0/eboot.bin", argv);
     XC_LOGE("restart: sceSystemServiceLoadExec returned 0x%08x", static_cast<unsigned>(rc));
     return false;
+}
+
+std::string firmwareVersion() {
+    SceKernelSwVersion v{};
+    v.size = sizeof v;
+    if (sceKernelGetSystemSwVersion(&v) != 0) return {};
+    v.versionString[sizeof v.versionString - 1] = 0;
+    std::string s = v.versionString;
+    while (!s.empty() && s.front() == ' ') s.erase(0, 1);
+    return s;
 }
 
 void notify(const std::string& text) { notify(text, text); }

@@ -52,8 +52,12 @@ struct Url {
 };
 
 // Loads trusted roots from a PEM bundle. Must be called once before any
-// request; returns false when the file is missing or holds no certificates.
+// request. When the file can't be read (an incomplete copy of the app), the
+// copy built into the binary is used, and the log says so; false only when
+// neither works.
 bool initTls(const std::string& caBundlePath);
+// True when initTls() fell back to the built-in copy.
+bool usingBuiltinCa();
 // Trusts the certificates in this PEM file too (the update test's local
 // server); false when it holds none.
 bool addTrustedCa(const std::string& pemPath);
