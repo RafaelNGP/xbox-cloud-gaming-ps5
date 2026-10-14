@@ -638,6 +638,62 @@ int main(int argc, char** argv) {
         app.showReport(url, ui::tr(ui::Str::CrashedLastTime));
         save("report_crash");
         return 0;
+    } else if (cmd == "ui-region" && argi < argc) {
+        // Offline: the refused sign-in, its country list, Settings on the
+        // sign-in country, and the events each answer gives.
+        ui::Fonts fonts;
+        if (!fonts.load("assets/fonts")) return 1;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+        ui::Canvas canvas(1920, 1080);
+        if (argi + 1 < argc) ui::setLanguage(ui::languageFromCode(argv[argi + 1]));
+        auto save = [&](const std::string& name) {
+            app.render(canvas, 1000);
+            std::string path = std::string(argv[argi]) + "/" + name + ".png";
+            stbi_write_png(path.c_str(), canvas.width(), canvas.height(), 4, canvas.data(), canvas.width() * 4);
+            std::printf("wrote %s\n", path.c_str());
+        };
+        auto press = [&](auto set) {
+            ui::NavInput n;
+            set(n);
+            return app.handle(n);
+        };
+        int failures = 0;
+        auto check = [&](bool ok, const char* what) {
+            std::printf("%s: %s\n", ok ? "ok" : "FAILED", what);
+            failures += !ok;
+        };
+        app.showRegionRefused(ui::tr(ui::Str::RegionRefused));
+        save("region_error");
+        press([](ui::NavInput& n) { n.square = true; });
+        press([](ui::NavInput& n) { n.down = true; });
+        save("region_picker");
+        auto ev = press([](ui::NavInput& n) { n.accept = true; });
+        check(ev.action == ui::Action::LoginCountry && ev.settings.loginCountry == "br", "Cross on Brazil: sign in as br");
+        app.showRegionRefused(ui::trf(ui::Str::RegionRefusedAs, ui::loginCountryName("br")));
+        save("region_error_as");
+        press([](ui::NavInput& n) { n.square = true; });
+        ev = press([](ui::NavInput& n) { n.back = true; });
+        check(ev.action == ui::Action::None, "Circle on the list: nothing");
+        press([](ui::NavInput& n) { n.options = true; });
+        check(app.screen() == ui::Screen::Settings, "Options: Settings");
+        save("region_settings");
+        press([](ui::NavInput& n) { n.accept = true; });
+        save("region_settings_list");
+        press([](ui::NavInput& n) { n.up = true; });
+        press([](ui::NavInput& n) { n.accept = true; });  // "Off"
+        ev = press([](ui::NavInput& n) { n.back = true; });
+        check(ev.action == ui::Action::LoginCountry && ev.settings.loginCountry.empty(), "Settings, Off, Circle: sign in again");
+        check(app.screen() == ui::Screen::Error, "back on the error");
+        press([](ui::NavInput& n) { n.options = true; });
+        ev = press([](ui::NavInput& n) { n.back = true; });
+        check(ev.action == ui::Action::SettingsChanged, "Settings unchanged: no new sign-in");
+        app.showError("Sign-in failed: no connection");
+        press([](ui::NavInput& n) { n.square = true; });
+        press([](ui::NavInput& n) { n.options = true; });
+        check(app.screen() == ui::Screen::Error, "other errors: no list, no Settings");
+        save("region_plain_error");
+        return failures ? 1 : 0;
     } else if (cmd == "ui-settings" && argi < argc) {
         // Offline: Settings with the region list open, then the language list.
         ui::Fonts fonts;

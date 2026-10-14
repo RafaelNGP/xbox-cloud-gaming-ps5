@@ -190,6 +190,14 @@ constexpr uint64_t kSignOutHoldMs = 5000;
 
 }  // namespace
 
+std::string loginCountryName(const std::string& country) {
+    static const std::pair<const char*, Str> kNames[] = {
+        {"br", Str::CountryBR}, {"jp", Str::CountryJP}, {"kr", Str::CountryKR}, {"pl", Str::CountryPL}, {"us", Str::CountryUS}};
+    for (const auto& [code, name] : kNames)
+        if (country == code) return tr(name);
+    return {};
+}
+
 std::string prettyRegion(const std::string& name) {
     // Longer words first where one starts another (SOUTHEAST before SOUTH).
     static const char* kWords[] = {"SOUTHEAST", "NORTHEAST", "SWITZERLAND", "CENTRAL", "AUSTRALIA", "GERMANY",
@@ -836,6 +844,17 @@ void AppUi::showError(const std::string& message) {
     screen_ = Screen::Error;
     error_ = message;
     errorGame_ = {};
+    regionRefused_ = countryPickerOpen_ = false;
+    dirty_ = true;
+}
+
+void AppUi::showRegionRefused(const std::string& message) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    screen_ = Screen::Error;
+    error_ = message;
+    errorGame_ = {};
+    regionRefused_ = true;
+    countryPickerOpen_ = false;
     dirty_ = true;
 }
 
@@ -844,6 +863,7 @@ void AppUi::showPlayError(const std::string& message, const GameTile& game) {
     screen_ = Screen::Error;
     error_ = message;
     errorGame_ = game;
+    regionRefused_ = countryPickerOpen_ = false;
     dirty_ = true;
 }
 
@@ -1177,6 +1197,9 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         out = {tr(Str::LightBarGame), tr(Str::LightBarCustom), tr(Str::Deactivated)};
     } else if (row == 7) {
         // Updates: Cross acts, no list.
+    } else if (row == 8) {
+        out.push_back(tr(Str::LoginCountryOff));
+        for (const char* country : kLoginCountries) out.push_back(loginCountryName(country));
     } else {
         // Automatic first, then the regions in the login's order.
         out.push_back(withMs(trf(Str::RegionAuto, defaultRegion_.empty() ? "-" : prettyRegion(defaultRegion_)),
@@ -1198,6 +1221,11 @@ int AppUi::settingSelected(int row) const {
     if (row == 5) return settings_.circleConfirms ? 1 : 0;
     if (row == 6) return settings_.lightBarMode;
     if (row == 7) return 0;
+    if (row == 8) {
+        for (size_t i = 0; i < std::size(kLoginCountries); ++i)
+            if (settings_.loginCountry == kLoginCountries[i]) return static_cast<int>(i) + 1;
+        return 0;
+    }
     for (size_t i = 0; i < regions_.size(); ++i)
         if (regions_[i] == settings_.region) return static_cast<int>(i) + 1;
     return 0;
@@ -1220,6 +1248,8 @@ void AppUi::applySetting(int row, int index) {
     } else if (row == 6) {
         settings_.lightBarMode = index;
     } else if (row == 7) {
+    } else if (row == 8) {
+        settings_.loginCountry = index == 0 ? std::string() : kLoginCountries[index - 1];
     } else {
         settings_.region = index == 0 ? std::string() : regions_[static_cast<size_t>(index - 1)];
     }
@@ -1354,6 +1384,8 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
     if (in.options) {
         screen_ = Screen::Settings;
         settingsRow_ = 0;
+        settingsFromError_ = false;
+        settingsCountry_ = settings_.loginCountry;
         dropdownOpen_ = false;
         filterList_ = -1;
         dirty_ = true;
@@ -1901,6 +1933,20 @@ UiEvent AppUi::handle(const NavInput& in) {
         }
         return ev;
     }
+    if (countryPickerOpen_) {
+        // "Sign in as another country": up / down, Cross signs in as the
+        // one chosen, Circle closes it unchanged.
+        int n = 1 + static_cast<int>(std::size(kLoginCountries));
+        if (in.down && countryIndex_ + 1 < n) ++countryIndex_, dirty_ = true;
+        if (in.up && countryIndex_ > 0) --countryIndex_, dirty_ = true;
+        if (in.accept) {
+            settings_.loginCountry = countryIndex_ ? kLoginCountries[countryIndex_ - 1] : "";
+            ev.action = Action::LoginCountry;
+            ev.settings = settings_;
+        }
+        if (in.accept || in.back) countryPickerOpen_ = false, dirty_ = true;
+        return ev;
+    }
     switch (screen_) {
         case Screen::Home: handleHome(in, ev); break;
         case Screen::Settings:
@@ -1944,9 +1990,11 @@ UiEvent AppUi::handle(const NavInput& in) {
                 dirty_ = true;
             }
             if (in.back || in.options) {
-                screen_ = Screen::Home;
+                // Back where Settings was opened. A new sign-in country
+                // takes a new sign-in.
+                screen_ = settingsFromError_ ? Screen::Error : Screen::Home;
                 dirty_ = true;
-                ev.action = Action::SettingsChanged;
+                ev.action = settings_.loginCountry != settingsCountry_ ? Action::LoginCountry : Action::SettingsChanged;
                 ev.settings = settings_;
             } else if (in.triangle) {
                 ev.action = Action::Report;  // "Report a problem"
@@ -1991,6 +2039,18 @@ UiEvent AppUi::handle(const NavInput& in) {
                 }
             } else if (in.accept) {
                 ev.action = Action::Retry;
+            }
+            if (regionRefused_ && in.square) {
+                countryPickerOpen_ = true;
+                countryIndex_ = settingSelected(8);
+                dirty_ = true;
+            } else if (regionRefused_ && in.options) {  // Settings, on the sign-in country
+                screen_ = Screen::Settings;
+                settingsRow_ = 8;
+                settingsFromError_ = true;
+                settingsCountry_ = settings_.loginCountry;
+                dropdownOpen_ = false;
+                dirty_ = true;
             }
             if (in.triangle) {  // "Report a problem", with the error shown
                 ev.action = Action::Report;
@@ -3007,6 +3067,10 @@ void AppUi::drawError(Canvas& c) {
     }
     if (!errorGame_.titleId.empty())
         drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
+    else if (regionRefused_)
+        drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconSquare, tr(Str::TryOtherCountry)},
+                      {kIconOptions, tr(Str::Settings)}, {kIconTriangle, tr(Str::ReportProblem)},
+                      {kIconTouchpad, tr(Str::HoldSignOut)}});
     else
         drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconTriangle, tr(Str::ReportProblem)},
                       {kIconTouchpad, tr(Str::HoldSignOut)}});
@@ -3018,8 +3082,8 @@ void AppUi::drawSettings(Canvas& c) {
     fonts_.bold.draw(c, tr(Str::Settings), kMargin, 170, 60, kWhite);
     const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
-                                        tr(Str::LightBar),      tr(Str::Updates)};
-    constexpr int kRowW = 1200, kRowH = 66;
+                                        tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry)};
+    constexpr int kRowW = 1200, kRowH = 60;
     Rect rows[kSettingRows];
     int y = 262;
     for (int i = 0; i < kSettingRows; ++i) {
@@ -3087,7 +3151,7 @@ void AppUi::drawSettings(Canvas& c) {
         Rect panel{row.x + row.w - kListW, row.y + row.h + 8, kListW, visible * kItemH + 16};
         if (panel.y + panel.h > kH - 100) panel.y = std::max(120, kH - 100 - panel.h);
         c.fillRect({panel.x + 6, panel.y + 10, panel.w, panel.h}, rgba(0, 0, 0, 120), 18);  // shadow
-        c.fillRect(panel, rgba(38, 38, 38, 250), 18);
+        c.fillRect(panel, rgba(38, 38, 38), 18);
         c.strokeRect(panel, rgba(255, 255, 255, 50), 2, 18);
         for (int k = 0; k < visible; ++k) {
             int i = dropdownTop_ + k;
@@ -3151,6 +3215,34 @@ void AppUi::drawReport(Canvas& c) {
     }
     c.fillRect({0, kH - 80, kW, 80}, kBg);
     drawHints(c, {{kIconCircle, tr(Str::Back)}});
+}
+
+void AppUi::drawCountryPicker(Canvas& c) {
+    // Over the refused sign-in: the warning, then the countries.
+    constexpr int kPanelW = 1100, kItemH = 58;
+    auto warning = fonts_.regular.wrap(tr(Str::LoginCountryWarning), 26, kPanelW - 112, 6);
+    int n = 1 + static_cast<int>(std::size(kLoginCountries));
+    int listY = 124 + static_cast<int>(warning.size()) * 36 + 24;
+    Rect panel = drawModal(c, kPanelW, listY + n * kItemH + 40, tr(Str::TryOtherCountry));
+    int y = panel.y + 124;
+    for (const auto& line : warning) {
+        fonts_.regular.draw(c, line, panel.x + 56, y, 26, kGray);
+        y += 36;
+    }
+    int sel = settingSelected(8);
+    for (int i = 0; i < n; ++i) {
+        Rect item{panel.x + 48, panel.y + listY + i * kItemH, panel.w - 96, kItemH};
+        bool on = i == countryIndex_;
+        if (on) c.fillRect(item, kWhite, 12);
+        std::string label = i ? loginCountryName(kLoginCountries[i - 1]) : tr(Str::LoginCountryOff);
+        fonts_.semibold.draw(c, label, item.x + 24, fonts_.semibold.centeredY(item.y, item.h, 26), 26,
+                             on ? kBg : (i == sel ? kWhite : kGray));
+        if (i == sel) {  // a check mark on the current choice
+            float cx = static_cast<float>(item.x + item.w - 36), cy = static_cast<float>(item.y + item.h / 2);
+            c.line(cx - 10, cy, cx - 3, cy + 7, 3, on ? kBg : kGreen);
+            c.line(cx - 3, cy + 7, cx + 10, cy - 7, 3, on ? kBg : kGreen);
+        }
+    }
 }
 
 void AppUi::drawUpdatePrompt(Canvas& c) {
@@ -3524,6 +3616,7 @@ void AppUi::render(Canvas& c, uint64_t nowMs) {
         case Screen::Streaming: break;
     }
     if (screen_ == Screen::Home && updatePrompt_) drawUpdatePrompt(c);
+    if (screen_ == Screen::Error && countryPickerOpen_) drawCountryPicker(c);
     if (reportOpen_) drawReport(c);
     if ((screen_ == Screen::Home && !updatePrompt_) || screen_ == Screen::Error) drawSignOutHold(c, nowMs);
     if (!toast_.empty()) animating_ = true;  // to expire it

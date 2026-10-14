@@ -34,6 +34,8 @@ struct Settings {
     std::string language = "en";     // ui::languageCode()
     std::string resolution = "1080p";  // "1080p", "720p" or "1440p" (experimental)
     std::string region;                // gssv region name; empty = automatic
+    // "Sign in as another country" (xcloud::loginCountryAddress): "" off.
+    std::string loginCountry;
     // Round trip to the stream server measured in past sessions, per region (ms).
     std::map<std::string, int> regionRtt;
     // Games hidden with Square (product ids), and the "Your games" order

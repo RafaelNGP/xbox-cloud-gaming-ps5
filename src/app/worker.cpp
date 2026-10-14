@@ -461,9 +461,23 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
     std::string err;
     auto onCode = [](const auth::DeviceCode& dc) { g_ui->showSignIn(dc.userCode, dc.verificationUri); };
+    std::string country;
+    {
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        country = g_settings.loginCountry;
+    }
+    gssv.setLoginCountry(country);
     if (!am.signIn(gssv, onCode, err, &g_cancel)) {
         XC_LOGE("sign-in failed: %s", err.c_str());
-        g_ui->showError(ui::trf(ui::Str::SignInFailed, err));
+        if (gssv.loginRefused()) {
+            // xCloud said no: maybe not offered in this country. Offers to
+            // sign in as another (or, already as one, says it's likely the
+            // subscription).
+            g_ui->showRegionRefused(country.empty() ? ui::tr(ui::Str::RegionRefused)
+                                                    : ui::trf(ui::Str::RegionRefusedAs, ui::loginCountryName(country)));
+        } else {
+            g_ui->showError(ui::trf(ui::Str::SignInFailed, err));
+        }
         if (!g_autoplay.title.empty()) XC_LOGI("AUTOPLAY END: sign-in failed");
         return;
     }
@@ -565,7 +579,8 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         !g_autoplay.detailTest && !g_autoplay.libraryTest &&
         !g_autoplay.consolesTab && !g_autoplay.settingsTest &&
         !g_autoplay.imeTest && !g_autoplay.vibeTest && !g_autoplay.searchTest && !g_autoplay.quickTest && !g_autoplay.crashTest && !g_autoplay.scrollTest &&
-        !g_autoplay.gridTest && !g_autoplay.gameSettingsTest && !g_autoplay.publisherTest && !g_autoplay.friendsTest) {
+        !g_autoplay.gridTest && !g_autoplay.gameSettingsTest && !g_autoplay.publisherTest && !g_autoplay.friendsTest &&
+        !g_autoplay.regionTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
         tile.titleId = g_autoplay.title;

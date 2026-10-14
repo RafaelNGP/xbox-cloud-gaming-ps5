@@ -245,6 +245,17 @@ constexpr Column kEnglish = {
     "Scan it with your phone: GitHub's bug form opens, filled in. You review it before sending it.", // ReportScan
     "It includes the app's version, the error and lines of its log, without personal data.", // ReportIncludes
     "PSBox closed unexpectedly last time",           // CrashedLastTime
+    "Sign-in country",                                // LoginCountry
+    "Off (this console's)",                           // LoginCountryOff
+    "Sign in as another country",                     // TryOtherCountry
+    "xCloud will be told the sign-in comes from the chosen country. Microsoft doesn't allow this: use it at your own risk. Games may then come from servers far away, with more delay. You can change it later in Settings.", // LoginCountryWarning
+    "xCloud refused the sign-in. Cloud gaming may not be offered in your country, or the account may not have Game Pass Ultimate.", // RegionRefused
+    "xCloud refused the sign-in, even as %s. The account probably doesn't have Game Pass Ultimate.", // RegionRefusedAs
+    "Brazil",                                         // CountryBR
+    "Japan",                                          // CountryJP
+    "South Korea",                                    // CountryKR
+    "Poland",                                         // CountryPL
+    "United States",                                  // CountryUS
 };
 
 constexpr Column kPortugueseBR = {
@@ -460,6 +471,17 @@ constexpr Column kPortugueseBR = {
     "Escaneie com o celular: o formulário de bug do GitHub abre preenchido. Você revisa antes de enviar.",
     "Inclui a versão do app, o erro e linhas do log, sem dados pessoais.",
     "O PSBox fechou inesperadamente da última vez",
+    "País do login",
+    "Desativado (o do console)",
+    "Entrar como outro país",
+    "O xCloud será informado de que o login vem do país escolhido. A Microsoft não permite isso: use por sua conta e risco. Os jogos podem vir de servidores distantes, com mais atraso. Dá para mudar depois em Configurações.",
+    "O xCloud recusou o login. O jogo na nuvem pode não ser oferecido no seu país, ou a conta pode não ter o Game Pass Ultimate.",
+    "O xCloud recusou o login, mesmo como %s. Provavelmente a conta não tem o Game Pass Ultimate.",
+    "Brasil",
+    "Japão",
+    "Coreia do Sul",
+    "Polônia",
+    "Estados Unidos",
 };
 
 constexpr Column kSpanish = {
@@ -675,6 +697,17 @@ constexpr Column kSpanish = {
     "Escanéalo con el móvil: se abre el formulario de errores de GitHub, ya rellenado. Lo revisas antes de enviarlo.",
     "Incluye la versión de la app, el error y líneas del registro, sin datos personales.",
     "PSBox se cerró inesperadamente la última vez",
+    "País de inicio de sesión",
+    "Desactivado (el de la consola)",
+    "Entrar como otro país",
+    "Se le dirá a xCloud que el inicio de sesión viene del país elegido. Microsoft no lo permite: úsalo bajo tu propio riesgo. Los juegos pueden venir de servidores lejanos, con más retraso. Puedes cambiarlo luego en Ajustes.",
+    "xCloud rechazó el inicio de sesión. Puede que el juego en la nube no se ofrezca en tu país o que la cuenta no tenga Game Pass Ultimate.",
+    "xCloud rechazó el inicio de sesión, incluso como %s. Probablemente la cuenta no tenga Game Pass Ultimate.",
+    "Brasil",
+    "Japón",
+    "Corea del Sur",
+    "Polonia",
+    "Estados Unidos",
 };
 
 constexpr Column kFrench = {
@@ -890,6 +923,17 @@ constexpr Column kFrench = {
     "Scannez-le avec votre téléphone : le formulaire de bug de GitHub s'ouvre, déjà rempli. Vous le relisez avant de l'envoyer.",
     "Il contient la version de l'app, l'erreur et des lignes du journal, sans données personnelles.",
     "PSBox s'est fermé de façon inattendue la dernière fois",
+    "Pays de connexion",
+    "Désactivé (celui de la console)",
+    "Se connecter depuis un autre pays",
+    "xCloud sera informé que la connexion vient du pays choisi. Microsoft ne l'autorise pas : utilisez-le à vos risques. Les jeux peuvent alors venir de serveurs éloignés, avec plus de latence. Modifiable plus tard dans Paramètres.",
+    "xCloud a refusé la connexion. Le jeu dans le cloud n'est peut-être pas proposé dans votre pays, ou le compte n'a pas le Game Pass Ultimate.",
+    "xCloud a refusé la connexion, même en choisissant %s. Le compte n'a probablement pas le Game Pass Ultimate.",
+    "Brésil",
+    "Japon",
+    "Corée du Sud",
+    "Pologne",
+    "États-Unis",
 };
 
 constexpr Column kGerman = {
@@ -1105,6 +1149,17 @@ constexpr Column kGerman = {
     "Mit dem Handy scannen: Das Fehlerformular auf GitHub öffnet sich ausgefüllt. Du prüfst es vor dem Senden.",
     "Enthalten sind die App-Version, der Fehler und Zeilen des Logs, ohne persönliche Daten.",
     "PSBox wurde beim letzten Mal unerwartet beendet",
+    "Anmeldeland",
+    "Aus (das der Konsole)",
+    "Als anderes Land anmelden",
+    "xCloud wird mitgeteilt, dass die Anmeldung aus dem gewählten Land kommt. Microsoft erlaubt das nicht: Nutzung auf eigenes Risiko. Spiele kommen dann eventuell von weit entfernten Servern, mit mehr Verzögerung. Später in den Einstellungen änderbar.",
+    "xCloud hat die Anmeldung abgelehnt. Cloud Gaming wird in deinem Land vielleicht nicht angeboten, oder das Konto hat kein Game Pass Ultimate.",
+    "xCloud hat die Anmeldung abgelehnt, auch mit %s. Das Konto hat wahrscheinlich kein Game Pass Ultimate.",
+    "Brasilien",
+    "Japan",
+    "Südkorea",
+    "Polen",
+    "USA",
 };
 
 constexpr Column kItalian = {
@@ -1320,6 +1375,17 @@ constexpr Column kItalian = {
     "Inquadralo con il telefono: si apre il modulo dei bug di GitHub già compilato. Lo controlli prima di inviarlo.",
     "Include la versione dell'app, l'errore e righe del log, senza dati personali.",
     "PSBox si è chiuso inaspettatamente l'ultima volta",
+    "Paese di accesso",
+    "Disattivato (quello della console)",
+    "Accedi come un altro paese",
+    "A xCloud verrà detto che l'accesso arriva dal paese scelto. Microsoft non lo consente: usalo a tuo rischio. I giochi potrebbero arrivare da server lontani, con più ritardo. Puoi cambiarlo poi in Impostazioni.",
+    "xCloud ha rifiutato l'accesso. Il cloud gaming potrebbe non essere offerto nel tuo paese, oppure l'account non ha Game Pass Ultimate.",
+    "xCloud ha rifiutato l'accesso, anche scegliendo %s. Probabilmente l'account non ha Game Pass Ultimate.",
+    "Brasile",
+    "Giappone",
+    "Corea del Sud",
+    "Polonia",
+    "Stati Uniti",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

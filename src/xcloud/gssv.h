@@ -75,12 +75,29 @@ struct IceCandidate {
 // streams at a higher bitrate (Better xCloud's "1080p (HQ)").
 enum class Resolution { P1080, P720, P1440, P1080HQ };
 
+// "Sign in as another country": xCloud is offered by country, which the
+// login (/v2/login/user) decides from where the request comes from. With one
+// of these chosen, that request alone says it comes from an address in the
+// country (X-Forwarded-For), as Better xCloud does (its list, MIT licence,
+// (c) redphx). Off unless the user picks one, after the login was refused.
+// The country codes ("br", "jp", "kr", "pl", "us"); nullptr for "" or an
+// unknown one.
+const char* loginCountryAddress(const std::string& country);
+
 class GssvClient {
 public:
     // `offering` is "xgpuweb" (Game Pass cloud) or "xhome" (own console).
     explicit GssvClient(std::string offering = "xgpuweb") : offering_(std::move(offering)) {}
 
     bool login(const auth::XblToken& gssvXsts, std::string& err);
+    // Sign in as `country` (loginCountryAddress); "" is the console's own.
+    // Set before each sign-in: it also forgets the last login's status.
+    void setLoginCountry(const std::string& country) { loginCountry_ = country, loginStatus_ = 0; }
+    // The last login's HTTP status (0: no answer). The service answered
+    // and said no: the country may not be offered (or no Game Pass Ultimate;
+    // it doesn't say which).
+    int loginStatus() const { return loginStatus_; }
+    bool loginRefused() const { return loginStatus_ >= 400 && loginStatus_ < 500; }
     const GssvLogin& session() const { return login_; }
     void setRegion(const Region& r) { region_ = r; }
     void setResolution(Resolution r) { resolution_ = r; }
@@ -120,6 +137,8 @@ private:
     std::string sessionUrl(const std::string& suffix) const;
 
     std::string offering_;
+    std::string loginCountry_;
+    int loginStatus_ = 0;
     Resolution resolution_ = Resolution::P1080;
     GssvLogin login_;
     Region region_;

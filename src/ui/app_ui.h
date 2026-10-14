@@ -101,6 +101,7 @@ struct SettingsChoice {
     int language = 0;      // ui::Language
     int resolution = 0;    // 0 = 1080p, 1 = 720p, 2 = 1440p (experimental)
     std::string region;    // gssv region name; empty = automatic
+    std::string loginCountry;  // "Sign in as another country" (kLoginCountries); empty = off
     int deadzone[2] = {15, 15};  // left, right stick: percent of the travel, 0..kMaxDeadzone
     int triggerStrength = 2;     // 0 off .. 4 max (input/tuning.h)
     int triggerHz = 1;           // index into input::kTriggerHz
@@ -116,7 +117,13 @@ struct SettingsChoice {
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 8;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates
+constexpr int kSettingRows = 9;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+                                 // sign-in country
+
+// The countries "Sign in as another country" offers (xcloud::loginCountryAddress).
+constexpr const char* kLoginCountries[] = {"br", "jp", "kr", "pl", "us"};
+// "br" -> "Brazil", in the UI's language ("" for an unknown code).
+std::string loginCountryName(const std::string& country);
 
 // ConsolesShown: "My consoles" opened (its list is refreshed). UpdateNow
 // (with the settings, saved first when it came from Settings) / UpdateLater:
@@ -124,7 +131,8 @@ constexpr int kSettingRows = 8;  // language, resolution, region, dead zone, tri
 enum class Action {
     None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, PrefsChanged, ConsolesShown, UpdateNow, UpdateLater,
     GameSettingsChanged,
-    Report  // "Report a problem" (Triangle on an error or in Settings): reportWhat is the error shown
+    Report,  // "Report a problem" (Triangle on an error or in Settings): reportWhat is the error shown
+    LoginCountry  // the sign-in country changed (settings): save them and sign in again
 };
 
 // How "Your games" is sorted (R3).
@@ -212,6 +220,9 @@ public:
     // A game that could not start but may on another try (a free game got
     // on the phone meanwhile): Cross plays it again, Circle opens its page.
     void showPlayError(const std::string& message, const GameTile& game);
+    // The sign-in refused by xCloud: an error that also offers to sign in as
+    // another country (Square), and Settings (Options).
+    void showRegionRefused(const std::string& message);
     void setSettings(const SettingsChoice& choice);
     // Per-game settings
     void setPerGameSettings(const std::map<std::string, app::GameProfile>& perGame);
@@ -344,6 +355,7 @@ private:
     void drawSettings(Canvas& c);
     void drawUpdatePrompt(Canvas& c);
     void drawReport(Canvas& c);
+    void drawCountryPicker(Canvas& c);
     // The light bar's colour picker (Settings > Light bar > Custom colour).
     void openColourPicker(int previousMode);
     void handleColourPicker(const NavInput& in);
@@ -435,6 +447,11 @@ private:
     std::string updateCurrent_, updateAvailable_;
     bool updateChecking_ = false;
     bool reportOpen_ = false;  // the report's QR code is up
+    bool regionRefused_ = false;  // the error is showRegionRefused()'s
+    bool countryPickerOpen_ = false;
+    int countryIndex_ = 0;  // 0 off, then kLoginCountries
+    bool settingsFromError_ = false;  // Circle goes back to the error
+    std::string settingsCountry_;  // the sign-in country when Settings opened
     std::string reportUrl_, reportHeading_;
     bool updatePrompt_ = false;  // the pop-up is up (on the home screen)
     int promptFocus_ = 0;        // 0 Update now, 1 Not now

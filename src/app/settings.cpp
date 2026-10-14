@@ -20,6 +20,7 @@ bool Settings::load(const std::string& path) {
     language = (*j)["language"].str(language);
     resolution = (*j)["resolution"].str(resolution);
     region = (*j)["region"].str(region);
+    loginCountry = (*j)["loginCountry"].str(loginCountry);
     if (resolution != "720p" && resolution != "1440p" && resolution != "best") resolution = "1080p";
     hidden.clear();
     for (const auto& id : (*j)["hidden"].items())
@@ -127,6 +128,7 @@ bool Settings::save(const std::string& path) const {
     v.set("language", language);
     v.set("resolution", resolution);
     v.set("region", region);
+    v.set("loginCountry", loginCountry);
     json::Value rtt = json::Value::object();
     for (const auto& [name, ms] : regionRtt) rtt.set(name, ms);
     v.set("regionRtt", rtt);
