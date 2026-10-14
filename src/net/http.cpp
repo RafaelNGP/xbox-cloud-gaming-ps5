@@ -36,6 +36,10 @@
 #define MBEDTLS_ERR_NET_RECV_FAILED -0x004C
 #endif
 
+// The CA bundle built in (cmake/embed_file.cmake from assets/cacert.pem).
+extern const unsigned char xc_builtin_ca_bundle[];
+extern const std::size_t xc_builtin_ca_bundle_size;
+
 namespace xc::net {
 
 namespace {
@@ -156,6 +160,12 @@ bool Url::parse(const std::string& url, Url& out) {
 
 namespace {
 std::string g_initError;
+bool g_builtinCa = false;
+}
+
+bool usingBuiltinCa() {
+    std::lock_guard<std::mutex> lock(g.mutex);
+    return g_builtinCa;
 }
 
 std::string tlsInitError() {
@@ -185,7 +195,17 @@ bool initTls(const std::string& caBundlePath) {
                                    reinterpret_cast<const unsigned char*>(pers), std::strlen(pers));
     if (rc != 0) return fail("random generator (system random source?): " + tlsError(rc));
     rc = mbedtls_x509_crt_parse_file(&g.ca, caBundlePath.c_str());
-    if (rc < 0) return fail("certificates " + caBundlePath + ": " + tlsError(rc));
+    if (rc < 0) {
+        // The file is missing or unreadable: the same bundle, built in. The
+        // install stays broken (other files may be missing too): logged.
+        XC_LOGW("TLS setup: certificates %s: %s; using the built-in copy (reinstall the app folder)",
+                caBundlePath.c_str(), tlsError(rc).c_str());
+        mbedtls_x509_crt_free(&g.ca);
+        mbedtls_x509_crt_init(&g.ca);
+        rc = mbedtls_x509_crt_parse(&g.ca, xc_builtin_ca_bundle, xc_builtin_ca_bundle_size);
+        if (rc < 0) return fail("certificates " + caBundlePath + " and the built-in copy: " + tlsError(rc));
+        g_builtinCa = true;
+    }
     if (rc > 0) XC_LOGW("CA bundle: %d certificates could not be parsed (ignored)", rc);
     g.ready = true;
     return true;

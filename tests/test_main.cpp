@@ -506,6 +506,13 @@ static void testControllerTuning() {
     CHECK(triggerCommand(38, 0, 1, 2, true, 0) == still);    // vibration off: only the weight
 }
 
+static void testBuiltinCa() {
+    // A missing bundle (an incomplete copy of the app): the copy built in.
+    CHECK(xc::net::initTls("/nonexistent/cacert.pem"));
+    CHECK(xc::net::usingBuiltinCa());
+    xc::net::shutdownTls();
+}
+
 static void testAutoDeband() {
     using xc::app::debandForMbps;
     CHECK(debandForMbps(0.3, 1) == -1);  // starting or standing still: no measure
@@ -549,6 +556,7 @@ static void testAudioEncoder() {
 }
 
 int main() {
+    testBuiltinCa();
     testAudioEncoder();
     testAutoDeband();
     testControllerTuning();

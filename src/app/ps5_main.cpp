@@ -201,6 +201,7 @@ int main(int argc, char** argv) {
                         platform::dataDir() + "/xcloud.log");
         if (g_autoplay.badCa) XC_LOGI("AUTOPLAY END: TLS setup error shown");
     } else {
+        if (g_autoplay.badCa) XC_LOGI("AUTOPLAY END: missing CA bundle, built-in copy %s", net::usingBuiltinCa() ? "used" : "NOT used");
         if (g_autoplay.testCa) net::addTrustedCa(platform::dataDir() + "/test-ca.pem");
         std::thread(worker).detach();
     }
