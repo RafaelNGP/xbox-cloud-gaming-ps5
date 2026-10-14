@@ -10,6 +10,8 @@
 #include <cstddef>
 #include <functional>
 #include <map>
+#include <mutex>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -66,6 +68,23 @@ std::string tlsInitError();
 void shutdownTls();
 
 Response perform(const Request& req);
+
+// Spaces the requests to Microsoft's services (*.xboxlive.com, login.live.com):
+// five a second per host at most, and after an HTTP 429 none to that host
+// until its Retry-After (30 s at most) — fewer bursts an account could be
+// flagged for. Used by perform(); a class for the tests (`nowMs` passed in).
+class HostPacer {
+public:
+    // How long to wait before sending to `host` (0: now); reserves its slot.
+    uint64_t reserve(const std::string& host, uint64_t nowMs);
+    // `host` answered 429 with Retry-After `seconds` (<= 0: unknown).
+    void throttled(const std::string& host, int seconds, uint64_t nowMs);
+    static bool paced(const std::string& host);
+
+private:
+    std::mutex mutex_;
+    std::map<std::string, uint64_t> next_;  // host -> earliest next send (ms)
+};
 
 // --- For the tests -------------------------------------------------------------
 // Answers every perform() instead of the network; empty: the network again.

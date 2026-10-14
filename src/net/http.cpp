@@ -22,8 +22,10 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
 
@@ -146,6 +148,33 @@ bool dechunk(const std::string& in, std::string& out) {
 }
 
 void setTestTransport(std::function<Response(const Request&)> transport) { g_testTransport = std::move(transport); }
+
+bool HostPacer::paced(const std::string& host) {
+    auto endsWith = [&](const char* tail) {
+        size_t n = std::strlen(tail);
+        return host.size() >= n && host.compare(host.size() - n, n, tail) == 0;
+    };
+    return endsWith(".xboxlive.com") || host == "login.live.com";
+}
+
+uint64_t HostPacer::reserve(const std::string& host, uint64_t nowMs) {
+    constexpr uint64_t kSpacingMs = 200;  // five a second
+    if (!paced(host)) return 0;
+    std::lock_guard<std::mutex> lock(mutex_);
+    uint64_t& next = next_[host];
+    uint64_t at = std::max(next, nowMs);
+    next = at + kSpacingMs;
+    return at - nowMs;
+}
+
+void HostPacer::throttled(const std::string& host, int seconds, uint64_t nowMs) {
+    if (!paced(host)) return;
+    uint64_t waitMs = static_cast<uint64_t>(std::clamp(seconds > 0 ? seconds : 5, 1, 30)) * 1000u;
+    std::lock_guard<std::mutex> lock(mutex_);
+    next_[host] = std::max(next_[host], nowMs + waitMs);
+}
+
+
 
 bool Url::parse(const std::string& url, Url& out) {
     size_t s = url.find("://");
@@ -434,9 +463,29 @@ Response performRetrying(const Request& req) {
 
 }  // namespace
 
+namespace {
+HostPacer g_pacer;
+
+Response performPaced(const Request& req) {
+    Url url;
+    if (!Url::parse(req.url, url)) return performRetrying(req);
+    if (uint64_t waitMs = g_pacer.reserve(url.host, platform::nowMs())) {
+        if (waitMs >= 1000) XC_LOGI("%s: waiting %llu ms (paced)", url.host.c_str(), static_cast<unsigned long long>(waitMs));
+        platform::sleepMs(static_cast<uint32_t>(waitMs));
+    }
+    Response resp = performRetrying(req);
+    if (resp.status == 429) {
+        int seconds = std::atoi(resp.header("retry-after").c_str());
+        XC_LOGW("%s: HTTP 429, nothing more to it for %d s", url.host.c_str(), std::clamp(seconds > 0 ? seconds : 5, 1, 30));
+        g_pacer.throttled(url.host, seconds, platform::nowMs());
+    }
+    return resp;
+}
+}  // namespace
+
 Response perform(const Request& req) {
     if (g_testTransport) return g_testTransport(req);
-    Response resp = performRetrying(req);
+    Response resp = performPaced(req);
     Request next = req;
     for (int hops = 0; req.followRedirects && hops < 5; ++hops) {
         int s = resp.status;
@@ -457,7 +506,7 @@ Response perform(const Request& req) {
             next.body.clear();
         }
         next.url = location;
-        resp = performRetrying(next);
+        resp = performPaced(next);
     }
     return resp;
 }

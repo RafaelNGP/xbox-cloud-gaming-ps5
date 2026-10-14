@@ -30,8 +30,14 @@ controller.
 - Six languages.
 
 Requires a homebrew-enabled PS5 that can run directory-style apps (for
-example through ShadowMountPlus), and a Microsoft account with Game Pass
-Ultimate for most of the catalog.
+example through ShadowMountPlus), and a Microsoft account with a Game Pass
+plan that includes cloud gaming. Since October 2025 all three do: Essential
+and Premium stream at up to 1080p with a smaller catalog, Ultimate has the
+largest one.
+
+Reported working on firmware 13.00 and 13.60 with ShadowMountPlus. Other
+loaders that run directory apps from `/data/homebrew` should work too;
+please report your firmware and loader in an issue if it doesn't.
 
 ## Installation
 
@@ -42,13 +48,18 @@ No building needed: download `PPSA99810.zip` from the
    `/data/homebrew/` on the PS5 (for example over FTP).
 2. Wait for the loader (e.g. ShadowMountPlus) to add the **PSBox Cloud Gaming**
    icon to the Home screen, then launch it.
+
+   Or install it from **ProsperoStore** (the homebrew store, listed on
+   [homebrew.page](https://homebrew.page)).
 3. Sign in: open <https://www.microsoft.com/link> on your phone or computer
    (or scan the QR code) and enter the code shown on the TV.
 
 New versions install from inside the app (it asks after sign-in, and
 Settings > Updates): only a package signed with the project's key is
-accepted, and your sign-in is kept. By hand: close the app and copy the new
-folder over the old one. The sign-in lives in `PPSA99810/account.json`: never share
+accepted, and your sign-in is kept. ProsperoStore's updates replace the
+whole folder; the app brings the sign-in and settings back from the copy
+the store keeps. By hand: close the app and copy the new folder over the
+old one. The sign-in lives in `PPSA99810/account.json`: never share
 that file. More details, controls and troubleshooting are in the
 `README.txt` inside the folder.
 

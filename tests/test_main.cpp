@@ -717,6 +717,55 @@ static void testPrivacyAndRobustness() {
     CHECK(!app::unzip(storedZip({{"PPSA99810/eboot.bin", "a"}, {"PPSA99810/eboot.bin", "b"}}), "PPSA99810/", files, err));
 }
 
+static void testStoreLeftovers() {
+    // ProsperoStore replaced the app folder and kept the old one: the
+    // sign-in and settings come back from it, once.
+    std::string dir = "/tmp/xcloud-store-test/app", prev = "/tmp/xcloud-store-test/previous";
+    std::system("rm -rf /tmp/xcloud-store-test && mkdir -p /tmp/xcloud-store-test/app /tmp/xcloud-store-test/previous");
+    xc::platform::writeFileAtomic(prev + "/account.json", "{\"a\":1}");
+    xc::platform::writeFileAtomic(prev + "/settings.json", "{\"language\":\"pt-BR\"}");
+    xc::platform::writeFileAtomic(prev + "/xcloud.log", "old log");
+    std::string text;
+    CHECK(app::importStoreLeftovers(dir, prev));
+    CHECK(xc::platform::readFile(dir + "/account.json", text) && text == "{\"a\":1}");
+    CHECK(xc::platform::readFile(dir + "/settings.json", text) && text.find("pt-BR") != std::string::npos);
+    CHECK(!xc::platform::readFile(dir + "/xcloud.log", text));             // only the user's settings and sign-in
+    CHECK(xc::platform::readFile(prev + "/account.json", text));           // the store's folder stays
+    // Signed out later: the old account doesn't come back.
+    std::remove((dir + "/account.json").c_str());
+    CHECK(!app::importStoreLeftovers(dir, prev) && !xc::platform::readFile(dir + "/account.json", text));
+    // Already signed in when the store's folder is found: never imported.
+    std::system("rm -rf /tmp/xcloud-store-test/app && mkdir -p /tmp/xcloud-store-test/app");
+    xc::platform::writeFileAtomic(dir + "/account.json", "{\"b\":2}");
+    CHECK(!app::importStoreLeftovers(dir, prev));
+    std::remove((dir + "/account.json").c_str());
+    CHECK(!app::importStoreLeftovers(dir, prev));
+    // No store folder: nothing.
+    std::system("rm -rf /tmp/xcloud-store-test/app && mkdir -p /tmp/xcloud-store-test/app");
+    CHECK(!app::importStoreLeftovers(dir, "/tmp/xcloud-store-test/none"));
+    CHECK(!app::updatablePath("store_import.done"));
+    std::system("rm -rf /tmp/xcloud-store-test");
+}
+
+static void testHostPacer() {
+    // Five a second per Microsoft host; other hosts never wait; a 429 holds
+    // the host for its Retry-After (30 s at most).
+    net::HostPacer p;
+    CHECK(p.reserve("xgpuweb.gssv-play-prod.xboxlive.com", 1000) == 0);
+    CHECK(p.reserve("xgpuweb.gssv-play-prod.xboxlive.com", 1000) == 200);
+    CHECK(p.reserve("xgpuweb.gssv-play-prod.xboxlive.com", 1100) == 300);
+    CHECK(p.reserve("titlehub.xboxlive.com", 1100) == 0);  // its own slots
+    CHECK(p.reserve("login.live.com", 5000) == 0 && p.reserve("login.live.com", 5000) == 200);
+    for (int i = 0; i < 10; ++i) CHECK(p.reserve("store-images.s-microsoft.com", 1000) == 0);
+    CHECK(!net::HostPacer::paced("evilxboxlive.com") && net::HostPacer::paced("a.xboxlive.com"));
+    p.throttled("peoplehub.xboxlive.com", 7, 10000);
+    CHECK(p.reserve("peoplehub.xboxlive.com", 10000) == 7000);
+    p.throttled("peoplehub.xboxlive.com", 3600, 20000);
+    CHECK(p.reserve("peoplehub.xboxlive.com", 20000) == 30000);
+    p.throttled("store-images.s-microsoft.com", 60, 0);
+    CHECK(p.reserve("store-images.s-microsoft.com", 0) == 0);
+}
+
 static void testAutoDeband() {
     using xc::app::debandForMbps;
     CHECK(debandForMbps(0.3, 1) == -1);  // starting or standing still: no measure
@@ -765,6 +814,8 @@ int main() {
     testBuiltinCa();
     testLoginCountry();
     testPrivacyAndRobustness();
+    testStoreLeftovers();
+    testHostPacer();
     testAudioEncoder();
     testAutoDeband();
     testControllerTuning();

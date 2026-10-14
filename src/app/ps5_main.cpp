@@ -174,6 +174,7 @@ int main(int argc, char** argv) {
     // An update cut short: the old files went back, and the old eboot.bin
     // is the one to run.
     if (recoverUpdate(platform::dataDir())) platform::restartApp();
+    importStoreLeftovers(platform::dataDir(), "/data/prosperostore/previous/PPSA99810");
     struct stat settingsStat;
     if (!g_settings.load(settingsPath()) && ::stat(settingsPath().c_str(), &settingsStat) == 0) {
         // Unreadable (cut short?): kept aside, not overwritten by the defaults.

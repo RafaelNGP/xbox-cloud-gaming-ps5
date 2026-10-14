@@ -266,7 +266,7 @@ bool GssvClient::login(const auth::XblToken& gssvXsts, std::string& err) {
     auto j = json::parse(r.body);
     if (!r.ok() || !j || !(*j)["gsToken"].isString()) {
         err = "xCloud login failed: " + describe(r);
-        if (r.status == 403) err += " (no Game Pass Ultimate, or xCloud is not available in this region)";
+        if (r.status == 403) err += " (no Game Pass plan with cloud gaming, or xCloud is not available in this region)";
         return false;
     }
     if (std::getenv("XC_DUMP_LOGIN")) {
