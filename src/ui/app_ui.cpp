@@ -70,6 +70,9 @@ constexpr int kKeyW = 90, kKeyH = 62, kKeyGap = 10;
 constexpr int kKeysY = 262;
 constexpr int kWideCols[3] = {0, 3, 5};  // first column of Space, Delete, Clear
 constexpr int kWideSpan[3] = {3, 2, 1};
+constexpr int kKeysW = kKeyCols * (kKeyW + kKeyGap) - kKeyGap;
+constexpr int kChipGap = 10;
+int chipWidth(int count) { return (kKeysW - kChipGap * (count - 1)) / std::max(1, count); }
 
 // Lower case, accents dropped (Latin-1 range), anything else a space: what
 // the search compares.
@@ -1706,6 +1709,26 @@ void AppUi::pressFilter(Filter f) {
     dirty_ = true;
 }
 
+std::pair<int, int> AppUi::searchKeyFocus() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return {keyRow_, keyCol_};
+}
+
+std::vector<int> AppUi::keyCenters(int row) const {
+    // Caller holds mutex_.
+    std::vector<int> out;
+    if (row < kKeyRows) {
+        for (int k = 0; k < kKeyCols; ++k) out.push_back(kMargin + k * (kKeyW + kKeyGap) + kKeyW / 2);
+    } else if (row == kKeyRows) {
+        for (int k = 0; k < 3; ++k)
+            out.push_back(kMargin + kWideCols[k] * (kKeyW + kKeyGap) + (kWideSpan[k] * kKeyW + (kWideSpan[k] - 1) * kKeyGap) / 2);
+    } else {
+        int n = static_cast<int>(filterRow(row - kKeyRows - 1).size()), w = chipWidth(n);
+        for (int k = 0; k < n; ++k) out.push_back(kMargin + k * (w + kChipGap) + w / 2);
+    }
+    return out;
+}
+
 void AppUi::handleSearchKeys(const NavInput& in) {
     // Caller holds mutex_. keyRow_ == kKeyRows is the row of wide keys, where
     // keyCol_ is 0..2 (Space, Delete, Clear); kKeyRows + 1 and + 2 the two
@@ -1723,15 +1746,17 @@ void AppUi::handleSearchKeys(const NavInput& in) {
     }
     bool wide = keyRow_ == kKeyRows, filters = keyRow_ > kKeyRows;
     int filterCount = filters ? static_cast<int>(filterRow(keyRow_ - kKeyRows - 1).size()) : 0;
-    if (in.up && keyRow_ > 0) {
-        if (wide) keyCol_ = kWideCols[keyCol_];
-        if (keyRow_ == kKeyRows + 1) keyCol_ = std::min(keyCol_, 2);
-        --keyRow_;
-        if (keyRow_ == kKeyRows + 1) keyCol_ = std::min(keyCol_, static_cast<int>(filterRow(0).size()) - 1);
-    } else if (in.down && keyRow_ < kKeyRows + 2) {
-        ++keyRow_;
-        if (keyRow_ == kKeyRows) keyCol_ = keyCol_ < 3 ? 0 : keyCol_ < 5 ? 1 : 2;
-        else keyCol_ = std::min(keyCol_, static_cast<int>(filterRow(keyRow_ - kKeyRows - 1).size()) - 1);
+    if ((in.up && keyRow_ > 0) || (in.down && keyRow_ < kKeyRows + 2)) {
+        // To the item on the next row whose middle is nearest this one's
+        // (the rows have 6, 3 and a few items of different widths).
+        auto from = keyCenters(keyRow_);
+        int x = from[static_cast<size_t>(std::clamp(keyCol_, 0, static_cast<int>(from.size()) - 1))];
+        keyRow_ += in.up ? -1 : 1;
+        auto to = keyCenters(keyRow_);
+        int best = 0;
+        for (int k = 1; k < static_cast<int>(to.size()); ++k)
+            if (std::abs(to[static_cast<size_t>(k)] - x) < std::abs(to[static_cast<size_t>(best)] - x)) best = k;
+        keyCol_ = best;
     } else if (in.left && keyCol_ > 0) {
         --keyCol_;
     } else if (in.right) {
@@ -2647,13 +2672,13 @@ void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
     c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));
     // The filters, two rows under the keys (over the fade): green when on;
     // the lists with a chevron.
-    const int kbW2 = kKeyCols * (kKeyW + kKeyGap) - kKeyGap, gap = 10, px = 18, fh = 50;
+    const int gap = kChipGap, px = 18, fh = 50;
     const int fy0 = kKeysY + (kKeyRows + 1) * (kKeyH + kKeyGap) + 6;
     Rect openChip{};
     for (int row = 0; row < 2; ++row) {
         auto chips = filterRow(row);
         int fy = fy0 + row * (fh + 10);
-        int chipW = (kbW2 - gap * (static_cast<int>(chips.size()) - 1)) / static_cast<int>(chips.size());
+        int chipW = chipWidth(static_cast<int>(chips.size()));
         for (size_t k = 0; k < chips.size(); ++k) {
             Filter f = chips[k];
             bool on = filterOn(f);
