@@ -7,3 +7,4 @@ account.json
 *.aus
 *.h264
 autoplay.txt
+__pycache__/
