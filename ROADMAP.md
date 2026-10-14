@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-14, after v0.9.5.
+Last update: 2026-10-14, after v0.9.5 (with a survey of other xCloud clients and PS5 homebrew).
 
 ## Now
 
@@ -179,6 +179,26 @@ is rolled back at the next start), then the app restarts itself
 | **next** "Report a problem" with a QR code | On error screens, in Settings and in the game menu: a QR code opens the GitHub bug form on the phone, filled in (version, firmware, the error, the log's error/warning lines and last lines, ~3 KB, filtered once more for private data). No token in the app; works with the PS5 offline | medium |
 | **next** Unexpected-close detection | The next start notices the last session didn't end normally and offers a report with the end of that session's log (what it was doing, not why it closed) | small |
 | **next** Region bypass (unsupported countries), opt-in | Built, to be checked on the console. Offered only where it is needed: when the xCloud login is refused (any 4xx answer, as Better xCloud), the error says the country may not be offered (or no Game Pass Ultimate: the service doesn't say which) and offers "Sign in as another country" (Square): a warning (Microsoft doesn't allow it, at your own risk, more delay), Off or one of Brazil, Japan, South Korea, Poland, United States, Cross. The login is then retried with `X-Forwarded-For` (Better xCloud's addresses), on that request only; the address is never logged. Refused again as a country: the error says it is probably the subscription. Off by default; changed later in Settings > Sign-in country (Options on that error opens it). Still to do: learn the refusal's exact answer with a secondary account | small |
+| **next** Homebrew store compatibility | Built (this PR), to be checked on the console. PSBox is listed on homebrew.page / ProsperoStore, whose updates replace the whole app folder (the old one goes to `/data/prosperostore/previous/PPSA99810`): the sign-in and settings now come back from there once. Release zips store every file as 0777 (the console refuses to start files that aren't: CE-107750-0; v0.9.5's were 644), and `tools/release.sh` checks it | small |
+| **next** Request pacing to Microsoft's services | Built (this PR). Five requests a second per `*.xboxlive.com` / `login.live.com` host at most, and nothing to a host for its `Retry-After` after an HTTP 429 (30 s at most): fewer bursts an account could be flagged for (as Nubix does) | small |
+| User data in `/download0` | The store's advice: user data outside the app folder survives any replacement of it (and an app on a USB drive). Console needed: is `/download0` writable under ShadowMountPlus, and where FTP sees it (logs, `autoplay.txt`, the tools). Then a one-time move with the old folder still read | small |
+| Real 120 Hz output | Declaring it in `param.json` isn't enough: `sceVideoOutIsOutputSupported` / `sceVideoOutConfigureOutput(handle, 15, ...)` switch the output (ProsperoLight, PS5MC), and only with the console set to 1440p output (PS5_Vulkan 252bf912). Our `attribute3` VRR bit (0x80000) is refused on some firmwares: 0x40 (120 Hz) + 0x40000 (VRR). Console needed | small |
+| VRR for the stream | `sceVideoOutVrrUnpegFromFixedRate` would absorb the 60 fps stream's jitter (ProsperoLight's "Paced + VRR"); needs an extended libSceVideoOut stub | medium |
+| Cloud playtime left | From November 2026 cloud play is capped each month (Ultimate 15 h, Premium 10 h, Essential 5 h). Show the hours left on Home and in the game menu, warn near the cap; find the endpoint xbox.com uses, and whether Remote Play of one's own Xbox counts (if not, point to it) | small–medium |
+| Catalog by Game Pass plan | Since October 2025 Essential and Premium include cloud gaming (1080p, smaller catalog). Mark which plan a game needs (the titles' program fields, as green-nx), a Ubisoft+ Classics row (as XStreaming) | small–medium |
+| Free play with ads | Microsoft's ad-supported offering (`xgpuwebf2p` login and sessions, its own list): play without a subscription, with the service's limits; the ads are never skipped (as green-nx, Nubix, XStreaming) | small–medium |
+| Re-test 1440p and 1080p HQ | Microsoft offers 1440p to Ultimate since Nov 2025 (on consoles since Feb 2026); our "refused" measures are from v0.4/v0.5. If granted, the hardware decoder matters again | tiny |
+| Lower audio latency, lost audio filled | The audio queue may reach 120 ms; Moonlight keeps 40–50 ms. Keep ~40 ms, fill lost packets with Opus' concealment / in-band FEC (offered already, never used) | small |
+| Unreliable input channel (protocol v9) | The official client sends input on an unordered channel, so a lost packet doesn't hold the ones after it; needs a capture of its frames | medium |
+| Controller the server stops hearing | After a lag spike the server may keep receiving the pad and ignore it (green-nx #61/#67): notice it and announce the pad again; don't resend an unchanged pad 125 times a second | small |
+| Bitrate cap, stream volume | A maximum bitrate (`b=AS` in the SDP) for Wi-Fi; game volume and boost in the game menu (Better xCloud, Greenlight, XStreaming) | small |
+| Network indicator and session summary | A small warning when the connection degrades, and a summary at the end (loss, delay, resolution), also in reports (Moonlight, GeForce NOW) | small |
+| Rejoin a running session | After a crash or restart, a game still running in the cloud is joined again instead of a new session (`/v5/sessions/cloud/active`, XStreaming) | small |
+| Rest mode | End the stream before the console sleeps; on resume refresh the sign-in, controllers and audio (`sceSystemServiceReceiveEvent`, ezRemote) | small |
+| Button remapping, gyro aim, touchpad mouse | Per-game profiles: remapping (Edge paddles too), the DualSense gyro as the right stick (JoyShockMapper-style), the touchpad as a mouse once keyboard & mouse are in | medium |
+| Favourites, queue time on cards, game language | A favourites row; the estimated queue time on a game's page before Play (`/v1/waittime/{titleId}`); the game's language apart from the app's | small |
+| Home-screen tile per game | The PS5 Forwarder Format (ProsperoLight): a tile that starts one cloud game directly | small |
+| Crash address in reports | The fault's offset in the code and a script that names the function (ProsperoLight / ProsperoEden), for the unexpected-close report | small |
 | USB keyboard & mouse + badges (v1.0+) | Some xCloud games accept native keyboard and mouse input; deferred to v1.0+ | medium |
 | Dedicated voice chat output routing | Route voice chat audio independently to DualSense controller speaker or headset while keeping game audio on TV (if xCloud exposes separate voice track) | medium |
 
@@ -188,8 +208,12 @@ is rolled back at the next start), then the app restarts itself
   server doesn't send.
 - **Higher tiers on this account**: 1080p HQ, 1440p, H.265, a Tizen-TV
   identity and `rateControlBitrateUpdate` were all refused by the service
-  (measured, see the v0.4.0 / v0.5.0 PRs). The app still asks for HQ.
+  (measured, see the v0.4.0 / v0.5.0 PRs). The app still asks for HQ. To re-test: since
+  Nov 2025 Microsoft offers 1440p to Ultimate (see Next).
 - **HDR**: xCloud doesn't stream HDR.
+- **Surround, frame generation, FSR 4**: xCloud's audio is stereo as far as
+  known; generated frames add delay; FSR 4 needs motion vectors and depth a
+  video stream doesn't have.
 
 ## Done
 

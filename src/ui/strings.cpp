@@ -249,8 +249,8 @@ constexpr Column kEnglish = {
     "Off (this console's)",                           // LoginCountryOff
     "Sign in as another country",                     // TryOtherCountry
     "xCloud will be told the sign-in comes from the chosen country. Microsoft doesn't allow this: use it at your own risk. Games may then come from servers far away, with more delay. You can change it later in Settings.", // LoginCountryWarning
-    "xCloud refused the sign-in. Cloud gaming may not be offered in your country, or the account may not have Game Pass Ultimate.", // RegionRefused
-    "xCloud refused the sign-in, even as %s. The account probably doesn't have Game Pass Ultimate.", // RegionRefusedAs
+    "xCloud refused the sign-in. Cloud gaming may not be offered in your country, or the account may not have a Game Pass plan with cloud gaming.", // RegionRefused
+    "xCloud refused the sign-in, even as %s. The account probably doesn't have a Game Pass plan with cloud gaming.", // RegionRefusedAs
     "Brazil",                                         // CountryBR
     "Japan",                                          // CountryJP
     "South Korea",                                    // CountryKR
@@ -475,8 +475,8 @@ constexpr Column kPortugueseBR = {
     "Desativado (o do console)",
     "Entrar como outro país",
     "O xCloud será informado de que o login vem do país escolhido. A Microsoft não permite isso: use por sua conta e risco. Os jogos podem vir de servidores distantes, com mais atraso. Dá para mudar depois em Configurações.",
-    "O xCloud recusou o login. O jogo na nuvem pode não ser oferecido no seu país, ou a conta pode não ter o Game Pass Ultimate.",
-    "O xCloud recusou o login, mesmo como %s. Provavelmente a conta não tem o Game Pass Ultimate.",
+    "O xCloud recusou o login. O jogo na nuvem pode não ser oferecido no seu país, ou a conta pode não ter um plano do Game Pass com jogos na nuvem.",
+    "O xCloud recusou o login, mesmo como %s. Provavelmente a conta não tem um plano do Game Pass com jogos na nuvem.",
     "Brasil",
     "Japão",
     "Coreia do Sul",
@@ -701,8 +701,8 @@ constexpr Column kSpanish = {
     "Desactivado (el de la consola)",
     "Entrar como otro país",
     "Se le dirá a xCloud que el inicio de sesión viene del país elegido. Microsoft no lo permite: úsalo bajo tu propio riesgo. Los juegos pueden venir de servidores lejanos, con más retraso. Puedes cambiarlo luego en Ajustes.",
-    "xCloud rechazó el inicio de sesión. Puede que el juego en la nube no se ofrezca en tu país o que la cuenta no tenga Game Pass Ultimate.",
-    "xCloud rechazó el inicio de sesión, incluso como %s. Probablemente la cuenta no tenga Game Pass Ultimate.",
+    "xCloud rechazó el inicio de sesión. Puede que el juego en la nube no se ofrezca en tu país o que la cuenta no tenga un plan de Game Pass con juego en la nube.",
+    "xCloud rechazó el inicio de sesión, incluso como %s. Probablemente la cuenta no tenga un plan de Game Pass con juego en la nube.",
     "Brasil",
     "Japón",
     "Corea del Sur",
@@ -927,8 +927,8 @@ constexpr Column kFrench = {
     "Désactivé (celui de la console)",
     "Se connecter depuis un autre pays",
     "xCloud sera informé que la connexion vient du pays choisi. Microsoft ne l'autorise pas : utilisez-le à vos risques. Les jeux peuvent alors venir de serveurs éloignés, avec plus de latence. Modifiable plus tard dans Paramètres.",
-    "xCloud a refusé la connexion. Le jeu dans le cloud n'est peut-être pas proposé dans votre pays, ou le compte n'a pas le Game Pass Ultimate.",
-    "xCloud a refusé la connexion, même en choisissant %s. Le compte n'a probablement pas le Game Pass Ultimate.",
+    "xCloud a refusé la connexion. Le jeu dans le cloud n'est peut-être pas proposé dans votre pays, ou le compte n'a pas d'abonnement Game Pass avec le jeu dans le cloud.",
+    "xCloud a refusé la connexion, même en choisissant %s. Le compte n'a probablement pas d'abonnement Game Pass avec le jeu dans le cloud.",
     "Brésil",
     "Japon",
     "Corée du Sud",
@@ -1153,8 +1153,8 @@ constexpr Column kGerman = {
     "Aus (das der Konsole)",
     "Als anderes Land anmelden",
     "xCloud wird mitgeteilt, dass die Anmeldung aus dem gewählten Land kommt. Microsoft erlaubt das nicht: Nutzung auf eigenes Risiko. Spiele kommen dann eventuell von weit entfernten Servern, mit mehr Verzögerung. Später in den Einstellungen änderbar.",
-    "xCloud hat die Anmeldung abgelehnt. Cloud Gaming wird in deinem Land vielleicht nicht angeboten, oder das Konto hat kein Game Pass Ultimate.",
-    "xCloud hat die Anmeldung abgelehnt, auch mit %s. Das Konto hat wahrscheinlich kein Game Pass Ultimate.",
+    "xCloud hat die Anmeldung abgelehnt. Cloud Gaming wird in deinem Land vielleicht nicht angeboten, oder das Konto hat kein Game-Pass-Abo mit Cloud Gaming.",
+    "xCloud hat die Anmeldung abgelehnt, auch mit %s. Das Konto hat wahrscheinlich kein Game-Pass-Abo mit Cloud Gaming.",
     "Brasilien",
     "Japan",
     "Südkorea",
@@ -1379,8 +1379,8 @@ constexpr Column kItalian = {
     "Disattivato (quello della console)",
     "Accedi come un altro paese",
     "A xCloud verrà detto che l'accesso arriva dal paese scelto. Microsoft non lo consente: usalo a tuo rischio. I giochi potrebbero arrivare da server lontani, con più ritardo. Puoi cambiarlo poi in Impostazioni.",
-    "xCloud ha rifiutato l'accesso. Il cloud gaming potrebbe non essere offerto nel tuo paese, oppure l'account non ha Game Pass Ultimate.",
-    "xCloud ha rifiutato l'accesso, anche scegliendo %s. Probabilmente l'account non ha Game Pass Ultimate.",
+    "xCloud ha rifiutato l'accesso. Il cloud gaming potrebbe non essere offerto nel tuo paese, oppure l'account non ha un abbonamento Game Pass con il cloud gaming.",
+    "xCloud ha rifiutato l'accesso, anche scegliendo %s. Probabilmente l'account non ha un abbonamento Game Pass con il cloud gaming.",
     "Brasile",
     "Giappone",
     "Corea del Sud",

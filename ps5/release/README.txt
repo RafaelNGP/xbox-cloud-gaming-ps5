@@ -6,9 +6,10 @@ browse the cloud catalog and stream games at 1080p60 with sound, using
 the DualSense as an Xbox controller. The picture is upscaled to 4K on
 the PS5's GPU (AMD FidelityFX FSR 1, or Anime4K).
 
-You need a Microsoft account; Game Pass Ultimate for most of the
-catalog. Free-to-play games stream without it once they are on your
-account (see "Free-to-play games").
+You need a Microsoft account and a Game Pass plan with cloud gaming
+(Essential and Premium up to 1080p with a smaller catalog, Ultimate the
+largest one). Free-to-play games stream without it once they are on
+your account (see "Free-to-play games").
 
 Unofficial project, not affiliated with, endorsed or sponsored by
 Microsoft or Sony.
@@ -33,8 +34,10 @@ Installation
 Updating: when a new version is out, the app offers it after sign-in
 ("Update now" / "Not now"; also in Settings > Updates). It downloads it,
 checks that it was signed by this project, installs it and restarts by
-itself; your sign-in and settings are kept. By hand: close the app and
-copy the new @TITLE_ID@ folder over the old one.
+itself; your sign-in and settings are kept. ProsperoStore's updates
+replace the whole folder; the app brings the sign-in and settings back
+from the copy the store keeps. By hand: close the app and copy the new
+@TITLE_ID@ folder over the old one.
 
 
 First launch

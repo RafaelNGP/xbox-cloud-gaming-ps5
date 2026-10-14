@@ -39,6 +39,15 @@ bool installRelease(const Release& release, const std::string& dir, const std::s
 // did), and removes what updates left behind.
 bool recoverUpdate(const std::string& dir);
 
+// After an update by ProsperoStore (the homebrew store): it replaces the
+// whole app folder and keeps the old one in `previousDir`
+// (/data/prosperostore/previous/PPSA99810), so the sign-in and settings
+// stayed there. When `dir` has no account.json, the user's files come back
+// from there (copied; the store keeps its folder). Once only: `dir`'s
+// store_import.done then says so, and a sign-out later doesn't bring the
+// old account back. True when some did.
+bool importStoreLeftovers(const std::string& dir, const std::string& previousDir);
+
 // --- The parts, for the tests ---------------------------------------------------
 
 // True when `sigDer` is a valid signature of `data` by `publicKeyPem`.

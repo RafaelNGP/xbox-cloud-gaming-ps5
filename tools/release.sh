@@ -79,6 +79,9 @@ ok "PS5 build linked"
 rm -rf "$out"
 mkdir -p "$out"
 env -u XC_INCLUDE_ACCOUNT XC_VERSION="$tag" tools/ps5/package.sh build-ps5 "$out" >/dev/null
+# Every file 0777 in the zip: the console won't start an app whose files
+# aren't (CE-107750-0), and installers such as ProsperoStore keep the modes.
+chmod -R 0777 "$out/PPSA99810"
 (cd "$out" && zip -qr PPSA99810.zip PPSA99810 && sha256sum PPSA99810.zip > PPSA99810.zip.sha256)
 sha=$(cut -d' ' -f1 "$out/PPSA99810.zip.sha256")
 ok "$out/PPSA99810.zip ($(du -h "$out/PPSA99810.zip" | cut -f1)), sha256 $sha"
@@ -90,6 +93,8 @@ ok "signed: $out/PPSA99810.zip.sig"
 echo "== checks in the package"
 zip=$out/PPSA99810.zip
 if unzip -Z1 "$zip" | grep -nE "$private"; then fail "a private file in the zip"; fi
+if zipinfo "$zip" | grep -E '^[-d]' | grep -v '^.rwxrwxrwx'; then fail "files in the zip without mode 0777"; fi
+ok "every entry mode 0777"
 ok "no private file ($(unzip -Z1 "$zip" | grep -vc '/$') files)"
 unzip -p "$zip" PPSA99810/README.txt | head -1 | grep -q "version $tag" || fail "README.txt is not at $tag"
 unzip -p "$zip" PPSA99810/sce_sys/param.json | grep -q "\"contentVersion\": \"$content\"" || fail "the packaged param.json is not $content"

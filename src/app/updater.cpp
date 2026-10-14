@@ -186,8 +186,9 @@ bool updatablePath(const std::string& path) {
         if (slash == std::string::npos) break;
         start = slash + 1;
     }
-    static const std::set<std::string> kUsers = {"account.json", "settings.json", "library.json", "prices.json",
-                                                 "xcloud.log",   "autoplay.txt",  "update.journal"};
+    static const std::set<std::string> kUsers = {"account.json", "settings.json",  "library.json",
+                                                 "prices.json",  "xcloud.log",     "autoplay.txt",
+                                                 "update.journal", "store_import.done", "settings.json.bad"};
     std::string top = path.substr(0, path.find('/'));
     return !kUsers.count(path) && top != "imgcache" && top.rfind("update.", 0) != 0 && path.find(".ppm") == std::string::npos;
 }
@@ -347,6 +348,22 @@ bool installRelease(const Release& release, const std::string& dir, const std::s
     removeTree(staged);
     XC_LOGI("update: %s installed", release.tag.c_str());
     return true;
+}
+
+bool importStoreLeftovers(const std::string& dir, const std::string& previousDir) {
+    std::string text;
+    const std::string done = dir + "/store_import.done";
+    if (!platform::readFile(previousDir + "/account.json", text) || platform::readFile(done, text)) return false;
+    // Signed in here already (the store's folder is older): never later.
+    bool signedIn = platform::readFile(dir + "/account.json", text);
+    platform::writeFileAtomic(done, "1\n");
+    if (signedIn) return false;
+    int copied = 0;
+    for (const char* name : {"account.json", "settings.json", "library.json", "prices.json"})
+        if (platform::readFile(previousDir + "/" + name, text) && platform::writeFileAtomic(dir + "/" + name, text))
+            ++copied;
+    XC_LOGI("store update: %d user file(s) brought back from the previous version's folder", copied);
+    return copied > 0;
 }
 
 bool recoverUpdate(const std::string& dir) {
