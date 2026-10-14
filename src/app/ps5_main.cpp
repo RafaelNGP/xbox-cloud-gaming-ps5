@@ -24,8 +24,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -73,9 +76,10 @@ void openReport(const std::string& what, bool previousSession, const std::string
     platform::readFile(platform::dataDir() + "/xcloud.log", logText);
     std::vector<std::string> privateWords = {g_ui->gamertag()};
     for (int i = 0; i < input::kMaxPads; ++i) privateWords.push_back(input::padUserName(i));
+    for (auto& name : g_ui->consoleNames()) privateWords.push_back(std::move(name));
     report::Info info;
     info.what = report::sanitize(what.empty() ? "Reported from Settings" : what, privateWords);
-    info.title = what.empty() ? "Problem report" : info.what.substr(0, 70);
+    info.title = what.empty() ? "Problem report" : report::shorten(info.what, 70);
     info.release = XC_APP_VERSION;
     info.firmware = platform::firmwareVersion();
     info.log = report::sanitize(report::logExcerpt(logText, previousSession), privateWords);
@@ -117,7 +121,7 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.sharpness = choice.sharpness;
         g_settings.deband = choice.deband;
         g_settings.upscaler = choice.upscaler;
-        if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
+        g_settings.save(settingsPath());  // warns itself
         XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
                 g_settings.region.empty() ? "auto" : g_settings.region.c_str());
     }
@@ -170,7 +174,13 @@ int main(int argc, char** argv) {
     // An update cut short: the old files went back, and the old eboot.bin
     // is the one to run.
     if (recoverUpdate(platform::dataDir())) platform::restartApp();
-    g_settings.load(settingsPath());
+    struct stat settingsStat;
+    if (!g_settings.load(settingsPath()) && ::stat(settingsPath().c_str(), &settingsStat) == 0) {
+        // Unreadable (cut short?): kept aside, not overwritten by the defaults.
+        std::string bad = settingsPath() + ".bad";
+        std::rename(settingsPath().c_str(), bad.c_str());
+        XC_LOGW("settings: %s could not be read; defaults used, the file kept as %s", settingsPath().c_str(), bad.c_str());
+    }
     ui::setLanguage(ui::languageFromCode(g_settings.language));
     XC_LOGI("settings: language %s, %s, region %s", g_settings.language.c_str(), g_settings.resolution.c_str(),
             g_settings.region.empty() ? "auto" : g_settings.region.c_str());
@@ -278,7 +288,10 @@ int main(int argc, char** argv) {
             // It couldn't start again by itself: closed, the next start is the new version.
             platform::notify(ui::tr(ui::Str::UpdateReopen), "update installed, restart failed: closing");
             platform::sleepMs(2000);
-            std::exit(0);
+            // Not std::exit: its destructors would free what the background
+            // threads still use (a crash, then a false "closed unexpectedly").
+            // The log is already on disk (flushed by line).
+            _exit(0);
         }
         input::poll(pad);
         autoplayPad(pad);
@@ -446,7 +459,7 @@ int main(int argc, char** argv) {
                 g_settings.librarySort = ev.librarySort == ui::LibrarySort::AZ        ? "az"
                                          : ev.librarySort == ui::LibrarySort::Console ? "console"
                                                                                        : "recent";
-                if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
+                g_settings.save(settingsPath());  // warns itself
                 XC_LOGI("prefs saved: %zu hidden, sort %s", g_settings.hidden.size(), g_settings.librarySort.c_str());
                 break;
             }
@@ -460,7 +473,7 @@ int main(int argc, char** argv) {
                     g_settings.perGame.erase(key);
                     XC_LOGI("per-game profile reset to default for %s (%s)", ev.game.name.c_str(), key.c_str());
                 }
-                if (!g_settings.save(settingsPath())) XC_LOGW("could not save settings");
+                g_settings.save(settingsPath());  // warns itself
                 break;
             }
             case ui::Action::SettingsChanged:

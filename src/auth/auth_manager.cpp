@@ -7,6 +7,7 @@
 #include "util/json.h"
 #include "util/log.h"
 
+#include <algorithm>
 #include <cstdio>
 
 namespace xc::auth {
@@ -87,7 +88,7 @@ bool AuthManager::deviceCodeSignIn(const DeviceCodeCallback& onCode, std::string
             case PollResult::Pending:
                 if (!pollErr.empty()) XC_LOGW("device code poll: %s", pollErr.c_str());
                 break;
-            case PollResult::SlowDown: interval += 5; break;
+            case PollResult::SlowDown: interval = std::min(interval + 5, 60); break;
             case PollResult::Expired: err = "the sign-in code expired; try again"; return false;
             case PollResult::Denied: err = "sign-in was declined"; return false;
             case PollResult::Error: err = pollErr; return false;

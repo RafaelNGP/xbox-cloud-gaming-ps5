@@ -6,6 +6,7 @@
 #include "util/json.h"
 #include "util/log.h"
 
+#include <algorithm>
 #include <ctime>
 
 namespace xc::auth {
@@ -58,8 +59,8 @@ bool MsaClient::startDeviceCode(DeviceCode& out, std::string& err) const {
     out.userCode = (*j)["user_code"].str();
     out.deviceCode = (*j)["device_code"].str();
     out.verificationUri = (*j)["verification_uri"].str("https://www.microsoft.com/link");
-    out.intervalSec = static_cast<int>((*j)["interval"].asInt(5));
-    out.expiresInSec = static_cast<int>((*j)["expires_in"].asInt(900));
+    out.intervalSec = static_cast<int>(std::clamp<int64_t>((*j)["interval"].asInt(5), 1, 60));
+    out.expiresInSec = static_cast<int>(std::clamp<int64_t>((*j)["expires_in"].asInt(900), 60, 3600));
     if (out.userCode.empty() || out.deviceCode.empty()) {
         err = "device code response missing fields";
         return false;
@@ -71,9 +72,13 @@ PollResult MsaClient::pollDeviceCode(const DeviceCode& dc, MsaTokens& out, std::
     auto r = postForm(kTokenUrl, {{"client_id", cfg_.clientId},
                                   {"device_code", dc.deviceCode},
                                   {"grant_type", "urn:ietf:params:oauth:grant-type:device_code"}});
-    if (r.status == 0) {
-        err = r.error;
-        return PollResult::Pending;  // transient network error: keep polling
+    if (r.status == 0 || r.status >= 500) {
+        err = describe(r);
+        return PollResult::Pending;  // the network or the service, for now: keep polling
+    }
+    if (r.status == 429) {
+        err = describe(r);
+        return PollResult::SlowDown;  // too many requests
     }
     auto j = json::parse(r.body);
     if (r.ok() && j && readTokens(*j, out)) return PollResult::Success;
@@ -92,7 +97,8 @@ bool MsaClient::refresh(const std::string& refreshToken, MsaTokens& out, std::st
                                   {"grant_type", "refresh_token"},
                                   {"refresh_token", refreshToken},
                                   {"scope", scope.empty() ? cfg_.scope : scope}});
-    if (networkError) *networkError = r.status == 0 || r.status >= 500;
+    // Throttled or timed out isn't a sign-in gone bad: the stored one stays.
+    if (networkError) *networkError = r.status == 0 || r.status >= 500 || r.status == 429 || r.status == 408;
     auto j = json::parse(r.body);
     if (!r.ok() || !j || !readTokens(*j, out)) {
         err = "token refresh failed: " + describe(r);

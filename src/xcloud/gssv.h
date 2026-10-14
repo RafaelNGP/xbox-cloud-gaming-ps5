@@ -84,6 +84,10 @@ enum class Resolution { P1080, P720, P1440, P1080HQ };
 // unknown one.
 const char* loginCountryAddress(const std::string& country);
 
+// For errors (and so the log): an answer's code and message fields only,
+// never the rest of its body (it may echo ids, addresses, SDP).
+std::string errorFields(const std::string& body);
+
 class GssvClient {
 public:
     // `offering` is "xgpuweb" (Game Pass cloud) or "xhome" (own console).

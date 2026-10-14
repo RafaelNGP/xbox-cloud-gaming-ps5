@@ -20,7 +20,7 @@ std::string encode(const std::string& s) {
     static const char* hex = "0123456789ABCDEF";
     std::string out;
     for (unsigned char c : s) {
-        if (std::isalnum(c) || std::strchr("-_.~:/@!$'()*,;", c)) out += static_cast<char>(c);
+        if (std::isalnum(c) || (c && std::strchr("-_.~:/@!$'()*,;", c))) out += static_cast<char>(c);
         else if (c == ' ') out += '+';
         else out += '%', out += hex[c >> 4], out += hex[c & 15];
     }
@@ -141,6 +141,13 @@ std::string issueUrl(const Info& info, size_t maxLength) {
         size_t nl = log.find('\n', log.compare(0, 4, "...\n") == 0 ? 4 : 0);
         log = nl == std::string::npos ? std::string() : "...\n" + log.substr(nl + 1);
     }
+}
+
+std::string shorten(const std::string& text, size_t maxBytes) {
+    if (text.size() <= maxBytes) return text;
+    size_t n = maxBytes;
+    while (n > 0 && (static_cast<unsigned char>(text[n]) & 0xC0) == 0x80) --n;  // a continuation byte
+    return text.substr(0, n);
 }
 
 }  // namespace xc::app::report

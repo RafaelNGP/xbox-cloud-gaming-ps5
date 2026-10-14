@@ -67,6 +67,12 @@ void shutdownTls();
 
 Response perform(const Request& req);
 
+// --- For the tests -------------------------------------------------------------
+// Answers every perform() instead of the network; empty: the network again.
+void setTestTransport(std::function<Response(const Request&)> transport);
+// A chunked body decoded; false on malformed framing.
+bool dechunk(const std::string& in, std::string& out);
+
 // Helpers.
 std::string urlEncode(const std::string& s);
 std::string formEncode(const std::vector<std::pair<std::string, std::string>>& fields);

@@ -11,6 +11,7 @@
 #include "xcloud/catalog.h"
 #include "xcloud/prices.h"
 
+#include <algorithm>
 #include <ctime>
 #include <map>
 
@@ -67,7 +68,9 @@ void priceLoop() {
     }
     cache = kept;
     if (!shown.empty()) g_ui->setPrices(shown);
+    uint64_t pauseMs = 0;  // after failed requests: 2 s, doubling to a minute
     while (!g_stopPrices) {
+        for (uint64_t slept = 0; slept < pauseMs && !g_stopPrices; slept += 300) platform::sleepMs(300);
         std::string market, language;
         {
             std::lock_guard<std::mutex> lock(g_priceMutex);
@@ -93,7 +96,18 @@ void priceLoop() {
         }
         std::map<std::string, xcloud::Price> got;
         std::string err;
-        if (!xcloud::fetchPrices(ids, market, language, got, err)) XC_LOGW("%s", err.c_str());
+        if (xcloud::fetchPrices(ids, market, language, got, err)) {
+            pauseMs = 0;
+        } else {
+            // Those without a price are asked for again, after a pause (not
+            // every game to buy marked asked in seconds while offline).
+            std::vector<std::string> again;
+            for (const auto& id : ids)
+                if (!got.count(id)) again.push_back(id);
+            g_ui->pricesFailed(again);
+            pauseMs = pauseMs ? std::min<uint64_t>(pauseMs * 2, 60000) : 2000;
+            XC_LOGW("%s (next try in %llu s)", err.c_str(), static_cast<unsigned long long>(pauseMs / 1000));
+        }
         std::map<std::string, ui::PriceInfo> texts;
         now = static_cast<int64_t>(std::time(nullptr));
         for (const auto& [id, p] : got) {
@@ -107,7 +121,7 @@ void priceLoop() {
         }
         if (!texts.empty()) {
             g_ui->setPrices(texts);
-            platform::writeFileAtomic(pricesPath(), cache.dump());
+            if (!platform::writeFileAtomic(pricesPath(), cache.dump())) XC_LOGW("prices: could not save the cache");
         }
     }
 }

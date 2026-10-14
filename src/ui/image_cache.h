@@ -42,6 +42,10 @@ private:
     struct Entry {
         std::shared_ptr<const Image> image;
         bool loading = false, failed = false;
+        // A failure that may pass (no answer, 5xx) is tried again from
+        // retryAt (ms), three times at most; a 4xx isn't.
+        int failures = 0;
+        uint64_t retryAt = 0;
         uint64_t lastUse = 0;
     };
     struct Job {

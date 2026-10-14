@@ -179,7 +179,9 @@ bool Settings::save(const std::string& path) const {
     }
     v.set("perGame", pg);
     v.set("settingsVersion", 2);
-    return platform::writeFileAtomic(path, v.dump());
+    if (platform::writeFileAtomic(path, v.dump())) return true;
+    XC_LOGW("settings: could not save %s", path.c_str());  // every caller's warning
+    return false;
 }
 
 }  // namespace xc::app

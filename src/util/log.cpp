@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RafaelNGP
 #include "util/log.h"
 
+#include <atomic>
 #include <cstdio>
 #include <ctime>
 #include <mutex>
@@ -10,7 +11,7 @@ namespace xc::log {
 
 namespace {
 std::mutex g_mutex;
-Level g_level = Level::Info;
+std::atomic<Level> g_level{Level::Info};
 FILE* g_file = nullptr;
 
 const char* tag(Level l) {
@@ -41,8 +42,10 @@ void write(Level level, const char* fmt, ...) {
     va_end(ap);
 
     std::time_t now = std::time(nullptr);
+    std::tm local{};
+    localtime_r(&now, &local);  // std::localtime's result is shared by every thread
     char ts[32];
-    std::strftime(ts, sizeof ts, "%H:%M:%S", std::localtime(&now));
+    std::strftime(ts, sizeof ts, "%H:%M:%S", &local);
 
     std::lock_guard<std::mutex> lock(g_mutex);
     std::fprintf(stderr, "%s [%s] %s\n", ts, tag(level), msg);

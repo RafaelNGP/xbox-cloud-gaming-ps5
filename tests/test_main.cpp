@@ -18,7 +18,10 @@
 #include "ui/stream_menu.h"
 #include "ui/strings.h"
 #include "util/json.h"
+#include "auth/msa.h"
+#include "ui/image_cache.h"
 #include "xcloud/gssv.h"
+#include "xcloud/titlehub.h"
 #include "xcloud/prices.h"
 #include "xcloud/regions.h"
 
@@ -600,6 +603,120 @@ static void testBuiltinCa() {
     xc::net::shutdownTls();
 }
 
+static void testPrivacyAndRobustness() {
+    // Error answers: their code and message only, never the rest.
+    std::string sdp = R"({"status":"failed","code":"Rejected","sdp":"c=IN IP4 203.0.113.7","candidate":"a=candidate:1"})";
+    std::string fields = xcloud::errorFields(sdp);
+    CHECK(fields.find("Rejected") != std::string::npos && fields.find("failed") != std::string::npos);
+    CHECK(fields.find("IP4") == std::string::npos && fields.find("candidate") == std::string::npos);
+    CHECK(xcloud::errorFields(R"({"errorDetails":{"code":"NoEntitlement","message":"m"}})").find("NoEntitlement") !=
+          std::string::npos);
+    CHECK(xcloud::errorFields("<html>203.0.113.7</html>").empty() && xcloud::errorFields("").empty());
+
+    // Numbers no int64_t holds: the default, not undefined behaviour.
+    CHECK(json::parse("1e400")->asInt(7) == 7 && json::parse("-1e30")->asInt(7) == 7 && json::parse("42")->asInt() == 42);
+
+    // Chunked bodies: well formed, and every kind of broken one refused.
+    std::string body;
+    CHECK(net::dechunk("4\r\nWiki\r\n5;x=1\r\npedia\r\n0\r\n\r\n", body) && body == "Wikipedia");
+    CHECK(!net::dechunk("zz\r\nab\r\n0\r\n\r\n", body));
+    CHECK(!net::dechunk("ffffffffffffffff\r\nab\r\n0\r\n\r\n", body));
+    CHECK(!net::dechunk("2\r\nabXX0\r\n\r\n", body));
+    CHECK(!net::dechunk("4\r\nWi", body));
+
+    // Report titles aren't cut inside a character; a NUL is encoded.
+    CHECK(app::report::shorten("Configura\xC3\xA7\xC3\xB5" "es", 11) == "Configura\xC3\xA7");
+    CHECK(app::report::shorten("Configura\xC3\xA7\xC3\xB5" "es", 10) == "Configura");
+    CHECK(app::report::shorten("short", 70) == "short");
+    app::report::Info info{"t", std::string("a\0b", 3), "1", "13.00", ""};
+    CHECK(app::report::issueUrl(info).find("a%00b") != std::string::npos);
+
+    // Sign-in: the service busy or throttling keeps the code polling and
+    // the stored sign-in; only a refused token drops it.
+    int status = 0;
+    std::string answer;
+    int calls = 0;
+    net::setTestTransport([&](const net::Request&) {
+        ++calls;
+        net::Response r;
+        r.status = status;
+        r.body = answer;
+        return r;
+    });
+    auth::MsaClient msa;
+    auth::DeviceCode dc;
+    dc.deviceCode = "code";
+    auth::MsaTokens tokens;
+    std::string err;
+    status = 503, answer = "<html>busy</html>";
+    CHECK(msa.pollDeviceCode(dc, tokens, err) == auth::PollResult::Pending);
+    status = 429;
+    CHECK(msa.pollDeviceCode(dc, tokens, err) == auth::PollResult::SlowDown);
+    status = 400, answer = R"({"error":"authorization_pending"})";
+    CHECK(msa.pollDeviceCode(dc, tokens, err) == auth::PollResult::Pending);
+    bool networkError = false;
+    status = 429, answer = "";
+    CHECK(!msa.refresh("r", tokens, err, {}, &networkError) && networkError);
+    status = 400, answer = R"({"error":"invalid_grant"})";
+    CHECK(!msa.refresh("r", tokens, err, {}, &networkError) && !networkError);
+
+    // A title list whose server always says "more" with the same token ends.
+    status = 200, answer = R"({"results":[{"titleId":"GAME1","details":{"productId":"P1"}}],"continuationToken":"same"})";
+    calls = 0;
+    xcloud::GssvClient gssv;
+    std::vector<xcloud::Title> titles;
+    CHECK(gssv.listTitles(titles, err) && calls == 2);
+    status = 200, answer = R"({"results":[],"continuationToken":"other"})";
+    calls = 0;
+    CHECK(gssv.listTitles(titles, err) && calls == 1);
+
+    // titlehub refusing every batch: an error after a few requests, not
+    // ~200 of them and every id marked unknown.
+    status = 400, answer = "{}";
+    calls = 0;
+    std::vector<std::string> ids;
+    for (int i = 0; i < 100; ++i) ids.push_back(std::to_string(1000 + i));
+    std::map<std::string, std::string> platforms;
+    CHECK(!xcloud::fetchPlatforms("auth", ids, platforms, err) && calls < 60 && platforms.size() <= 8);
+    net::setTestTransport({});
+
+    // Prices whose request failed are asked for again.
+    ui::Fonts fonts;
+    ui::ImageCache images([] {});
+    ui::AppUi app(fonts, images);
+    std::vector<ui::GameTile> toBuy(3);
+    for (int i = 0; i < 3; ++i) toBuy[i].productId = "BUY" + std::to_string(i), toBuy[i].purchasable = true, toBuy[i].playable = false;
+    app.setOwned({}, toBuy, true);
+    app.showHome();
+    auto first = app.pricesWanted(20, true);
+    CHECK(first.size() == 3 && app.pricesWanted(20, true).empty());
+    app.pricesFailed(first);
+    CHECK(app.pricesWanted(20, true).size() == 3);
+    // The user's console names, for keeping them out of reports.
+    ui::ConsoleTile console;
+    console.serverId = "F4000000AAAA";
+    console.name = "Living Room Xbox";
+    app.setConsoles({console}, true);
+    auto names = app.consoleNames();
+    CHECK(names.size() == 1 && names[0] == "Living Room Xbox");
+    CHECK(app::report::sanitize("starting Living Room Xbox", names).find("Living Room") == std::string::npos);
+
+    // An update whose old files can't all go back keeps them, and its
+    // journal, for the next start.
+    std::string dir = "/tmp/xcloud-rollback-test";
+    std::system(("rm -rf " + dir + " && mkdir -p " + dir + "/update.old " + dir + "/eboot.bin/busy").c_str());
+    xc::platform::writeFileAtomic(dir + "/update.old/eboot.bin", "old");
+    xc::platform::writeFileAtomic(dir + "/update.journal", "swapping\n");
+    app::recoverUpdate(dir);
+    std::string text;
+    CHECK(xc::platform::readFile(dir + "/update.old/eboot.bin", text) && text == "old");
+    CHECK(xc::platform::readFile(dir + "/update.journal", text));
+    std::system(("rm -rf " + dir).c_str());
+    // The same file twice in a package: refused.
+    std::vector<app::ZipEntry> files;
+    CHECK(!app::unzip(storedZip({{"PPSA99810/eboot.bin", "a"}, {"PPSA99810/eboot.bin", "b"}}), "PPSA99810/", files, err));
+}
+
 static void testAutoDeband() {
     using xc::app::debandForMbps;
     CHECK(debandForMbps(0.3, 1) == -1);  // starting or standing still: no measure
@@ -647,6 +764,7 @@ int main() {
     testCrashGuard();
     testBuiltinCa();
     testLoginCountry();
+    testPrivacyAndRobustness();
     testAudioEncoder();
     testAutoDeband();
     testControllerTuning();
