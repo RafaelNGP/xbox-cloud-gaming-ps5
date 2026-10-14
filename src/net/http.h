@@ -60,6 +60,16 @@ struct Url {
 bool initTls(const std::string& caBundlePath);
 // True when initTls() fell back to the built-in copy.
 bool usingBuiltinCa();
+
+// Why the last secure connection refused the server's certificate, until a
+// handshake succeeds again: the console's clock (the certificate isn't valid
+// at its date: expired or not yet), a certificate no trusted authority signed,
+// one for another name (both: something on the network answering for the
+// site), or another reason.
+enum class TlsProblem { None, Clock, Untrusted, NameMismatch, Other };
+TlsProblem lastTlsProblem();
+// The console's date, "2026-10-14" (for the messages about its clock).
+std::string todayText();
 // Trusts the certificates in this PEM file too (the update test's local
 // server); false when it holds none.
 bool addTrustedCa(const std::string& pemPath);
