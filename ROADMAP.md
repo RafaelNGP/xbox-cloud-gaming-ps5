@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-10, after v0.9.5.
+Last update: 2026-10-13, after v0.9.5.
 
 ## Now
 
@@ -175,6 +175,9 @@ is rolled back at the next start), then the app restarts itself
 
 | Item | Why | Size |
 | --- | --- | --- |
+| **next** Built-in certificates as a fallback | When `assets/cacert.pem` is missing or unreadable (an incomplete copy: #20, #38), secure connections fail and nothing works; a copy inside `eboot.bin` is used then, and the log says so (the install stays visibly broken in reports) | small |
+| **next** "Report a problem" with a QR code | On error screens, in Settings and in the game menu: a QR code opens the GitHub bug form on the phone, filled in (version, firmware, the error, the log's error/warning lines and last lines, ~3 KB, filtered once more for private data). No token in the app; works with the PS5 offline | medium |
+| **next** Unexpected-close detection | The next start notices the last session didn't end normally and offers a report with the end of that session's log (what it was doing, not why it closed) | small |
 | Region bypass & server selection (unsupported regions) | Allow users in countries without official Xbox Cloud Gaming support to start and stream sessions via `X-Forwarded-For` header injection (Better xCloud approach) and custom Azure server region selector in Settings, keeping WebRTC streaming direct with zero added latency | small |
 | USB keyboard & mouse + badges (v1.0+) | Some xCloud games accept native keyboard and mouse input; deferred to v1.0+ | medium |
 | Dedicated voice chat output routing | Route voice chat audio independently to DualSense controller speaker or headset while keeping game audio on TV (if xCloud exposes separate voice track) | medium |
