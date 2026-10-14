@@ -100,6 +100,7 @@ void loadAutoplay() {
         if (opt == "friendstest") g_autoplay.friendsTest = true;
         if (opt == "streammenutest") g_autoplay.streamMenuTest = true;
         if (opt == "regiontest") g_autoplay.regionTest = true;
+        if (opt == "tlscheck") g_autoplay.tlsCheck = true;
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }

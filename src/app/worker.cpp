@@ -12,6 +12,7 @@
 #include "app/updater.h"
 #include "auth/auth_manager.h"
 #include "media/audio_out.h"
+#include "net/http.h"
 #include "platform/platform.h"
 #include "ui/strings.h"
 #include "util/log.h"
@@ -476,6 +477,13 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
             // subscription).
             g_ui->showRegionRefused(country.empty() ? ui::tr(ui::Str::RegionRefused)
                                                     : ui::trf(ui::Str::RegionRefusedAs, ui::loginCountryName(country)));
+        } else if (net::lastTlsProblem() == net::TlsProblem::Clock) {
+            // The console's clock: a certificate isn't valid at its date (the
+            // log line above has the details).
+            g_ui->showError(ui::trf(ui::Str::ClockWrong, net::todayText()));
+        } else if (net::lastTlsProblem() == net::TlsProblem::Untrusted ||
+                   net::lastTlsProblem() == net::TlsProblem::NameMismatch) {
+            g_ui->showError(ui::tr(ui::Str::ConnectionIntercepted));
         } else {
             g_ui->showError(ui::trf(ui::Str::SignInFailed, err));
         }
@@ -603,6 +611,20 @@ void worker() {
         platform::startThread(t, runDecodeBench);
         t.join();
         for (;;) platform::sleepMs(1000);
+    }
+    if (g_autoplay.tlsCheck) {
+        // How refused certificates are told apart, on the console's own TLS.
+        static const char* kNames[] = {"none", "clock", "untrusted", "name mismatch", "other"};
+        for (const char* url : {"https://login.live.com/", "https://expired.badssl.com/", "https://self-signed.badssl.com/",
+                                "https://wrong.host.badssl.com/"}) {
+            net::Request req;
+            req.url = url;
+            auto r = net::perform(req);
+            XC_LOGI("tlscheck %s: status %d, problem %s; %s", url, r.status,
+                    kNames[static_cast<int>(net::lastTlsProblem())], r.error.c_str());
+        }
+        XC_LOGI("AUTOPLAY END: tls check (date %s)", net::todayText().c_str());
+        return;
     }
     auth::AuthManager am(platform::dataDir() + "/account.json");
     xcloud::GssvClient gssv, home("xhome");

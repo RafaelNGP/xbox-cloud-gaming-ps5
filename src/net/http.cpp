@@ -23,6 +23,8 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
+#include <ctime>
 #include <cctype>
 #include <cerrno>
 #include <cstdlib>
@@ -200,6 +202,19 @@ std::string g_initError;
 bool g_builtinCa = false;
 }
 
+std::atomic<int> g_tlsProblem{0};  // TlsProblem
+
+TlsProblem lastTlsProblem() { return static_cast<TlsProblem>(g_tlsProblem.load()); }
+
+std::string todayText() {
+    std::time_t now = std::time(nullptr);
+    std::tm utc{};
+    gmtime_r(&now, &utc);
+    char text[16];
+    std::strftime(text, sizeof text, "%Y-%m-%d", &utc);
+    return text;
+}
+
 bool usingBuiltinCa() {
     std::lock_guard<std::mutex> lock(g.mutex);
     return g_builtinCa;
@@ -318,9 +333,28 @@ Response performOnce(const Request& req) {
     mbedtls_ssl_set_bio(&ssl, &fd, bioSend, bioRecv, nullptr);
 
     while ((rc = mbedtls_ssl_handshake(&ssl)) != 0) {
-        if (rc != MBEDTLS_ERR_SSL_WANT_READ && rc != MBEDTLS_ERR_SSL_WANT_WRITE)
+        if (rc == MBEDTLS_ERR_SSL_WANT_READ || rc == MBEDTLS_ERR_SSL_WANT_WRITE) continue;
+        if (rc != MBEDTLS_ERR_X509_CERT_VERIFY_FAILED)
             return finish("TLS handshake with " + url.host + ": " + tlsError(rc));
+        // The certificate was refused: why (a wrong clock is the usual cause
+        // on a console; "Certificate verification failed" alone says nothing).
+        uint32_t flags = mbedtls_ssl_get_verify_result(&ssl);
+        TlsProblem problem = flags & (MBEDTLS_X509_BADCERT_EXPIRED | MBEDTLS_X509_BADCERT_FUTURE)
+                                 ? TlsProblem::Clock
+                             : flags & MBEDTLS_X509_BADCERT_CN_MISMATCH ? TlsProblem::NameMismatch
+                             : flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED ? TlsProblem::Untrusted
+                                                                        : TlsProblem::Other;
+        g_tlsProblem = static_cast<int>(problem);
+        char info[512];
+        int n = mbedtls_x509_crt_verify_info(info, sizeof info, "", flags);
+        std::string why = n > 0 ? std::string(info, static_cast<size_t>(n)) : "flags " + std::to_string(flags);
+        for (auto& c : why)
+            if (c == '\n') c = ';';
+        while (!why.empty() && (why.back() == ';' || why.back() == ' ')) why.pop_back();
+        return finish("TLS handshake with " + url.host + ": certificate refused (" + why + "; console date " +
+                      todayText() + ") " + tlsError(rc));
     }
+    g_tlsProblem = static_cast<int>(TlsProblem::None);
     tHandshake = platform::nowMs();
 
     // Request.

@@ -606,6 +606,36 @@ int main(int argc, char** argv) {
         }
         int seconds = pos.size() > 1 ? std::atoi(pos[1]) : 30;
         rc = cmdStream(am, pos[0], seconds > 0 ? seconds : 30, pos.size() > 2 ? pos[2] : nullptr, res, opts, region);
+    } else if (cmd == "tls-check" && argi < argc) {
+        // One GET: how a refused certificate is reported (the console's
+        // clock, an untrusted or misnamed certificate).
+        net::Request req;
+        req.url = argv[argi];
+        auto r = net::perform(req);
+        static const char* kProblems[] = {"none", "clock", "untrusted", "name mismatch", "other"};
+        std::printf("status %d, problem: %s, date %s\nerror: %s\n", r.status,
+                    kProblems[static_cast<int>(net::lastTlsProblem())], net::todayText().c_str(), r.error.c_str());
+        return 0;
+    } else if (cmd == "ui-tls" && argi < argc) {
+        // Offline: the sign-in errors for a refused certificate (the
+        // console's clock, something answering for Microsoft's sites).
+        ui::Fonts fonts;
+        if (!fonts.load("assets/fonts")) return 1;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+        ui::Canvas canvas(1920, 1080);
+        if (argi + 1 < argc) ui::setLanguage(ui::languageFromCode(argv[argi + 1]));
+        auto save = [&](const std::string& name) {
+            app.render(canvas, 1000);
+            std::string path = std::string(argv[argi]) + "/" + name + ".png";
+            stbi_write_png(path.c_str(), canvas.width(), canvas.height(), 4, canvas.data(), canvas.width() * 4);
+            std::printf("wrote %s\n", path.c_str());
+        };
+        app.showError(ui::trf(ui::Str::ClockWrong, "2021-03-01"));
+        save("tls_clock");
+        app.showError(ui::tr(ui::Str::ConnectionIntercepted));
+        save("tls_intercepted");
+        return 0;
     } else if (cmd == "ui-report" && argi < argc) {
         // Offline: #38's error screen (Triangle: report), its report's QR
         // code (a real link, from a made-up log), and Settings' hints.
