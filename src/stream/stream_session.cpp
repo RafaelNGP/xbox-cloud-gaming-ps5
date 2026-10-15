@@ -234,8 +234,10 @@ struct StreamSession::Impl {
         // a 1440p tier needs a 1440p one (the display itself is 4K).
         int w = opt.resolutionAlias == "1440" ? 2560 : 1920, h = opt.resolutionAlias == "1440" ? 1440 : 1080;
         json::Value dims = json::Value::object();
-        dims.set("horizontal", w);
-        dims.set("vertical", h);
+        // horizontal / vertical: the screen's physical size in millimetres,
+        // as the web client derives it (a 19" 16:9 panel's).
+        dims.set("horizontal", 423);
+        dims.set("vertical", 238);
         dims.set("preferredWidth", w);
         dims.set("preferredHeight", h);
         dims.set("safeAreaLeft", 0);
@@ -244,6 +246,17 @@ struct StreamSession::Impl {
         dims.set("safeAreaBottom", h);
         dims.set("supportsCustomResolution", true);
         sendText(message, messageEnvelope("/streaming/characteristics/dimensionschanged", dims));
+
+        // Last of the web client's handshake: the title isn't constrained.
+        json::Value constrain = json::Value::object();
+        constrain.set("constrain", false);
+        json::Value tx = json::Value::object();
+        tx.set("type", "TransactionStart");
+        tx.set("content", constrain.dump());
+        tx.set("id", uuid4());
+        tx.set("target", "/streaming/title/constrain");
+        tx.set("cv", "");
+        sendText(message, tx.dump());
     }
 
     void sendGamepadChanged(int index, bool added) {
