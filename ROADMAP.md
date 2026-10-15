@@ -187,26 +187,30 @@ is rolled back at the next start), then the app restarts itself
 - Search keyboard: up / down go to the item under the focused one.
 - Issues: rule-based triage (labels and one comment for known problems).
 
+### Stream robustness, 120 Hz, network warning, rest mode — done (v0.9.8)
+- Video: no more freeze of seconds after a burst of loss (the resync stopped at a frame with its own hole); a key frame asked again while none comes. Teardown: libdatachannel's callbacks cleared before the session goes. Audio: an empty packet no longer silences the rest of the session. The decoder no longer drops a packet it refused as full; microphone open/close serialized; per-frame error logs throttled.
+- Controller: an unchanged pad resent every 50 ms (not ~125/s); after the picture stalled 1.5 s the pads are announced again.
+- "Best" asks for 1440p exactly as xbox.com does (device info, session body, `/streaming/title/constrain`, physical size). The service still sends 1080p (H.264 4.2) at ~11–13 Mbps in motion; Tizen's "1080HQ" gave the same (p90 12.9 Mbps both): Microsoft's cap, not the request.
+- Jump back in: the account's own games too (bought, free-to-play), not only Game Pass.
+- Game page: the estimated wait to start the game beside Play (`/v1/waittime/{titleId}`).
+- 120 Hz output (VRR), off by default, in Settings and per game, only while a game streams (the menus stay at 60 Hz: OLED flicker). param.json `0x40 | 0x40000`; RADV patched (`tools/ps5/patches`): a VRR output's idle vblank isn't taken for 60 Hz (reported as mihawk-99/PS5_Mesa#4), and the output switches at a stream's start and end.
+- Network: "Unstable connection" while frames are lost, video stalls or the round trip jumps; a session summary at the end of each game (notification, log, reports).
+- Audio queue cut back to 40 ms past 60 ms (it held up to 120 ms); Settings: maximum bitrate (Auto / 20 / 15 / 10 / 5 Mbps) and game volume (25–150 %).
+- Rest mode: a stream reconnects on its own when the console wakes (tested); the crash guard no longer takes the suspended app for a stall.
+
 ## Next
 
 | Item | Why | Size |
 | --- | --- | --- |
-| Real 120 Hz output | Declaring it in `param.json` isn't enough: `sceVideoOutIsOutputSupported` / `sceVideoOutConfigureOutput(handle, 15, ...)` switch the output (ProsperoLight, PS5MC), and only with the console set to 1440p output (PS5_Vulkan 252bf912). Our `attribute3` VRR bit (0x80000) is refused on some firmwares: 0x40 (120 Hz) + 0x40000 (VRR). Console needed | small |
 | VRR for the stream | `sceVideoOutVrrUnpegFromFixedRate` would absorb the 60 fps stream's jitter (ProsperoLight's "Paced + VRR"); needs an extended libSceVideoOut stub | medium |
-| **next** Cloud playtime left | From November 2026 cloud play is capped each month (Ultimate 15 h, Premium 10 h, Essential 5 h). Source found (xbox.com/play): `GET contentaccess.exp.xboxservices.com/all/v1?market=..&offering=xgpuweb` with the `http://mp.microsoft.com/` XSTS (already used for the plan), protobuf answer: `remainingGameplayTimeInSeconds` / `maxGameplayTimeInSeconds` / monthly reset. A minimal protobuf reader, the hours left on Home and in the game menu, a warning near the end; and GSSV's `MonthlyLimitExceeded` (0x87DD043A) shown as such | small–medium |
+| **next** Cloud playtime left | From November 2026 cloud play is capped each month (Ultimate 15 h, Premium 10 h, Essential 5 h). Informational only: no lock in the app (more time can be bought); to build once Microsoft turns it on. Source found (xbox.com/play): `GET contentaccess.exp.xboxservices.com/all/v1?market=..&offering=xgpuweb` with the `http://mp.microsoft.com/` XSTS (already used for the plan), protobuf answer: `remainingGameplayTimeInSeconds` / `maxGameplayTimeInSeconds` / monthly reset. A minimal protobuf reader, the hours left on Home and in the game menu, a warning near the end; and GSSV's `MonthlyLimitExceeded` (0x87DD043A) shown as such | small–medium |
 | **next** Catalog by Game Pass plan | Rows and tabs show only what the account's plan plays; the search gets a **Plan** filter (My plan / Ultimate / Premium / Essential / All) to see what an upgrade or downgrade changes; other plans' games marked (badge, "Included with Game Pass Ultimate" on the page). Data already downloaded: catalog.gamepass.com v3 `PassMetadataByPassProductId` (full hydration): Essential `CFQ7TTC0K5DJ`, Premium `CFQ7TTC0P85B`, otherwise Ultimate (EA Play `CFQ7TTC0K5DH`, Ubisoft+ Classics, PC, day-one); Ultimate plays all, Premium plays Premium + Essential, Essential only Essential. The free-to-play list (87 games, BR) is open to every plan and to no plan, even the 34 also tagged with a plan (partly free: Halo Infinite, the Call of Duty launchers, Warzone; "Fortnite" tagged Ultimate next to the untagged "Fortnite Battle Royale"). Audit 2026-10-15, 894 cloud games: 126 Essential, 440 Premium, 328 Ultimate only. The plan itself comes from the store (v0.9.7). A non-Ultimate account is needed to check the default view | medium |
 | Free play with ads | Microsoft's ad-supported offering (`xgpuwebf2p` login and sessions, its own list): play without a subscription, with the service's limits; the ads are never skipped (as green-nx, Nubix, XStreaming) | small–medium |
-| Re-test 1440p and 1080p HQ | Microsoft offers 1440p to Ultimate since Nov 2025 (on consoles since Feb 2026); our "refused" measures are from v0.4/v0.5. If granted, the hardware decoder matters again | tiny |
 | Game Pass trial badge (later) | The store's answer says `isTrial`; a TRIAL mark next to the plan. Not now | small |
-| Lower audio latency, lost audio filled | The audio queue may reach 120 ms; Moonlight keeps 40–50 ms. Keep ~40 ms, fill lost packets with Opus' concealment / in-band FEC (offered already, never used) | small |
 | Unreliable input channel (protocol v9) | The official client sends input on an unordered channel, so a lost packet doesn't hold the ones after it; needs a capture of its frames | medium |
-| Controller the server stops hearing | After a lag spike the server may keep receiving the pad and ignore it (green-nx #61/#67): notice it and announce the pad again; don't resend an unchanged pad 125 times a second | small |
-| Bitrate cap, stream volume | A maximum bitrate (`b=AS` in the SDP) for Wi-Fi; game volume and boost in the game menu (Better xCloud, Greenlight, XStreaming) | small |
-| Network indicator and session summary | A small warning when the connection degrades, and a summary at the end (loss, delay, resolution), also in reports (Moonlight, GeForce NOW) | small |
-| Rejoin a running session | After a crash or restart, a game still running in the cloud is joined again instead of a new session (`/v5/sessions/cloud/active`, XStreaming) | small |
-| Rest mode | End the stream before the console sleeps; on resume refresh the sign-in, controllers and audio (`sceSystemServiceReceiveEvent`, ezRemote) | small |
 | Button remapping, gyro aim, touchpad mouse | Per-game profiles: remapping (Edge paddles too), the DualSense gyro as the right stick (JoyShockMapper-style), the touchpad as a mouse once keyboard & mouse are in | medium |
-| Favourites, queue time on cards, game language | A favourites row; the estimated queue time on a game's page before Play (`/v1/waittime/{titleId}`); the game's language apart from the app's | small |
+| Favourites, game language | A favourites row; the game's language apart from the app's | small |
+| Lost audio filled | Opus concealment / in-band FEC for lost audio packets: needs libopus (FFmpeg's own Opus decoder has neither) | small–medium |
 | Home-screen tile per game | The PS5 Forwarder Format (ProsperoLight): a tile that starts one cloud game directly | small |
 | Crash address in reports | The fault's offset in the code and a script that names the function (ProsperoLight / ProsperoEden), for the unexpected-close report | small |
 | USB keyboard & mouse + badges (v1.0+) | Some xCloud games accept native keyboard and mouse input; deferred to v1.0+ | medium |
@@ -218,11 +222,18 @@ is rolled back at the next start), then the app restarts itself
   server doesn't send.
 - **Higher tiers on this account**: 1080p HQ, 1440p, H.265, a Tizen-TV
   identity and `rateControlBitrateUpdate` were all refused by the service
-  (measured, see the v0.4.0 / v0.5.0 PRs). The app still asks for HQ. To re-test: since
-  Nov 2025 Microsoft offers 1440p to Ultimate (see Next).
+  (measured, see the v0.4.0 / v0.5.0 PRs). Re-tested 2026-10-15 with the
+  request exactly as xbox.com makes it: still 1920x1080 (H.264 4.2) at
+  ~11–13 Mbps in motion, the same with Tizen's 1080HQ. "Best" keeps asking
+  for 1440p for when Microsoft grants it.
 - **HDR**: xCloud doesn't stream HDR.
 - **1440p only for Ultimate**: not limited in the app; "Best" asks for the
   most and the service gives what the plan allows.
+- **Rejoin a running session after a crash**: `/v5/sessions/cloud/active`
+  answers 404 for cloud; the session can be reached again only with the
+  previous streaming token saved on the console. Not done: a session left
+  open after a crash could get in the way of the player's game, and the
+  in-game reconnect already covers a drop (2026-10-15).
 - **Surround, frame generation, FSR 4**: xCloud's audio is stereo as far as
   known; generated frames add delay; FSR 4 needs motion vectors and depth a
   video stream doesn't have.
