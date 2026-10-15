@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-14, v0.9.6.
+Last update: 2026-10-15, v0.9.7.
 
 ## Now
 
@@ -180,11 +180,17 @@ is rolled back at the next start), then the app restarts itself
 - Privacy and robustness: console names and raw service answers out of the log; sign-out clears the last account's library; the updater keeps its backup when a rollback fails; cut-short HTTP answers, 5xx/429 at sign-in, endless title paging, failed prices and images handled; request pacing to Microsoft's services; corrupt `settings.json` kept aside.
 - The firmware is read from the kernel (13.60, not 13.590.001).
 
+### Sign-in that stays, the console's clock, plan on the profile — done (v0.9.7)
+- The user's data (sign-in, settings, caches, log) lives in `/data/psbox`, outside the app's folder: uninstalling, reinstalling or updating from ProsperoStore keeps it; the first start moves it from older versions. A data folder that can't be written falls back and says so; a sign-in that can't be saved is told. The updater writes where the app runs (`appDir`).
+- Refused certificates are explained: the console's clock (expired / not yet valid, with the console's date) or something on the network answering for Microsoft's sites; a notification when the clock breaks some content even though sign-in works (#45).
+- Profile: a drawn gamerscore badge and the Game Pass plan (`GAME PASS [ULTIMATE]`) from the store service (`http://mp.microsoft.com/` XSTS, `entitlements/bulk`), "GAME PASS" from the titles otherwise.
+- Search keyboard: up / down go to the item under the focused one.
+- Issues: rule-based triage (labels and one comment for known problems).
+
 ## Next
 
 | Item | Why | Size |
 | --- | --- | --- |
-| User data in `/download0` | The store's advice: user data outside the app folder survives any replacement of it (and an app on a USB drive). Console needed: is `/download0` writable under ShadowMountPlus, and where FTP sees it (logs, `autoplay.txt`, the tools). Then a one-time move with the old folder still read | small |
 | Real 120 Hz output | Declaring it in `param.json` isn't enough: `sceVideoOutIsOutputSupported` / `sceVideoOutConfigureOutput(handle, 15, ...)` switch the output (ProsperoLight, PS5MC), and only with the console set to 1440p output (PS5_Vulkan 252bf912). Our `attribute3` VRR bit (0x80000) is refused on some firmwares: 0x40 (120 Hz) + 0x40000 (VRR). Console needed | small |
 | VRR for the stream | `sceVideoOutVrrUnpegFromFixedRate` would absorb the 60 fps stream's jitter (ProsperoLight's "Paced + VRR"); needs an extended libSceVideoOut stub | medium |
 | **next** Cloud playtime left | From November 2026 cloud play is capped each month (Ultimate 15 h, Premium 10 h, Essential 5 h). Source found (xbox.com/play): `GET contentaccess.exp.xboxservices.com/all/v1?market=..&offering=xgpuweb` with the `http://mp.microsoft.com/` XSTS (already used for the plan), protobuf answer: `remainingGameplayTimeInSeconds` / `maxGameplayTimeInSeconds` / monthly reset. A minimal protobuf reader, the hours left on Home and in the game menu, a warning near the end; and GSSV's `MonthlyLimitExceeded` (0x87DD043A) shown as such | small–medium |
