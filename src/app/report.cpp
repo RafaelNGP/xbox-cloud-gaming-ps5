@@ -112,11 +112,13 @@ std::string logExcerpt(const std::string& logText, bool previousSession, size_t 
         if (nl > at) lines.push_back(logText.substr(at, nl - at));
         at = nl + 1;
     }
-    // The first line (the version's start), warnings and errors, and the
+    // The first line (the version's start), warnings and errors, the game
+    // sessions' summaries, and the
     // last lines; in order, each once, each at most 160 characters.
     std::set<size_t> keep;
     for (size_t i = 0; i < lines.size(); ++i)
         if (i == 0 || lines[i].find("[E]") != std::string::npos || lines[i].find("[W]") != std::string::npos ||
+            lines[i].find("session summary:") != std::string::npos ||
             i + lastLines >= lines.size())
             keep.insert(i);
     std::string out;

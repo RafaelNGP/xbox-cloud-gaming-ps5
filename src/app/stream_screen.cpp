@@ -392,6 +392,10 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         } else if (showStats_ && seq) {
             ui::Canvas c = menu_.renderStats(info);
             display::setOverlay(c.data(), ui::StreamMenu::kStatsX, ui::StreamMenu::kStatsY, c.width(), c.height(), 200);
+        } else if (info.degraded) {
+            ui::Canvas c = menu_.renderWarning();
+            display::setOverlay(c.data(), ui::StreamMenu::kWarnRight - c.width(), ui::StreamMenu::kWarnY, c.width(),
+                                c.height(), 200);
         } else {
             display::setOverlay(nullptr, 0, 0, 0, 0, 0);
         }

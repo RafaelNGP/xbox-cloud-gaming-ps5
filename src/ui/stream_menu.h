@@ -21,6 +21,7 @@ struct StreamInfo {
     double fps = 0, mbps = 0, lossPct = 0, decodeMs = 0;
     double onScreenMs = 0;  // network arrival to on the TV (GPU path); 0 = unknown
     int width = 0, height = 0;  // of the decoded picture
+    bool degraded = false;      // frames lost / video stalled / round trip far up, in the last seconds
 };
 
 // Close: the menu went away (Circle, OPTIONS, or the Xbox button): a fresh key frame is asked for.
@@ -34,6 +35,8 @@ public:
     static constexpr int kMenuW = 620, kMenuH = 1064;
     static constexpr int kMenuX = 80, kMenuY = (1080 - kMenuH) / 2;
     static constexpr int kStatsX = 32, kStatsY = 28;
+    // The connection warning, alone (the statistics line off), top right.
+    static constexpr int kWarnRight = 1888, kWarnY = 28;
 
     explicit StreamMenu(const Fonts& fonts) : fonts_(fonts) {}
 
@@ -78,6 +81,8 @@ public:
 
     Canvas renderMenu(const StreamInfo& info) const;
     Canvas renderStats(const StreamInfo& info) const;
+    // "Unstable connection", on its own (when the statistics line is off).
+    Canvas renderWarning() const;
 
 private:
     enum Item {

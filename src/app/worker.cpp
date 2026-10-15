@@ -98,6 +98,16 @@ std::string stream(xcloud::GssvClient& gssv) {
     bool autoplayDone = false;
     int bestRtt = -1;  // lowest round trip seen: the region's latency
     int tallest = 0;   // the tallest picture seen (the probe's measure)
+    // The connection's state for the warning and the end-of-session summary:
+    // a second is bad when the jitter buffer dropped a frame (lost for good),
+    // no video arrived at all, or the round trip went far above the best seen.
+    // Not the frame rate: games send fewer frames in some scenes.
+    uint64_t degradedUntil = 0, lastTickAt = 0;
+    bool degradedLogged = false;
+    int reconnectsSeen = 0;
+    struct {
+        uint64_t seconds = 0, badSeconds = 0, kbps = 0, rttSum = 0, rttCount = 0;
+    } session;
     bool probeDone = !g_probing;
     auto recordProbe = [&] {
         probeDone = true;
@@ -170,6 +180,32 @@ std::string stream(xcloud::GssvClient& gssv) {
                 info.onScreenMs = st.displayAvgUs / 1000.0;
                 info.width = st.width;
                 info.height = st.height;
+                if (last.decodedFrames > 0) {  // once the picture is running
+                    uint64_t dropped = st.rtpDroppedFrames - last.rtpDroppedFrames;
+                    uint64_t now = platform::nowMs();
+                    // No video for a second; or the loop itself held up (a
+                    // reconnection blocks it) / a new session after a drop.
+                    bool stalled = st.videoFrames == last.videoFrames || (lastTickAt && now - lastTickAt > 2500) ||
+                                   player.reconnects() != reconnectsSeen;
+                    reconnectsSeen = player.reconnects();
+                    bool slow = st.rttMs > 0 && bestRtt > 0 && st.rttMs > bestRtt + 60;
+                    if (dropped || stalled || slow) {
+                        if (!degradedLogged)  // once per episode
+                            XC_LOGW("connection degraded: %llu frame(s) lost, %s, rtt %d ms (best %d)",
+                                    static_cast<unsigned long long>(dropped), stalled ? "no video for a second" : "video arriving",
+                                    st.rttMs, bestRtt);
+                        degradedLogged = true;
+                        degradedUntil = now + 3000;
+                        ++session.badSeconds;
+                    } else if (now >= degradedUntil) {
+                        degradedLogged = false;
+                    }
+                    info.degraded = now < degradedUntil;
+                    lastTickAt = now;
+                    ++session.seconds;
+                    session.kbps += st.rtpKbps;
+                    if (st.rttMs > 0) session.rttSum += static_cast<uint64_t>(st.rttMs), ++session.rttCount;
+                }
                 std::lock_guard<std::mutex> lock(g_infoMutex);
                 g_streamInfo = info;
                 ++g_infoSeq;
@@ -198,6 +234,21 @@ std::string stream(xcloud::GssvClient& gssv) {
         g_ui->setRegionLatency(rtt);
     }
     auto st = player.stats();
+    if (session.seconds >= 10) {
+        // The session in one line: the log (and so a report) and a notification.
+        double lossPct = st.rtpPackets + st.rtpLost ? 100.0 * (st.rtpLost - std::min(st.rtpRecovered, st.rtpLost)) /
+                                                          static_cast<double>(st.rtpPackets + st.rtpLost)
+                                                    : 0;
+        char details[160];
+        std::snprintf(details, sizeof details, "%llu min, %dp, %.1f Mbps, %.2f%% lost, %d ms",
+                      static_cast<unsigned long long>((session.seconds + 30) / 60), tallest,
+                      session.kbps / 1000.0 / static_cast<double>(session.seconds), lossPct,
+                      session.rttCount ? static_cast<int>(session.rttSum / session.rttCount) : -1);
+        XC_LOGI("session summary: %s; %llu s with a degraded connection, %llu frames lost, %llu recovered packets",
+                details, static_cast<unsigned long long>(session.badSeconds),
+                static_cast<unsigned long long>(st.rtpDroppedFrames), static_cast<unsigned long long>(st.rtpRecovered));
+        if (!autoplayDone || g_autoplay.title.empty()) platform::notify(ui::trf(ui::Str::SessionSummary, details), "session summary (notification)");
+    }
     // Ended before a single frame: the game never started (e.g. it closed on
     // the server); say so on the error screen instead of going back quietly.
     if (st.decodedFrames == 0 && !g_cancel && !autoplayDone) {

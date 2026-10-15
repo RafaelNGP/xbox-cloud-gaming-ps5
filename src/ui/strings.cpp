@@ -264,6 +264,8 @@ constexpr Column kEnglish = {
     "Estimated wait: %s min", // QueueMinutes
     "120 Hz output (VRR)", // HighRefresh
     "On (in games)", // HighRefreshOn
+    "Unstable connection", // ConnectionUnstable
+    "Session: %s", // SessionSummary
 };
 
 constexpr Column kPortugueseBR = {
@@ -498,6 +500,8 @@ constexpr Column kPortugueseBR = {
     "Espera estimada: %s min", // QueueMinutes
     "Saída 120 Hz (VRR)", // HighRefresh
     "Ativada (nos jogos)", // HighRefreshOn
+    "Conexão instável", // ConnectionUnstable
+    "Sessão: %s", // SessionSummary
 };
 
 constexpr Column kSpanish = {
@@ -732,6 +736,8 @@ constexpr Column kSpanish = {
     "Espera estimada: %s min", // QueueMinutes
     "Salida 120 Hz (VRR)", // HighRefresh
     "Activada (en los juegos)", // HighRefreshOn
+    "Conexión inestable", // ConnectionUnstable
+    "Sesión: %s", // SessionSummary
 };
 
 constexpr Column kFrench = {
@@ -966,6 +972,8 @@ constexpr Column kFrench = {
     "Attente estimée : %s min", // QueueMinutes
     "Sortie 120 Hz (VRR)", // HighRefresh
     "Activée (en jeu)", // HighRefreshOn
+    "Connexion instable", // ConnectionUnstable
+    "Session : %s", // SessionSummary
 };
 
 constexpr Column kGerman = {
@@ -1200,6 +1208,8 @@ constexpr Column kGerman = {
     "Geschätzte Wartezeit: %s Min.", // QueueMinutes
     "120-Hz-Ausgabe (VRR)", // HighRefresh
     "An (in Spielen)", // HighRefreshOn
+    "Instabile Verbindung", // ConnectionUnstable
+    "Sitzung: %s", // SessionSummary
 };
 
 constexpr Column kItalian = {
@@ -1434,6 +1444,8 @@ constexpr Column kItalian = {
     "Attesa stimata: %s min", // QueueMinutes
     "Uscita 120 Hz (VRR)", // HighRefresh
     "Attiva (nei giochi)", // HighRefreshOn
+    "Connessione instabile", // ConnectionUnstable
+    "Sessione: %s", // SessionSummary
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,
