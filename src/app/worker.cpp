@@ -44,7 +44,6 @@ void stopHydration() {
 // top tier), then asks for g_afterProbeAlias if not empty.
 bool g_probing = false;
 std::string g_afterProbeAlias;
-constexpr int64_t kReprobeSeconds = 7 * 24 * 3600;
 
 std::string formatWait(int seconds) {
     if (seconds < 0) return "...";
@@ -231,15 +230,12 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
             res = g_settings.resolution;
         }
         bool isBest = (res == "best" || res == "1440p");
-        // What each kind of stream can deliver is measured, not assumed: the
-        // first stream (and one a week) asks for the top tier and records
-        // the picture's height. The user's own Xbox always gets the top tier
-        // (it sends 1080p either way, at ~16 Mbps instead of ~9.5).
+        // "Best" asks for the top tier every time, nothing measured or
+        // remembered: the service gives what the plan and the game allow
+        // (1440p where it can, else 1080p). The user's own Xbox always gets
+        // the top tier (it sends 1080p either way, at ~16 Mbps instead of ~9.5).
         bool home = gssv.isHome();
-        int64_t now = auth::unixNow();
-        int known = home ? g_settings.maxHeightHome : g_settings.maxHeightCloud;
-        int64_t probed = home ? g_settings.probedHome : g_settings.probedCloud;
-        g_probing = g_autoplay.resolution.empty() && res != "720p" && (known == 0 || now - probed > kReprobeSeconds);
+        g_probing = false;
         g_afterProbeAlias.clear();
         g_tierPicked = false;
         xcloud::Resolution tier;
@@ -250,14 +246,10 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
                                        : xcloud::Resolution::P1080;
         else if (res == "720p")
             tier = xcloud::Resolution::P720;
-        else if (home || g_probing || (isBest && known >= 1440))
+        else if (home || isBest)
             tier = xcloud::Resolution::P1440;
-        else if (isBest)
-            tier = xcloud::Resolution::P1080HQ;
         else
             tier = xcloud::Resolution::P1080;
-        // A cloud probe goes back to what the user chose once measured.
-        if (g_probing && !home && !isBest) g_afterProbeAlias = "1080HQ";
         gssv.setResolution(tier);
         const xcloud::Region* region = gssv.session().defaultRegion();
         const std::string& wanted = regionName.empty() ? g_settings.region : regionName;
