@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 
 namespace xc::auth {
 
@@ -122,8 +123,81 @@ bool AuthManager::xboxChain(xcloud::GssvClient& gssv, std::string& err) {
         XC_LOGW("profile XSTS: %s", perr.c_str());
     }
 
+    fetchSubscription(user);
     if (!xstsToken(user, rp::kGssv, gssvXsts_, err)) return false;
     return gssv.login(gssvXsts_, err);
+}
+
+std::string subscriptionPlan(const std::string& body) {
+    // The store's entitlements for the Game Pass products, highest plan
+    // first (an Ultimate account also has the lower ones).
+    static const std::pair<const char*, const char*> kPlans[] = {
+        {"CFQ7TTC0KHS0", "Ultimate"}, {"CFQ7TTC0P85B", "Premium"}, {"CFQ7TTC0KGQ8", "PC"}, {"CFQ7TTC0K5DJ", "Essential"}};
+    auto j = json::parse(body);
+    if (!j) return {};
+    const auto& entitlements = (*j)["entitlements"];
+    for (const auto& [id, plan] : kPlans) {
+        std::string lower = id;
+        for (auto& ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        for (const auto& key : {std::string(id), lower}) {
+            const auto& e = entitlements[key];
+            if (!e.isObject()) continue;
+            std::string status = e["status"].str();
+            if (status == "Active" || (status.empty() && e["isSatisfyingEntitlement"].asBool())) return plan;
+        }
+    }
+    return {};
+}
+
+std::string subscriptionRenewal(const std::string& body, int64_t nowUnix) {
+    static const char* kIds[] = {"CFQ7TTC0KHS0", "CFQ7TTC0P85B", "CFQ7TTC0KGQ8", "CFQ7TTC0K5DJ"};
+    auto j = json::parse(body);
+    if (!j) return {};
+    for (const char* id : kIds) {
+        const auto& e = (*j)["entitlements"][id];
+        if (!e.isObject() || e["status"].str() != "Active") continue;
+        if (e["autoRenew"].asBool()) return "renews automatically";
+        // "2026-11-14T00:00:00Z" (or with fractions): the days left.
+        int y = 0, m = 0, d = 0;
+        if (std::sscanf(e["endDate"].str().c_str(), "%d-%d-%dT", &y, &m, &d) != 3) return "no auto-renew";
+        // Days since 1970-01-01 of that date (the PS5's libc has no timegm).
+        y -= m <= 2;
+        int64_t era = (y >= 0 ? y : y - 399) / 400, yoe = y - era * 400;
+        int64_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1, doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        int64_t days = era * 146097 + doe - 719468 - nowUnix / 86400;
+        return "no auto-renew, ends in " + std::to_string(std::max<int64_t>(days, 0)) + " day(s)";
+    }
+    return {};
+}
+
+void AuthManager::fetchSubscription(const XblToken& userToken) {
+    // What xbox.com shows on the profile: the store service's entitlements
+    // for the Game Pass products. Optional: a failure only leaves the plan
+    // unknown (the UI then shows "Game Pass" from the titles).
+    XblToken mp;
+    std::string err;
+    if (!xstsToken(userToken, rp::kMarketplace, mp, err)) {
+        XC_LOGW("subscription: store XSTS: %s", err.c_str());
+        return;
+    }
+    net::Request req;
+    req.method = "POST";
+    req.url = "https://emerald.xboxservices.com/xboxcomfd/entitlements/bulk?locale=en-US";
+    req.headers = {{"Authorization", mp.authorizationHeader()},
+                   {"Content-Type", "application/json"},
+                   {"X-MS-API-Version", "1.0"},
+                   {"MS-CV", "PSBoxProfile.1"}};
+    req.body = R"({"ProductIds":["CFQ7TTC0KHS0","CFQ7TTC0P85B","CFQ7TTC0K5DJ","CFQ7TTC0KGQ8"]})";
+    auto r = net::perform(req);
+    if (!r.ok()) {
+        XC_LOGW("subscription: entitlements: %s", r.status ? ("HTTP " + std::to_string(r.status)).c_str() : r.error.c_str());
+        return;
+    }
+    if (std::getenv("XC_DUMP_SUBSCRIPTION")) std::printf("%s\n", r.body.c_str());  // diagnostics (CLI)
+    profile_.subscription = subscriptionPlan(r.body);
+    std::string renewal = subscriptionRenewal(r.body, unixNow());
+    XC_LOGI("subscription: %s%s%s%s", profile_.subscription.empty() ? "none" : profile_.subscription.c_str(),
+            renewal.empty() ? "" : " (", renewal.c_str(), renewal.empty() ? "" : ")");
 }
 
 bool AuthManager::loginOffering(xcloud::GssvClient& other, std::string& err) const {

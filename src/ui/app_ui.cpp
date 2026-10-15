@@ -298,6 +298,19 @@ void AppUi::setProfile(const std::string& gamertag, const std::string& gamerpicU
     dirty_ = true;
 }
 
+void AppUi::setSubscription(const std::string& plan) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    subscription_ = plan;
+    dirty_ = true;
+}
+
+void AppUi::setMembership(bool member) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!subscription_.empty() && subscription_ != "GamePass") return;  // the plan is known
+    subscription_ = member ? "GamePass" : "";
+    dirty_ = true;
+}
+
 void AppUi::setRows(std::vector<GameRow> rows) {
     std::lock_guard<std::mutex> lock(mutex_);
     allRows_ = std::move(rows);
@@ -2138,6 +2151,17 @@ void AppUi::drawBackground(Canvas& c) {
 
 void AppUi::drawLogo(Canvas& c, float cx, float cy, float r) { drawBrandMark(c, cx, cy, r); }
 
+void AppUi::drawGamerscoreBadge(Canvas& c, float cx, float cy, float r) {
+    // A filled disc with a "G" cut out of it, drawn from shapes (a letter of
+    // the font never sits in the middle of a circle): a ring open at the
+    // upper right, and its bar from the centre to the ring.
+    c.fillCircle(cx, cy, r, kGray);
+    const float ring = r * 0.56f, t = r * 0.24f;
+    const float kGap = 0.95f;  // radians left open, above 3 o'clock
+    c.strokeArc(cx, cy, ring, t, 0.0f, 6.2832f - kGap, kBg);
+    c.line(cx + r * 0.05f, cy, cx + ring + t * 0.5f, cy, t, kBg);
+}
+
 void AppUi::drawTopBar(Canvas& c) {
     drawLogo(c, kMargin + 22, 72, 22);
     fonts_.semibold.draw(c, tr(Str::CloudGaming), kMargin + 64, 60, 22, kWhite);
@@ -2150,27 +2174,44 @@ void AppUi::drawTopBar(Canvas& c) {
         c.fillCircle(x + kAvatar / 2.0f, 72, kAvatar / 2.0f, kPanel);
     }
     if (!gamertag_.empty()) {
-        // The name, and the gamerscore under it (a "G" badge and the number,
-        // its thousands grouped as the language writes them).
-        bool score = !gamerscore_.empty();
+        // The name; under it the gamerscore (its badge and the number, the
+        // thousands grouped as the language writes them) and the Game Pass
+        // plan, right-aligned to the picture as the Xbox app shows them.
+        bool second = !gamerscore_.empty() || !subscription_.empty();
         int w = fonts_.semibold.measure(gamertag_, 22);
-        fonts_.semibold.draw(c, gamertag_, x - 16 - w, score ? 46 : 59, 22, kWhite);
-        if (score) {
+        fonts_.semibold.draw(c, gamertag_, x - 16 - w, second ? 44 : 59, 22, kWhite);
+        int right = x - 16;
+        constexpr int kLineY = 76, kLineH = 22, kLinePx = 17;
+        const float midY = kLineY + kLineH / 2.0f;
+        if (!subscription_.empty()) {
+            // "GAME PASS", and the plan in an outlined box when it is known
+            // ("GamePass": a member, the plan not known).
+            int left = right;
+            if (subscription_ != "GamePass") {
+                std::string plan = subscription_;
+                for (auto& ch : plan) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+                int pw = fonts_.bold.measure(plan, 11);
+                Rect box{right - pw - 10, static_cast<int>(midY) - 8, pw + 10, 16};
+                c.strokeRect(box, kGray, 1, 2);
+                fonts_.bold.draw(c, plan, box.x + 5, fonts_.bold.centeredY(box.y, box.h, 11), 11, kGray);
+                left = box.x - 6;
+            }
+            const char* gp = "GAME PASS";
+            int gw = fonts_.semibold.measure(gp, 14);
+            fonts_.semibold.draw(c, gp, left - gw, fonts_.semibold.centeredY(kLineY, kLineH, 14), 14, kGray);
+            right = left - gw - 16;
+        }
+        if (!gamerscore_.empty()) {
             std::string n;
             const char* sep = language() == Language::English ? "," : ".";
             for (size_t i = 0; i < gamerscore_.size(); ++i) {
                 if (i && (gamerscore_.size() - i) % 3 == 0) n += sep;
                 n += gamerscore_[i];
             }
-            int nw = fonts_.semibold.measure(n, 18);
-            int nx = x - 16 - nw;
-            fonts_.semibold.draw(c, n, nx, 76, 18, kGray);
-            float gx = nx - 14.0f, gy = 86.0f;
-            c.strokeCircle(gx, gy, 8.5f, 1.6f, kGray);
-            int gw = fonts_.bold.measure("G", 11);
-            int gxInt = static_cast<int>(std::round(gx)) - gw / 2;
-            int gyInt = fonts_.bold.centeredY(static_cast<int>(std::round(gy - 8.5f)), 17, 11);
-            fonts_.bold.draw(c, "G", gxInt, gyInt, 11, kGray);
+            int nw = fonts_.semibold.measure(n, kLinePx);
+            int nx = right - nw;
+            fonts_.semibold.draw(c, n, nx, fonts_.semibold.centeredY(kLineY, kLineH, kLinePx), kLinePx, kGray);
+            drawGamerscoreBadge(c, nx - 13.0f, midY, 8.5f);
         }
     }
 }

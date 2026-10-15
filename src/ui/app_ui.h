@@ -170,6 +170,13 @@ public:
     void showSignIn(const std::string& code, const std::string& url);
     // The signed-in account, top right; `gamerscore` (digits) under the name.
     void setProfile(const std::string& gamertag, const std::string& gamerpicUrl, const std::string& gamerscore = {});
+    // The account's Game Pass plan under the name ("Ultimate", "Premium",
+    // "Essential"...; "GamePass" for a member whose plan isn't known); empty
+    // for none (nothing shown).
+    void setSubscription(const std::string& plan);
+    // From the title list: a Game Pass member or not; only when the plan
+    // itself isn't known ("GamePass" or nothing).
+    void setMembership(bool member);
     std::string gamertag() const;  // for keeping it out of reports
     std::vector<std::string> consoleNames() const;  // the same: the user's names for their consoles
     // "Report a problem": a QR code of `url` (the GitHub bug form, filled
@@ -301,6 +308,7 @@ private:
     bool drawHero(Canvas& c, uint64_t nowMs, const std::string& url, bool details);
     void drawTopBar(Canvas& c);
     void drawLogo(Canvas& c, float cx, float cy, float r);
+    void drawGamerscoreBadge(Canvas& c, float cx, float cy, float r);
     void drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>& hints);
     void drawSpinner(Canvas& c, float cx, float cy, float r, uint64_t nowMs);
     void drawToast(Canvas& c, uint64_t nowMs);
@@ -394,7 +402,7 @@ private:
     bool dirty_ = true;
     std::string status_;
     std::string code_, codeUrl_;
-    std::string gamertag_, gamerpicUrl_, gamerscore_;
+    std::string gamertag_, gamerpicUrl_, gamerscore_, subscription_;
     std::vector<GameRow> rows_;
     int focusRow_ = 0;
     std::vector<int> focusCol_;

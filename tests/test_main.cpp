@@ -18,6 +18,7 @@
 #include "ui/stream_menu.h"
 #include "ui/strings.h"
 #include "util/json.h"
+#include "auth/auth_manager.h"
 #include "auth/msa.h"
 #include "ui/image_cache.h"
 #include "xcloud/gssv.h"
@@ -756,6 +757,27 @@ static void testMicrosoftHost() {
         CHECK(!net::microsoftHost(h));
 }
 
+static void testSubscriptionPlan() {
+    // The store's entitlements: the highest active Game Pass plan.
+    auto entry = [](const char* id, const char* status) {
+        return std::string("\"") + id + "\":{\"productId\":\"" + id + "\",\"isOwned\":true,\"status\":\"" + status + "\"}";
+    };
+    std::string all = "{\"entitlements\":{" + entry("CFQ7TTC0K5DJ", "Active") + "," + entry("CFQ7TTC0KHS0", "Active") + "," +
+                      entry("CFQ7TTC0P85B", "Active") + "}}";
+    CHECK(auth::subscriptionPlan(all) == "Ultimate");
+    CHECK(auth::subscriptionPlan("{\"entitlements\":{" + entry("CFQ7TTC0P85B", "Active") + "}}") == "Premium");
+    CHECK(auth::subscriptionPlan("{\"entitlements\":{" + entry("CFQ7TTC0KHS0", "Expired") + "," + entry("CFQ7TTC0K5DJ", "Active") + "}}") ==
+          "Essential");
+    CHECK(auth::subscriptionPlan("{\"entitlements\":{\"cfq7ttc0kgq8\":{\"isSatisfyingEntitlement\":true}}}") == "PC");
+    CHECK(auth::subscriptionPlan("{\"entitlements\":{}}").empty() && auth::subscriptionPlan("not json").empty());
+    // The log's renewal line: no date, only days left.
+    std::string renews = "{\"entitlements\":{\"CFQ7TTC0KHS0\":{\"status\":\"Active\",\"autoRenew\":true,\"endDate\":\"2026-11-14T00:00:00Z\"}}}";
+    CHECK(auth::subscriptionRenewal(renews, 1791504000) == "renews automatically");
+    std::string ends = "{\"entitlements\":{\"CFQ7TTC0KHS0\":{\"status\":\"Active\",\"autoRenew\":false,\"endDate\":\"2026-10-20T00:00:00.0000000Z\"}}}";
+    CHECK(auth::subscriptionRenewal(ends, 1792108800) == "no auto-renew, ends in 4 day(s)");  // from 2026-10-16
+    CHECK(auth::subscriptionRenewal("{\"entitlements\":{}}", 0).empty());
+}
+
 static void testHostPacer() {
     // Five a second per Microsoft host; other hosts never wait; a 429 holds
     // the host for its Retry-After (30 s at most).
@@ -825,6 +847,7 @@ int main() {
     testPrivacyAndRobustness();
     testStoreLeftovers();
     testHostPacer();
+    testSubscriptionPlan();
     testMicrosoftHost();
     testAudioEncoder();
     testAutoDeband();
