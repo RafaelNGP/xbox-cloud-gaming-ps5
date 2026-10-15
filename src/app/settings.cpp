@@ -84,6 +84,7 @@ bool Settings::load(const std::string& path) {
         p.triggerResistance = static_cast<int>(std::clamp<int64_t>(obj["triggerResistance"].asInt(triggerResistance), 0, 3));
         p.triggerPulses = obj["triggerPulses"].asBool(triggerPulses);
         p.circleConfirms = obj["circleConfirms"].asBool(circleConfirms);
+        p.highRefresh = obj["highRefresh"].asBool(highRefresh);
         perGame[id] = p;
     }
     return true;
@@ -102,6 +103,7 @@ GameProfile Settings::defaultProfile() const {
     p.triggerResistance = triggerResistance;
     p.triggerPulses = triggerPulses;
     p.circleConfirms = circleConfirms;
+    p.highRefresh = highRefresh;
     return p;
 }
 
@@ -177,6 +179,7 @@ bool Settings::save(const std::string& path) const {
         obj.set("triggerResistance", p.triggerResistance);
         obj.set("triggerPulses", p.triggerPulses);
         obj.set("circleConfirms", p.circleConfirms);
+        obj.set("highRefresh", p.highRefresh);
         pg.set(id, obj);
     }
     v.set("perGame", pg);

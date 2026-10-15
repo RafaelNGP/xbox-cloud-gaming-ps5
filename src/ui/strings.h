@@ -240,7 +240,7 @@ enum class Str {
     QueueSeconds,       // game page, beside Play: the service's estimated wait (%s: seconds)
     QueueMinutes,       // ... in minutes (%s)
     HighRefresh,        // Settings row: 119.88 Hz output
-    HighRefreshOn,      // ... its "on" choice (applies when the app starts again)
+    HighRefreshOn,      // ... its "on" choice (while a game streams; the menus stay at 60 Hz)
     Count
 };
 
