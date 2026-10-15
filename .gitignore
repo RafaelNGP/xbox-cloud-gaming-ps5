@@ -8,3 +8,6 @@ account.json
 *.h264
 autoplay.txt
 __pycache__/
+
+# Local notes (user feedback collected from Reddit): never in the repository.
+reddit/
