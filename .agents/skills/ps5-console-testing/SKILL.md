@@ -54,7 +54,7 @@ PS5_HOST=192.168.15.17 ./tools/ps5/deploy.sh build-ps5
 
 ## 4. Headless Autoplay Navigation & Screenshot Configuration
 
-The application supports automated scripted actions configured via `/data/homebrew/PPSA99810/autoplay.txt`.
+The application supports automated scripted actions configured via `/data/psbox/autoplay.txt` (the data folder since v0.9.7: logs and `.ppm` captures are there too).
 
 ### Format of `autoplay.txt`:
 ```text
@@ -91,7 +91,7 @@ from ftplib import FTP, error_perm, error_reply
 
 host = "192.168.15.17"
 port = 2121
-remote_dir = "/data/homebrew/PPSA99810"
+remote_dir = "/data/psbox"  # data folder (v0.9.7+): autoplay.txt, logs, captures
 
 ftp = FTP()
 ftp.connect(host, port, timeout=15)
@@ -143,7 +143,7 @@ from PIL import Image
 
 host = "192.168.15.17"
 port = 2121
-remote_dir = "/data/homebrew/PPSA99810"
+remote_dir = "/data/psbox"  # data folder (v0.9.7+): autoplay.txt, logs, captures
 out_dir = "/tmp/ps5_shots"
 os.makedirs(out_dir, exist_ok=True)
 
@@ -184,7 +184,7 @@ from ftplib import FTP, error_perm, error_reply
 ftp = FTP()
 ftp.connect("192.168.15.17", 2121, timeout=15)
 ftp.login()
-ftp.cwd("/data/homebrew/PPSA99810")
+ftp.cwd("/data/psbox")
 try:
     ftp.sendcmd("DELE autoplay.txt")
     print("Deleted autoplay.txt successfully.")

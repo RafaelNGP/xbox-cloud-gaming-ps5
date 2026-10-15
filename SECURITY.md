@@ -13,7 +13,8 @@ rather stay anonymous.
 ## Your account
 
 The app stores its Microsoft sign-in (a refresh token) in
-`/data/homebrew/PPSA99810/account.json` on the console. Treat that file like a
+`/data/psbox/account.json` on the console (before v0.9.7:
+`/data/homebrew/PPSA99810/account.json`). Treat that file like a
 password: never share it or attach it to an issue. If it may have leaked, sign
 out of all sessions at <https://account.microsoft.com/security> and sign in on
 the console again. The log (`xcloud.log`) contains no passwords or tokens.

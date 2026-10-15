@@ -74,7 +74,8 @@ ImageCache::ImageCache(std::function<void()> onReady, size_t budgetBytes, std::s
                        size_t diskBudgetBytes)
     : onReady_(std::move(onReady)), budget_(budgetBytes), diskDir_(std::move(diskDir)), diskBudget_(diskBudgetBytes) {
     if (!diskDir_.empty()) {
-        ::mkdir(diskDir_.c_str(), 0755);
+        ::mkdir(diskDir_.c_str(), 0777);  // like the data folder: removable over FTP too
+        ::chmod(diskDir_.c_str(), 0777);  // one made 0755 by an older version
         trimDisk();
     }
     threads_.resize(3);

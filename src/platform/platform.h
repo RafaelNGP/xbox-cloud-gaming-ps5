@@ -16,8 +16,15 @@ namespace xc::platform {
 bool init();
 void shutdown();
 
-// Writable directory for tokens, caches and logs (no trailing slash).
+// Writable directory for tokens, caches and logs (no trailing slash). On the
+// PS5 outside the app's folder, so uninstalling, reinstalling or a store
+// update keeps them.
 std::string dataDir();
+// What start-up did about the data folder (moved from the app's folder,
+// fell back...), for the log once it is open; empty when nothing.
+std::string dataDirNote();
+// The folder the app runs from (updates are installed there).
+std::string appDir();
 // Read-only directory with the bundled assets (fonts, certificates).
 std::string assetDir();
 // Read-only PEM bundle of trusted root certificates.

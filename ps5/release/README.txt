@@ -46,10 +46,12 @@ The app shows a code. On your phone or computer, open
 https://www.microsoft.com/link (or scan the QR code on screen) and enter
 that code. Your password is never typed on the console.
 
-The sign-in is saved in /data/homebrew/@TITLE_ID@/account.json. That
-file gives access to your Microsoft account: never share it, and never
-attach it to a bug report. Signing out (hold TOUCHPAD for 5 seconds
-on the home screen) deletes it.
+The sign-in is saved in /data/psbox/account.json (outside the app's
+folder since v0.9.7, so updating, reinstalling or uninstalling the app
+keeps it). That file gives access to your Microsoft account: never
+share it, and never attach it to a bug report. Signing out (hold
+TOUCHPAD for 5 seconds on the home screen) deletes it. To remove
+everything the app keeps, delete /data/psbox too.
 
 
 Controls
@@ -109,7 +111,7 @@ region, with the latency measured in your past sessions), the sticks'
 dead zone (raise it if a stick drifts), trigger vibration on or off,
 the light bar in the colour of the game in focus, and the confirm button (Cross, or Circle as on Japanese consoles: it
 then acts as Xbox A in games too). Saved in
-/data/homebrew/@TITLE_ID@/settings.json.
+/data/psbox/settings.json.
 
 
 
@@ -147,7 +149,7 @@ on xbox.com / in the Xbox app) and it appears in Your games.
 
 Problems
 --------
-The app writes a log to /data/homebrew/@TITLE_ID@/xcloud.log. It holds
+The app writes a log to /data/psbox/xcloud.log. It holds
 nothing of your account: no password, token, sign-in code, gamertag or
 PS5 user name. Attach it when you report a problem:
 https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/issues

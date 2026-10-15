@@ -31,7 +31,7 @@ Para qualquer alteração em arquivos de interface (`src/app_ui.cpp`, `src/app/a
    PS5_HOST=192.168.15.17 ./tools/ps5/deploy.sh build-ps5
    ```
 4. **Configurar teste autônomo (`autoplay.txt`)**:
-   - Enviar `/data/homebrew/PPSA99810/autoplay.txt` via FTP.
+   - Enviar `/data/psbox/autoplay.txt` via FTP (desde a v0.9.7 os dados do app, logs e capturas `.ppm` ficam em `/data/psbox`; o app continua instalado em `/data/homebrew/PPSA99810`).
    - **Regra obrigatória para testes de UI**: Sempre utilize o prefixo `AUTOTEST` (ex: `AUTOTEST 30 gamesettingstest`, `AUTOTEST 30 librarytest`, etc.) para testes de telas/modais sem streaming. NUNCA use nomes arbitrários no primeiro argumento que possam ser interpretados como IDs de jogos pelo loop de streaming (`worker.cpp`).
    - Remover capturas `.ppm` antigas antes de iniciar.
 5. **Iniciar a aplicação remotamente**:
@@ -44,7 +44,7 @@ Para qualquer alteração em arquivos de interface (`src/app_ui.cpp`, `src/app/a
    - Usar a ferramenta `view_file` para analisar visualmente a imagem gerada.
    - Verificar conformidade: clipping, centralização, padding, corte de texto, contraste e consistência de grade.
 7. **Limpeza e Restauração de Modo Interativo**:
-   - Excluir `/data/homebrew/PPSA99810/autoplay.txt` via FTP para que a aplicação não inicialize em modo autoplay caso o usuário queira usá-la interativamente.
+   - Excluir `/data/psbox/autoplay.txt` via FTP para que a aplicação não inicialize em modo autoplay caso o usuário queira usá-la interativamente.
    - Matar e reiniciar o app se for entregar o controle ao usuário:
      ```bash
      PS5_HOST=192.168.15.17 python3 ../PS5_Vulkan/tools/ps5_console.py kill PPSA99810
