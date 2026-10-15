@@ -637,6 +637,33 @@ int main(int argc, char** argv) {
         app.showError(ui::tr(ui::Str::ConnectionIntercepted));
         save("tls_intercepted");
         return 0;
+    } else if (cmd == "ui-profile" && argi < argc) {
+        // Offline: the account at the top right: name, gamerscore badge,
+        // Game Pass plan (and without a plan, and a long name).
+        ui::Fonts fonts;
+        if (!fonts.load("assets/fonts")) return 1;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+        ui::Canvas canvas(1920, 1080);
+        if (argi + 1 < argc) ui::setLanguage(ui::languageFromCode(argv[argi + 1]));
+        auto save = [&](const std::string& name) {
+            app.render(canvas, 1000);
+            std::string path = std::string(argv[argi]) + "/" + name + ".png";
+            stbi_write_png(path.c_str(), canvas.width(), canvas.height(), 4, canvas.data(), canvas.width() * 4);
+            std::printf("wrote %s\n", path.c_str());
+        };
+        app.showHome();
+        app.setProfile("PlayerOne", "", "173591");
+        app.setSubscription("Ultimate");
+        save("profile_ultimate");
+        app.setSubscription("GamePass");
+        save("profile_member");
+        app.setSubscription("");
+        save("profile_noplan");
+        app.setProfile("AVeryLongGamertag", "", "1250");
+        app.setSubscription("Essential");
+        save("profile_long");
+        return 0;
     } else if (cmd == "ui-report" && argi < argc) {
         // Offline: #38's error screen (Triangle: report), its report's QR
         // code (a real link, from a made-up log), and Settings' hints.

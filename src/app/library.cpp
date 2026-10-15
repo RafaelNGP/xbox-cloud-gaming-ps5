@@ -282,6 +282,7 @@ bool Library::loadCache() {
     for (const auto& [pid, xbox] : (*j)["xboxTitles"].members()) xboxTitleOf_[pid] = xbox.str();
     for (const auto& id : (*j)["freeInStore"].items()) freeInStore_.insert(id.str());
     for (const auto& t : (*j)["ownedTitles"].items()) ownedTitles_.insert(t.str());
+    gamePassMember_ = (*j)["gamePassMember"].asBool();
     for (const auto& p : (*j)["ownedProducts"].items()) ownedProducts_.insert(p.str());
     for (const auto& p : (*j)["gamePass"].items()) knownGamePass_.insert(p.str());
     owned_.clear();
@@ -312,6 +313,7 @@ void Library::saveCache() const {
     for (const auto& t : ownedTitles_) titles.push(t);
     for (const auto& p : ownedProducts_) prods.push(p);
     root.set("ownedTitles", titles);
+    root.set("gamePassMember", gamePassMember_);
     root.set("ownedProducts", prods);
     root.set("owned", itemsToJson(owned_));
     json::Value gamePass = json::Value::array();
@@ -480,7 +482,9 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
     std::set<std::string> ownedTitles, ownedProducts;
     std::vector<Item> mine;
     std::map<std::string, std::string> toBuy;  // productId -> titleId
+    bool member = false;
     for (const auto& t : titles) {
+        member |= t.hasEntitlement && t.viaSubscription;
         if (xcloud::isNonGameAddon(t.titleId)) continue;
         if (!t.productId.empty() && !t.xboxTitleId.empty()) xboxTitleOf_[t.productId] = t.xboxTitleId;
         if (t.isFreeInStore && !t.productId.empty()) freeInStore_.insert(t.productId);
@@ -519,6 +523,7 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
     purchasableSet_.clear();
     for (const auto& p : purchasable_) purchasableSet_.insert(p.first);
     ownershipKnown_ = true;
+    gamePassMember_ = member;
     sortOwned();
     saveCache();
     XC_LOGI("library: account can stream %zu titles; %zu outside Game Pass; %zu more to buy", ownedTitles_.size(),

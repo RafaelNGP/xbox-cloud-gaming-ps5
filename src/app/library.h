@@ -71,6 +71,9 @@ public:
     std::vector<ui::GameTile> librarySearchPool() const;
     // True once the account's games are known (from the cache or the service).
     bool ownedKnown() const { return ownershipKnown_; }
+    // The account streams games through a Game Pass plan (titles it has by
+    // a subscription's program, not bought nor free): its badge in the UI.
+    bool gamePassMember() const { return gamePassMember_; }
     // The background refresh of the lists: whether it runs, and (while
     // names come in) how far it is; total 0 = no measure yet.
     struct Progress {
@@ -109,6 +112,7 @@ private:
     std::vector<std::string> recent_;    // recently played product ids, newest first
     // The account (loadOwned() or the cache).
     bool ownershipKnown_ = false;
+    bool gamePassMember_ = false;
     bool ownershipFresh_ = false;            // the account's list of this start (not the cache's) is in
     std::set<std::string> knownGamePass_;    // the Game Pass catalog at the last start (cache)
     std::set<std::string> ownedTitles_, ownedProducts_;

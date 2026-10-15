@@ -549,6 +549,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     auto publish = [](const app::Library& lib) {
         g_ui->setRows(lib.rows());
         g_ui->setOwned(lib.owned(), lib.purchasable(), lib.ownedKnown());
+        g_ui->setSubscription(lib.gamePassMember() ? "GamePass" : "");
         g_ui->setSearchPools(lib.gamePassSearchPool(), lib.librarySearchPool());
         auto p = lib.progress();
         g_ui->setLoading(p.active, p.done, p.total);
@@ -656,6 +657,7 @@ void worker() {
                 g_ui->setRows({});
                 g_ui->setOwned({}, {}, false);
                 g_ui->setSearchPools({}, {});
+                g_ui->setSubscription("");
                 XC_LOGI("signed out: library and its cache cleared");
                 signInAndLoad(am, gssv);
                 loadConsoles(am, home);
