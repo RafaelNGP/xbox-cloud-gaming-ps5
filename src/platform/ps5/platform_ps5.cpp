@@ -3,6 +3,7 @@
 #include "platform/platform.h"
 #include "util/log.h"
 
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -41,11 +42,37 @@ std::string g_dataDir = "/data/homebrew/PPSA99810";
 std::atomic<int> g_netPool{-1};
 }
 
-bool init() {
-    // If running in /data/homebrew/PPSA99810 or /app0
+// True when files can be made in `dir` (made first if missing).
+bool writable(const std::string& dir) {
     struct stat st{};
-    if (::stat(g_dataDir.c_str(), &st) != 0) {
-        ::mkdir(g_dataDir.c_str(), 0777);
+    if (::stat(dir.c_str(), &st) != 0 && ::mkdir(dir.c_str(), 0777) != 0) return false;
+    std::string probe = dir + "/.write-test";
+    if (!writeFileAtomic(probe, "ok")) return false;
+    ::unlink(probe.c_str());
+    return true;
+}
+
+bool init() {
+    // The sign-in, settings and caches live in /data/homebrew/PPSA99810 (the
+    // app's own folder when installed there, kept apart from it on a USB
+    // drive). A folder the app can't write in (as an installer may leave
+    // it) would lose the sign-in at every start: then /data/psbox.
+    if (!writable(g_dataDir)) {
+        int err = errno;
+        const std::string fallback = "/data/psbox";
+        bool ok = writable(fallback);
+        XC_LOGW("data folder %s not writable (errno %d); %s", g_dataDir.c_str(), err,
+                ok ? ("using " + fallback).c_str() : "nor /data/psbox: nothing will be kept");
+        if (ok) {
+            // What can still be read there comes along (a folder that only
+            // refuses writes keeps the last sign-in).
+            for (const char* name : {"account.json", "settings.json"}) {
+                std::string text, mine;
+                if (readFile(g_dataDir + "/" + name, text) && !readFile(fallback + "/" + name, mine))
+                    writeFileAtomic(fallback + "/" + name, text);
+            }
+            g_dataDir = fallback;
+        }
     }
     // libSceNet's resolver: 32 KiB pool.
     int rc = sceNetInit();
