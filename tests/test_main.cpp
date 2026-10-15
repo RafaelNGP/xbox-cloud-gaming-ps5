@@ -770,6 +770,12 @@ static void testSubscriptionPlan() {
           "Essential");
     CHECK(auth::subscriptionPlan("{\"entitlements\":{\"cfq7ttc0kgq8\":{\"isSatisfyingEntitlement\":true}}}") == "PC");
     CHECK(auth::subscriptionPlan("{\"entitlements\":{}}").empty() && auth::subscriptionPlan("not json").empty());
+    // The log's renewal line: no date, only days left.
+    std::string renews = "{\"entitlements\":{\"CFQ7TTC0KHS0\":{\"status\":\"Active\",\"autoRenew\":true,\"endDate\":\"2026-11-14T00:00:00Z\"}}}";
+    CHECK(auth::subscriptionRenewal(renews, 1791504000) == "renews automatically");
+    std::string ends = "{\"entitlements\":{\"CFQ7TTC0KHS0\":{\"status\":\"Active\",\"autoRenew\":false,\"endDate\":\"2026-10-20T00:00:00.0000000Z\"}}}";
+    CHECK(auth::subscriptionRenewal(ends, 1792108800) == "no auto-renew, ends in 4 day(s)");  // from 2026-10-16
+    CHECK(auth::subscriptionRenewal("{\"entitlements\":{}}", 0).empty());
 }
 
 static void testHostPacer() {

@@ -149,6 +149,26 @@ std::string subscriptionPlan(const std::string& body) {
     return {};
 }
 
+std::string subscriptionRenewal(const std::string& body, int64_t nowUnix) {
+    static const char* kIds[] = {"CFQ7TTC0KHS0", "CFQ7TTC0P85B", "CFQ7TTC0KGQ8", "CFQ7TTC0K5DJ"};
+    auto j = json::parse(body);
+    if (!j) return {};
+    for (const char* id : kIds) {
+        const auto& e = (*j)["entitlements"][id];
+        if (!e.isObject() || e["status"].str() != "Active") continue;
+        if (e["autoRenew"].asBool()) return "renews automatically";
+        // "2026-11-14T00:00:00Z" (or with fractions): the days left.
+        std::tm end{};
+        if (std::sscanf(e["endDate"].str().c_str(), "%d-%d-%dT", &end.tm_year, &end.tm_mon, &end.tm_mday) != 3)
+            return "no auto-renew";
+        end.tm_year -= 1900;
+        end.tm_mon -= 1;
+        int64_t days = (static_cast<int64_t>(timegm(&end)) - nowUnix) / 86400;
+        return "no auto-renew, ends in " + std::to_string(std::max<int64_t>(days, 0)) + " day(s)";
+    }
+    return {};
+}
+
 void AuthManager::fetchSubscription(const XblToken& userToken) {
     // What xbox.com shows on the profile: the store service's entitlements
     // for the Game Pass products. Optional: a failure only leaves the plan
@@ -174,7 +194,9 @@ void AuthManager::fetchSubscription(const XblToken& userToken) {
     }
     if (std::getenv("XC_DUMP_SUBSCRIPTION")) std::printf("%s\n", r.body.c_str());  // diagnostics (CLI)
     profile_.subscription = subscriptionPlan(r.body);
-    XC_LOGI("subscription: %s", profile_.subscription.empty() ? "none" : profile_.subscription.c_str());
+    std::string renewal = subscriptionRenewal(r.body, unixNow());
+    XC_LOGI("subscription: %s%s%s%s", profile_.subscription.empty() ? "none" : profile_.subscription.c_str(),
+            renewal.empty() ? "" : " (", renewal.c_str(), renewal.empty() ? "" : ")");
 }
 
 bool AuthManager::loginOffering(xcloud::GssvClient& other, std::string& err) const {

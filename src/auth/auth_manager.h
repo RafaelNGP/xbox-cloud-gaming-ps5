@@ -30,6 +30,9 @@ struct Profile {
 
 // The Game Pass plan in an entitlements answer ("Ultimate"...; empty: none).
 std::string subscriptionPlan(const std::string& entitlementsJson);
+// For the log: whether that plan renews, or in how many days it ends (no
+// date: the log may go into public reports). Empty when unknown.
+std::string subscriptionRenewal(const std::string& entitlementsJson, int64_t nowUnix);
 
 class AuthManager {
 public:
