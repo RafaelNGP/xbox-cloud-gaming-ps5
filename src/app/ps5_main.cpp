@@ -285,13 +285,19 @@ int main(int argc, char** argv) {
             }
         }
         // A Microsoft service refused for the console's clock: said once, even
-        // if signing in worked (only some content then fails to load).
+        // if signing in worked (only some content then fails to load). Only
+        // for refusals while the app is in use: those of the sign-in (its
+        // error already says it, and the date may be fixed before Retry) are
+        // left behind; prices and images ask again on the home screen.
         static bool clockTold = false;
-        if (!clockTold && net::clockProblemSeen()) {
-            clockTold = true;
-            // Not over the sign-in error that already says it.
-            if (g_ui->screen() != ui::Screen::Error)
+        static unsigned clockSeen = 0;
+        if (!clockTold && net::clockRefusals() != clockSeen) {
+            clockSeen = net::clockRefusals();
+            ui::Screen now = g_ui->screen();
+            if (now == ui::Screen::Home || now == ui::Screen::Details || now == ui::Screen::Settings) {
+                clockTold = true;
                 platform::notify(ui::trf(ui::Str::ClockWrongNotice, net::todayText()), "the console's clock looks wrong (notification)");
+            }
         }
         if (g_restartWanted) {
             // After an update: the new version, started in place of this one.

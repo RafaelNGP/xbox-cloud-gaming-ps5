@@ -68,13 +68,14 @@ bool usingBuiltinCa();
 // site), or another reason.
 enum class TlsProblem { None, Clock, Untrusted, NameMismatch, Other };
 TlsProblem lastTlsProblem();
-// Since start, a Microsoft service (xboxlive.com, (s-)microsoft.com, live.com,
-// xbox.com, gamepass.com) refused for the clock: the console's date is
-// surely wrong, even when signing in still works (certificates renewed after
-// that date fail: prices, images, the user's consoles...). Kept for the whole
-// session.
-bool clockProblemSeen();
-// The hosts that count for clockProblemSeen().
+// How many times a Microsoft service (xboxlive.com, (s-)microsoft.com,
+// live.com, xbox.com, gamepass.com) refused for the clock since start: the
+// console's date is surely wrong, even when signing in still works
+// (certificates renewed after that date fail: prices, images, the user's
+// consoles...). A count, so a caller can tell new refusals from old ones (the
+// date may be fixed meanwhile).
+unsigned clockRefusals();
+// The hosts that count for clockRefusals().
 bool microsoftHost(const std::string& host);
 // The console's date, "2026-10-14" (for the messages about its clock).
 std::string todayText();
