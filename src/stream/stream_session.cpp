@@ -55,28 +55,6 @@ std::vector<std::string> midsInOrder(const std::string& sdp) {
     return mids;
 }
 
-// a=imageattr after every a=fmtp line: the largest picture we accept. The
-// xbox.com client adds "recv [x=[0:1920],y=[0:1080],fps=[0:60]]" to limit
-// devices that can't do 1440p; announcing 2560x1440 is what allows 1440p.
-std::string advertiseReceiveSize(const std::string& sdp, int w, int h) {
-    if (sdp.find("a=imageattr") != std::string::npos) return sdp;
-    std::string out;
-    size_t pos = 0;
-    while (pos < sdp.size()) {
-        size_t eol = sdp.find('\n', pos);
-        if (eol == std::string::npos) eol = sdp.size() - 1;
-        std::string line = sdp.substr(pos, eol - pos + 1);
-        out += line;
-        if (line.rfind("a=fmtp:", 0) == 0 && line.find("profile-level-id") != std::string::npos) {
-            std::string pt = line.substr(7, line.find(' ') - 7);
-            out += "a=imageattr:" + pt + " recv [x=[0:" + std::to_string(w) + "],y=[0:" + std::to_string(h) +
-                   "],fps=[0:60]]\r\n";
-        }
-        pos = eol + 1;
-    }
-    return out;
-}
-
 void initRtcLogging() {
     static std::once_flag once;
     std::call_once(once, [] {
@@ -122,6 +100,7 @@ struct StreamSession::Impl {
     std::string failReason;
 
     std::atomic<bool> open{false};
+    std::atomic<bool> resolutionPending{false};  // 1440: asked at the first video frame
     std::atomic<bool> closedNotified{false};
     std::atomic<uint32_t> inputSequence{1};
     uint64_t lastKeepaliveMs = 0;
@@ -209,7 +188,8 @@ struct StreamSession::Impl {
         // they're enabled; elsewhere the service ignores them and keeps what
         // it had (1080 at the start). The plain tier first, then: measured,
         // "720" switches in a few seconds, "720HQ" is ignored in Brazil.
-        std::string base = alias == "1440" ? "1080" : alias;
+        // 1440 alone, as the xbox.com client sends it (never 1080 before it).
+        std::string base = alias;
         if (base.size() > 2 && base.compare(base.size() - 2, 2, "HQ") == 0) base.resize(base.size() - 2);
         // The user's own Xbox offers every tier on any plan: just the one asked for.
         if (gssv.isHome()) base = alias;
@@ -254,8 +234,10 @@ struct StreamSession::Impl {
         // a 1440p tier needs a 1440p one (the display itself is 4K).
         int w = opt.resolutionAlias == "1440" ? 2560 : 1920, h = opt.resolutionAlias == "1440" ? 1440 : 1080;
         json::Value dims = json::Value::object();
-        dims.set("horizontal", w);
-        dims.set("vertical", h);
+        // horizontal / vertical: the screen's physical size in millimetres,
+        // as the web client derives it (a 19" 16:9 panel's).
+        dims.set("horizontal", 423);
+        dims.set("vertical", 238);
         dims.set("preferredWidth", w);
         dims.set("preferredHeight", h);
         dims.set("safeAreaLeft", 0);
@@ -264,6 +246,17 @@ struct StreamSession::Impl {
         dims.set("safeAreaBottom", h);
         dims.set("supportsCustomResolution", true);
         sendText(message, messageEnvelope("/streaming/characteristics/dimensionschanged", dims));
+
+        // Last of the web client's handshake: the title isn't constrained.
+        json::Value constrain = json::Value::object();
+        constrain.set("constrain", false);
+        json::Value tx = json::Value::object();
+        tx.set("type", "TransactionStart");
+        tx.set("content", constrain.dump());
+        tx.set("id", uuid4());
+        tx.set("target", "/streaming/title/constrain");
+        tx.set("cv", "");
+        sendText(message, tx.dump());
     }
 
     void sendGamepadChanged(int index, bool added) {
@@ -284,7 +277,12 @@ struct StreamSession::Impl {
         sendGamepadChanged(0, true);
         sendGamepadChanged(0, false);
         sendGamepadChanged(0, true);
-        if (!opt.resolutionAlias.empty()) sendResolution(opt.resolutionAlias);
+        // 1440 once the picture is running (the first video frame), as the
+        // xbox.com client sends it; the other tiers right away.
+        if (opt.resolutionAlias == "1440" && !gssv.isHome())
+            resolutionPending = true;
+        else if (!opt.resolutionAlias.empty())
+            sendResolution(opt.resolutionAlias);
 
 
         // One touch point, as the web client announces (touch is then turned
@@ -487,6 +485,7 @@ struct StreamSession::Impl {
         videoReceiver->addToChain(videoReporter);
         video->setMediaHandler(videoReceiver);
         video->onFrame([this](rtc::binary data, rtc::FrameInfo info) {
+            if (resolutionPending.exchange(false)) sendResolution(opt.resolutionAlias);
             if (cb.video) cb.video(reinterpret_cast<const uint8_t*>(data.data()), data.size(), info.timestamp);
         });
     }
@@ -519,7 +518,8 @@ struct StreamSession::Impl {
             return false;
         }
         std::string offer = std::string(*local);
-        if (opt.resolutionAlias == "1440") offer = advertiseReceiveSize(offer, 2560, 1440);
+        // No a=imageattr: the xbox.com client adds one only to *limit* a
+        // device to 1080p; a 1440p-capable one sends the plain offer.
         XC_LOGD("local offer:\n%s", offer.c_str());
         if (!gssv.sendSdpOffer(offer, err)) return false;
 

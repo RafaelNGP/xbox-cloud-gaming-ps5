@@ -64,10 +64,19 @@ const std::string& deviceInfo(Resolution res) {
         json::Value env = json::Value::object();
         env.set("clientAppId", "www.xbox.com");
         env.set("clientAppType", "browser");
-        env.set("clientAppVersion", "1.0.2609.0802");
-        env.set("clientSdkVersion", "10.6.62");
+        env.set("clientAppVersion", "1.0.2610.0201");
+        env.set("clientSdkVersion", "10.6.65");
         env.set("httpEnvironment", "prod");
-        env.set("sdkInstallId", "");
+        env.set("sdkInstallId", [] {  // filled in by the web client; random, per run (nothing of the console)
+            uint8_t b[16];
+            platform::randomBytes(b, sizeof b);
+            b[6] = static_cast<uint8_t>((b[6] & 0x0f) | 0x40);
+            b[8] = static_cast<uint8_t>((b[8] & 0x3f) | 0x80);
+            char id[37];
+            std::snprintf(id, sizeof id, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x", b[0], b[1],
+                          b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]);
+            return std::string(id);
+        }());
         json::Value app = json::Value::object();
         app.set("env", env);
         json::Value dims = json::Value::object();
@@ -426,6 +435,7 @@ bool GssvClient::startSession(const std::string& titleId, const std::string& loc
     json::Value settings = json::Value::object();
     settings.set("nanoVersion", "V3;WebrtcTransport.dll");
     settings.set("enableTextToSpeech", false);
+    settings.set("magnifier", false);
     settings.set("highContrast", 0);
     settings.set("locale", locale);
     settings.set("useIceConnection", false);
@@ -434,10 +444,20 @@ bool GssvClient::startSession(const std::string& titleId, const std::string& loc
     settings.set("osName", resolution_ == Resolution::P720       ? "android"
                            : resolution_ == Resolution::P1080HQ ? "tizen"
                                                                 : "windows");
+    settings.set("enableOptionalDataCollection", false);
 
     json::Value body = json::Value::object();
     bool home = offering_ == "xhome";
-    body.set("clientSessionId", "");
+    body.set("clientSessionId", [] {  // a new id per session, as the web client sends
+        uint8_t b[16];
+        platform::randomBytes(b, sizeof b);
+        b[6] = static_cast<uint8_t>((b[6] & 0x0f) | 0x40);
+        b[8] = static_cast<uint8_t>((b[8] & 0x3f) | 0x80);
+        char id[37];
+        std::snprintf(id, sizeof id, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x", b[0], b[1], b[2],
+                      b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]);
+        return std::string(id);
+    }());
     body.set("titleId", home ? "" : titleId);
     body.set("systemUpdateGroup", "");
     body.set("settings", settings);
