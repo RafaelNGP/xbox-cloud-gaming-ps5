@@ -125,6 +125,9 @@ public:
     bool sessionState(SessionStatus& out, std::string& err);
     // Estimated queue time in seconds while WaitingForResources (-1 unknown).
     int waitTimeSeconds();
+    // Before a session: the estimated wait to start `titleId` (xCloud title
+    // id), in seconds; -1 unknown.
+    int titleWaitSeconds(const std::string& titleId);
     // Required in ReadyToConnect for cloud sessions: an MSA token for the
     // console-transfer purpose (see AuthManager::consoleTransferToken).
     bool connect(const std::string& msaTransferToken, std::string& err);

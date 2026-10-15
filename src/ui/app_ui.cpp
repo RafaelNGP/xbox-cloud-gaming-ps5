@@ -599,6 +599,22 @@ std::string AppUi::detailWanted(uint64_t nowMs) {
     return detail_.productId;
 }
 
+std::string AppUi::queueWanted(uint64_t nowMs) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (screen_ != Screen::Details || !detail_.playable || detail_.purchasable || detail_.titleId.empty()) return {};
+    if (detail_.titleId == queueAskedFor_ && nowMs - queueAskedAt_ < 60000) return {};
+    queueAskedFor_ = detail_.titleId;
+    queueAskedAt_ = nowMs;
+    return detail_.titleId;
+}
+
+void AppUi::setQueueTime(const std::string& titleId, int seconds) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    queueTitle_ = titleId;
+    queueSeconds_ = seconds;
+    if (detail_.titleId == titleId) dirty_ = true;
+}
+
 void AppUi::setDetailInfo(const std::string& productId, const std::string& description, const std::string& publisher,
                           const std::vector<std::string>& categories, const std::string& heroUrl) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -3113,6 +3129,15 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     c.line(tx - 8, ty - 13, tx + 13, ty, 4, kWhite);
     c.line(tx - 8, ty + 13, tx + 13, ty, 4, kWhite);
     fonts_.semibold.draw(c, tr(Str::Play), play.x + 108, play.y + 20, 32, kWhite);
+    // The service's estimate of the wait to start it, beside Play.
+    if (queueTitle_ == g->titleId && queueSeconds_ >= 0) {
+        std::string wait = queueSeconds_ < 60 ? trf(Str::QueueSeconds, std::to_string(queueSeconds_))
+                                              : trf(Str::QueueMinutes, std::to_string((queueSeconds_ + 59) / 60));
+        int w = fonts_.regular.measure(wait, 26);
+        Rect pill{play.x + play.w + 32, play.y + 14, w + 44, 48};
+        c.fillRect(pill, rgba(0, 0, 0, 150), 24);  // readable over any hero art
+        fonts_.regular.draw(c, wait, pill.x + 22, pill.y + 10, 26, kWhite);
+    }
     drawHints(c, {{kIconCross, tr(Str::Play)},
                   {kIconOptions, tr(Str::GameSettings)},
                   {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},

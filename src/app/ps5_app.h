@@ -9,6 +9,7 @@
 #include "app/settings.h"
 #include "ui/app_ui.h"
 #include "ui/stream_menu.h"
+#include "xcloud/gssv.h"
 
 #include <atomic>
 #include <cstdint>
@@ -57,5 +58,8 @@ extern std::atomic<bool> g_restartWanted;
 // --- Store prices (price_loop.cpp) -----------------------------------------------
 void startPriceLoop();
 void setPriceMarket(const std::string& market, const std::string& language);
+// The signed-in xCloud client (a copy), for the open game page's queue
+// estimate; nullptr after signing out.
+void setQueueClient(const xcloud::GssvClient* gssv);
 
 }  // namespace xc::app
