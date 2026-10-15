@@ -113,7 +113,7 @@ struct SettingsChoice {
     int sharpness = 0;
     int deband = 3;
     int upscaler = 2;
-    bool highRefresh = false;  // 120 Hz output, from the next start
+    bool highRefresh = false;  // 120 Hz output while a game streams
 };
 
 // The largest stick dead zone Settings offers, in percent of the travel.

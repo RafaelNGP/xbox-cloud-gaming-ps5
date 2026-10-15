@@ -41,6 +41,12 @@ void setDeband(int level);
 void setUpscaler(int mode);
 // Anime4K Restore (S) before the upscale: cleans compression artefacts.
 void setRestore(bool on);
+// 119.88 Hz output on or back to 59.94 Hz while running (a game's stream
+// only); false when the driver can't (a RADV without the PSBox patch, or the
+// console refused). The swapchain stays as it is.
+bool setHighRefresh(bool on);
+// Whether setHighRefresh() can work at all (the patched RADV).
+bool canSwitchRefresh();
 // Before init(): swapchain images (2 = lowest latency, the default).
 void setSwapImages(int count);
 // Before init(): waiting for each frame to reach the screen before the next

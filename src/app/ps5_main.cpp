@@ -194,12 +194,15 @@ int main(int argc, char** argv) {
     // then), and RADV asks for it when the param.json it reads says so. Off
     // (the default: OLED TVs may flicker under VRR in the menus), RADV reads
     // one that doesn't. Decided once per start, as RADV opens VideoOut once.
-    if (!g_settings.highRefresh) {
+    // With the patched RADV the output starts at 60 Hz and each game's stream
+    // turns 120 Hz on (StreamScreen); without it, the setting decides here.
+    if (!g_settings.highRefresh || display::gpu::canSwitchRefresh()) {
         std::string path = platform::dataDir() + "/videoout-60hz.json";
         platform::writeFileAtomic(path, "{\"attribute3\": 0}\n");
         ::setenv("PS5_VIDEOOUT_PARAM_JSON", path.c_str(), 1);
     }
-    XC_LOGI("display: 120 Hz output %s", g_settings.highRefresh ? "on" : "off");
+    XC_LOGI("display: 120 Hz output %s", !g_settings.highRefresh ? "off"
+                                         : display::gpu::canSwitchRefresh() ? "in games" : "on");
 
     if (g_autoplay.vkTest) {
         bool ok = display::gpu::init();

@@ -30,6 +30,8 @@
 
 // RADV is linked in whole (no loader): its ICD entry point resolves the rest.
 extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance instance, const char* name);
+// RADV with tools/ps5/patches (weak: absent from an unpatched RADV).
+extern "C" int wsi_videoout_set_high_refresh(bool on) __attribute__((weak));
 
 namespace xc::display::gpu {
 
@@ -954,6 +956,16 @@ bool lastShown(uint64_t& id, uint64_t& atUs) {
     atUs = g_shownAtUs;
     return id != 0;
 }
+
+bool setHighRefresh(bool on) {
+    if (!wsi_videoout_set_high_refresh) return false;
+    int rc = wsi_videoout_set_high_refresh(on);
+    if (rc == 0) XC_LOGI("gpu: output at %s Hz", on ? "119.88" : "59.94");
+    else XC_LOGW("gpu: %s Hz refused (%d)", on ? "119.88" : "59.94", rc);
+    return rc == 0;
+}
+
+bool canSwitchRefresh() { return wsi_videoout_set_high_refresh != nullptr; }
 
 void setSwapImages(int count) { g_swapImages = static_cast<uint32_t>(std::clamp(count, 2, 5)); }
 

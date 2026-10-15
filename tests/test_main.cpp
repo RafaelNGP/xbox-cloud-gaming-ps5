@@ -314,6 +314,7 @@ static void testPerGameSettings() {
     CHECK(def.sharpness == 1 && def.deband == 2 && def.upscaler == 0);
     CHECK(def.deadzoneLeft == 12 && def.deadzoneRight == 18 && def.triggerStrength == 3);
     CHECK(!def.circleConfirms);
+    CHECK(!def.highRefresh);  // off unless chosen
 
     // Unknown games return default profile with hasCustom = false.
     bool hasCustom = true;
@@ -330,6 +331,7 @@ static void testPerGameSettings() {
     p1.deadzoneRight = 8;
     p1.triggerStrength = 1;
     p1.circleConfirms = true;
+    p1.highRefresh = true;
     s.perGame["GAME1"] = p1;
 
     // Now GAME1 returns custom profile, while GAME2 still returns defaults.
@@ -357,6 +359,7 @@ static void testPerGameSettings() {
     auto loadedP1 = reloaded.profileForGame("GAME1", "", &hasCustom);
     CHECK(hasCustom);
     CHECK(loadedP1.sharpness == 3 && loadedP1.upscaler == 3 && loadedP1.circleConfirms);
+    CHECK(loadedP1.highRefresh);
     CHECK(loadedP1.deadzoneLeft == 5 && loadedP1.deadzoneRight == 8 && loadedP1.triggerStrength == 1);
 
     // Remove game profile restores default.

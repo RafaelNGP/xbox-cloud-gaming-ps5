@@ -263,7 +263,7 @@ constexpr Column kEnglish = {
     "Estimated wait: %s s", // QueueSeconds
     "Estimated wait: %s min", // QueueMinutes
     "120 Hz output (VRR)", // HighRefresh
-    "On (after restarting the app)", // HighRefreshOn
+    "On (in games)", // HighRefreshOn
 };
 
 constexpr Column kPortugueseBR = {
@@ -497,7 +497,7 @@ constexpr Column kPortugueseBR = {
     "Espera estimada: %s s", // QueueSeconds
     "Espera estimada: %s min", // QueueMinutes
     "Saída 120 Hz (VRR)", // HighRefresh
-    "Ativada (ao reabrir o app)", // HighRefreshOn
+    "Ativada (nos jogos)", // HighRefreshOn
 };
 
 constexpr Column kSpanish = {
@@ -731,7 +731,7 @@ constexpr Column kSpanish = {
     "Espera estimada: %s s", // QueueSeconds
     "Espera estimada: %s min", // QueueMinutes
     "Salida 120 Hz (VRR)", // HighRefresh
-    "Activada (al reabrir la app)", // HighRefreshOn
+    "Activada (en los juegos)", // HighRefreshOn
 };
 
 constexpr Column kFrench = {
@@ -965,7 +965,7 @@ constexpr Column kFrench = {
     "Attente estimée : %s s", // QueueSeconds
     "Attente estimée : %s min", // QueueMinutes
     "Sortie 120 Hz (VRR)", // HighRefresh
-    "Activée (au redémarrage de l'app)", // HighRefreshOn
+    "Activée (en jeu)", // HighRefreshOn
 };
 
 constexpr Column kGerman = {
@@ -1199,7 +1199,7 @@ constexpr Column kGerman = {
     "Geschätzte Wartezeit: %s s", // QueueSeconds
     "Geschätzte Wartezeit: %s Min.", // QueueMinutes
     "120-Hz-Ausgabe (VRR)", // HighRefresh
-    "An (nach Neustart der App)", // HighRefreshOn
+    "An (in Spielen)", // HighRefreshOn
 };
 
 constexpr Column kItalian = {
@@ -1433,7 +1433,7 @@ constexpr Column kItalian = {
     "Attesa stimata: %s s", // QueueSeconds
     "Attesa stimata: %s min", // QueueMinutes
     "Uscita 120 Hz (VRR)", // HighRefresh
-    "Attiva (al riavvio dell'app)", // HighRefreshOn
+    "Attiva (nei giochi)", // HighRefreshOn
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,
