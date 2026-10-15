@@ -1,8 +1,8 @@
 From e1f8e11d8ccc80f91bd5a1f575b64aebe3b9acc3 Mon Sep 17 00:00:00 2001
 From: Rafael Abud Ferreira <rafaelferreira.dev3@gmail.com>
 Date: Thu, 15 Oct 2026 11:59:25 -0300
-Subject: [PATCH] wsi/videoout: a VRR 119.88 Hz output counts (its idle vblank
- is the VRR floor)
+Subject: [PATCH 1/2] wsi/videoout: a VRR 119.88 Hz output counts (its idle
+ vblank is the VRR floor)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
@@ -38,6 +38,67 @@ index 1f59ac2120e..2d6558e62e3 100644
              sceVideoOutConfigureOutput(out->handle, PS5_VIDEO_OUT_MODE_RESTORE, NULL, NULL, NULL);
              out->high_frame_rate = false;
              if (period == 0)
+-- 
+2.55.0
+
+
+From 993732cba5e66cf375619e74ad6105f8ba0b9d96 Mon Sep 17 00:00:00 2001
+From: Rafael Abud Ferreira <rafaelferreira.dev3@gmail.com>
+Date: Thu, 15 Oct 2026 12:38:29 -0300
+Subject: [PATCH 2/2] wsi/videoout: wsi_videoout_set_high_refresh, 119.88 Hz on
+ and off while the title runs
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/vulkan/wsi/wsi_common_videoout.c | 35 ++++++++++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/src/vulkan/wsi/wsi_common_videoout.c b/src/vulkan/wsi/wsi_common_videoout.c
+index 2d6558e62e3..46b83735269 100644
+--- a/src/vulkan/wsi/wsi_common_videoout.c
++++ b/src/vulkan/wsi/wsi_common_videoout.c
+@@ -441,6 +441,41 @@ wsi_videoout_set_flip_rate(int rate)
+    return result;
+ }
+ 
++PUBLIC int wsi_videoout_set_high_refresh(bool on);
++
++/* 119.88 Hz on the open output, or back to its default, while the title runs
++ * (a title that turns it on for some screens only). The title's param.json
++ * must declare it for the console to grant the mode. The swapchain stays as
++ * it was made; with the console's VRR on the display follows the flips.
++ * Returns VideoOut's answer: 0 done, -1 before the output is open, else the
++ * refusal (sceVideoOutIsOutputSupported's or ConfigureOutput's). */
++PUBLIC int
++wsi_videoout_set_high_refresh(bool on)
++{
++   call_once(&videoout_once, videoout_output_init_once);
++   mtx_lock(&videoout_output.lock);
++   struct wsi_videoout_output *out = &videoout_output;
++   int result = -1;
++   if (out->handle >= 0) {
++      if (on == out->high_frame_rate) {
++         result = 0;
++      } else if (on) {
++         const int supported =
++            sceVideoOutIsOutputSupported(out->handle, PS5_VIDEO_OUT_MODE_HIGH_FRAME_RATE, NULL, NULL, NULL);
++         result = supported > 0
++                     ? sceVideoOutConfigureOutput(out->handle, PS5_VIDEO_OUT_MODE_HIGH_FRAME_RATE, NULL, NULL, NULL)
++                     : (supported == 0 ? -2 : supported);
++         out->high_frame_rate = result == 0;
++      } else {
++         result = sceVideoOutConfigureOutput(out->handle, PS5_VIDEO_OUT_MODE_RESTORE, NULL, NULL, NULL);
++         if (result == 0)
++            out->high_frame_rate = false;
++      }
++   }
++   mtx_unlock(&videoout_output.lock);
++   return result;
++}
++
+ static void
+ videoout_settle_modes(void)
+ {
 -- 
 2.55.0
 

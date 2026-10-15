@@ -7,6 +7,7 @@
 #include "app/ps5_app.h"
 #include "app/stream_player.h"
 #include "display/display.h"
+#include "display/gpu.h"
 #include "media/audio_out.h"
 #include "platform/platform.h"
 #include "ui/strings.h"
@@ -122,6 +123,9 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         input::setTriggerFeel(prof.triggerStrength, prof.triggerHz, prof.triggerResistance, prof.triggerPulses);
         input::setCircleConfirms(prof.circleConfirms);
         if (g_ui) g_ui->setCircleConfirms(prof.circleConfirms);
+        // 120 Hz (VRR) for this game's stream only: the menus stay at 60 Hz
+        // (OLED TVs may flicker under VRR when little is drawn).
+        highRefresh_ = prof.highRefresh && display::gpu::setHighRefresh(true);
 
         media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
         if (g_player) {
@@ -189,6 +193,8 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     p.triggerResistance = g_settings.triggerResistance;
                     p.triggerPulses = g_settings.triggerPulses;
                     p.circleConfirms = circleConfirms_;
+                    auto had = g_settings.perGame.find(gameKey_);  // not set from this menu: kept
+                    p.highRefresh = had != g_settings.perGame.end() ? had->second.highRefresh : g_settings.highRefresh;
                     g_settings.perGame[gameKey_] = p;
                 } else {
                     g_settings.perGame.erase(gameKey_);
@@ -409,6 +415,8 @@ void StreamScreen::idle() {
         input::setTriggerFeel(g_settings.triggerStrength, g_settings.triggerHz, g_settings.triggerResistance, g_settings.triggerPulses);
         input::setCircleConfirms(g_settings.circleConfirms);
         if (g_ui) g_ui->setCircleConfirms(g_settings.circleConfirms);
+        if (highRefresh_) display::gpu::setHighRefresh(false);
+        highRefresh_ = false;
     }
 }
 

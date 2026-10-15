@@ -106,13 +106,15 @@ tools/ps5/link.sh build-ps5          # -> build-ps5/eboot.bin
 tools/ps5/package.sh build-ps5       # -> build-ps5/pkg/PPSA99810/
 ```
 
-**120 Hz output** (Settings, off by default) needs RADV with
-`tools/ps5/patches/mesa-videoout-vrr-120hz.patch`: with the console's VRR on, a
-120 Hz request becomes VRR 119.88 Hz, whose idle vblank (the TV's VRR floor,
-~48 Hz) the unpatched check takes for 60 Hz and undoes. Apply it to PS5_Mesa at
+**120 Hz output** (Settings and each game's settings, off by default; only while a
+game streams, the menus stay at 60 Hz) needs RADV with
+`tools/ps5/patches/mesa-videoout-vrr-120hz.patch` (two commits): with the console's
+VRR on, a 120 Hz request becomes VRR 119.88 Hz, whose idle vblank (the TV's VRR
+floor, ~48 Hz) the unpatched check takes for 60 Hz and undoes; and
+`wsi_videoout_set_high_refresh()` switches the open output at a stream's start and end. Apply it to PS5_Mesa at
 PS5_Vulkan's pinned revision on a local branch, then
 `PS5_MESA_REVISION=<that commit> tools/build-radv.sh release` in PS5_Vulkan. Without
-it the option simply stays at 59.94 Hz.
+it the option stays at 59.94 Hz (or, turned on in Settings, applies to the whole app from its next start).
 
 A release is built, signed and checked with `tools/release.sh <X.Y.Z>`
 (see the script's header); it publishes nothing. The signing key stays with

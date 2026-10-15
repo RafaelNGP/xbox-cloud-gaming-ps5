@@ -1146,6 +1146,7 @@ void AppUi::openGameSettings() {
         activeGameProfile_.triggerResistance = settings_.triggerResistance;
         activeGameProfile_.triggerPulses = settings_.triggerPulses;
         activeGameProfile_.circleConfirms = settings_.circleConfirms;
+        activeGameProfile_.highRefresh = settings_.highRefresh;
     }
 }
 
@@ -1831,7 +1832,7 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
         handleTester(in);
         return;
     }
-    int rowCount = activeGameHasCustom_ ? 9 : 8;
+    int rowCount = activeGameHasCustom_ ? 10 : 9;
     if (in.up) {
         gameSettingsRow_ = (gameSettingsRow_ + rowCount - 1) % rowCount;
         dirty_ = true;
@@ -1888,6 +1889,11 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             break;
         case 7: // Confirm button
             activeGameProfile_.circleConfirms = !activeGameProfile_.circleConfirms;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        case 8: // 120 Hz output (VRR)
+            activeGameProfile_.highRefresh = !activeGameProfile_.highRefresh;
             activeGameHasCustom_ = true;
             dirty_ = true;
             break;
@@ -1953,7 +1959,12 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             activeGameHasCustom_ = true;
             dirty_ = true;
             break;
-        case 8: // Reset to default
+        case 8:
+            activeGameProfile_.highRefresh = !activeGameProfile_.highRefresh;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        case 9: // Reset to default
             activeGameHasCustom_ = false;
             activeGameProfile_.sharpness = settings_.sharpness;
             activeGameProfile_.deband = settings_.deband;
@@ -1966,6 +1977,7 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             activeGameProfile_.triggerResistance = settings_.triggerResistance;
             activeGameProfile_.triggerPulses = settings_.triggerPulses;
             activeGameProfile_.circleConfirms = settings_.circleConfirms;
+            activeGameProfile_.highRefresh = settings_.highRefresh;
             gameSettingsRow_ = 0;
             dirty_ = true;
             break;
@@ -3610,10 +3622,10 @@ void AppUi::drawGameSettings(Canvas& c) {
             title = title + "  \xE2\x80\xA2  " + cut + "...";
         }
     }
-    constexpr int kModalW = 1140, kModalH = 740;
+    constexpr int kModalW = 1140, kModalH = 800;
     Rect panel = drawModal(c, kModalW, kModalH, title);
 
-    int rowCount = activeGameHasCustom_ ? 9 : 8;
+    int rowCount = activeGameHasCustom_ ? 10 : 9;
     constexpr int kRowH = 52, kGap = 8;
     int y = panel.y + 110;
 
@@ -3625,7 +3637,7 @@ void AppUi::drawGameSettings(Canvas& c) {
 
         int ty = fonts_.semibold.centeredY(r.y, r.h, 26);
 
-        if (i == 8) {
+        if (i == 9) {
             const char* resetLabel = tr(Str::ResetToDefault);
             int tw = fonts_.semibold.measure(resetLabel, 26);
             fonts_.semibold.draw(c, resetLabel, r.x + (r.w - tw) / 2, ty, 26, focused ? kWhite : rgba(240, 100, 100));
@@ -3678,6 +3690,10 @@ void AppUi::drawGameSettings(Canvas& c) {
         }
         case 7:
             label = tr(Str::ConfirmButton);
+            break;
+        case 8:
+            label = tr(Str::HighRefresh);
+            value = tr(activeGameProfile_.highRefresh ? Str::HighRefreshOn : Str::Deactivated);
             break;
         default: break;
         }
