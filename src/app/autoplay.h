@@ -7,7 +7,8 @@
 // dump, repeat, idle (no A presses), threads=N (H.264 decoder threads),
 // rumbletest (rumbles the pad for 1.5 s at start), triggertest (the triggers
 // for 3 s), vibetest (each motor and trigger alone, announced, no game),
-// droptest (the connection dropped at 20 s: the stream reconnects), detailtest (opens a game to
+// droptest (the connection dropped at 20 s: the stream reconnects), loss=N
+// (N% of the video packets held back until NACKed), detailtest (opens a game to
 // buy far down the list instead of playing, saves detail.ppm), imetest (opens
 // the system keyboard on the home screen), menutest (in the game: the menu,
 // 720p, back to 1080p), res=720p|1080p|1080p-hq|1440p, sharp=0..3 and
@@ -52,6 +53,7 @@ struct Autoplay {
     bool imeTest = false;        // open the system keyboard on the home screen
     bool menuTest = false;       // in the game: open the menu, switch to 720p
     int decodeThreads = 1;
+    int videoLoss = 0;           // loss=N: N% of the video packets held back, delivered when NACKed
     int deband = -1;             // deband=0..3: instead of the setting
     int sharpness = -1;          // sharp=0..3: instead of the setting
     std::string resolution;      // res=720p|1080p|1440p: instead of the setting

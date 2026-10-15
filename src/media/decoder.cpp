@@ -155,13 +155,23 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out, uint32_
                     len, len > 4 ? data[4] & 0x1f : -1);
         return false;
     }
+    if (sent == AVERROR(EAGAIN)) {
+        // The decoder was full and didn't take this packet: now that a
+        // picture came out, hand it over again (it used to be lost, and the
+        // pictures after it decoded against a missing reference).
+        int again = avcodec_send_packet(ctx_, packet_);
+        if (again < 0) {
+            needsKeyframe_ = true;
+            if (failuresLogged_++ < 20) XC_LOGI("h264 packet dropped: %s (%zu bytes)", averr(again).c_str(), len);
+        }
+    }
     if (frame_->decode_error_flags || (frame_->flags & AV_FRAME_FLAG_CORRUPT)) {
         needsKeyframe_ = true;
     } else if (frame_->flags & AV_FRAME_FLAG_KEY) {
         needsKeyframe_ = false;
     }
     if (frame_->format != AV_PIX_FMT_YUV420P && frame_->format != AV_PIX_FMT_YUVJ420P) {
-        XC_LOGW("unexpected pixel format %d", frame_->format);
+        if (failuresLogged_++ < 20) XC_LOGW("unexpected pixel format %d", frame_->format);
         return false;
     }
     out.y = frame_->data[0];
@@ -206,10 +216,17 @@ bool AudioDecoder::init() {
 }
 
 bool AudioDecoder::decode(const uint8_t* data, size_t len, std::vector<float>& out) {
-    if (!ctx_) return false;
+    // An empty packet is "end of stream" to libavcodec: every packet after
+    // it would be refused (no sound for the rest of the session).
+    if (!ctx_ || !data || len == 0) return false;
     packet_->data = const_cast<uint8_t*>(data);
     packet_->size = static_cast<int>(len);
-    if (avcodec_send_packet(ctx_, packet_) < 0) return false;
+    int rc = avcodec_send_packet(ctx_, packet_);
+    if (rc == AVERROR_EOF) {  // drained anyway: reset and retry once
+        avcodec_flush_buffers(ctx_);
+        rc = avcodec_send_packet(ctx_, packet_);
+    }
+    if (rc < 0) return false;
     bool any = false;
     while (avcodec_receive_frame(ctx_, frame_) == 0) {
         int n = frame_->nb_samples;

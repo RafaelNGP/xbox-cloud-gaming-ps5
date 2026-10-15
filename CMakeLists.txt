@@ -118,6 +118,6 @@ else()
 
     enable_testing()
     add_executable(xcloud-tests tests/test_main.cpp)
-    target_link_libraries(xcloud-tests PRIVATE xcloud_stream xcloud_media xcloud_ui xc_ffmpeg)
+    target_link_libraries(xcloud-tests PRIVATE xcloud_stream xcloud_media xcloud_ui xc_ffmpeg datachannel-static)
     add_test(NAME unit COMMAND xcloud-tests)
 endif()

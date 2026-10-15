@@ -63,6 +63,7 @@ void loadAutoplay() {
         if (opt == "cpudisplay") g_autoplay.cpuDisplay = true;
         if (opt == "hwdecode") g_autoplay.hwDecode = true;
         if (opt == "droptest") g_autoplay.dropTest = true;
+        if (opt.rfind("loss=", 0) == 0) g_autoplay.videoLoss = std::atoi(opt.c_str() + 5);
         if (opt == "ai") g_autoplay.upscaler = 1;
         if (opt == "restore") g_autoplay.restore = true;
         if (opt.rfind("swap=", 0) == 0) display::gpu::setSwapImages(std::atoi(opt.c_str() + 5));

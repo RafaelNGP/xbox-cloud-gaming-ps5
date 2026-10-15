@@ -8,6 +8,7 @@
 #include "app/crash_guard.h"
 #include "app/report.h"
 #include "media/audio_encoder.h"
+#include "media/decoder.h"
 #include "input/tuning.h"
 #include "net/http.h"
 #include "platform/platform.h"
@@ -19,6 +20,8 @@
 #include "ui/strings.h"
 #include "util/json.h"
 #include "auth/auth_manager.h"
+#include "stream/h264_receiver.h"
+#include "platform/platform.h"
 #include "auth/msa.h"
 #include "ui/image_cache.h"
 #include "xcloud/gssv.h"
@@ -839,6 +842,64 @@ static void testAudioEncoder() {
     }
 }
 
+// A burst of loss: a frame lost for good, then a frame with a hole of its
+// own, then a complete key frame. The receiver must resume at that key frame
+// (it used to stop at the frame with the hole: a freeze of seconds).
+static void testH264Resync() {
+    xc::stream::VideoReceiveStats stats;
+    int keyframeAsks = 0;
+    xc::stream::H264Receiver rx([&] { ++keyframeAsks; }, stats);
+    auto packet = [](uint16_t seq, uint32_t ts, bool marker, uint8_t nal) {
+        std::vector<uint8_t> b = {0x80, static_cast<uint8_t>((marker ? 0x80 : 0) | 102),
+                                  static_cast<uint8_t>(seq >> 8), static_cast<uint8_t>(seq),
+                                  static_cast<uint8_t>(ts >> 24), static_cast<uint8_t>(ts >> 16),
+                                  static_cast<uint8_t>(ts >> 8), static_cast<uint8_t>(ts), 0, 0, 0, 7,
+                                  nal, 0xAA, 0xBB};
+        return rtc::make_message(reinterpret_cast<const std::byte*>(b.data()),
+                                 reinterpret_cast<const std::byte*>(b.data()) + b.size());
+    };
+    size_t keyframesOut = 0, framesOut = 0;
+    auto feed = [&](rtc::message_vector in) {
+        rx.incoming(in, [](rtc::message_ptr) { return true; });
+        for (const auto& m : in) {
+            ++framesOut;
+            if (m->size() > 4 && (static_cast<uint8_t>((*m)[4]) & 0x1F) == 5) ++keyframesOut;
+        }
+    };
+    // The end of a frame from before (a boundary to start at), a key frame, a P frame.
+    feed({packet(0, 0, true, 0x41), packet(1, 1500, true, 0x65), packet(2, 3000, true, 0x41)});
+    CHECK(framesOut == 2 && keyframesOut == 1);
+    // seq 4 never comes; seq 7 never comes; 9-10 a key frame.
+    feed({packet(3, 4500, false, 0x41), packet(5, 6000, true, 0x41), packet(6, 7500, false, 0x41),
+          packet(8, 7500, true, 0x41), packet(9, 9000, false, 0x65), packet(10, 9000, true, 0x65)});
+    CHECK(framesOut == 2);  // waiting for the retransmission
+    xc::platform::sleepMs(200);
+    feed({});
+    CHECK(keyframesOut == 2);  // resumed at the key frame
+    CHECK(framesOut == 3);
+    CHECK(stats.framesDropped >= 1);
+    CHECK(keyframeAsks >= 1);
+}
+
+// An empty audio packet (seen after loss) must not end the sound.
+static void testAudioDecoderEmptyPacket() {
+    xc::media::AudioEncoder enc;
+    xc::media::AudioDecoder dec;
+    CHECK(enc.init(24000));
+    CHECK(dec.init());
+    std::vector<int16_t> pcm(960);
+    for (size_t i = 0; i < pcm.size(); ++i) pcm[i] = static_cast<int16_t>(8000.0 * std::sin(i * 0.05));
+    std::vector<uint8_t> opus;
+    std::vector<float> out;
+    CHECK(enc.encode(pcm.data(), pcm.size(), opus));
+    CHECK(dec.decode(opus.data(), opus.size(), out));
+    CHECK(!dec.decode(nullptr, 0, out));
+    out.clear();
+    CHECK(enc.encode(pcm.data(), pcm.size(), opus));
+    CHECK(dec.decode(opus.data(), opus.size(), out));
+    CHECK(!out.empty());
+}
+
 int main() {
     testReport();
     testCrashGuard();
@@ -850,6 +911,8 @@ int main() {
     testSubscriptionPlan();
     testMicrosoftHost();
     testAudioEncoder();
+    testH264Resync();
+    testAudioDecoderEmptyPacket();
     testAutoDeband();
     testControllerTuning();
     testUpdater();
