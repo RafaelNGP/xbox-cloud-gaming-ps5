@@ -205,6 +205,9 @@ std::vector<ui::GameRow> Library::rows() const {
         for (const auto& [pid, tid] : r.items) {
             ui::GameTile t = tile(pid, tid);
             if (t.productId.empty() || t.titleId.empty() || xcloud::isNonGameAddon(t.titleId, t.name)) continue;
+            // "Jump back in": Game Pass games and the account's own (bought,
+            // free-to-play); not one it can't start any more.
+            if (r.recent && !gamePass_.empty() && !gamePass_.count(pid) && !t.playable) continue;
             row.tiles.push_back(std::move(t));
         }
         if (!row.tiles.empty()) rows.push_back(std::move(row));
@@ -381,17 +384,17 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
     // The account's games from the previous run, until loadOwned() refreshes them.
     loadCache();
 
-    // "Jump back in": recently played Game Pass games (the others go first
-    // in "Your games").
+    // "Jump back in": recently played games, Game Pass or the account's own
+    // (rows() leaves out those it can't play; they also go first in "Your
+    // games").
     std::vector<xcloud::Title> recent;
     if (gssv.listTitles(recent, lastErr, true)) {
-        RowIds r{ui::tr(ui::Str::JumpBackIn), false, false, {}};
+        RowIds r{ui::tr(ui::Str::JumpBackIn), false, false, {}, true};
         std::vector<std::string> ids;
         for (const auto& t : recent) {
             if (t.productId.empty()) continue;
             recent_.push_back(t.productId);
             if (!t.xboxTitleId.empty()) xboxTitleOf_[t.productId] = t.xboxTitleId;
-            if (!gamePass_.empty() && !gamePass_.count(t.productId)) continue;
             r.items.emplace_back(t.productId, t.titleId);
             if (!products_.count(t.productId)) ids.push_back(t.productId);
         }
