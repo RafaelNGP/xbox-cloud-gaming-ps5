@@ -613,8 +613,9 @@ int main(int argc, char** argv) {
         req.url = argv[argi];
         auto r = net::perform(req);
         static const char* kProblems[] = {"none", "clock", "untrusted", "name mismatch", "other"};
-        std::printf("status %d, problem: %s, date %s\nerror: %s\n", r.status,
-                    kProblems[static_cast<int>(net::lastTlsProblem())], net::todayText().c_str(), r.error.c_str());
+        std::printf("status %d, problem: %s, clock problem seen: %s, date %s\nerror: %s\n", r.status,
+                    kProblems[static_cast<int>(net::lastTlsProblem())], net::clockRefusals() ? "yes" : "no",
+                    net::todayText().c_str(), r.error.c_str());
         return 0;
     } else if (cmd == "ui-tls" && argi < argc) {
         // Offline: the sign-in errors for a refused certificate (the

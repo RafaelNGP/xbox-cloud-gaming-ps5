@@ -235,6 +235,7 @@ enum class Str {
     CountryUS,
     ClockWrong,         // a certificate refused for the console's date: "%s" = that date
     ConnectionIntercepted,  // a certificate refused as untrusted or for another name
+    ClockWrongNotice,   // notification: signed in, but some content refused for the clock; "%s" = the date
     Count
 };
 

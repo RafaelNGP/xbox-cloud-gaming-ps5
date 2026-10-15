@@ -204,7 +204,19 @@ bool g_builtinCa = false;
 
 std::atomic<int> g_tlsProblem{0};  // TlsProblem
 
+std::atomic<unsigned> g_clockRefusals{0};
+
 TlsProblem lastTlsProblem() { return static_cast<TlsProblem>(g_tlsProblem.load()); }
+unsigned clockRefusals() { return g_clockRefusals; }
+
+bool microsoftHost(const std::string& host) {
+    for (const char* domain : {"xboxlive.com", "microsoft.com", "s-microsoft.com", "live.com", "xbox.com", "gamepass.com"}) {
+        std::string d = domain;
+        if (host == d || (host.size() > d.size() && host.compare(host.size() - d.size() - 1, d.size() + 1, "." + d) == 0))
+            return true;
+    }
+    return false;
+}
 
 std::string todayText() {
     std::time_t now = std::time(nullptr);
@@ -345,6 +357,7 @@ Response performOnce(const Request& req) {
                              : flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED ? TlsProblem::Untrusted
                                                                         : TlsProblem::Other;
         g_tlsProblem = static_cast<int>(problem);
+        if (problem == TlsProblem::Clock && microsoftHost(url.host)) ++g_clockRefusals;
         char info[512];
         int n = mbedtls_x509_crt_verify_info(info, sizeof info, "", flags);
         std::string why = n > 0 ? std::string(info, static_cast<size_t>(n)) : "flags " + std::to_string(flags);
