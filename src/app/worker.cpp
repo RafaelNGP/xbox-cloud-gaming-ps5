@@ -537,6 +537,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     auto library = std::make_shared<app::Library>();
     library->setCachePath(platform::dataDir() + "/library.json");
     setPriceMarket(gssv.session().market.empty() ? "US" : gssv.session().market, ui::catalogLanguage());
+    setQueueClient(&gssv);
     bool shown = false;
     // Hands the library's current state to the UI (copies).
     auto publish = [](const app::Library& lib) {
@@ -639,6 +640,7 @@ void worker() {
                 // Nothing of this account stays for the next one: its library
                 // stops loading, its cache goes, the lists empty.
                 stopHydration();
+                setQueueClient(nullptr);
                 am.signOut();
                 ::unlink((platform::dataDir() + "/library.json").c_str());
                 {

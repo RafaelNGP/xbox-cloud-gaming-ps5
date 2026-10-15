@@ -210,6 +210,11 @@ public:
     // The game whose page is open, if its description or hero art hasn't
     // arrived; asked again every 5 s while missing (empty otherwise).
     std::string detailWanted(uint64_t nowMs);
+    // The open page's game (xCloud title id) whose queue estimate is due
+    // (one a minute per game); empty when none.
+    std::string queueWanted(uint64_t nowMs);
+    // Its estimate in seconds (-1: unknown, not shown).
+    void setQueueTime(const std::string& titleId, int seconds);
     // Fills in the open page when it shows `productId`, and keeps the details
     // for the next time that game's page opens.
     void setDetailInfo(const std::string& productId, const std::string& description, const std::string& publisher,
@@ -456,6 +461,9 @@ private:
     std::set<std::string> pricesAsked_;
     std::string detailAskedFor_;
     uint64_t detailAskedAt_ = 0;
+    std::string queueAskedFor_, queueTitle_;
+    uint64_t queueAskedAt_ = 0;
+    int queueSeconds_ = -1;  // for queueTitle_
     struct DetailInfo {
         std::string description, publisher, heroUrl;
         std::vector<std::string> categories;

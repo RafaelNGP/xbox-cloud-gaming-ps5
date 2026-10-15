@@ -14,12 +14,14 @@
 #include <algorithm>
 #include <ctime>
 #include <map>
+#include <memory>
 
 namespace xc::app {
 namespace {
 
 std::mutex g_priceMutex;
 std::string g_priceMarket, g_priceLanguage;  // set by setPriceMarket() (empty: not yet)
+std::unique_ptr<xcloud::GssvClient> g_queueClient;  // g_priceMutex
 platform::Thread g_priceThread;
 std::atomic<bool> g_stopPrices{false};
 constexpr int64_t kPriceTtlSeconds = 24 * 3600;
@@ -45,6 +47,11 @@ void setPriceMarket(const std::string& market, const std::string& language) {
     std::lock_guard<std::mutex> lock(g_priceMutex);
     g_priceMarket = market;
     g_priceLanguage = language;
+}
+
+void setQueueClient(const xcloud::GssvClient* gssv) {
+    std::lock_guard<std::mutex> lock(g_priceMutex);
+    g_queueClient = gssv ? std::make_unique<xcloud::GssvClient>(*gssv) : nullptr;
 }
 
 namespace {
@@ -88,6 +95,17 @@ void priceLoop() {
                 g_ui->setDetailInfo(id, p.description, p.publisher, p.categories, p.heroUrl);
             }
             XC_LOGI("details of %s: %s", id.c_str(), ok ? "ok" : err.empty() ? "not in the catalog" : err.c_str());
+        }
+        // The open page's queue estimate (a game the account can play).
+        if (std::string title = g_ui->queueWanted(platform::nowMs()); !title.empty()) {
+            std::unique_ptr<xcloud::GssvClient> client;
+            {
+                std::lock_guard<std::mutex> lock(g_priceMutex);
+                if (g_queueClient) client = std::make_unique<xcloud::GssvClient>(*g_queueClient);
+            }
+            int seconds = client ? client->titleWaitSeconds(title) : -1;
+            XC_LOGI("queue estimate for %s: %d s", title.c_str(), seconds);
+            g_ui->setQueueTime(title, seconds);
         }
         std::vector<std::string> ids = market.empty() ? std::vector<std::string>() : g_ui->pricesWanted(20, true);
         if (ids.empty()) {
