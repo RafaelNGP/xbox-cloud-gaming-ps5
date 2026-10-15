@@ -158,12 +158,13 @@ std::string subscriptionRenewal(const std::string& body, int64_t nowUnix) {
         if (!e.isObject() || e["status"].str() != "Active") continue;
         if (e["autoRenew"].asBool()) return "renews automatically";
         // "2026-11-14T00:00:00Z" (or with fractions): the days left.
-        std::tm end{};
-        if (std::sscanf(e["endDate"].str().c_str(), "%d-%d-%dT", &end.tm_year, &end.tm_mon, &end.tm_mday) != 3)
-            return "no auto-renew";
-        end.tm_year -= 1900;
-        end.tm_mon -= 1;
-        int64_t days = (static_cast<int64_t>(timegm(&end)) - nowUnix) / 86400;
+        int y = 0, m = 0, d = 0;
+        if (std::sscanf(e["endDate"].str().c_str(), "%d-%d-%dT", &y, &m, &d) != 3) return "no auto-renew";
+        // Days since 1970-01-01 of that date (the PS5's libc has no timegm).
+        y -= m <= 2;
+        int64_t era = (y >= 0 ? y : y - 399) / 400, yoe = y - era * 400;
+        int64_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1, doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        int64_t days = era * 146097 + doe - 719468 - nowUnix / 86400;
         return "no auto-renew, ends in " + std::to_string(std::max<int64_t>(days, 0)) + " day(s)";
     }
     return {};
