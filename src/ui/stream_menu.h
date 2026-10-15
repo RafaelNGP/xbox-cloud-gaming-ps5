@@ -21,6 +21,7 @@ struct StreamInfo {
     double fps = 0, mbps = 0, lossPct = 0, decodeMs = 0;
     double onScreenMs = 0;  // network arrival to on the TV (GPU path); 0 = unknown
     int width = 0, height = 0;  // of the decoded picture
+    double qp = -1;             // the pictures' average quantiser (lower: finer); -1 unknown
     bool degraded = false;      // frames lost / video stalled / round trip far up, in the last seconds
 };
 

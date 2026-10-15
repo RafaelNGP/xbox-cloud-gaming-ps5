@@ -53,6 +53,9 @@ public:
     // The last decode() returned no picture without an error: the decoder
     // wants more input (frame threads still busy, or no reference yet).
     bool pending() const { return pending_; }
+    // The quantiser of the last picture (its macroblocks' average, as the
+    // encoder set it): lower is finer. -1 before any.
+    double lastQp() const { return lastQp_; }
 
 private:
     AVCodecContext* ctx_ = nullptr;
@@ -62,6 +65,7 @@ private:
     bool profileLogged_ = false;
     bool pending_ = false;
     int failuresLogged_ = 0;
+    double lastQp_ = -1;
 };
 
 class AudioDecoder {

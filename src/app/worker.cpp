@@ -65,7 +65,7 @@ std::string stream(xcloud::GssvClient& gssv) {
     crash::setStage(gssv.isHome() ? "streaming own Xbox" : ("streaming " + g_stageTitle).c_str());
     g_gameClosedOnServer = false;
     app::StreamPlayer player(gssv);
-    if (g_autoplay.dump) player.dumpVideo(platform::dataDir() + "/stream.aus", 20);
+    if (g_autoplay.dump) player.dumpVideo(platform::dataDir() + "/stream.aus", g_autoplay.seconds + 15);
     player.setDecodeThreads(g_autoplay.decodeThreads);
     player.setSimulatedLoss(g_autoplay.videoLoss);
     player.setHwDecodeProbe(g_autoplay.hwDecode);
@@ -155,7 +155,7 @@ std::string stream(xcloud::GssvClient& gssv) {
             XC_LOGI("stream: %llu frames, %llu decoded, %llu skipped, %llu failed, %llu resets, %llu kf req, "
                     "%llu queued, %llu audio; rtp %llu pkts, %llu lost, %llu recovered, %llu nacks, "
                     "%llu frames dropped; %llu kbps (remb %llu); %llu rumble; decode %.1f/%.1f ms, draw %.1f/%.1f ms, %llu late; "
-                    "rtt %d ms; %dx%d; on screen %.1f/%.1f ms after arrival",
+                    "rtt %d ms; %dx%d; on screen %.1f/%.1f ms after arrival; qp %.1f",
                     static_cast<unsigned long long>(st.videoFrames), static_cast<unsigned long long>(st.decodedFrames),
                     static_cast<unsigned long long>(st.droppedFrames), static_cast<unsigned long long>(st.decodeFailures),
                     static_cast<unsigned long long>(st.queueResets), static_cast<unsigned long long>(st.keyframeRequests),
@@ -166,7 +166,7 @@ std::string stream(xcloud::GssvClient& gssv) {
                     static_cast<unsigned long long>(st.rembKbps), static_cast<unsigned long long>(st.vibrations),
                     st.decodeAvgUs / 1000.0, st.decodeMaxUs / 1000.0, st.drawAvgUs / 1000.0, st.drawMaxUs / 1000.0,
                     static_cast<unsigned long long>(st.lateFrames), st.rttMs, st.width, st.height,
-                    st.displayAvgUs / 1000.0, st.displayMaxUs / 1000.0);
+                    st.displayAvgUs / 1000.0, st.displayMaxUs / 1000.0, st.qpAvg);
             if (st.rttMs > 0 && (bestRtt < 0 || st.rttMs < bestRtt)) bestRtt = st.rttMs;
             tallest = std::max(tallest, st.height);
             if (!probeDone && platform::nowMs() - started >= 20000) {
@@ -185,6 +185,7 @@ std::string stream(xcloud::GssvClient& gssv) {
                 info.onScreenMs = st.displayAvgUs / 1000.0;
                 info.width = st.width;
                 info.height = st.height;
+                info.qp = st.qpAvg;
                 if (last.decodedFrames > 0) {  // once the picture is running
                     uint64_t dropped = st.rtpDroppedFrames - last.rtpDroppedFrames;
                     uint64_t now = platform::nowMs();

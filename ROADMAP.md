@@ -225,7 +225,16 @@ is rolled back at the next start), then the app restarts itself
   (measured, see the v0.4.0 / v0.5.0 PRs). Re-tested 2026-10-15 with the
   request exactly as xbox.com makes it: still 1920x1080 (H.264 4.2) at
   ~11–13 Mbps in motion, the same with Tizen's 1080HQ. "Best" keeps asking
-  for 1440p for when Microsoft grants it.
+  for 1440p for when Microsoft grants it. Measured by the pictures' QP
+  (2026-10-15, FH5 / Starfield / Cyberpunk, Brazil and Australia regions): the
+  service caps cloud 1080p at ~12–13 Mbps (QP ~24–27, up to ~33 in the
+  heaviest motion). Tried, no gain: H.264 High (the session's
+  `clientStreamingConfigOverrides` says `preferMainH264Profile`),
+  transport-cc with real feedback (accepted, same bitrate), `b=AS` and
+  `x-google-*-bitrate`, 4K-browser / Mac-Chrome (XboxTV's, which got 1440p in
+  Australia) / Xbox-console identities (the console one got 720p),
+  `VideoPreference` + `a=max-fr`, 1440 asked at once; the 5 s key frames cost
+  ~2 % of the bits. 1440p seems to depend on the account / market.
 - **HDR**: xCloud doesn't stream HDR.
 - **1440p only for Ultimate**: not limited in the app; "Best" asks for the
   most and the service gives what the plan allows.

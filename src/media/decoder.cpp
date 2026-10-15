@@ -10,6 +10,7 @@ extern "C" {
 #include <libavutil/cpu.h>
 #include <libavutil/log.h>
 #include <libavutil/error.h>
+#include <libavutil/video_enc_params.h>
 }
 
 #include <algorithm>
@@ -115,6 +116,8 @@ bool VideoDecoder::init(int threads) {
         ctx_->thread_type = FF_THREAD_SLICE;
     }
     XC_LOGI("h264 decoder: cpu flags 0x%x, %d thread(s)", av_get_cpu_flags(), ctx_->thread_count);
+    // The quantiser of each picture, for the quality measure (lastQp()).
+    ctx_->export_side_data |= AV_CODEC_EXPORT_DATA_VIDEO_ENC_PARAMS;
     int rc = avcodec_open2(ctx_, codec, nullptr);
     if (rc < 0) {
         XC_LOGE("avcodec_open2(h264): %s", averr(rc).c_str());
@@ -164,6 +167,12 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out, uint32_
             needsKeyframe_ = true;
             if (failuresLogged_++ < 20) XC_LOGI("h264 packet dropped: %s (%zu bytes)", averr(again).c_str(), len);
         }
+    }
+    if (AVFrameSideData* sd = av_frame_get_side_data(frame_, AV_FRAME_DATA_VIDEO_ENC_PARAMS)) {
+        auto* par = reinterpret_cast<AVVideoEncParams*>(sd->data);
+        double sum = 0;
+        for (unsigned i = 0; i < par->nb_blocks; ++i) sum += par->qp + av_video_enc_params_block(par, i)->delta_qp;
+        lastQp_ = par->nb_blocks ? sum / par->nb_blocks : par->qp;
     }
     if (frame_->decode_error_flags || (frame_->flags & AV_FRAME_FLAG_CORRUPT)) {
         needsKeyframe_ = true;

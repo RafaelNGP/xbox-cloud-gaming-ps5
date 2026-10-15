@@ -82,6 +82,8 @@ public:
         uint64_t decodeAvgUs = 0, decodeMaxUs = 0, drawAvgUs = 0, drawMaxUs = 0;
         // Network arrival to on the screen (GPU path), since the last call.
         uint64_t displayAvgUs = 0, displayMaxUs = 0;
+        // The pictures' average quantiser since the last call (lower: finer); -1 none.
+        double qpAvg = -1;
     };
     Stats stats() const;
     // Before start(): H.264 decoder threads (more than 1 = frame threading).

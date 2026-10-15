@@ -877,6 +877,7 @@ int main(int argc, char** argv) {
         info.onScreenMs = 23.2;
         info.width = 1920;
         info.height = 1080;
+        info.qp = 26;
         auto save = [&](const std::string& name, const ui::Canvas& over, int ox, int oy, int alpha) {
             ui::Canvas frame(1920, 1080);
             frame.gradientH({0, 0, 1920, 1080}, ui::rgba(40, 90, 160), ui::rgba(200, 120, 40));
