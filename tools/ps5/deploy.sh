@@ -18,7 +18,7 @@ export PS5_HOST
 
 if [[ ${1:-} == --log ]]; then
     out=${2:-$root/xcloud.log}
-    python3 - "$PS5_HOST" "${FTP_PORT:-2121}" "/data/homebrew/$title/xcloud.log" "$out" <<'PY'
+    python3 - "$PS5_HOST" "${FTP_PORT:-2121}" "/data/psbox/xcloud.log" "$out" <<'PY'
 import sys
 from ftplib import FTP
 host, port, remote, out = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]

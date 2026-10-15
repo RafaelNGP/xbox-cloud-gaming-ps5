@@ -119,7 +119,7 @@ def triage(issue, rules, latest):
     elif not release:
         asks.append("the **app release** (Settings > Updates shows it, e.g. v0.9.6)")
     if fields and not looks_like_log(log):
-        asks.append("the **xcloud.log** (in `/data/homebrew/PPSA99810/` over FTP, or use *Report a problem* "
+        asks.append("the **xcloud.log** (`/data/psbox/xcloud.log` over FTP; before v0.9.7 in `/data/homebrew/PPSA99810/`, or use *Report a problem* "
                     "(△ in Settings or on the error) to fill this form from the app)")
     if asks:
         labels.append("needs-info")

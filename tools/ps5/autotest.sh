@@ -32,11 +32,13 @@ sleep 2
 python3 "$vk/tools/deploy-title-folder.py" "$root/build-ps5/pkg/$title_id" | tail -1
 
 # Fresh log, the autoplay request, no stale frame.
-python3 - "$PS5_HOST" "${FTP_PORT:-2121}" "/data/homebrew/$title_id" "$game $seconds $option" <<'PY'
+python3 - "$PS5_HOST" "${FTP_PORT:-2121}" "/data/psbox" "$game $seconds $option" <<'PY'
 import io, sys
 from ftplib import FTP, error_perm, error_reply
 host, port, d, line = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
-f = FTP(); f.connect(host, port, timeout=15); f.login(); f.cwd(d)
+f = FTP(); f.connect(host, port, timeout=15); f.login()
+try: f.cwd(d)
+except error_perm: f.mkd(d); f.cwd(d)  # the app makes it on its first start
 for name in ("xcloud.log", "frame.ppm", "frame2.ppm", "stream.aus", "ui.ppm", "launch.ppm", "screen.ppm", "detail.ppm", "library.ppm", "library2.ppm", "error.ppm", "consoles.ppm", "settings.ppm"):
     try: f.sendcmd(f"DELE {name}")
     except (error_perm, error_reply): pass
@@ -51,7 +53,7 @@ PY
 ctl launch "$title_id" | tail -1
 deadline=$(( $(date +%s) + seconds + 180 ))
 fetch() {
-    python3 - "$PS5_HOST" "${FTP_PORT:-2121}" "/data/homebrew/$title_id" "$out" "$@" <<'PY'
+    python3 - "$PS5_HOST" "${FTP_PORT:-2121}" "/data/psbox" "$out" "$@" <<'PY'
 import os, sys
 from ftplib import FTP, error_perm
 host, port, d, out, names = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5:]
@@ -85,7 +87,7 @@ done
 fetch xcloud.log frame.ppm frame2.ppm stream.aus ui.ppm launch.ppm screen.ppm detail.ppm library.ppm library2.ppm error.ppm consoles.ppm settings.ppm || true
 ctl kill "$title_id" >/dev/null 2>&1 || true
 # Remove the request so a manual launch behaves normally.
-python3 - "$PS5_HOST" "${FTP_PORT:-2121}" "/data/homebrew/$title_id" <<'PY'
+python3 - "$PS5_HOST" "${FTP_PORT:-2121}" "/data/psbox" <<'PY'
 import sys
 from ftplib import FTP, error_perm, error_reply
 f = FTP(); f.connect(sys.argv[1], int(sys.argv[2]), timeout=15); f.login(); f.cwd(sys.argv[3])
