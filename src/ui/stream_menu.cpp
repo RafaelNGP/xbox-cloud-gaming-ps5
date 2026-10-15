@@ -17,6 +17,7 @@ constexpr Color kGray = rgba(190, 190, 190);
 constexpr Color kDim = rgba(140, 140, 140);
 constexpr Color kDark = rgba(20, 20, 20);
 constexpr Color kGreen = rgba(16, 124, 16);
+constexpr Color kWarnColor = rgba(255, 176, 32);  // the connection warning
 
 // Left to right on the resolution row: SettingsChoice::resolution values.
 constexpr int kResolutionOrder[] = {1, 0, 2};
@@ -329,10 +330,24 @@ Canvas StreamMenu::renderStats(const StreamInfo& info) const {
     text += "  " + fmt("%.1f%%", info.lossPct);
     if (!micMuted_) text += "  MIC";
     constexpr int kPx = 20, kH = 36;
-    int w = fonts_.semibold.measure(text, kPx) + 28;
+    std::string warn = info.degraded ? std::string("  ") + tr(Str::ConnectionUnstable) : std::string();
+    int tw = fonts_.semibold.measure(text, kPx);
+    int w = tw + fonts_.semibold.measure(warn, kPx) + 28;
     Canvas c(w, kH);
     c.clear(kPanel);
     fonts_.semibold.draw(c, text, 14, fonts_.semibold.centeredY(0, kH, kPx), kPx, kWhite);
+    if (!warn.empty()) fonts_.semibold.draw(c, warn, 14 + tw, fonts_.semibold.centeredY(0, kH, kPx), kPx, kWarnColor);
+    return c;
+}
+
+Canvas StreamMenu::renderWarning() const {
+    const char* text = tr(Str::ConnectionUnstable);
+    constexpr int kPx = 20, kH = 36, kDot = 6;
+    int w = fonts_.semibold.measure(text, kPx) + 28 + 2 * kDot + 10;
+    Canvas c(w, kH);
+    c.clear(kPanel);
+    c.fillCircle(14.0f + kDot, kH / 2.0f, static_cast<float>(kDot), kWarnColor);
+    fonts_.semibold.draw(c, text, 14 + 2 * kDot + 10, fonts_.semibold.centeredY(0, kH, kPx), kPx, kWhite);
     return c;
 }
 

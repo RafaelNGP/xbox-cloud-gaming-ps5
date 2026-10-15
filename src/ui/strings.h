@@ -241,6 +241,8 @@ enum class Str {
     QueueMinutes,       // ... in minutes (%s)
     HighRefresh,        // Settings row: 119.88 Hz output
     HighRefreshOn,      // ... its "on" choice (while a game streams; the menus stay at 60 Hz)
+    ConnectionUnstable, // in a game: frames lost, video stalled or the round trip far up
+    SessionSummary,     // notification at the end of a game (%s: minutes, resolution, Mbps, loss, ms)
     Count
 };
 

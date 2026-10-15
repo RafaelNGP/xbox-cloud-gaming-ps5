@@ -909,6 +909,11 @@ int main(int argc, char** argv) {
         save("stats", menu.renderStats(info), ui::StreamMenu::kStatsX, ui::StreamMenu::kStatsY, 200);
         ui::setLanguage(ui::Language::PortugueseBR);
         save("menu_pt", menu.renderMenu(info), ui::StreamMenu::kMenuX, ui::StreamMenu::kMenuY, 235);
+        // The connection warning: in the statistics line, and alone.
+        info.degraded = true;
+        save("stats_warn", menu.renderStats(info), ui::StreamMenu::kStatsX, ui::StreamMenu::kStatsY, 200);
+        ui::Canvas warn = menu.renderWarning();
+        save("warn", warn, ui::StreamMenu::kWarnRight - warn.width(), ui::StreamMenu::kWarnY, 200);
         return 0;
     } else if (cmd == "ui-badges" && argi < argc) {
         // Offline: "Your games" with every badge, hiding, sorting and the
