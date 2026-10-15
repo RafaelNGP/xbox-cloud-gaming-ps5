@@ -174,6 +174,9 @@ public:
     // "Essential"...; "GamePass" for a member whose plan isn't known); empty
     // for none (nothing shown).
     void setSubscription(const std::string& plan);
+    // From the title list: a Game Pass member or not; only when the plan
+    // itself isn't known ("GamePass" or nothing).
+    void setMembership(bool member);
     std::string gamertag() const;  // for keeping it out of reports
     std::vector<std::string> consoleNames() const;  // the same: the user's names for their consoles
     // "Report a problem": a QR code of `url` (the GitHub bug form, filled

@@ -20,10 +20,16 @@ struct Profile {
     std::string xuid;
     std::string gamerpicUrl;  // empty until fetched
     std::string gamerscore;   // digits; empty until fetched
+    // The Game Pass plan: "Ultimate", "Premium", "Essential", "PC"; empty
+    // when none or unknown (the store service didn't answer).
+    std::string subscription;
     // "XBL3.0 x=...;token" for services on http://xboxlive.com (titlehub...).
     // Memory only: never logged or saved.
     std::string xblAuthorization;
 };
+
+// The Game Pass plan in an entitlements answer ("Ultimate"...; empty: none).
+std::string subscriptionPlan(const std::string& entitlementsJson);
 
 class AuthManager {
 public:
@@ -61,6 +67,7 @@ private:
     bool deviceCodeSignIn(const DeviceCodeCallback& onCode, std::string& err, const std::atomic<bool>* cancel);
     bool xboxChain(xcloud::GssvClient& gssv, std::string& err);
     void fetchGamerpic(const XblToken& xsts);
+    void fetchSubscription(const XblToken& userToken);
 
     std::string storePath_;
     MsaClient msa_;

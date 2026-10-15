@@ -565,6 +565,7 @@ int main(int argc, char** argv) {
     if (cmd == "login") {
         xcloud::GssvClient gssv;
         rc = signIn(am, gssv) ? 0 : 1;
+        std::printf("subscription: %s\n", am.profile().subscription.empty() ? "(none or unknown)" : am.profile().subscription.c_str());
     } else if (cmd == "titlehub" && argi < argc) {
         // Debugging: titlehub's view of Xbox title ids (devices etc.).
         xcloud::GssvClient gssv;

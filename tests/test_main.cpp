@@ -18,6 +18,7 @@
 #include "ui/stream_menu.h"
 #include "ui/strings.h"
 #include "util/json.h"
+#include "auth/auth_manager.h"
 #include "auth/msa.h"
 #include "ui/image_cache.h"
 #include "xcloud/gssv.h"
@@ -756,6 +757,21 @@ static void testMicrosoftHost() {
         CHECK(!net::microsoftHost(h));
 }
 
+static void testSubscriptionPlan() {
+    // The store's entitlements: the highest active Game Pass plan.
+    auto entry = [](const char* id, const char* status) {
+        return std::string("\"") + id + "\":{\"productId\":\"" + id + "\",\"isOwned\":true,\"status\":\"" + status + "\"}";
+    };
+    std::string all = "{\"entitlements\":{" + entry("CFQ7TTC0K5DJ", "Active") + "," + entry("CFQ7TTC0KHS0", "Active") + "," +
+                      entry("CFQ7TTC0P85B", "Active") + "}}";
+    CHECK(auth::subscriptionPlan(all) == "Ultimate");
+    CHECK(auth::subscriptionPlan("{\"entitlements\":{" + entry("CFQ7TTC0P85B", "Active") + "}}") == "Premium");
+    CHECK(auth::subscriptionPlan("{\"entitlements\":{" + entry("CFQ7TTC0KHS0", "Expired") + "," + entry("CFQ7TTC0K5DJ", "Active") + "}}") ==
+          "Essential");
+    CHECK(auth::subscriptionPlan("{\"entitlements\":{\"cfq7ttc0kgq8\":{\"isSatisfyingEntitlement\":true}}}") == "PC");
+    CHECK(auth::subscriptionPlan("{\"entitlements\":{}}").empty() && auth::subscriptionPlan("not json").empty());
+}
+
 static void testHostPacer() {
     // Five a second per Microsoft host; other hosts never wait; a 429 holds
     // the host for its Retry-After (30 s at most).
@@ -825,6 +841,7 @@ int main() {
     testPrivacyAndRobustness();
     testStoreLeftovers();
     testHostPacer();
+    testSubscriptionPlan();
     testMicrosoftHost();
     testAudioEncoder();
     testAutoDeband();

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdlib>
 #include <cstdio>
 
 namespace xc::auth {
@@ -122,8 +123,58 @@ bool AuthManager::xboxChain(xcloud::GssvClient& gssv, std::string& err) {
         XC_LOGW("profile XSTS: %s", perr.c_str());
     }
 
+    fetchSubscription(user);
     if (!xstsToken(user, rp::kGssv, gssvXsts_, err)) return false;
     return gssv.login(gssvXsts_, err);
+}
+
+std::string subscriptionPlan(const std::string& body) {
+    // The store's entitlements for the Game Pass products, highest plan
+    // first (an Ultimate account also has the lower ones).
+    static const std::pair<const char*, const char*> kPlans[] = {
+        {"CFQ7TTC0KHS0", "Ultimate"}, {"CFQ7TTC0P85B", "Premium"}, {"CFQ7TTC0KGQ8", "PC"}, {"CFQ7TTC0K5DJ", "Essential"}};
+    auto j = json::parse(body);
+    if (!j) return {};
+    const auto& entitlements = (*j)["entitlements"];
+    for (const auto& [id, plan] : kPlans) {
+        std::string lower = id;
+        for (auto& ch : lower) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        for (const auto& key : {std::string(id), lower}) {
+            const auto& e = entitlements[key];
+            if (!e.isObject()) continue;
+            std::string status = e["status"].str();
+            if (status == "Active" || (status.empty() && e["isSatisfyingEntitlement"].asBool())) return plan;
+        }
+    }
+    return {};
+}
+
+void AuthManager::fetchSubscription(const XblToken& userToken) {
+    // What xbox.com shows on the profile: the store service's entitlements
+    // for the Game Pass products. Optional: a failure only leaves the plan
+    // unknown (the UI then shows "Game Pass" from the titles).
+    XblToken mp;
+    std::string err;
+    if (!xstsToken(userToken, rp::kMarketplace, mp, err)) {
+        XC_LOGW("subscription: store XSTS: %s", err.c_str());
+        return;
+    }
+    net::Request req;
+    req.method = "POST";
+    req.url = "https://emerald.xboxservices.com/xboxcomfd/entitlements/bulk?locale=en-US";
+    req.headers = {{"Authorization", mp.authorizationHeader()},
+                   {"Content-Type", "application/json"},
+                   {"X-MS-API-Version", "1.0"},
+                   {"MS-CV", "PSBoxProfile.1"}};
+    req.body = R"({"ProductIds":["CFQ7TTC0KHS0","CFQ7TTC0P85B","CFQ7TTC0K5DJ","CFQ7TTC0KGQ8"]})";
+    auto r = net::perform(req);
+    if (!r.ok()) {
+        XC_LOGW("subscription: entitlements: %s", r.status ? ("HTTP " + std::to_string(r.status)).c_str() : r.error.c_str());
+        return;
+    }
+    if (std::getenv("XC_DUMP_SUBSCRIPTION")) std::printf("%s\n", r.body.c_str());  // diagnostics (CLI)
+    profile_.subscription = subscriptionPlan(r.body);
+    XC_LOGI("subscription: %s", profile_.subscription.empty() ? "none" : profile_.subscription.c_str());
 }
 
 bool AuthManager::loginOffering(xcloud::GssvClient& other, std::string& err) const {

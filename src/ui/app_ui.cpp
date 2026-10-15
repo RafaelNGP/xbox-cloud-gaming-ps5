@@ -304,6 +304,13 @@ void AppUi::setSubscription(const std::string& plan) {
     dirty_ = true;
 }
 
+void AppUi::setMembership(bool member) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!subscription_.empty() && subscription_ != "GamePass") return;  // the plan is known
+    subscription_ = member ? "GamePass" : "";
+    dirty_ = true;
+}
+
 void AppUi::setRows(std::vector<GameRow> rows) {
     std::lock_guard<std::mutex> lock(mutex_);
     allRows_ = std::move(rows);

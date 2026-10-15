@@ -520,6 +520,7 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     if (!am.saved())  // the next start would ask for a code again: said now, not then
         platform::notify(ui::tr(ui::Str::SignInNotSaved), "the sign-in couldn't be saved (notification)");
     g_ui->setProfile(am.profile().gamertag, am.profile().gamerpicUrl, am.profile().gamerscore);
+    if (!am.profile().subscription.empty()) g_ui->setSubscription(am.profile().subscription);
     {
         std::lock_guard<std::mutex> lock(g_argMutex);
         g_xblAuth = am.profile().xblAuthorization;
@@ -549,7 +550,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     auto publish = [](const app::Library& lib) {
         g_ui->setRows(lib.rows());
         g_ui->setOwned(lib.owned(), lib.purchasable(), lib.ownedKnown());
-        g_ui->setSubscription(lib.gamePassMember() ? "GamePass" : "");
+        g_ui->setMembership(lib.gamePassMember());
         g_ui->setSearchPools(lib.gamePassSearchPool(), lib.librarySearchPool());
         auto p = lib.progress();
         g_ui->setLoading(p.active, p.done, p.total);

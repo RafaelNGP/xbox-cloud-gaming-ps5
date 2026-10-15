@@ -22,6 +22,7 @@ struct XblToken {
 namespace rp {
 constexpr const char* kGssv = "http://gssv.xboxlive.com/";
 constexpr const char* kXboxLive = "http://xboxlive.com";
+constexpr const char* kMarketplace = "http://mp.microsoft.com/";  // store / subscriptions
 }  // namespace rp
 
 // `rpsPrefix` is "t=" for login.live.com tokens issued to a custom client id,
