@@ -50,6 +50,7 @@ bool Settings::load(const std::string& path) {
     }
     gestureHints = static_cast<int>((*j)["gestureHints"].asInt(gestureHints));
     micEnabled = (*j)["micEnabled"].asBool(micEnabled);
+    highRefresh = (*j)["highRefresh"].asBool(highRefresh);
     micGain = static_cast<int>(std::clamp<int64_t>((*j)["micGain"].asInt(micGain), 0, 2));
     audioRoute = static_cast<int>(std::clamp<int64_t>((*j)["audioRoute"].asInt(audioRoute), 0, 1));
     skippedUpdate = (*j)["skippedUpdate"].str();
@@ -154,6 +155,7 @@ bool Settings::save(const std::string& path) const {
     v.set("lightBarColour", std::string(hex));
     v.set("gestureHints", gestureHints);
     v.set("micEnabled", micEnabled);
+    v.set("highRefresh", highRefresh);
     v.set("micGain", micGain);
     v.set("audioRoute", audioRoute);
     v.set("skippedUpdate", skippedUpdate);

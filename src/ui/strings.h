@@ -237,6 +237,8 @@ enum class Str {
     ConnectionIntercepted,  // a certificate refused as untrusted or for another name
     ClockWrongNotice,   // notification: signed in, but some content refused for the clock; "%s" = the date
     SignInNotSaved,     // notification: the sign-in couldn't be written (asked again next start)
+    HighRefresh,        // Settings row: 119.88 Hz output
+    HighRefreshOn,      // ... its "on" choice (applies when the app starts again)
     Count
 };
 

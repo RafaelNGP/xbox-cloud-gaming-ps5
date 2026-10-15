@@ -1226,6 +1226,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         out = {tr(Str::LightBarGame), tr(Str::LightBarCustom), tr(Str::Deactivated)};
     } else if (row == 7) {
         // Updates: Cross acts, no list.
+    } else if (row == 9) {
+        out = {tr(Str::Deactivated), tr(Str::HighRefreshOn)};
     } else if (row == 8) {
         out.push_back(tr(Str::LoginCountryOff));
         for (const char* country : kLoginCountries) out.push_back(loginCountryName(country));
@@ -1250,6 +1252,7 @@ int AppUi::settingSelected(int row) const {
     if (row == 5) return settings_.circleConfirms ? 1 : 0;
     if (row == 6) return settings_.lightBarMode;
     if (row == 7) return 0;
+    if (row == 9) return settings_.highRefresh ? 1 : 0;
     if (row == 8) {
         for (size_t i = 0; i < std::size(kLoginCountries); ++i)
             if (settings_.loginCountry == kLoginCountries[i]) return static_cast<int>(i) + 1;
@@ -1277,6 +1280,8 @@ void AppUi::applySetting(int row, int index) {
     } else if (row == 6) {
         settings_.lightBarMode = index;
     } else if (row == 7) {
+    } else if (row == 9) {
+        settings_.highRefresh = index == 1;
     } else if (row == 8) {
         settings_.loginCountry = index == 0 ? std::string() : kLoginCountries[index - 1];
     } else {
@@ -3161,8 +3166,9 @@ void AppUi::drawSettings(Canvas& c) {
     fonts_.bold.draw(c, tr(Str::Settings), kMargin, 170, 60, kWhite);
     const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
-                                        tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry)};
-    constexpr int kRowW = 1200, kRowH = 60;
+                                        tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry),
+                                        tr(Str::HighRefresh)};
+    constexpr int kRowW = 1200, kRowH = 56, kGap = 8;
     Rect rows[kSettingRows];
     int y = 262;
     for (int i = 0; i < kSettingRows; ++i) {
@@ -3181,7 +3187,7 @@ void AppUi::drawSettings(Canvas& c) {
             Color color = !updateAvailable_.empty() && !updateChecking_ ? rgba(120, 220, 120) : focused ? kWhite : kGray;
             int w = fonts_.regular.measure(value, 30);
             fonts_.regular.draw(c, value, r.x + r.w - 44 - w, fonts_.regular.centeredY(r.y, r.h, 30), 30, color);
-            y += kRowH + 10;
+            y += kRowH + kGap;
             continue;
         }
         // The value, then a chevron: this opens a list.
@@ -3203,7 +3209,7 @@ void AppUi::drawSettings(Canvas& c) {
                 c.strokeArc(vx - w - 30.0f, cy, 14, 2, 0, 6.2832f, rgba(255, 255, 255, 120));
             }
         }
-        y += kRowH + 10;
+        y += kRowH + kGap;
     }
     for (const auto& line : fonts_.regular.wrap(tr(Str::SettingsNote), 24, kRowW, 2)) {
         fonts_.regular.draw(c, line, kMargin, y + 20, 24, kDim);

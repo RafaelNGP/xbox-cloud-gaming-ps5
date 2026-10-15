@@ -260,6 +260,8 @@ constexpr Column kEnglish = {
     "A secure connection was refused: something on the network (a DNS server, proxy or filter) is answering for Microsoft's sites. Try without it, then try again.", // ConnectionIntercepted
     "PS5 date and time look wrong (%s): some content can't load. Set them in Settings > System > Date and Time.", // ClockWrongNotice
     "Your sign-in couldn't be saved on the console, so it will be asked again next time. Please report it (Settings > △).", // SignInNotSaved
+    "120 Hz output (VRR)", // HighRefresh
+    "On (after restarting the app)", // HighRefreshOn
 };
 
 constexpr Column kPortugueseBR = {
@@ -490,6 +492,8 @@ constexpr Column kPortugueseBR = {
     "Uma conexão segura foi recusada: algo na rede (um servidor DNS, proxy ou filtro) está respondendo no lugar dos sites da Microsoft. Tente sem ele e tente de novo.",
     "A data e a hora do PS5 parecem erradas (%s): parte do conteúdo não carrega. Acerte em Configurações > Sistema > Data e hora.",
     "Não foi possível salvar o login no console, então ele será pedido de novo na próxima vez. Relate o problema (Configurações > △).",
+    "Saída 120 Hz (VRR)", // HighRefresh
+    "Ativada (ao reabrir o app)", // HighRefreshOn
 };
 
 constexpr Column kSpanish = {
@@ -720,6 +724,8 @@ constexpr Column kSpanish = {
     "Se rechazó una conexión segura: algo en la red (un servidor DNS, proxy o filtro) responde en lugar de los sitios de Microsoft. Prueba sin él y vuelve a intentarlo.",
     "La fecha y la hora de la PS5 parecen incorrectas (%s): parte del contenido no carga. Ajústalas en Ajustes > Sistema > Fecha y hora.",
     "No se pudo guardar el inicio de sesión en la consola, así que se pedirá de nuevo la próxima vez. Infórmalo (Ajustes > △).",
+    "Salida 120 Hz (VRR)", // HighRefresh
+    "Activada (al reabrir la app)", // HighRefreshOn
 };
 
 constexpr Column kFrench = {
@@ -950,6 +956,8 @@ constexpr Column kFrench = {
     "Une connexion sécurisée a été refusée : quelque chose sur le réseau (serveur DNS, proxy ou filtre) répond à la place des sites de Microsoft. Essayez sans, puis réessayez.",
     "La date et l'heure de la PS5 semblent fausses (%s) : une partie du contenu ne se charge pas. Réglez-les dans Paramètres > Système > Date et heure.",
     "Impossible d'enregistrer la connexion sur la console : elle sera redemandée la prochaine fois. Signalez-le (Paramètres > △).",
+    "Sortie 120 Hz (VRR)", // HighRefresh
+    "Activée (au redémarrage de l'app)", // HighRefreshOn
 };
 
 constexpr Column kGerman = {
@@ -1180,6 +1188,8 @@ constexpr Column kGerman = {
     "Eine sichere Verbindung wurde abgelehnt: Etwas im Netzwerk (DNS-Server, Proxy oder Filter) antwortet anstelle der Microsoft-Seiten. Versuche es ohne und dann erneut.",
     "Datum und Uhrzeit der PS5 scheinen falsch zu sein (%s): Einige Inhalte laden nicht. Stelle sie unter Einstellungen > System > Datum und Uhrzeit ein.",
     "Die Anmeldung konnte nicht auf der Konsole gespeichert werden und wird beim nächsten Mal erneut abgefragt. Bitte melde das (Einstellungen > △).",
+    "120-Hz-Ausgabe (VRR)", // HighRefresh
+    "An (nach Neustart der App)", // HighRefreshOn
 };
 
 constexpr Column kItalian = {
@@ -1410,6 +1420,8 @@ constexpr Column kItalian = {
     "Una connessione sicura è stata rifiutata: qualcosa nella rete (un server DNS, proxy o filtro) risponde al posto dei siti Microsoft. Prova senza e riprova.",
     "La data e l'ora della PS5 sembrano errate (%s): alcuni contenuti non si caricano. Impostale in Impostazioni > Sistema > Data e ora.",
     "Impossibile salvare l'accesso sulla console: verrà richiesto di nuovo la prossima volta. Segnalalo (Impostazioni > △).",
+    "Uscita 120 Hz (VRR)", // HighRefresh
+    "Attiva (al riavvio dell'app)", // HighRefreshOn
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

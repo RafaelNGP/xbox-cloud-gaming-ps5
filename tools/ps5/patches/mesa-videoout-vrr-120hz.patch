@@ -1,0 +1,43 @@
+From e1f8e11d8ccc80f91bd5a1f575b64aebe3b9acc3 Mon Sep 17 00:00:00 2001
+From: Rafael Abud Ferreira <rafaelferreira.dev3@gmail.com>
+Date: Thu, 15 Oct 2026 11:59:25 -0300
+Subject: [PATCH] wsi/videoout: a VRR 119.88 Hz output counts (its idle vblank
+ is the VRR floor)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/vulkan/wsi/wsi_common_videoout.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/src/vulkan/wsi/wsi_common_videoout.c b/src/vulkan/wsi/wsi_common_videoout.c
+index 1f59ac2120e..2d6558e62e3 100644
+--- a/src/vulkan/wsi/wsi_common_videoout.c
++++ b/src/vulkan/wsi/wsi_common_videoout.c
+@@ -74,6 +74,12 @@
+  * went on refreshing at 60 Hz, as a tester's did (PS5_Vulkan, R31). */
+ #define VIDEOOUT_HIGH_REFRESH_LIMIT_NS UINT64_C(12500000)
+ #define VIDEOOUT_PERIOD_INTERVALS 6
++/* With the system's VRR on, a 120 Hz request becomes VRR 119.88 Hz (AvControl:
++ * "119.88Hz request is converted to VRR 119.88Hz"): the display then waits for
++ * flips, and before the first one a vblank comes at its VRR floor (20.873 ms on
++ * an LG C1, about 48 Hz), longer than a 60 Hz period. Only a period up to this
++ * one, about 60 Hz, means the display stayed at 60 Hz (PSBox, 2026-10-15). */
++#define VIDEOOUT_FIXED_60HZ_MAX_NS UINT64_C(18500000)
+ /* param.json's attribute3 bit for 120 Hz output. PS5_Vulkan R31/R92 declared it with 0x80000
+  * (a 120 Hz mode that requires VRR), which turns the system's VRR off; retail titles with VRR
+  * declare 0x40 with 0x40000. VideoOut itself grants mode 15 or refuses it. */
+@@ -390,7 +396,10 @@ videoout_open_locked(void)
+       if (out->high_frame_rate) {
+          /* A period of 0 is a failed wait: never taken for 119.88 Hz */
+          const uint64_t period = videoout_vblank_period_ns(out->handle);
+-         if (period == 0 || period > VIDEOOUT_HIGH_REFRESH_LIMIT_NS) {
++         if (period > VIDEOOUT_FIXED_60HZ_MAX_NS) {
++            fprintf(stderr, "wsi/videoout: 119.88 Hz taken as VRR (an idle vblank every %.3f ms)\n",
++                    (double)period / 1e6);
++         } else if (period == 0 || period > VIDEOOUT_HIGH_REFRESH_LIMIT_NS) {
+             sceVideoOutConfigureOutput(out->handle, PS5_VIDEO_OUT_MODE_RESTORE, NULL, NULL, NULL);
+             out->high_frame_rate = false;
+             if (period == 0)
+-- 
+2.55.0
+

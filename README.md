@@ -106,6 +106,14 @@ tools/ps5/link.sh build-ps5          # -> build-ps5/eboot.bin
 tools/ps5/package.sh build-ps5       # -> build-ps5/pkg/PPSA99810/
 ```
 
+**120 Hz output** (Settings, off by default) needs RADV with
+`tools/ps5/patches/mesa-videoout-vrr-120hz.patch`: with the console's VRR on, a
+120 Hz request becomes VRR 119.88 Hz, whose idle vblank (the TV's VRR floor,
+~48 Hz) the unpatched check takes for 60 Hz and undoes. Apply it to PS5_Mesa at
+PS5_Vulkan's pinned revision on a local branch, then
+`PS5_MESA_REVISION=<that commit> tools/build-radv.sh release` in PS5_Vulkan. Without
+it the option simply stays at 59.94 Hz.
+
 A release is built, signed and checked with `tools/release.sh <X.Y.Z>`
 (see the script's header); it publishes nothing. The signing key stays with
 the maintainer: the app trusts only its public half (`src/app/updater.cpp`).

@@ -69,6 +69,7 @@ struct Settings {
     int gestureHints = 0;
     // Voice chat & Audio routing
     bool micEnabled = true;
+    bool highRefresh = false;  // 119.88 Hz output (VRR where the console turns it on); read at start
     int micGain = 1;        // 0: 50%, 1: 100%, 2: 150%
     int audioRoute = 0;     // 0: TV/HDMI (Main), 1: DualSense Speaker / Headset (Pad)
     // The release the user said "Not now" to: not offered again on start.

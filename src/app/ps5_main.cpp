@@ -121,6 +121,7 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.sharpness = choice.sharpness;
         g_settings.deband = choice.deband;
         g_settings.upscaler = choice.upscaler;
+        g_settings.highRefresh = choice.highRefresh;
         g_settings.save(settingsPath());  // warns itself
         XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
                 g_settings.region.empty() ? "auto" : g_settings.region.c_str());
@@ -189,6 +190,16 @@ int main(int argc, char** argv) {
     XC_LOGI("settings: language %s, %s, region %s", g_settings.language.c_str(), g_settings.resolution.c_str(),
             g_settings.region.empty() ? "auto" : g_settings.region.c_str());
     sceSystemServiceHideSplashScreen();
+    // 120 Hz output: param.json declares it (the console grants the mode only
+    // then), and RADV asks for it when the param.json it reads says so. Off
+    // (the default: OLED TVs may flicker under VRR in the menus), RADV reads
+    // one that doesn't. Decided once per start, as RADV opens VideoOut once.
+    if (!g_settings.highRefresh) {
+        std::string path = platform::dataDir() + "/videoout-60hz.json";
+        platform::writeFileAtomic(path, "{\"attribute3\": 0}\n");
+        ::setenv("PS5_VIDEOOUT_PARAM_JSON", path.c_str(), 1);
+    }
+    XC_LOGI("display: 120 Hz output %s", g_settings.highRefresh ? "on" : "off");
 
     if (g_autoplay.vkTest) {
         bool ok = display::gpu::init();
@@ -226,6 +237,7 @@ int main(int argc, char** argv) {
         choice.sharpness = g_settings.sharpness;
         choice.deband = g_settings.deband;
         choice.upscaler = g_settings.upscaler;
+        choice.highRefresh = g_settings.highRefresh;
         g_ui->setAllow1440(allow1440Locked());
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
         g_ui->setSettings(choice);
