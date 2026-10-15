@@ -15,6 +15,8 @@ enum ReportType : uint16_t {
     kReportGamepad = 2,
     kReportClientMetadata = 8,
     kReportServerMetadata = 16,
+    kReportMouse = 32,
+    kReportKeyboard = 64,
     kReportVibration = 128,
 };
 
@@ -48,6 +50,21 @@ struct GamepadFrame {
     bool operator==(const GamepadFrame&) const = default;
 };
 
+// Mouse movement since the last frame (relative), in the browser's units
+// (the web client sends twice PointerEvent.movementX/Y), the wheel's steps
+// and the buttons (1 left, 2 right, 4 middle, 8 back, 16 forward).
+struct MouseFrame {
+    int32_t dx = 0, dy = 0, wheelX = 0, wheelY = 0;
+    uint8_t buttons = 0;
+};
+
+// A key going down or up, as a Windows virtual-key code (what the web
+// client sends from KeyboardEvent.keyCode).
+struct KeyFrame {
+    uint8_t vk = 0;
+    bool pressed = false;
+};
+
 struct Vibration {
     uint8_t gamepadIndex = 0;
     // 0..100 percent.
@@ -70,6 +87,10 @@ std::vector<uint8_t> clientMetadataReport(uint32_t sequence, double timestampMs,
 // 30 per report).
 std::vector<uint8_t> metadataReport(uint32_t sequence, double timestampMs, const std::vector<FrameMetadata>& frames);
 std::vector<uint8_t> gamepadReport(uint32_t sequence, double timestampMs, const GamepadFrame& frame);
+// Native mouse and keyboard, for the titles that take them (at most 30
+// frames per report).
+std::vector<uint8_t> mouseReport(uint32_t sequence, double timestampMs, const std::vector<MouseFrame>& frames);
+std::vector<uint8_t> keyboardReport(uint32_t sequence, double timestampMs, const std::vector<KeyFrame>& frames);
 
 // Server -> client reports. Return false when `data` is another report type.
 bool parseVibration(const uint8_t* data, size_t len, Vibration& out);

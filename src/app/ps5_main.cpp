@@ -15,6 +15,7 @@
 #include "display/display.h"
 #include "display/gpu.h"
 #include "input/controller.h"
+#include "input/kbm.h"
 #include "input/tuning.h"
 #include "net/http.h"
 #include "platform/platform.h"
@@ -214,6 +215,7 @@ int main(int argc, char** argv) {
     }
     bool haveDisplay = display::init(!g_autoplay.cpuDisplay);
     if (!input::init()) XC_LOGE("controller init failed");
+    input::kbmInit(input::padUserId(0));  // USB keyboards and mice (logs what it found)
 
     ui::Fonts fonts;
     if (!fonts.load(platform::assetDir() + "/fonts")) XC_LOGE("fonts missing in %s", platform::assetDir().c_str());

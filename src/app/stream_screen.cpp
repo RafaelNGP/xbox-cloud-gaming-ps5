@@ -8,6 +8,7 @@
 #include "app/stream_player.h"
 #include "display/display.h"
 #include "display/gpu.h"
+#include "input/kbm.h"
 #include "media/audio_out.h"
 #include "platform/platform.h"
 #include "ui/strings.h"
@@ -335,6 +336,8 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         }
         if (platform::nowMs() < g_xboxButtonUntil) sent.btnNexus = true;
         g_player->sendInput(sent);
+        // USB keyboard and mouse: straight to the game (those that take them).
+        g_player->sendKbm(input::kbmPoll());
         // The other players' controllers, straight to the game.
         for (int i = 1; i < input::kMaxPads; ++i) {
             input::ControllerState other;

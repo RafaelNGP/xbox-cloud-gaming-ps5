@@ -21,6 +21,7 @@
 #include "util/json.h"
 #include "auth/auth_manager.h"
 #include "stream/h264_receiver.h"
+#include "input/kbm.h"
 #include "platform/platform.h"
 #include "auth/msa.h"
 #include "ui/image_cache.h"
@@ -903,6 +904,36 @@ static void testAudioDecoderEmptyPacket() {
     CHECK(!out.empty());
 }
 
+// Native mouse and keyboard reports: header, counts and fields.
+static void testMouseKeyboardReports() {
+    using namespace xc::stream;
+    auto m = mouseReport(7, 1.0, {MouseFrame{-3, 5, 0, 1, 1}});
+    CHECK(m.size() == 14 + 1 + 18);
+    CHECK(m[0] == 32 && m[1] == 0 && m[2] == 7);  // type 32 (mouse), sequence 7
+    CHECK(m[14] == 1);                              // one frame
+    CHECK(m[15] == 0xFD && m[16] == 0xFF && m[17] == 0xFF && m[18] == 0xFF);  // dx -3, little-endian
+    CHECK(m[19] == 5 && m[27] == 1 && m[31] == 1 && m[32] == 0);              // dy, wheel Y, buttons, relative
+    auto k = keyboardReport(8, 1.0, {KeyFrame{0x41, true}, KeyFrame{0x41, false}});
+    CHECK(k.size() == 14 + 1 + 6);
+    CHECK(k[0] == 64 && k[14] == 2);
+    CHECK(k[15] == 2 && k[16] == 1 && k[17] == 0x41);
+    CHECK(k[18] == 2 && k[19] == 0 && k[20] == 0x41);
+}
+
+// USB keyboard: HID usages and modifier bits to Windows virtual keys.
+static void testHidToVk() {
+    using xc::input::hidToVk;
+    CHECK(hidToVk(0x04) == 'A' && hidToVk(0x1D) == 'Z');
+    CHECK(hidToVk(0x1E) == '1' && hidToVk(0x26) == '9' && hidToVk(0x27) == '0');
+    CHECK(hidToVk(0x28) == 0x0D && hidToVk(0x29) == 0x1B && hidToVk(0x2C) == 0x20);
+    CHECK(hidToVk(0x3A) == 0x70 && hidToVk(0x45) == 0x7B);  // F1, F12
+    CHECK(hidToVk(0x4F) == 0x27 && hidToVk(0x52) == 0x26);  // right, up
+    CHECK(hidToVk(0x59) == 0x61 && hidToVk(0x62) == 0x60);  // keypad 1, 0
+    CHECK(hidToVk(0x00) == 0 && hidToVk(0xE0) == 0);
+    CHECK(xc::input::modifierVk(0) == 0x11 && xc::input::modifierVk(1) == 0x10 && xc::input::modifierVk(2) == 0x12);
+    CHECK(xc::input::modifierVk(5) == 0x10 && xc::input::modifierVk(7) == 0x5C);
+}
+
 int main() {
     testReport();
     testCrashGuard();
@@ -930,6 +961,8 @@ int main() {
     testJson();
     testUrl();
     testInputPacket();
+    testMouseKeyboardReports();
+    testHidToVk();
     testTeredo();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);

@@ -673,6 +673,24 @@ void StreamPlayer::sendInput(const input::ControllerState& p, int index) {
     s->sendGamepad(f);
 }
 
+void StreamPlayer::sendKbm(const input::KbmInput& in) {
+    auto s = impl_->current();
+    if (!s || !impl_->running) return;
+    if (!in.keys.empty()) {
+        std::vector<stream::KeyFrame> keys;
+        for (const auto& k : in.keys) keys.push_back({k.vk, k.pressed});
+        s->sendKeys(keys);
+    }
+    if (in.moved) {
+        stream::MouseFrame m;
+        m.dx = in.dx * 2;  // as the web client: twice the pointer's movement
+        m.dy = in.dy * 2;
+        m.wheelY = in.wheel;
+        m.buttons = in.buttons;
+        s->sendMouse(m);
+    }
+}
+
 bool StreamPlayer::titleFocused() const { return impl_->titleFocused; }
 
 void StreamPlayer::setTouchEnabled(bool on) {
