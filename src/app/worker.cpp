@@ -67,10 +67,12 @@ std::string stream(xcloud::GssvClient& gssv) {
     app::StreamPlayer player(gssv);
     if (g_autoplay.dump) player.dumpVideo(platform::dataDir() + "/stream.aus", 20);
     player.setDecodeThreads(g_autoplay.decodeThreads);
+    player.setSimulatedLoss(g_autoplay.videoLoss);
     player.setHwDecodeProbe(g_autoplay.hwDecode);
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         player.setMicGain(g_settings.micGain);
+        player.setMicEnabled(g_settings.micEnabled);
         media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
     }
     std::string err;
@@ -537,6 +539,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     auto library = std::make_shared<app::Library>();
     library->setCachePath(platform::dataDir() + "/library.json");
     setPriceMarket(gssv.session().market.empty() ? "US" : gssv.session().market, ui::catalogLanguage());
+    setQueueClient(&gssv);
     bool shown = false;
     // Hands the library's current state to the UI (copies).
     auto publish = [](const app::Library& lib) {
@@ -639,6 +642,7 @@ void worker() {
                 // Nothing of this account stays for the next one: its library
                 // stops loading, its cache goes, the lists empty.
                 stopHydration();
+                setQueueClient(nullptr);
                 am.signOut();
                 ::unlink((platform::dataDir() + "/library.json").c_str());
                 {

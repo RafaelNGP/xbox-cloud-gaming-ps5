@@ -183,12 +183,20 @@ bool H264Receiver::resync(rtc::message_vector& out) {
             ++cur;
             ++s;
         }
-        if (cur == packets_.end() || cur->first != s) return false;  // incomplete yet
+        if (cur == packets_.end()) return false;  // the last frame isn't complete yet
+        if (cur->first != s) {
+            // A hole in this frame (lost for good, or not here yet): look on
+            // from the hole for a later key frame instead of waiting for this
+            // one, which was the freeze after a burst of loss.
+            it = std::prev(cur);
+            continue;
+        }
         std::vector<uint8_t> frame;
         bool key = false;
         if (assemble(it->first, s, frame, key) && key) {
             nextSeq_ = it->first;
             packets_.erase(packets_.begin(), it);  // older junk
+            for (auto e = missing_.begin(); e != missing_.end() && e->first < nextSeq_;) e = missing_.erase(e);
             (void)out;
             return true;
         }
@@ -309,6 +317,10 @@ void H264Receiver::incoming(rtc::message_vector& messages, const rtc::message_ca
     }
     resendNacks(now, send);
     drain(now, out, send);
+    // Still without a key frame: ask again (askKeyframe allows one every
+    // 300 ms), as the request or the key frame itself may have been lost;
+    // otherwise the picture stays frozen until the buffer overflows (seconds).
+    if (nextSeq_ < 0 && !packets_.empty()) askKeyframe(send);
     if (packets_.size() > kMaxBuffered) {  // stuck: start over
         packets_.clear();
         missing_.clear();

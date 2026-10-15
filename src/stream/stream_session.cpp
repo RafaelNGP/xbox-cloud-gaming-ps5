@@ -107,7 +107,25 @@ struct StreamSession::Impl {
     uint64_t lastKeyframeMs = 0;
     VideoReceiveStats videoStats;
     std::shared_ptr<RtcpReporter> videoReporter;
+    // The video receiver (a media handler, which libdatachannel may still be
+    // running after the session is gone) reaches the session through this.
+    struct Guard {
+        std::mutex mutex;
+        Impl* self = nullptr;
+    };
+    std::shared_ptr<Guard> guard = std::make_shared<Guard>();
     std::atomic<int> otherInputReports{0};
+    // Controllers: which slots are attached; what each sent last and when
+    // (sendGamepad's thread). A pad that didn't change is sent again only
+    // every kPadRepeatMs, not at the input loop's rate.
+    static constexpr uint64_t kPadRepeatMs = 50;
+    std::atomic<uint32_t> padsAttached{0};
+    GamepadFrame lastPad[4];
+    uint64_t lastPadMs[4] = {};
+    // After the picture stopped for a while (a lag spike), the server may
+    // keep receiving the pad and ignore it: the pads are announced again.
+    std::atomic<uint64_t> lastVideoMs{0};
+    std::atomic<bool> padsStale{false};
 
     Impl(xcloud::GssvClient& g, StreamCallbacks c, StreamOptions o) : gssv(g), cb(std::move(c)), opt(o) {}
 
@@ -260,6 +278,10 @@ struct StreamSession::Impl {
     }
 
     void sendGamepadChanged(int index, bool added) {
+        if (index >= 0 && index < 32) {
+            if (added) padsAttached |= 1u << index;
+            else padsAttached &= ~(1u << index);
+        }
         json::Value v = json::Value::object();
         v.set("message", "gamepadChanged");
         v.set("gamepadIndex", index);
@@ -470,11 +492,13 @@ struct StreamSession::Impl {
         video = pc->addTrack(v);
         // Our jitter buffer (NACK, whole frames only) in place of
         // H264RtpDepacketizer, which hands over frames with holes in them.
+        guard->self = this;
         auto videoReceiver = std::make_shared<H264Receiver>(
-            [this] {
-                if (!open) return;
+            [g = guard] {
+                std::lock_guard<std::mutex> lock(g->mutex);
+                if (!g->self || !g->self->open) return;
                 try {
-                    requestKeyframe();
+                    g->self->requestKeyframe();
                 } catch (const std::exception& e) {
                     XC_LOGW("keyframe request: %s", e.what());
                 }
@@ -486,6 +510,13 @@ struct StreamSession::Impl {
         video->setMediaHandler(videoReceiver);
         video->onFrame([this](rtc::binary data, rtc::FrameInfo info) {
             if (resolutionPending.exchange(false)) sendResolution(opt.resolutionAlias);
+            uint64_t now = platform::nowMs();
+            uint64_t last = lastVideoMs.exchange(now);
+            if (last && now - last >= 1500) {
+                XC_LOGI("picture back after %llu ms: announcing the controllers again",
+                        static_cast<unsigned long long>(now - last));
+                padsStale = true;
+            }
             if (cb.video) cb.video(reinterpret_cast<const uint8_t*>(data.data()), data.size(), info.timestamp);
         });
     }
@@ -623,6 +654,27 @@ struct StreamSession::Impl {
         }
     }
 
+    // Before the session goes: no callback of libdatachannel's (they hold
+    // `this`) may run any more. Each reset waits for a call in progress.
+    void detach() {
+        {
+            std::lock_guard<std::mutex> lock(guard->mutex);
+            guard->self = nullptr;
+        }
+        try {
+            for (const auto& ch : {chat, control, input, message})
+                if (ch) ch->resetCallbacks();
+            for (const auto& track : {audio, video})
+                if (track) {
+                    track->onFrame(nullptr);
+                    track->resetCallbacks();
+                }
+            if (pc) pc->resetCallbacks();
+        } catch (const std::exception& e) {
+            XC_LOGW("detaching the session: %s", e.what());
+        }
+    }
+
     void close() {
         open = false;
         if (pc) {
@@ -641,6 +693,7 @@ StreamSession::StreamSession(xcloud::GssvClient& gssv, StreamCallbacks callbacks
 StreamSession::~StreamSession() {
     impl_->closedNotified = true;  // no callback while tearing down
     impl_->close();
+    impl_->detach();
 }
 
 bool StreamSession::start(std::string& err) {
@@ -659,7 +712,21 @@ bool StreamSession::isOpen() const { return impl_->open; }
 
 void StreamSession::sendGamepad(const GamepadFrame& frame) {
     if (!impl_->open) return;
-    Impl::sendBinary(impl_->input, gamepadReport(impl_->inputSequence++, impl_->nowMs(), frame));
+    Impl& d = *impl_;
+    if (d.padsStale.exchange(false)) {
+        uint32_t attached = d.padsAttached;
+        for (int i = 0; i < 4; ++i)
+            if (attached & (1u << i)) d.sendGamepadChanged(i, true);
+        for (auto& ms : d.lastPadMs) ms = 0;  // and every pad's state right away
+    }
+    uint64_t now = platform::nowMs();
+    if (frame.index < 4) {
+        uint64_t& lastMs = d.lastPadMs[frame.index];
+        if (lastMs && frame == d.lastPad[frame.index] && now - lastMs < Impl::kPadRepeatMs) return;
+        d.lastPad[frame.index] = frame;
+        lastMs = now;
+    }
+    Impl::sendBinary(d.input, gamepadReport(d.inputSequence++, d.nowMs(), frame));
 }
 
 void StreamSession::sendAudio(const uint8_t* opus, size_t size, uint32_t timestamp) {

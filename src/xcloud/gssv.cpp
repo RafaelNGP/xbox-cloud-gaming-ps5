@@ -497,6 +497,14 @@ int GssvClient::waitTimeSeconds() {
     return static_cast<int>((*j)["estimatedTotalWaitTimeInSeconds"].asInt(-1));
 }
 
+int GssvClient::titleWaitSeconds(const std::string& titleId) {
+    if (titleId.empty() || login_.gsToken.empty()) return -1;
+    auto r = net::perform(authed(resolution_, login_, "GET", url("/v1/waittime/" + titleId)));
+    auto j = json::parse(r.body);
+    if (!r.ok() || !j) return -1;
+    return static_cast<int>((*j)["estimatedTotalWaitTimeInSeconds"].asInt(-1));
+}
+
 bool GssvClient::connect(const std::string& msaTransferToken, std::string& err) {
     json::Value body = json::Value::object();
     body.set("userToken", msaTransferToken);

@@ -55,7 +55,10 @@ void loop() {
         // Blocks until the hardware wants the next grain (5.3 ms).
         int rc = sceAudioOutOutput(h, grain.data());
         if (rc < 0) {
-            XC_LOGW("sceAudioOutOutput: 0x%08x", static_cast<unsigned>(rc));
+            static uint64_t failures = 0;  // this thread only
+            if (failures++ % 200 == 0)    // the first, then one a second or so
+                XC_LOGW("sceAudioOutOutput: 0x%08x (failure %llu)", static_cast<unsigned>(rc),
+                        static_cast<unsigned long long>(failures));
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
             if (!g_running) break;
         }
