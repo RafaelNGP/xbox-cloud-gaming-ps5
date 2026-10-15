@@ -258,6 +258,7 @@ constexpr Column kEnglish = {
     "United States",                                  // CountryUS
     "Secure connections were refused because the PS5's date and time look wrong (it says %s). Set them in Settings > System > Date and Time, then try again.", // ClockWrong
     "A secure connection was refused: something on the network (a DNS server, proxy or filter) is answering for Microsoft's sites. Try without it, then try again.", // ConnectionIntercepted
+    "PS5 date and time look wrong (%s): some content can't load. Set them in Settings > System > Date and Time.", // ClockWrongNotice
 };
 
 constexpr Column kPortugueseBR = {
@@ -486,6 +487,7 @@ constexpr Column kPortugueseBR = {
     "Estados Unidos",
     "As conexões seguras foram recusadas porque a data e a hora do PS5 parecem erradas (ele diz %s). Acerte em Configurações > Sistema > Data e hora e tente de novo.",
     "Uma conexão segura foi recusada: algo na rede (um servidor DNS, proxy ou filtro) está respondendo no lugar dos sites da Microsoft. Tente sem ele e tente de novo.",
+    "A data e a hora do PS5 parecem erradas (%s): parte do conteúdo não carrega. Acerte em Configurações > Sistema > Data e hora.",
 };
 
 constexpr Column kSpanish = {
@@ -714,6 +716,7 @@ constexpr Column kSpanish = {
     "Estados Unidos",
     "Se rechazaron las conexiones seguras porque la fecha y la hora de la PS5 parecen incorrectas (indica %s). Ajústalas en Ajustes > Sistema > Fecha y hora y vuelve a intentarlo.",
     "Se rechazó una conexión segura: algo en la red (un servidor DNS, proxy o filtro) responde en lugar de los sitios de Microsoft. Prueba sin él y vuelve a intentarlo.",
+    "La fecha y la hora de la PS5 parecen incorrectas (%s): parte del contenido no carga. Ajústalas en Ajustes > Sistema > Fecha y hora.",
 };
 
 constexpr Column kFrench = {
@@ -942,6 +945,7 @@ constexpr Column kFrench = {
     "États-Unis",
     "Les connexions sécurisées ont été refusées car la date et l'heure de la PS5 semblent fausses (elle indique %s). Réglez-les dans Paramètres > Système > Date et heure, puis réessayez.",
     "Une connexion sécurisée a été refusée : quelque chose sur le réseau (serveur DNS, proxy ou filtre) répond à la place des sites de Microsoft. Essayez sans, puis réessayez.",
+    "La date et l'heure de la PS5 semblent fausses (%s) : une partie du contenu ne se charge pas. Réglez-les dans Paramètres > Système > Date et heure.",
 };
 
 constexpr Column kGerman = {
@@ -1170,6 +1174,7 @@ constexpr Column kGerman = {
     "USA",
     "Sichere Verbindungen wurden abgelehnt, weil Datum und Uhrzeit der PS5 falsch zu sein scheinen (sie zeigt %s). Stelle sie unter Einstellungen > System > Datum und Uhrzeit ein und versuche es erneut.",
     "Eine sichere Verbindung wurde abgelehnt: Etwas im Netzwerk (DNS-Server, Proxy oder Filter) antwortet anstelle der Microsoft-Seiten. Versuche es ohne und dann erneut.",
+    "Datum und Uhrzeit der PS5 scheinen falsch zu sein (%s): Einige Inhalte laden nicht. Stelle sie unter Einstellungen > System > Datum und Uhrzeit ein.",
 };
 
 constexpr Column kItalian = {
@@ -1398,6 +1403,7 @@ constexpr Column kItalian = {
     "Stati Uniti",
     "Le connessioni sicure sono state rifiutate perché la data e l'ora della PS5 sembrano errate (indica %s). Impostale in Impostazioni > Sistema > Data e ora, poi riprova.",
     "Una connessione sicura è stata rifiutata: qualcosa nella rete (un server DNS, proxy o filtro) risponde al posto dei siti Microsoft. Prova senza e riprova.",
+    "La data e l'ora della PS5 sembrano errate (%s): alcuni contenuti non si caricano. Impostale in Impostazioni > Sistema > Data e ora.",
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

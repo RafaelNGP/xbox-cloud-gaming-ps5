@@ -747,6 +747,15 @@ static void testStoreLeftovers() {
     std::system("rm -rf /tmp/xcloud-store-test");
 }
 
+static void testMicrosoftHost() {
+    // The services whose refusal for the clock says the console's date is wrong.
+    for (const char* h : {"login.live.com", "displaycatalog.mp.microsoft.com", "xhome.gssv-play-prod.xboxlive.com",
+                          "store-images.s-microsoft.com", "www.xbox.com", "catalog.gamepass.com", "xboxlive.com"})
+        CHECK(net::microsoftHost(h));
+    for (const char* h : {"expired.badssl.com", "evilxboxlive.com", "microsoft.com.evil.example", "github.com", ""})
+        CHECK(!net::microsoftHost(h));
+}
+
 static void testHostPacer() {
     // Five a second per Microsoft host; other hosts never wait; a 429 holds
     // the host for its Retry-After (30 s at most).
@@ -816,6 +825,7 @@ int main() {
     testPrivacyAndRobustness();
     testStoreLeftovers();
     testHostPacer();
+    testMicrosoftHost();
     testAudioEncoder();
     testAutoDeband();
     testControllerTuning();

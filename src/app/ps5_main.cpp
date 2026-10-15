@@ -284,6 +284,15 @@ int main(int argc, char** argv) {
                            ui::tr(ui::Str::CrashedLastTime));
             }
         }
+        // A Microsoft service refused for the console's clock: said once, even
+        // if signing in worked (only some content then fails to load).
+        static bool clockTold = false;
+        if (!clockTold && net::clockProblemSeen()) {
+            clockTold = true;
+            // Not over the sign-in error that already says it.
+            if (g_ui->screen() != ui::Screen::Error)
+                platform::notify(ui::trf(ui::Str::ClockWrongNotice, net::todayText()), "the console's clock looks wrong (notification)");
+        }
         if (g_restartWanted) {
             // After an update: the new version, started in place of this one.
             if (!g_autoplay.noRestart) platform::restartApp();
