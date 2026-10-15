@@ -107,6 +107,13 @@ struct StreamSession::Impl {
     uint64_t lastKeyframeMs = 0;
     VideoReceiveStats videoStats;
     std::shared_ptr<RtcpReporter> videoReporter;
+    // The video receiver (a media handler, which libdatachannel may still be
+    // running after the session is gone) reaches the session through this.
+    struct Guard {
+        std::mutex mutex;
+        Impl* self = nullptr;
+    };
+    std::shared_ptr<Guard> guard = std::make_shared<Guard>();
     std::atomic<int> otherInputReports{0};
 
     Impl(xcloud::GssvClient& g, StreamCallbacks c, StreamOptions o) : gssv(g), cb(std::move(c)), opt(o) {}
@@ -470,11 +477,13 @@ struct StreamSession::Impl {
         video = pc->addTrack(v);
         // Our jitter buffer (NACK, whole frames only) in place of
         // H264RtpDepacketizer, which hands over frames with holes in them.
+        guard->self = this;
         auto videoReceiver = std::make_shared<H264Receiver>(
-            [this] {
-                if (!open) return;
+            [g = guard] {
+                std::lock_guard<std::mutex> lock(g->mutex);
+                if (!g->self || !g->self->open) return;
                 try {
-                    requestKeyframe();
+                    g->self->requestKeyframe();
                 } catch (const std::exception& e) {
                     XC_LOGW("keyframe request: %s", e.what());
                 }
@@ -623,6 +632,27 @@ struct StreamSession::Impl {
         }
     }
 
+    // Before the session goes: no callback of libdatachannel's (they hold
+    // `this`) may run any more. Each reset waits for a call in progress.
+    void detach() {
+        {
+            std::lock_guard<std::mutex> lock(guard->mutex);
+            guard->self = nullptr;
+        }
+        try {
+            for (const auto& ch : {chat, control, input, message})
+                if (ch) ch->resetCallbacks();
+            for (const auto& track : {audio, video})
+                if (track) {
+                    track->onFrame(nullptr);
+                    track->resetCallbacks();
+                }
+            if (pc) pc->resetCallbacks();
+        } catch (const std::exception& e) {
+            XC_LOGW("detaching the session: %s", e.what());
+        }
+    }
+
     void close() {
         open = false;
         if (pc) {
@@ -641,6 +671,7 @@ StreamSession::StreamSession(xcloud::GssvClient& gssv, StreamCallbacks callbacks
 StreamSession::~StreamSession() {
     impl_->closedNotified = true;  // no callback while tearing down
     impl_->close();
+    impl_->detach();
 }
 
 bool StreamSession::start(std::string& err) {

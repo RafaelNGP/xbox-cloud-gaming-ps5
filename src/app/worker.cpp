@@ -67,10 +67,12 @@ std::string stream(xcloud::GssvClient& gssv) {
     app::StreamPlayer player(gssv);
     if (g_autoplay.dump) player.dumpVideo(platform::dataDir() + "/stream.aus", 20);
     player.setDecodeThreads(g_autoplay.decodeThreads);
+    player.setSimulatedLoss(g_autoplay.videoLoss);
     player.setHwDecodeProbe(g_autoplay.hwDecode);
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         player.setMicGain(g_settings.micGain);
+        player.setMicEnabled(g_settings.micEnabled);
         media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
     }
     std::string err;

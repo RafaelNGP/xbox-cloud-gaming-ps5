@@ -157,7 +157,12 @@ std::atomic<uint64_t> g_shownId{0}, g_shownAtUs{0};
 uint64_t g_acquireWaitUs = 0, g_acquireWaitMaxUs = 0, g_acquires = 0;
 
 bool fail(const char* step, VkResult r) {
-    XC_LOGE("gpu: %s failed (%d)", step, static_cast<int>(r));
+    // Acquire, submit and present fail every frame when they fail at all:
+    // the first ones, then one in 600 (10 s).
+    static std::atomic<uint64_t> failures{0};
+    uint64_t n = failures++;
+    if (n < 10 || n % 600 == 0) XC_LOGE("gpu: %s failed (%d), failure %llu", step, static_cast<int>(r),
+                                        static_cast<unsigned long long>(n + 1));
     return false;
 }
 

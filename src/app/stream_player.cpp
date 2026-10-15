@@ -83,6 +83,7 @@ struct StreamPlayer::Impl {
     std::atomic<uint64_t> displayUs{0}, displayCount{0}, displayMaxUs{0};
     std::atomic<uint64_t> decodeUs{0}, decodeCalls{0}, decodeMaxUs{0}, drawUs{0}, drawCalls{0}, drawMaxUs{0};
     int decodeThreads = 1;
+    int simulatedLoss = 0;
     bool hwProbe = false;
 
     static void atomicMax(std::atomic<uint64_t>& a, uint64_t v) {
@@ -108,9 +109,26 @@ struct StreamPlayer::Impl {
     std::atomic<float> micGain{1.0f};
     std::atomic<uint32_t> audioSendTimestamp{0};
     bool encoderInitialized = false;
+    // Opening and closing the microphone happen on several threads (start,
+    // reconnect, the end of the stream): one at a time.
+    std::mutex micMutex;
+
+    void closeMic() {
+        std::lock_guard<std::mutex> lock(micMutex);
+        audioIn.close();
+        input::setEmbeddedMicActive(false);
+    }
 
     void updateMicState() {
+        std::lock_guard<std::mutex> lock(micMutex);
         if (!running) return;
+        if (!micEnabled) {
+            if (audioIn.isRecording()) {
+                audioIn.close();
+                input::setEmbeddedMicActive(false);
+            }
+            return;
+        }
         if (!audioIn.isRecording()) {
             if (!encoderInitialized) {
                 encoderInitialized = audioEncoder.init(24000);
@@ -141,8 +159,7 @@ struct StreamPlayer::Impl {
     explicit Impl(xcloud::GssvClient& g) : gssv(g) {}
 
     void end(const std::string& reason) {
-        audioIn.close();
-        input::setEmbeddedMicActive(false);
+        closeMic();
         {
             std::lock_guard<std::mutex> lock(mutex);
             if (endReason.empty()) endReason = reason;
@@ -431,6 +448,7 @@ struct StreamPlayer::Impl {
                           : gssv.resolution() == xcloud::Resolution::P1440 ? 40000000
                           : gssv.resolution() == xcloud::Resolution::P1080HQ ? 30000000
                                                                            : 25000000;
+        opts.simulatedVideoLoss = simulatedLoss;
         if (const char* loss = std::getenv("XC_SIM_LOSS")) opts.simulatedVideoLoss = std::atoi(loss);
         callbacks = cb;
         options = opts;
@@ -594,12 +612,13 @@ struct StreamPlayer::Impl {
         if (auto s = current()) s->close();
         if (videoThread.joinable()) videoThread.join();
         if (audioThread.joinable()) audioThread.join();
+        std::shared_ptr<stream::StreamSession> last;
         {
             std::lock_guard<std::mutex> lock(sessionMutex);
-            session.reset();
+            last = std::move(session);
         }
-        audioIn.close();
-        input::setEmbeddedMicActive(false);
+        last.reset();  // its teardown waits for libdatachannel's callbacks: not under the lock
+        closeMic();
         media::audioStop();
         for (int i = 0; i < input::kMaxPads; ++i) {
             input::setRumble(0, 0, 0, i);
@@ -716,6 +735,7 @@ void StreamPlayer::stop() { impl_->stop(); }
 void StreamPlayer::setHwDecodeProbe(bool on) { impl_->hwProbe = on; }
 
 void StreamPlayer::setDecodeThreads(int threads) { impl_->decodeThreads = std::max(1, threads); }
+void StreamPlayer::setSimulatedLoss(int percent) { impl_->simulatedLoss = std::clamp(percent, 0, 50); }
 
 StreamPlayer::Stats StreamPlayer::stats() const {
     Stats st;

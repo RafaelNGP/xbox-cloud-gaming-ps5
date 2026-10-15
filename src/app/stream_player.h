@@ -83,6 +83,8 @@ public:
     Stats stats() const;
     // Before start(): H.264 decoder threads (more than 1 = frame threading).
     void setDecodeThreads(int threads);
+    // Test: hold back this percentage of the video packets (see H264Receiver).
+    void setSimulatedLoss(int percent);
     // Before start(): also run every frame through the PS5's hardware
     // decoder and log how it does (the picture still comes from FFmpeg).
     void setHwDecodeProbe(bool on);
