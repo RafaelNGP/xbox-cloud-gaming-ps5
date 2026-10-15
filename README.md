@@ -56,11 +56,13 @@ No building needed: download `PPSA99810.zip` from the
 
 New versions install from inside the app (it asks after sign-in, and
 Settings > Updates): only a package signed with the project's key is
-accepted, and your sign-in is kept. ProsperoStore's updates replace the
-whole folder; the app brings the sign-in and settings back from the copy
-the store keeps. By hand: close the app and copy the new folder over the
-old one. The sign-in lives in `PPSA99810/account.json`: never share
-that file. More details, controls and troubleshooting are in the
+accepted, and your sign-in is kept. By hand: close the app and copy the
+new folder over the old one. Since v0.9.7 the sign-in, settings, caches
+and log live in `/data/psbox`, outside the app's folder: updating,
+reinstalling or uninstalling the app (also from ProsperoStore) keeps
+them, and the first start moves them there from older versions. The
+sign-in is `/data/psbox/account.json`: never share that file. To remove
+everything the app keeps, delete `/data/psbox` too. More details, controls and troubleshooting are in the
 `README.txt` inside the folder.
 
 ## Building

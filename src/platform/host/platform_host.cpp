@@ -37,6 +37,8 @@ bool init() {
 void shutdown() {}
 
 std::string dataDir() { return g_dataDir; }
+std::string dataDirNote() { return {}; }
+std::string appDir() { return g_dataDir; }
 
 std::string assetDir() {
     if (const char* env = std::getenv("XCLOUD_ASSETS")) return env;

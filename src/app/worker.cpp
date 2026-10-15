@@ -386,9 +386,9 @@ void runUpdate() {
     if (r.tag.empty()) return;
     XC_LOGI("update to %s: starting", r.tag.c_str());
     g_ui->showUpdating(r.tag);
-    // Only where the app runs from (/app0 is the data folder): installed
-    // elsewhere, it would write next to the wrong eboot.bin.
-    std::string dir = platform::dataDir(), err;
+    // Only where the app runs from: installed elsewhere, it would write next
+    // to the wrong eboot.bin.
+    std::string dir = platform::appDir(), err;
     struct stat here {}, running {};
     bool ok = ::stat((dir + "/eboot.bin").c_str(), &here) == 0 && ::stat("/app0/eboot.bin", &running) == 0 &&
               here.st_ino == running.st_ino;

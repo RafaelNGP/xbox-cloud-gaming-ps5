@@ -38,7 +38,12 @@ int sceNetResolverDestroy(int rid);
 namespace xc::platform {
 
 namespace {
-std::string g_dataDir = "/data/homebrew/PPSA99810";
+// User data (sign-in, settings, caches, log): its own folder, apart from the
+// app's, which installers replace or delete. Before 0.9.7 it was the app's.
+constexpr const char* kDataDir = "/data/psbox";
+constexpr const char* kLegacyDir = "/data/homebrew/PPSA99810";
+std::string g_dataDir = kDataDir;
+std::string g_dataNote;
 std::atomic<int> g_netPool{-1};
 }
 
@@ -52,27 +57,34 @@ bool writable(const std::string& dir) {
     return true;
 }
 
+// Once: the user's files of a version before 0.9.7, from the app's folder
+// (copied, then its sign-in removed there: one copy of the token). Not
+// again after (.migrated): a sign-out later must not bring them back.
+void migrateLegacy() {
+    const std::string data = kDataDir, legacy = kLegacyDir, done = data + "/.migrated";
+    std::string text;
+    if (readFile(done, text)) return;
+    int moved = 0;
+    for (const char* name : {"account.json", "settings.json", "library.json", "prices.json"}) {
+        std::string mine;
+        if (readFile(legacy + "/" + name, text) && !readFile(data + "/" + name, mine) &&
+            writeFileAtomic(data + "/" + name, text))
+            ++moved;
+    }
+    if (readFile(data + "/account.json", text)) ::unlink((legacy + "/account.json").c_str());
+    writeFileAtomic(done, "1\n");
+    if (moved) g_dataNote = "moved " + std::to_string(moved) + " file(s) from " + legacy + " to " + data;
+}
+
 bool init() {
-    // The sign-in, settings and caches live in /data/homebrew/PPSA99810 (the
-    // app's own folder when installed there, kept apart from it on a USB
-    // drive). A folder the app can't write in (as an installer may leave
-    // it) would lose the sign-in at every start: then /data/psbox.
-    if (!writable(g_dataDir)) {
+    if (writable(kDataDir)) {
+        migrateLegacy();
+    } else if (writable(kLegacyDir)) {  // as before 0.9.7
         int err = errno;
-        const std::string fallback = "/data/psbox";
-        bool ok = writable(fallback);
-        XC_LOGW("data folder %s not writable (errno %d); %s", g_dataDir.c_str(), err,
-                ok ? ("using " + fallback).c_str() : "nor /data/psbox: nothing will be kept");
-        if (ok) {
-            // What can still be read there comes along (a folder that only
-            // refuses writes keeps the last sign-in).
-            for (const char* name : {"account.json", "settings.json"}) {
-                std::string text, mine;
-                if (readFile(g_dataDir + "/" + name, text) && !readFile(fallback + "/" + name, mine))
-                    writeFileAtomic(fallback + "/" + name, text);
-            }
-            g_dataDir = fallback;
-        }
+        g_dataDir = kLegacyDir;
+        g_dataNote = std::string(kDataDir) + " not writable (errno " + std::to_string(err) + "); using " + kLegacyDir;
+    } else {
+        g_dataNote = std::string("neither ") + kDataDir + " nor " + kLegacyDir + " is writable: nothing will be kept";
     }
     // libSceNet's resolver: 32 KiB pool.
     int rc = sceNetInit();
@@ -87,6 +99,18 @@ void shutdown() {}
 
 std::string dataDir() {
     return g_dataDir;
+}
+
+std::string dataDirNote() { return g_dataNote; }
+
+std::string appDir() {
+    // /app0 is the app's own folder; its real path where it has been
+    // tested to take updates (renames over the running eboot.bin).
+    struct stat legacy {}, running {};
+    if (::stat((std::string(kLegacyDir) + "/eboot.bin").c_str(), &legacy) == 0 &&
+        ::stat("/app0/eboot.bin", &running) == 0 && legacy.st_ino == running.st_ino)
+        return kLegacyDir;
+    return "/app0";
 }
 
 std::string assetDir() { return "/app0/assets"; }

@@ -164,8 +164,8 @@ int main(int argc, char** argv) {
 
     platform::init();
     log::setFile((platform::dataDir() + "/xcloud.log").c_str());
-    if (platform::dataDir() != "/data/homebrew/PPSA99810")
-        XC_LOGW("data folder: %s (/data/homebrew/PPSA99810 wasn't writable)", platform::dataDir().c_str());
+    if (!platform::dataDirNote().empty())
+        XC_LOGI("data folder %s: %s", platform::dataDir().c_str(), platform::dataDirNote().c_str());
     XC_LOGI("=== PSBox Cloud Gaming starting ===");
     XC_LOGI("firmware %s, PSBox %s", platform::firmwareVersion().c_str(), XC_APP_VERSION);
     // Did the last session go down? (A crash leaves a marker; being closed
@@ -176,7 +176,7 @@ int main(int argc, char** argv) {
     loadAutoplay();
     // An update cut short: the old files went back, and the old eboot.bin
     // is the one to run.
-    if (recoverUpdate(platform::dataDir())) platform::restartApp();
+    if (recoverUpdate(platform::appDir())) platform::restartApp();
     importStoreLeftovers(platform::dataDir(), "/data/prosperostore/previous/PPSA99810");
     struct stat settingsStat;
     if (!g_settings.load(settingsPath()) && ::stat(settingsPath().c_str(), &settingsStat) == 0) {
