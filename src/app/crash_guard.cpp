@@ -86,9 +86,24 @@ void startWatchdog(uint32_t stallMs) {
     heartbeat();
     std::thread([stallMs] {
         bool stalled = false;
+        uint64_t last = platform::nowMs();
         for (;;) {
             platform::sleepMs(1000);
-            uint64_t idle = platform::nowMs() - g_beat.load();
+            uint64_t now = platform::nowMs();
+            // This second took far longer: the whole app was suspended (the
+            // console in rest mode), not the main loop stuck. A fresh start
+            // for the measure, no marker.
+            if (now - last > 5000) {
+                XC_LOGI("crash guard: the app was suspended for %llu ms (rest mode)",
+                        static_cast<unsigned long long>(now - last));
+                heartbeat();
+                last = now;
+                continue;
+            }
+            last = now;
+            // The main loop may beat between our two readings: never negative.
+            uint64_t beat = g_beat.load();
+            uint64_t idle = now > beat ? now - beat : 0;
             if (!stalled && idle > stallMs) {
                 stalled = true;
                 XC_LOGW("crash guard: the main loop has not run for %llu ms (%s)", static_cast<unsigned long long>(idle), g_stage);
