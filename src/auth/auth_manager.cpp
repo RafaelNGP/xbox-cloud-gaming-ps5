@@ -9,8 +9,8 @@
 
 #include <algorithm>
 #include <cerrno>
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
 
 namespace xc::auth {
 
