@@ -83,6 +83,8 @@ public:
     Stats stats() const;
     // Before start(): H.264 decoder threads (more than 1 = frame threading).
     void setDecodeThreads(int threads);
+    // Before start(): the video bitrate offered to the server, in Mbps (0: the tier's).
+    void setMaxBitrate(int mbps);
     // Test: hold back this percentage of the video packets (see H264Receiver).
     void setSimulatedLoss(int percent);
     // Before start(): also run every frame through the PS5's hardware
