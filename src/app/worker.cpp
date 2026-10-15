@@ -517,6 +517,8 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         XC_LOGI("AUTOPLAY END: consoles listed");
         return;
     }
+    if (!am.saved())  // the next start would ask for a code again: said now, not then
+        platform::notify(ui::tr(ui::Str::SignInNotSaved), "the sign-in couldn't be saved (notification)");
     g_ui->setProfile(am.profile().gamertag, am.profile().gamerpicUrl, am.profile().gamerscore);
     {
         std::lock_guard<std::mutex> lock(g_argMutex);

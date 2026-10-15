@@ -33,6 +33,9 @@ public:
     explicit AuthManager(std::string storePath, MsaConfig cfg = {});
 
     bool hasStoredAccount() const { return !tokens_.refreshToken.empty(); }
+    // False when the last sign-in couldn't be written to the store file: the
+    // next start asks for a code again.
+    bool saved() const { return saved_; }
 
     // Full sign-in. Uses the stored refresh token when possible; otherwise
     // starts the device-code flow and calls `onCode`. Blocking; `cancel` may be
@@ -54,6 +57,7 @@ public:
 private:
     bool load();
     bool save() const;
+    mutable bool saved_ = true;
     bool deviceCodeSignIn(const DeviceCodeCallback& onCode, std::string& err, const std::atomic<bool>* cancel);
     bool xboxChain(xcloud::GssvClient& gssv, std::string& err);
     void fetchGamerpic(const XblToken& xsts);

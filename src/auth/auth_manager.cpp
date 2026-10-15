@@ -8,6 +8,7 @@
 #include "util/log.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdio>
 
 namespace xc::auth {
@@ -48,9 +49,11 @@ bool AuthManager::save() const {
     v.set("gamertag", profile_.gamertag);
     v.set("xuid", profile_.xuid);
     if (!platform::writeFileAtomic(storePath_, v.dump())) {
-        XC_LOGE("could not write token store %s", storePath_.c_str());
+        XC_LOGE("could not write token store %s (errno %d)", storePath_.c_str(), errno);
+        saved_ = false;
         return false;
     }
+    saved_ = true;
     return true;
 }
 

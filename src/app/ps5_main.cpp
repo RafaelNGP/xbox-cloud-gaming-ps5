@@ -164,6 +164,8 @@ int main(int argc, char** argv) {
 
     platform::init();
     log::setFile((platform::dataDir() + "/xcloud.log").c_str());
+    if (platform::dataDir() != "/data/homebrew/PPSA99810")
+        XC_LOGW("data folder: %s (/data/homebrew/PPSA99810 wasn't writable)", platform::dataDir().c_str());
     XC_LOGI("=== PSBox Cloud Gaming starting ===");
     XC_LOGI("firmware %s, PSBox %s", platform::firmwareVersion().c_str(), XC_APP_VERSION);
     // Did the last session go down? (A crash leaves a marker; being closed
