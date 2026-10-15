@@ -2,10 +2,11 @@
 // Copyright (C) 2026 RafaelNGP
 // What the home screen shows, in two tabs:
 //
-//  - Game Pass: "Jump back in" (recently played Game Pass games) and the Game
-//    Pass lists xbox.com/play shows. Only Game Pass games: xbox.com's
-//    "popular" list mixes in "stream your own game" titles that must be
-//    bought first, and those would fail to start.
+//  - Game Pass: "Jump back in" (recently played games the account can play,
+//    Game Pass or its own) and the Game Pass lists xbox.com/play shows. Only
+//    Game Pass games in those: xbox.com's "popular" list mixes in "stream
+//    your own game" titles that must be bought first, and those would fail
+//    to start.
 //  - Your games: what the account can stream outside Game Pass (purchases,
 //    free-to-play), recently played first, then alphabetical; and below it
 //    the games that stream in the cloud once bought, most popular first.
@@ -89,6 +90,7 @@ private:
         bool badges = true;
         bool isGrid = false;
         std::vector<Item> items;
+        bool recent = false;  // "Jump back in"
     };
     ui::GameTile tile(const std::string& productId, const std::string& titleId = {}) const;
     std::vector<ui::GameTile> tiles(const std::vector<Item>& items) const;
