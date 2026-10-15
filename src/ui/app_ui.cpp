@@ -1219,6 +1219,10 @@ void AppUi::setRegions(std::vector<std::string> regions, const std::string& defa
     dirty_ = true;
 }
 
+// Settings' bitrate caps (Mbps, after Automatic) and game volumes (percent).
+constexpr int kBitrateCaps[] = {20, 15, 10, 5};
+constexpr int kVolumes[] = {25, 50, 75, 100, 150};
+
 std::vector<std::string> AppUi::settingOptions(int row) const {
     // Caller holds mutex_.
     std::vector<std::string> out;
@@ -1245,6 +1249,11 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         // Updates: Cross acts, no list.
     } else if (row == 9) {
         out = {tr(Str::Deactivated), tr(Str::HighRefreshOn)};
+    } else if (row == 10) {
+        out.push_back(tr(Str::BitrateAuto));
+        for (int mbps : kBitrateCaps) out.push_back(std::to_string(mbps) + " Mbps");
+    } else if (row == 11) {
+        for (int v : kVolumes) out.push_back(std::to_string(v) + " %");
     } else if (row == 8) {
         out.push_back(tr(Str::LoginCountryOff));
         for (const char* country : kLoginCountries) out.push_back(loginCountryName(country));
@@ -1270,6 +1279,16 @@ int AppUi::settingSelected(int row) const {
     if (row == 6) return settings_.lightBarMode;
     if (row == 7) return 0;
     if (row == 9) return settings_.highRefresh ? 1 : 0;
+    if (row == 10) {
+        for (size_t i = 0; i < std::size(kBitrateCaps); ++i)
+            if (kBitrateCaps[i] == settings_.maxBitrateMbps) return static_cast<int>(i) + 1;
+        return 0;
+    }
+    if (row == 11) {
+        for (size_t i = 0; i < std::size(kVolumes); ++i)
+            if (kVolumes[i] == settings_.gameVolume) return static_cast<int>(i);
+        return 3;  // 100 %
+    }
     if (row == 8) {
         for (size_t i = 0; i < std::size(kLoginCountries); ++i)
             if (settings_.loginCountry == kLoginCountries[i]) return static_cast<int>(i) + 1;
@@ -1299,6 +1318,10 @@ void AppUi::applySetting(int row, int index) {
     } else if (row == 7) {
     } else if (row == 9) {
         settings_.highRefresh = index == 1;
+    } else if (row == 10) {
+        settings_.maxBitrateMbps = index == 0 ? 0 : kBitrateCaps[index - 1];
+    } else if (row == 11) {
+        settings_.gameVolume = kVolumes[index];
     } else if (row == 8) {
         settings_.loginCountry = index == 0 ? std::string() : kLoginCountries[index - 1];
     } else {
@@ -3204,8 +3227,8 @@ void AppUi::drawSettings(Canvas& c) {
     const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
                                         tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry),
-                                        tr(Str::HighRefresh)};
-    constexpr int kRowW = 1200, kRowH = 56, kGap = 8;
+                                        tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume)};
+    constexpr int kRowW = 1200, kRowH = 50, kGap = 6;
     Rect rows[kSettingRows];
     int y = 262;
     for (int i = 0; i < kSettingRows; ++i) {

@@ -266,6 +266,9 @@ constexpr Column kEnglish = {
     "On (in games)", // HighRefreshOn
     "Unstable connection", // ConnectionUnstable
     "Session: %s", // SessionSummary
+    "Maximum bitrate", // BitrateCap
+    "Automatic", // BitrateAuto
+    "Game volume", // GameVolume
 };
 
 constexpr Column kPortugueseBR = {
@@ -502,6 +505,9 @@ constexpr Column kPortugueseBR = {
     "Ativada (nos jogos)", // HighRefreshOn
     "Conexão instável", // ConnectionUnstable
     "Sessão: %s", // SessionSummary
+    "Bitrate máximo", // BitrateCap
+    "Automático", // BitrateAuto
+    "Volume do jogo", // GameVolume
 };
 
 constexpr Column kSpanish = {
@@ -738,6 +744,9 @@ constexpr Column kSpanish = {
     "Activada (en los juegos)", // HighRefreshOn
     "Conexión inestable", // ConnectionUnstable
     "Sesión: %s", // SessionSummary
+    "Bitrate máximo", // BitrateCap
+    "Automático", // BitrateAuto
+    "Volumen del juego", // GameVolume
 };
 
 constexpr Column kFrench = {
@@ -974,6 +983,9 @@ constexpr Column kFrench = {
     "Activée (en jeu)", // HighRefreshOn
     "Connexion instable", // ConnectionUnstable
     "Session : %s", // SessionSummary
+    "Débit maximal", // BitrateCap
+    "Automatique", // BitrateAuto
+    "Volume du jeu", // GameVolume
 };
 
 constexpr Column kGerman = {
@@ -1210,6 +1222,9 @@ constexpr Column kGerman = {
     "An (in Spielen)", // HighRefreshOn
     "Instabile Verbindung", // ConnectionUnstable
     "Sitzung: %s", // SessionSummary
+    "Maximale Bitrate", // BitrateCap
+    "Automatisch", // BitrateAuto
+    "Spiellautstärke", // GameVolume
 };
 
 constexpr Column kItalian = {
@@ -1446,6 +1461,9 @@ constexpr Column kItalian = {
     "Attiva (nei giochi)", // HighRefreshOn
     "Connessione instabile", // ConnectionUnstable
     "Sessione: %s", // SessionSummary
+    "Bitrate massimo", // BitrateCap
+    "Automatico", // BitrateAuto
+    "Volume del gioco", // GameVolume
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

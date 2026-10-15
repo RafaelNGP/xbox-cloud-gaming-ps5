@@ -73,6 +73,11 @@ std::string stream(xcloud::GssvClient& gssv) {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         player.setMicGain(g_settings.micGain);
         player.setMicEnabled(g_settings.micEnabled);
+        player.setMaxBitrate(g_settings.maxBitrateMbps);
+        media::audioSetVolume(g_settings.gameVolume / 100.0f);
+        XC_LOGI("stream: bitrate cap %s, game volume %d%%",
+                g_settings.maxBitrateMbps ? (std::to_string(g_settings.maxBitrateMbps) + " Mbps").c_str() : "automatic",
+                g_settings.gameVolume);
         media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
     }
     std::string err;

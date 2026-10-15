@@ -243,6 +243,9 @@ enum class Str {
     HighRefreshOn,      // ... its "on" choice (while a game streams; the menus stay at 60 Hz)
     ConnectionUnstable, // in a game: frames lost, video stalled or the round trip far up
     SessionSummary,     // notification at the end of a game (%s: minutes, resolution, Mbps, loss, ms)
+    BitrateCap,         // Settings row: the stream's bitrate cap (for Wi-Fi)
+    BitrateAuto,        // ... its default: the resolution's own
+    GameVolume,         // Settings row: the game's sound level
     Count
 };
 

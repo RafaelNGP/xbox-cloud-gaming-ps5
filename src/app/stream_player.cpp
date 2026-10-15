@@ -84,6 +84,7 @@ struct StreamPlayer::Impl {
     std::atomic<uint64_t> decodeUs{0}, decodeCalls{0}, decodeMaxUs{0}, drawUs{0}, drawCalls{0}, drawMaxUs{0};
     int decodeThreads = 1;
     int simulatedLoss = 0;
+    int maxBitrateMbps = 0;
     bool hwProbe = false;
 
     static void atomicMax(std::atomic<uint64_t>& a, uint64_t v) {
@@ -448,6 +449,8 @@ struct StreamPlayer::Impl {
                           : gssv.resolution() == xcloud::Resolution::P1440 ? 40000000
                           : gssv.resolution() == xcloud::Resolution::P1080HQ ? 30000000
                                                                            : 25000000;
+        if (maxBitrateMbps > 0)  // the user's cap (Wi-Fi): REMB never offers more
+            opts.maxBitrate = std::min<uint32_t>(opts.maxBitrate, static_cast<uint32_t>(maxBitrateMbps) * 1000000u);
         opts.simulatedVideoLoss = simulatedLoss;
         if (const char* loss = std::getenv("XC_SIM_LOSS")) opts.simulatedVideoLoss = std::atoi(loss);
         callbacks = cb;
@@ -735,6 +738,7 @@ void StreamPlayer::stop() { impl_->stop(); }
 void StreamPlayer::setHwDecodeProbe(bool on) { impl_->hwProbe = on; }
 
 void StreamPlayer::setDecodeThreads(int threads) { impl_->decodeThreads = std::max(1, threads); }
+void StreamPlayer::setMaxBitrate(int mbps) { impl_->maxBitrateMbps = std::max(0, mbps); }
 void StreamPlayer::setSimulatedLoss(int percent) { impl_->simulatedLoss = std::clamp(percent, 0, 50); }
 
 StreamPlayer::Stats StreamPlayer::stats() const {

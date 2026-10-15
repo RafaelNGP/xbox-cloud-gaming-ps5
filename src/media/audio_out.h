@@ -17,8 +17,10 @@ bool audioStart();
 void audioStop();
 void audioSetRoute(AudioRoute route);
 AudioRoute audioRoute();
-// Drops the oldest samples when more than ~120 ms is queued, to keep
-// latency bounded when the network delivers a burst.
+// The game's volume: 1 as it comes, up to 2 (louder, clipped at full scale).
+void audioSetVolume(float gain);
+// Past ~60 ms queued (a burst from the network) cuts back to ~40 ms, the
+// oldest samples first, to keep the sound close to the picture.
 void audioPush(const float* interleaved, size_t frames);
 
 }  // namespace xc::media

@@ -114,12 +114,14 @@ struct SettingsChoice {
     int deband = 3;
     int upscaler = 2;
     bool highRefresh = false;  // 120 Hz output while a game streams
+    int maxBitrateMbps = 0;    // 0 automatic, else 20 / 15 / 10 / 5
+    int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
 };
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 10;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
-                                  // sign-in country, 120 Hz output
+constexpr int kSettingRows = 12;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+                                  // sign-in country, 120 Hz output, bitrate cap, game volume
 
 // The countries "Sign in as another country" offers (xcloud::loginCountryAddress).
 constexpr const char* kLoginCountries[] = {"br", "jp", "kr", "pl", "us"};
