@@ -262,6 +262,8 @@ constexpr Column kEnglish = {
     "Your sign-in couldn't be saved on the console, so it will be asked again next time. Please report it (Settings > △).", // SignInNotSaved
     "Estimated wait: %s s", // QueueSeconds
     "Estimated wait: %s min", // QueueMinutes
+    "120 Hz output (VRR)", // HighRefresh
+    "On (after restarting the app)", // HighRefreshOn
 };
 
 constexpr Column kPortugueseBR = {
@@ -494,6 +496,8 @@ constexpr Column kPortugueseBR = {
     "Não foi possível salvar o login no console, então ele será pedido de novo na próxima vez. Relate o problema (Configurações > △).",
     "Espera estimada: %s s", // QueueSeconds
     "Espera estimada: %s min", // QueueMinutes
+    "Saída 120 Hz (VRR)", // HighRefresh
+    "Ativada (ao reabrir o app)", // HighRefreshOn
 };
 
 constexpr Column kSpanish = {
@@ -726,6 +730,8 @@ constexpr Column kSpanish = {
     "No se pudo guardar el inicio de sesión en la consola, así que se pedirá de nuevo la próxima vez. Infórmalo (Ajustes > △).",
     "Espera estimada: %s s", // QueueSeconds
     "Espera estimada: %s min", // QueueMinutes
+    "Salida 120 Hz (VRR)", // HighRefresh
+    "Activada (al reabrir la app)", // HighRefreshOn
 };
 
 constexpr Column kFrench = {
@@ -958,6 +964,8 @@ constexpr Column kFrench = {
     "Impossible d'enregistrer la connexion sur la console : elle sera redemandée la prochaine fois. Signalez-le (Paramètres > △).",
     "Attente estimée : %s s", // QueueSeconds
     "Attente estimée : %s min", // QueueMinutes
+    "Sortie 120 Hz (VRR)", // HighRefresh
+    "Activée (au redémarrage de l'app)", // HighRefreshOn
 };
 
 constexpr Column kGerman = {
@@ -1190,6 +1198,8 @@ constexpr Column kGerman = {
     "Die Anmeldung konnte nicht auf der Konsole gespeichert werden und wird beim nächsten Mal erneut abgefragt. Bitte melde das (Einstellungen > △).",
     "Geschätzte Wartezeit: %s s", // QueueSeconds
     "Geschätzte Wartezeit: %s Min.", // QueueMinutes
+    "120-Hz-Ausgabe (VRR)", // HighRefresh
+    "An (nach Neustart der App)", // HighRefreshOn
 };
 
 constexpr Column kItalian = {
@@ -1422,6 +1432,8 @@ constexpr Column kItalian = {
     "Impossibile salvare l'accesso sulla console: verrà richiesto di nuovo la prossima volta. Segnalalo (Impostazioni > △).",
     "Attesa stimata: %s s", // QueueSeconds
     "Attesa stimata: %s min", // QueueMinutes
+    "Uscita 120 Hz (VRR)", // HighRefresh
+    "Attiva (al riavvio dell'app)", // HighRefreshOn
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

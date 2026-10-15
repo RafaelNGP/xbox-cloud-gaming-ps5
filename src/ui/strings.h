@@ -239,6 +239,8 @@ enum class Str {
     SignInNotSaved,     // notification: the sign-in couldn't be written (asked again next start)
     QueueSeconds,       // game page, beside Play: the service's estimated wait (%s: seconds)
     QueueMinutes,       // ... in minutes (%s)
+    HighRefresh,        // Settings row: 119.88 Hz output
+    HighRefreshOn,      // ... its "on" choice (applies when the app starts again)
     Count
 };
 

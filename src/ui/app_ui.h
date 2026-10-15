@@ -113,12 +113,13 @@ struct SettingsChoice {
     int sharpness = 0;
     int deband = 3;
     int upscaler = 2;
+    bool highRefresh = false;  // 120 Hz output, from the next start
 };
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 9;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
-                                 // sign-in country
+constexpr int kSettingRows = 10;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+                                  // sign-in country, 120 Hz output
 
 // The countries "Sign in as another country" offers (xcloud::loginCountryAddress).
 constexpr const char* kLoginCountries[] = {"br", "jp", "kr", "pl", "us"};
