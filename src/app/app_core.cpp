@@ -230,6 +230,7 @@ bool coreStartup() {
         return false;
     }
     bool haveDisplay = display::init(!g_autoplay.cpuDisplay);
+    if (!shell::afterDisplay(haveDisplay)) return false;  // the desktop: its window to the input backend
     if (!input::init()) XC_LOGE("controller init failed");
     input::kbmInit(input::padUserId(0));  // USB keyboards and mice (logs what it found)
 
@@ -293,7 +294,7 @@ bool coreStartup() {
     } else {
         if (g_autoplay.badCa) XC_LOGI("AUTOPLAY END: missing CA bundle, built-in copy %s", net::usingBuiltinCa() ? "used" : "NOT used");
         if (g_autoplay.testCa) net::addTrustedCa(platform::dataDir() + "/test-ca.pem");
-        std::thread(worker).detach();
+        startWorker();
     }
     g_core->streamScreen.emplace(fonts);
     crash::startWatchdog(15000);  // a main loop stuck for 15 s leaves a marker
@@ -525,7 +526,8 @@ bool Core::frame() {
     autoplayNav(nav, menuCombo, now);
     if (g_ui->screen() == ui::Screen::Streaming) {
         streamScreen->update(pad, nav, menuCombo);
-        platform::sleepMs(8);  // ~120 Hz input
+        display::idleWait(8);  // ~120 Hz input (the PS5 sleeps 8 ms; the desktop wakes for a frame)
+        display::pump();       // the desktop shows the newest video frame here
         return true;
     }
     streamScreen->idle();
@@ -637,19 +639,35 @@ bool Core::frame() {
     } else {
         platform::sleepMs(8);
     }
+    display::pump();  // the desktop shows the menu here (paced by its vsync); nothing on the PS5
     return true;
 }
 
 bool coreFrame() { return g_core->frame(); }
 
 void coreShutdown() {
-    // Not on the PS5, whose loop never ends. The worker isn't stopped (it
-    // may be waiting on the network): the caller leaves with _exit(). The
-    // desktop app stops it and the stream first (docs/multiplatform.md, M1).
+    // Not on the PS5, whose loop never ends. Before the backends close, the
+    // threads that use them stop: the worker leaves its loop (a stream
+    // stopped and its xCloud session closed, so the account's slot is free;
+    // the library's loading ended), then the price loop. Each wait is
+    // bounded (a request may hang on the network); the caller leaves with
+    // _exit() afterwards, so no static destructor races a thread still
+    // running.
     XC_LOGI("=== PSBox Cloud Gaming closing ===");
+    const uint64_t start = platform::nowMs();
+    requestQuit();
+    bool workerDone = waitForWorker(5000);
+    uint64_t spent = platform::nowMs() - start;
+    bool pricesDone = stopPriceLoop(spent < 5000 ? static_cast<uint32_t>(5000 - spent) : 200);
+    if (!workerDone || !pricesDone)
+        XC_LOGW("closing: %s%s%s still busy, left to the exit", workerDone ? "" : "the worker",
+                !workerDone && !pricesDone ? " and " : "", pricesDone ? "" : "the price loop");
+    shell::beforeShutdown();
     input::shutdown();
     display::shutdown();
     platform::shutdown();
+    XC_LOGI("closed in %llu ms", static_cast<unsigned long long>(platform::nowMs() - start));
+    log::setFile(nullptr);  // the log closed (every line was already flushed)
 }
 
 int runApp() {

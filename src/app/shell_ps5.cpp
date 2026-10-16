@@ -43,6 +43,9 @@ void beforeDisplay(const Settings& settings) {
                                          : display::canSwitchRefresh() ? "in games" : "on");
 }
 
+// A display that didn't come up isn't the end here (as before): the app runs on.
+bool afterDisplay(bool) { return true; }
+
 std::vector<std::string> iconFontPaths() {
     const char* word = sceKernelGetFsSandboxRandomWord();
     std::string sandbox = std::string("/") + (word ? word : "");
@@ -52,8 +55,14 @@ std::vector<std::string> iconFontPaths() {
 
 // The system closes the app (from the home screen): nothing to read here.
 bool pumpEvents() { return true; }
+bool hasFocus() { return true; }
 
 bool canSelfUpdate() { return true; }
+// Never called: the PS5's loop doesn't end.
+void beforeShutdown() {}
+Caps caps() { return {true, false, true}; }
+// No browser to send a link to: the screens show a QR code instead.
+bool openUrl(const std::string&) { return false; }
 
 bool isInstalledCopy(const std::string& dir) {
     // /app0 is the folder the system started the app from.

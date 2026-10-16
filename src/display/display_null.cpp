@@ -18,6 +18,8 @@ void shutdown() {}
 void present() { platform::sleepMs(16); }
 bool drawYuv420(const uint8_t*, const uint8_t*, const uint8_t*, int, int, int, int, int, bool) { return true; }
 void drawRgba(const uint32_t*) {}
+void pump() {}
+void idleWait(uint32_t ms) { platform::sleepMs(ms); }
 void setOverlay(const uint32_t*, int, int, int, int, uint8_t) {}
 void setSharpness(int) {}
 void setDeband(int) {}

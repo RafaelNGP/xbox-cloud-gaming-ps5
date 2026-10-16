@@ -21,6 +21,8 @@
 #include "xcloud/gssv.h"
 #include "xcloud/regions.h"
 
+#include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <map>
 #include <unistd.h>
@@ -678,6 +680,41 @@ void loadLibrary(xcloud::GssvClient& gssv) {
 
 }  // namespace
 
+namespace {
+
+// The worker's life, for closing: 0 not started, 1 running, 2 left its loop.
+std::mutex g_workerStateMutex;
+std::condition_variable g_workerStateCv;
+int g_workerState = 0;
+
+void setWorkerState(int state) {
+    {
+        std::lock_guard<std::mutex> lock(g_workerStateMutex);
+        g_workerState = state;
+    }
+    g_workerStateCv.notify_all();
+}
+
+}  // namespace
+
+void startWorker() {
+    setWorkerState(1);
+    std::thread([] {
+        worker();
+        setWorkerState(2);
+    }).detach();
+}
+
+void requestQuit() {
+    g_quit = true;
+    g_cancel = true;  // what the worker is doing (a stream, a sign-in waiting) ends
+}
+
+bool waitForWorker(uint32_t ms) {
+    std::unique_lock<std::mutex> lock(g_workerStateMutex);
+    return g_workerStateCv.wait_for(lock, std::chrono::milliseconds(ms), [] { return g_workerState != 1; });
+}
+
 void worker() {
     if (g_autoplay.title == "BENCH") {
         platform::Thread t;  // same big stack as the stream's video thread
@@ -704,10 +741,11 @@ void worker() {
     for (;;) {
         int cmd = g_command.exchange(kNone);
         g_cancel = false;
+        if (g_quit) break;  // closing (desktop): the command before it was cancelled
         switch (cmd) {
             case kSignIn:
                 signInAndLoad(am, gssv);
-                loadConsoles(am, home);  // empty when the sign-in failed
+                if (!g_quit) loadConsoles(am, home);  // empty when the sign-in failed
                 break;
             case kConsoles: loadConsoles(am, home); break;
             case kUpdate: runUpdate(); break;
@@ -731,7 +769,7 @@ void worker() {
                 g_ui->setSubscription("");
                 XC_LOGI("signed out: library and its cache cleared");
                 signInAndLoad(am, gssv);
-                loadConsoles(am, home);
+                if (!g_quit) loadConsoles(am, home);
                 break;
             case kPlay: {
                 ui::GameTile tile;
@@ -780,7 +818,7 @@ void worker() {
                         g_ui->showHome(endedToast(result));
                     g_playingHome = false;
                     autoplayFinished(result);
-                    loadConsoles(am, home);  // its state changed
+                    if (!g_quit) loadConsoles(am, home);  // its state changed
                     break;
                 }
                 bool automatic;
@@ -834,6 +872,10 @@ void worker() {
             default: platform::sleepMs(50); break;
         }
     }
+    // Closing: the stream (if any) was stopped and its session closed by
+    // play() as it returned; the library's background loading ends too.
+    stopHydration();
+    XC_LOGI("worker: stopped");
 }
 
 }  // namespace xc::app
