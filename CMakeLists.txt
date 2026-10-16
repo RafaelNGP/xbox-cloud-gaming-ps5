@@ -70,7 +70,10 @@ endif()
 
 # --- Media: H.264 / Opus decoding -------------------------------------------
 include(cmake/deps/ffmpeg.cmake)
-add_library(xcloud_media STATIC src/media/decoder.cpp src/media/audio_out.cpp src/media/audio_in.cpp src/media/audio_encoder.cpp)
+# The audio queue and the microphone's framing are shared; the sound
+# devices are backends (audio_*_ps5.cpp, audio_*_sdl.cpp, audio_*_null.cpp).
+add_library(xcloud_media STATIC src/media/decoder.cpp src/media/audio_queue.cpp src/media/audio_in_common.cpp
+                                src/media/audio_encoder.cpp)
 target_link_libraries(xcloud_media PUBLIC xcloud_core PRIVATE xc_ffmpeg)
 
 # --- Menus: software-rendered UI, Game Pass library ---------------------------
@@ -129,6 +132,8 @@ if(XCLOUD_PS5)
         src/media/hw_decoder_ps5.cpp
         src/input/controller_ps5.cpp
         src/input/kbm_ps5.cpp
+        src/media/audio_out_ps5.cpp
+        src/media/audio_in_ps5.cpp
     )
     target_include_directories(xcloud_app PRIVATE "${PS5_RADV}/include")
     # The USB keyboard / mouse backend kept the warnings it had in xcloud_core.
@@ -145,6 +150,8 @@ else()
         src/input/controller_null.cpp
         src/input/kbm_null.cpp
         src/media/hw_decoder_null.cpp
+        src/media/audio_out_null.cpp
+        src/media/audio_in_null.cpp
     )
     target_link_libraries(xcloud_backends_null PUBLIC xcloud_core)
     if(NOT MSVC)
