@@ -23,5 +23,8 @@ int runApp();
 // What the screens offer here (the pads', display's and shell's
 // capabilities): every option on the PS5.
 ui::UiCaps uiCaps();
+// Saves what Settings edits and applies the controller part (the autoplay
+// tests put the user's choices back with it); true when the language changed.
+bool saveSettingsChoice(const ui::SettingsChoice& choice);
 
 }  // namespace xc::app

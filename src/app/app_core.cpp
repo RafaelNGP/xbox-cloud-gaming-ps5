@@ -197,6 +197,8 @@ std::unique_ptr<Core> g_core;
 
 }  // namespace
 
+bool saveSettingsChoice(const ui::SettingsChoice& choice) { return saveSettings(choice); }
+
 // What the screens offer (ui::UiCaps): the pads' features (input_ext.h),
 // the display's and the platform's. The PS5 offers every option as it
 // always has: its pads are DualSense, and what its display can't honour at
