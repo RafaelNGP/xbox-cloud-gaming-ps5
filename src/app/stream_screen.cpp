@@ -121,6 +121,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         triggerStrength_ = prof.triggerStrength;
         deadzone_ = prof.deadzoneLeft;
         circleConfirms_ = prof.circleConfirms;
+        keyMap_ = prof.keyMap;
         input::setDeadzone(prof.deadzoneLeft / 100.0f, prof.deadzoneRight / 100.0f);
         input::setTriggerFeel(prof.triggerStrength, prof.triggerHz, prof.triggerResistance, prof.triggerPulses);
         input::setCircleConfirms(prof.circleConfirms);
@@ -203,6 +204,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     p.circleConfirms = circleConfirms_;
                     auto had = g_settings.perGame.find(gameKey_);  // not set from this menu: kept
                     p.highRefresh = had != g_settings.perGame.end() ? had->second.highRefresh : g_settings.highRefresh;
+                    p.keyMap = had != g_settings.perGame.end() ? had->second.keyMap : g_settings.keyMap;
                     g_settings.perGame[gameKey_] = p;
                 } else {
                     g_settings.perGame.erase(gameKey_);
@@ -213,6 +215,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     streamResolution_ = def.resolution;
                     deadzone_ = def.deadzoneLeft;
                     triggerStrength_ = def.triggerStrength;
+                    keyMap_ = def.keyMap;
                     circleConfirms_ = def.circleConfirms;
                     display::setSharpness(kSharpAmount[sharpness_]);
                     applyDeband_();
@@ -350,7 +353,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         // in the slot by itself.
         int kbSlot = keyboardPadSlot(kbm_.keyboard || kbm_.mouse);
         kbPad_ = input::ControllerState{};
-        if (kbSlot >= 0 && !menu_.isOpen()) input::keyboardAsGamepad(kbm_, mouseStick_, kbPad_);
+        if (kbSlot >= 0 && !menu_.isOpen()) input::keyboardAsGamepad(kbm_, mouseStick_, kbPad_, keyMap_);
         int alone = kbSlot >= 0 && !input::padConnected(kbSlot) ? kbSlot : -1;
         if (alone != kbSlotAttached_) {
             if (kbSlotAttached_ >= 0 && !input::padConnected(kbSlotAttached_)) g_player->setPadConnected(kbSlotAttached_, false);

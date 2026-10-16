@@ -16,6 +16,7 @@
 
 #include "input/controller.h"
 #include "input/kbm.h"
+#include "input/key_map.h"
 
 #include <cstdint>
 #include <vector>
@@ -26,17 +27,17 @@ namespace xc::input {
 constexpr uint8_t kVkAppMenu = 0x7B;
 
 // The keyboard and mouse as a controller of their own (another player, so
-// a second controller isn't needed): W A S D the left stick, the mouse the
-// right stick, the arrows the D-pad; Space A, C B, R X, E Y, Q LB, F RB, the
-// mouse's right / left buttons LT / RT, Shift and the middle button the
-// sticks' clicks, Tab View, Esc Menu, a wheel notch a press of Y.
+// a second controller isn't needed): the keys as `map` says (defaultKeyMap()
+// unless changed in Settings), the mouse the right stick, a wheel notch a
+// press of Y.
 struct MouseStick {
     float x = 0, y = 0;  // the right stick, eased towards the mouse's speed
     // The wheel: each notch is a short press of Y (switch weapon in most
     // shooters): presses still to give, and where the current one is.
     int wheelPresses = 0, wheelPhase = 0;
 };
-void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& out);
+void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& out,
+                       const KeyMap& map = defaultKeyMap());
 
 // Adds `extra` (the keyboard as a controller) to `pad`: buttons pressed on
 // either, the stick or trigger pushed further.

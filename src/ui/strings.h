@@ -251,6 +251,13 @@ enum class Str {
     MouseKeyboardSupport, // game page, beside the console and genres
     KeyboardPlayer,     // notification: keys 1-4 chose the player the keyboard plays as (%s: 1..4)
     InQueueNoEstimate,  // launching, in the queue, the service gives no estimate
+    KeyboardKeys,       // Settings / game settings row and its screen: the keys of the keyboard as a controller
+    DPad,               // keyboard keys: the D-pad (then an arrow)
+    PressKey,           // keyboard keys: waiting for the new key
+    KeyReserved,        // keyboard keys: F12, Home and 1-4 can't be chosen (%s: the key)
+    ChangeKey,          // keyboard keys hint: Cross changes the key
+    ClearKey,           // keyboard keys hint: Square takes it off
+    KeysHelp,           // keyboard keys: the mouse and the keys the app keeps
     Count
 };
 

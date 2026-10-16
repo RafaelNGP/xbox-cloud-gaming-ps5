@@ -989,6 +989,36 @@ static void testKeyboardAsGamepad() {
     CHECK(pad.btnA && pad.btnB && pad.leftStickX == -1.0f && pad.triggerR2 == 1.0f);
 }
 
+// Keys chosen in Settings: one key moves off the input it was on.
+static void testKeyMap() {
+    using namespace xc::input;
+    KeyMap map = defaultKeyMap();
+    assignKey(map, KeyAction::A, 0, 'E');  // E was Y
+    CHECK(map[static_cast<size_t>(KeyAction::A)][0] == 'E' && map[static_cast<size_t>(KeyAction::Y)][0] == 0);
+    assignKey(map, KeyAction::Y, 1, kMouseBack);
+    KbmInput in;
+    in.keyboard = in.mouse = true;
+    in.held = {'E'};
+    in.buttons = 8;  // back
+    MouseStick stick;
+    ControllerState out;
+    keyboardAsGamepad(in, stick, out, map);
+    CHECK(out.btnA && out.btnY && !out.triggerR2);
+    CHECK(keyName(0x20) == "Space" && keyName('W') == "W" && keyName(kMouseLeft) == "Mouse L" && keyName(0x7B) == "F12");
+    CHECK(isReservedKey(0x7B) && isReservedKey('2') && !isReservedKey('5'));
+    // Saved and read back, in the settings and a game's profile.
+    xc::app::Settings st;
+    st.keyMap = map;
+    st.perGame["g"] = st.defaultProfile();
+    st.perGame["g"].keyMap[0] = {'I', 0};
+    std::string path = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp") + "/xc_keymap_test.json";
+    CHECK(st.save(path));
+    xc::app::Settings back;
+    CHECK(back.load(path));
+    CHECK(back.keyMap == map && back.perGame["g"].keyMap[0][0] == 'I');
+    std::remove(path.c_str());
+}
+
 int main() {
     testReport();
     testCrashGuard();
@@ -1020,6 +1050,7 @@ int main() {
     testHidToVk();
     testKeyboardNav();
     testKeyboardAsGamepad();
+    testKeyMap();
     testTeredo();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);

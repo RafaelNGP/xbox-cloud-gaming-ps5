@@ -29,6 +29,7 @@ namespace {
 // The home screen was saved: the tests that start from it may go.
 bool uiSaved = false;
 bool settingsShot = false;  // "settingstest": save the screen now
+const char* keysShot = nullptr;  // "keystest": the screen to save now
 uint64_t homeSince = 0, launchSince = 0;
 bool launchSaved = false;
 const char* pickerShot = nullptr;
@@ -75,6 +76,7 @@ void loadAutoplay() {
         if (opt == "consoles") g_autoplay.consoles = true;
         if (opt == "consolestab") g_autoplay.consolesTab = true;
         if (opt == "settingstest") g_autoplay.settingsTest = true;
+        if (opt == "keystest") g_autoplay.keysTest = true;
         if (opt == "badca") g_autoplay.badCa = true;
         if (opt == "consolesempty") g_autoplay.consolesTab = g_autoplay.consolesEmpty = true;
         if (opt == "librarytest") g_autoplay.libraryTest = true;
@@ -456,6 +458,43 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         }
     }
 
+    if (g_autoplay.keysTest && uiSaved) {
+        // Settings down to the keyboard keys, their screen, a reserved key
+        // and then G chosen for the D-pad down's first key; back to the
+        // default keys before leaving (Settings saves them).
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        struct Step { uint64_t at; int what; };
+        enum { Options, Down, Up, Accept, Back, Shot, Reserved, KeyG, End };
+        static const Step steps[] = {
+            {500, Options}, {1500, Down}, {1800, Down}, {2100, Down}, {2400, Down}, {2700, Down}, {3000, Down},
+            {3300, Down}, {3600, Down}, {3900, Down}, {4200, Down}, {4500, Down}, {5200, Shot},
+            {5800, Accept}, {7000, Shot}, {7500, Down}, {8000, Accept}, {8600, Reserved}, {9400, Shot},
+            {10000, KeyG}, {10800, Shot}, {11400, Up}, {11800, Up}, {12400, Accept}, {13000, Back},
+            {14000, Shot}, {14600, Back}, {15200, End}};
+        static const char* shots[] = {"keys_settings.ppm", "keys.ppm", "keys_capture.ppm", "keys_after.ppm",
+                                      "keys_settings_after.ppm"};
+        static int shot = 0;
+        if (step < static_cast<int>(std::size(steps)) && now - since >= steps[step].at) {
+            switch (steps[step].what) {
+            case Options: nav.options = true; break;
+            case Down: nav.down = true; break;
+            case Up: nav.up = true; break;
+            case Accept: nav.accept = true; break;
+            case Back: nav.back = true; break;
+            case Shot: keysShot = shots[shot++]; break;
+            case Reserved: g_ui->captureKey(0x7B); break;
+            case KeyG: g_ui->captureKey('G'); break;
+            case End:
+                g_autoplay.keysTest = false;
+                XC_LOGI("AUTOPLAY END: keys test");
+                break;
+            }
+            ++step;
+        }
+    }
+
     if (g_autoplay.settingsTest && uiSaved) {
         // Settings, down to the resolution, open its list; saved 2 s later.
         static uint64_t since = 0;
@@ -572,6 +611,10 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             g_autoplay.detailTest = false;
             XC_LOGI("AUTOPLAY END: detail test");
         }
+    }
+    if (keysShot) {
+        saveCanvas(keysShot);
+        keysShot = nullptr;
     }
     if (settingsShot) {
         settingsShot = false;

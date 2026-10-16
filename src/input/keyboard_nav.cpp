@@ -7,32 +7,37 @@
 
 namespace xc::input {
 
-void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& out) {
+void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& out, const KeyMap& map) {
     out = ControllerState{};
     out.connected = in.keyboard || in.mouse;
-    auto down = [&](std::initializer_list<uint8_t> vks) {
-        for (uint8_t vk : vks)
-            if (std::binary_search(in.held.begin(), in.held.end(), vk)) return true;
+    auto down = [&](KeyAction a) {
+        for (uint8_t k : map[static_cast<size_t>(a)]) {
+            if (k >= kMouseLeft && k <= kMouseForward) {
+                if (in.buttons & (1u << (k - kMouseLeft))) return true;
+            } else if (k && std::binary_search(in.held.begin(), in.held.end(), k)) {
+                return true;
+            }
+        }
         return false;
     };
-    out.leftStickX = (down({'D'}) ? 1.0f : 0.0f) - (down({'A'}) ? 1.0f : 0.0f);
-    out.leftStickY = (down({'S'}) ? 1.0f : 0.0f) - (down({'W'}) ? 1.0f : 0.0f);  // pad convention: +down
-    out.dpadUp = down({0x26});
-    out.dpadDown = down({0x28});
-    out.dpadLeft = down({0x25});
-    out.dpadRight = down({0x27});
-    out.btnA = down({0x20});
-    out.btnB = down({'C'});
-    out.btnX = down({'R'});
-    out.btnY = down({'E'});
-    out.btnL1 = down({'Q'});
-    out.btnR1 = down({'F'});
-    out.btnL3 = down({0x10});  // shift
-    out.btnR3 = down({'V'}) || (in.buttons & 4);
-    out.btnTouchpad = down({0x09});  // View
-    out.btnOptions = down({0x1B});   // Menu
-    out.triggerL2 = (in.buttons & 2) ? 1.0f : 0.0f;
-    out.triggerR2 = (in.buttons & 1) ? 1.0f : 0.0f;
+    out.leftStickX = (down(KeyAction::LeftRight) ? 1.0f : 0.0f) - (down(KeyAction::LeftLeft) ? 1.0f : 0.0f);
+    out.leftStickY = (down(KeyAction::LeftDown) ? 1.0f : 0.0f) - (down(KeyAction::LeftUp) ? 1.0f : 0.0f);  // pad convention: +down
+    out.dpadUp = down(KeyAction::DpadUp);
+    out.dpadDown = down(KeyAction::DpadDown);
+    out.dpadLeft = down(KeyAction::DpadLeft);
+    out.dpadRight = down(KeyAction::DpadRight);
+    out.btnA = down(KeyAction::A);
+    out.btnB = down(KeyAction::B);
+    out.btnX = down(KeyAction::X);
+    out.btnY = down(KeyAction::Y);
+    out.btnL1 = down(KeyAction::LB);
+    out.btnR1 = down(KeyAction::RB);
+    out.btnL3 = down(KeyAction::L3);
+    out.btnR3 = down(KeyAction::R3);
+    out.btnTouchpad = down(KeyAction::View);
+    out.btnOptions = down(KeyAction::Menu);
+    out.triggerL2 = down(KeyAction::LT) ? 1.0f : 0.0f;
+    out.triggerR2 = down(KeyAction::RT) ? 1.0f : 0.0f;
     // The mouse: about 12 counts a pass is the stick all the way; eased so
     // a still mouse lets the stick come back to the centre.
     constexpr float kFull = 12.0f, kEase = 0.45f;

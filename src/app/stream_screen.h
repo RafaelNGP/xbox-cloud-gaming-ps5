@@ -70,6 +70,7 @@ private:
     int triggerStrength_ = 2;
     int deadzone_ = 15;
     bool circleConfirms_ = false;
+    input::KeyMap keyMap_ = input::defaultKeyMap();  // this game's keys (the keyboard as a controller)
     bool highRefresh_ = false;  // 120 Hz turned on for this stream
     input::KbmInput kbm_;
     int kbSlotAttached_ = -1;  // the keyboard's slot as a controller, announced

@@ -36,6 +36,7 @@ add_library(xcloud_core STATIC
     src/xcloud/prices.cpp
     src/input/kbm.cpp
     src/input/kbm_map.cpp
+    src/input/key_map.cpp
     src/input/keyboard_nav.cpp
     src/xcloud/social.cpp
     src/platform/posix_common.cpp

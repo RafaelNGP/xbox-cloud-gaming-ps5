@@ -128,6 +128,7 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.highRefresh = choice.highRefresh;
         g_settings.maxBitrateMbps = choice.maxBitrateMbps;
         g_settings.gameVolume = choice.gameVolume;
+        g_settings.keyMap = choice.keyMap;
         g_settings.save(settingsPath());  // warns itself
         XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
                 g_settings.region.empty() ? "auto" : g_settings.region.c_str());
@@ -259,6 +260,7 @@ int main(int argc, char** argv) {
         choice.highRefresh = g_settings.highRefresh;
         choice.maxBitrateMbps = g_settings.maxBitrateMbps;
         choice.gameVolume = g_settings.gameVolume;
+        choice.keyMap = g_settings.keyMap;
         g_ui->setAllow1440(allow1440Locked());
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
         g_ui->setSettings(choice);
@@ -286,6 +288,8 @@ int main(int argc, char** argv) {
     // Never return from main: the app is closed from the home screen.
     input::ControllerState prev{}, pad{};
     bool appMenuKeyBefore = false, homeKeyBefore = false;  // F12 / Home held at the last pass
+    uint8_t mouseButtonsBefore = 0;      // the mouse buttons at the last pass (a press chooses a key)
+    std::vector<uint8_t> swallowedKeys;  // keys pressed to be chosen, kept from the screens until let go
     bool kbmConnected = false;                              // a USB keyboard or mouse in use
     uint64_t keyboardActiveAt = 0;                          // when a key or the mouse was last used (ms)
     // The slot showing the keyboard (-1 none): the keyboard's player, while
@@ -389,7 +393,19 @@ int main(int argc, char** argv) {
         // Keys 1-4 (off a game, or with the app's menu open in one): the
         // player the keyboard and mouse play as. 1 native with player 1;
         // 2-4 that player's controller (3 or 4 with two players: just its slot).
-        if (!inGame || streamScreen.menuOpen()) {
+        // The keyboard keys' screen waiting for a key: the next key or mouse
+        // button pressed is the one chosen (not a move through the screens);
+        // keys pressed for it stay out of the screens until let go.
+        bool capturing = g_ui->capturingKey();
+        if (capturing) {
+            for (const auto& k : kbm.keys)
+                if (k.pressed) g_ui->captureKey(k.vk), swallowedKeys.push_back(k.vk);
+            for (int b = 0; b < 5; ++b)
+                if ((kbm.buttons & ~mouseButtonsBefore) & (1 << b)) g_ui->captureKey(static_cast<uint8_t>(input::kMouseLeft + b));
+        }
+        mouseButtonsBefore = kbm.buttons;
+        std::erase_if(swallowedKeys, [&](uint8_t vk) { return !std::binary_search(kbm.held.begin(), kbm.held.end(), vk); });
+        if ((!inGame || streamScreen.menuOpen()) && !capturing) {
             for (const auto& k : kbm.keys) {
                 if (!k.pressed || k.vk < '1' || k.vk > '4') continue;
                 int player = k.vk - '1';
@@ -410,7 +426,12 @@ int main(int argc, char** argv) {
         bool appMenuKey = std::binary_search(kbm.held.begin(), kbm.held.end(), input::kVkAppMenu);
         bool appMenuPressed = appMenuKey && !appMenuKeyBefore;
         appMenuKeyBefore = appMenuKey;
-        if (!inGame || streamScreen.menuOpen()) input::keyboardToPad(kbm.held, pad);
+        if ((!inGame || streamScreen.menuOpen()) && !capturing) {
+            std::vector<uint8_t> navKeys;
+            for (uint8_t vk : kbm.held)
+                if (std::find(swallowedKeys.begin(), swallowedKeys.end(), vk) == swallowedKeys.end()) navKeys.push_back(vk);
+            input::keyboardToPad(navKeys, pad);
+        }
         kbmConnected = kbm.keyboard || kbm.mouse || g_autoplay.kbHints;
         if (int shown = keyboardIconSlot(); shown != keyboardIconShown) {
             keyboardIconShown = shown;

@@ -12,6 +12,28 @@
 
 namespace xc::app {
 
+namespace {
+
+// "keyMap": each input's two keys, in KeyAction order (flat). Anything else
+// (an older file, another count) keeps `fallback`.
+input::KeyMap readKeyMap(const json::Value& v, const input::KeyMap& fallback) {
+    const auto& items = v.items();
+    if (items.size() != static_cast<size_t>(input::kKeyActions) * 2) return fallback;
+    input::KeyMap m{};
+    for (size_t i = 0; i < items.size(); ++i)
+        m[i / 2][i % 2] = static_cast<uint8_t>(std::clamp<int64_t>(items[i].asInt(0), 0, 255));
+    return m;
+}
+
+json::Value keyMapJson(const input::KeyMap& m) {
+    json::Value v = json::Value::array();
+    for (const auto& keys : m)
+        for (uint8_t k : keys) v.push(static_cast<int>(k));
+    return v;
+}
+
+}  // namespace
+
 bool Settings::load(const std::string& path) {
     std::string text;
     if (!platform::readFile(path, text)) return false;
@@ -53,6 +75,7 @@ bool Settings::load(const std::string& path) {
     highRefresh = (*j)["highRefresh"].asBool(highRefresh);
     maxBitrateMbps = static_cast<int>(std::clamp<int64_t>((*j)["maxBitrateMbps"].asInt(maxBitrateMbps), 0, 40));
     gameVolume = static_cast<int>(std::clamp<int64_t>((*j)["gameVolume"].asInt(gameVolume), 0, 200));
+    keyMap = readKeyMap((*j)["keyMap"], input::defaultKeyMap());
     keyboardPlayer = static_cast<int>(std::clamp<int64_t>((*j)["keyboardPlayer"].asInt(keyboardPlayer), 0, 3));
     micGain = static_cast<int>(std::clamp<int64_t>((*j)["micGain"].asInt(micGain), 0, 2));
     audioRoute = static_cast<int>(std::clamp<int64_t>((*j)["audioRoute"].asInt(audioRoute), 0, 1));
@@ -88,6 +111,7 @@ bool Settings::load(const std::string& path) {
         p.triggerPulses = obj["triggerPulses"].asBool(triggerPulses);
         p.circleConfirms = obj["circleConfirms"].asBool(circleConfirms);
         p.highRefresh = obj["highRefresh"].asBool(highRefresh);
+        p.keyMap = readKeyMap(obj["keyMap"], keyMap);
         perGame[id] = p;
     }
     return true;
@@ -107,6 +131,7 @@ GameProfile Settings::defaultProfile() const {
     p.triggerPulses = triggerPulses;
     p.circleConfirms = circleConfirms;
     p.highRefresh = highRefresh;
+    p.keyMap = keyMap;
     return p;
 }
 
@@ -163,6 +188,7 @@ bool Settings::save(const std::string& path) const {
     v.set("highRefresh", highRefresh);
     v.set("maxBitrateMbps", maxBitrateMbps);
     v.set("gameVolume", gameVolume);
+    v.set("keyMap", keyMapJson(keyMap));
     v.set("keyboardPlayer", keyboardPlayer);
     v.set("micGain", micGain);
     v.set("audioRoute", audioRoute);
@@ -186,6 +212,7 @@ bool Settings::save(const std::string& path) const {
         obj.set("triggerPulses", p.triggerPulses);
         obj.set("circleConfirms", p.circleConfirms);
         obj.set("highRefresh", p.highRefresh);
+        obj.set("keyMap", keyMapJson(p.keyMap));
         pg.set(id, obj);
     }
     v.set("perGame", pg);

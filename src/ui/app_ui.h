@@ -118,12 +118,13 @@ struct SettingsChoice {
     bool highRefresh = false;  // 120 Hz output while a game streams
     int maxBitrateMbps = 0;    // 0 automatic, else 20 / 15 / 10 / 5
     int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
+    input::KeyMap keyMap = input::defaultKeyMap();  // the keyboard as a player's controller
 };
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 12;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
-                                  // sign-in country, 120 Hz output, bitrate cap, game volume
+constexpr int kSettingRows = 13;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+                                  // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys
 
 // The countries "Sign in as another country" offers (xcloud::loginCountryAddress).
 constexpr const char* kLoginCountries[] = {"br", "jp", "kr", "pl", "us"};
@@ -301,6 +302,11 @@ public:
 
     // --- UI thread -----------------------------------------------------------
     UiEvent handle(const NavInput& in);
+    // The keyboard keys' screen waits for a key: the main loop gives it the
+    // next key or mouse button pressed (input::kMouseLeft..) instead of
+    // moving through the screens with it.
+    bool capturingKey() const;
+    void captureKey(uint8_t code);
     bool needsRedraw(uint64_t nowMs) const;
     void render(Canvas& c, uint64_t nowMs);
 
@@ -389,11 +395,13 @@ private:
     Color pickerColour() const;
     void drawColourPicker(Canvas& c);
     // The testers that Dead zone and Trigger vibration open in Settings.
-    enum class Tester { None, Sticks, Triggers };
+    enum class Tester { None, Sticks, Triggers, Keys };
     void openTester(Tester t);
     void handleTester(const NavInput& in);
     void drawStickTester(Canvas& c);
     void drawTriggerTester(Canvas& c);
+    void handleKeysTester(const NavInput& in);
+    void drawKeysTester(Canvas& c);
     // A modal panel over Settings with its title; returns its rectangle.
     Rect drawModal(Canvas& c, int w, int h, const std::string& title);
     void drawUpdating(Canvas& c, uint64_t nowMs);
@@ -490,6 +498,13 @@ private:
     Tester tester_ = Tester::None;
     SettingsChoice testerBackup_;  // what Circle puts back
     int testerRow_ = 0;            // the trigger tester's row: intensity, frequency, resistance, style
+    // The keyboard keys' screen: the row (kKeysPerColumn: restore defaults),
+    // the key across both columns (0, 1 the left column's two, 2, 3 the
+    // right's), waiting for a key since (ms; 0 not), a key refused and until when.
+    int keysRow_ = 0, keysCol_ = 0;
+    uint64_t captureSince_ = 0;
+    uint8_t keyRefused_ = 0;
+    uint64_t keyRefusedUntil_ = 0;
     int testerStick_ = 0;          // the stick tester: the one being adjusted (L1 / R1)
     float testSticks_[4] = {0, 0, 0, 0}, testL2_ = 0, testR2_ = 0;
     bool pickerOpen_ = false;
