@@ -345,20 +345,22 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         g_player->sendInput(sent);
         // The keyboard as another player's controller (Settings): its own
         // slot, announced like a pad; no native mouse and keyboard then.
+        // Keys 2-4: that player's controller. With that player's own pad
+        // connected the two add up (below); alone, the keyboard is announced
+        // in the slot by itself.
         int kbSlot = keyboardPadSlot(kbm_.keyboard || kbm_.mouse);
-        if (kbSlot != kbSlotAttached_) {
-            if (kbSlotAttached_ >= 0) g_player->setPadConnected(kbSlotAttached_, false);
-            if (kbSlot >= 0) {
-                g_player->setPadConnected(kbSlot, true);
-                platform::notify(ui::trf(ui::Str::PadConnected, std::to_string(kbSlot + 1)),
-                                 "keyboard as controller " + std::to_string(kbSlot + 1));
-            }
-            kbSlotAttached_ = kbSlot;
+        kbPad_ = input::ControllerState{};
+        if (kbSlot >= 0 && !menu_.isOpen()) input::keyboardAsGamepad(kbm_, mouseStick_, kbPad_);
+        int alone = kbSlot >= 0 && !input::padConnected(kbSlot) ? kbSlot : -1;
+        if (alone != kbSlotAttached_) {
+            if (kbSlotAttached_ >= 0 && !input::padConnected(kbSlotAttached_)) g_player->setPadConnected(kbSlotAttached_, false);
+            if (alone >= 0) g_player->setPadConnected(alone, true);
+            kbSlotAttached_ = alone;
         }
-        if (kbSlot >= 0) {
-            input::ControllerState kbPad;
-            if (!menu_.isOpen()) input::keyboardAsGamepad(kbm_, mouseStick_, kbPad);
-            g_player->sendInput(kbPad, kbSlot);  // all released while the app's menu is open
+        if (alone >= 0) {
+            g_player->sendInput(kbPad_, alone);  // all released while the app's menu is open
+        } else if (kbSlot >= 0) {
+            // Added to that player's pad in the loop below.
         } else if (!menu_.isOpen()) {
         // USB keyboard and mouse: straight to the game (those that take
         // them) while the app's menu is closed; F12 is the app's.
@@ -383,6 +385,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         for (int i = 1; i < input::kMaxPads; ++i) {
             input::ControllerState other;
             bool on = input::pollPad(i, other);
+            if (on && i == kbSlot) input::mergePads(other, kbPad_);  // the keyboard plays with this player's pad
             if (on != padAttached_[i]) {
                 padAttached_[i] = on;
                 g_player->setPadConnected(i, on);
@@ -451,15 +454,12 @@ bool StreamScreen::menuOpen() const { return menu_.isOpen(); }
 void StreamScreen::redrawMenu() { overlaySeq_ = 0; }
 
 int keyboardPadSlot(bool keyboardConnected) {
-    bool asPad;
+    int player;
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
-        asPad = g_settings.keyboardMode == 1;
+        player = g_settings.keyboardPlayer;
     }
-    if (!asPad || !keyboardConnected) return -1;
-    for (int i = 1; i < input::kMaxPads; ++i)
-        if (!input::padConnected(i)) return i;
-    return -1;
+    return keyboardConnected && player > 0 && player < input::kMaxPads ? player : -1;
 }
 
 void StreamScreen::idle() {

@@ -74,22 +74,32 @@ void drawPadIcon(Canvas& c, const Font& font, int x, int y, int w, int index, bo
               connected ? rgba(255, 255, 255) : rgba(110, 110, 110));
 }
 
-int drawPadRow(Canvas& c, const Font& font, int x, int y, int w, int gap, const PadSlots& pads, Color background) {
-    for (int i = 0; i < static_cast<int>(pads.size()); ++i) {
-        int px = x + i * (w + gap);
-        if (pads[i].keyboard) {  // a keyboard (and mouse) in the player's colour, numbered like a pad
-            Color col = playerColor(i);
-            int kh = w * 10 / 24;
-            int top = y + (w * 7 / 10 - kh) / 2;
-            drawKeyboardGlyph(c, px, top, w * 3 / 4, col);
-            c.fillRect({px + w * 3 / 4 + w / 16, top + kh / 6, w / 6, kh * 5 / 6}, col, w / 12);  // the mouse
-            std::string n = std::to_string(i + 1);
-            int npx = w * 3 / 10;
-            font.draw(c, n, px + (w - font.measure(n, npx)) / 2, y + w * 7 / 10 + 4, npx, rgba(255, 255, 255));
-            continue;
-        }
-        drawPadIcon(c, font, px, y, w, i, pads[i].connected, background);
+void drawSlotIcon(Canvas& c, const Font& font, int x, int y, int w, int index, const PadSlot& slot, Color background,
+                  const Font* icons) {
+    if (!slot.keyboard) {
+        drawPadIcon(c, font, x, y, w, index, slot.connected, background);
+        return;
     }
+    // A keyboard (and mouse) in the player's colour, numbered like a pad.
+    Color col = playerColor(index);
+    if (icons) {  // the console's own keyboard-and-mouse icon
+        int px2 = w * 9 / 10;  // as wide as a pad, centred on its height
+        icons->draw(c, kIconKeyboardMouse, x + (w - icons->measure(kIconKeyboardMouse, px2)) / 2, y - w / 10, px2, col);
+    } else {
+        int kh = w * 10 / 24;
+        int top = y + (w * 7 / 10 - kh) / 2;
+        drawKeyboardGlyph(c, x, top, w * 3 / 4, col);
+        c.fillRect({x + w * 3 / 4 + w / 16, top + kh / 6, w / 6, kh * 5 / 6}, col, w / 12);  // the mouse
+    }
+    std::string n = std::to_string(index + 1);
+    int npx = w * 3 / 10;
+    font.draw(c, n, x + (w - font.measure(n, npx)) / 2, y + w * 7 / 10 + 4, npx, rgba(255, 255, 255));
+}
+
+int drawPadRow(Canvas& c, const Font& font, int x, int y, int w, int gap, const PadSlots& pads, Color background,
+               const Font* icons) {
+    for (int i = 0; i < static_cast<int>(pads.size()); ++i)
+        drawSlotIcon(c, font, x + i * (w + gap), y, w, i, pads[i], background, icons);
     return static_cast<int>(pads.size()) * (w + gap) - gap;
 }
 

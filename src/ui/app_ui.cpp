@@ -1212,7 +1212,8 @@ bool AppUi::accentColor(Color& out) {
 
 void AppUi::drawPads(Canvas& c) {
     // Bottom left, on the line of the button hints (which are right-aligned).
-    drawPadRow(c, fonts_.bold, kMargin, kH - 26 - padIconHeight(48), 48, 16, pads_, kBg);
+    drawPadRow(c, fonts_.bold, kMargin, kH - 26 - padIconHeight(48), 48, 16, pads_, kBg,
+               fonts_.hasIcons ? &fonts_.icons : nullptr);
 }
 
 void AppUi::setRegions(std::vector<std::string> regions, const std::string& defaultRegion) {
@@ -1257,8 +1258,7 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         for (int mbps : kBitrateCaps) out.push_back(std::to_string(mbps) + " Mbps");
     } else if (row == 11) {
         for (int v : kVolumes) out.push_back(std::to_string(v) + " %");
-    } else if (row == 12) {
-        out = {tr(Str::KeyboardNative), tr(Str::KeyboardAsPad)};
+
     } else if (row == 8) {
         out.push_back(tr(Str::LoginCountryOff));
         for (const char* country : kLoginCountries) out.push_back(loginCountryName(country));
@@ -1289,7 +1289,6 @@ int AppUi::settingSelected(int row) const {
             if (kBitrateCaps[i] == settings_.maxBitrateMbps) return static_cast<int>(i) + 1;
         return 0;
     }
-    if (row == 12) return settings_.keyboardMode;
     if (row == 11) {
         for (size_t i = 0; i < std::size(kVolumes); ++i)
             if (kVolumes[i] == settings_.gameVolume) return static_cast<int>(i);
@@ -1328,8 +1327,7 @@ void AppUi::applySetting(int row, int index) {
         settings_.maxBitrateMbps = index == 0 ? 0 : kBitrateCaps[index - 1];
     } else if (row == 11) {
         settings_.gameVolume = kVolumes[index];
-    } else if (row == 12) {
-        settings_.keyboardMode = index;
+
     } else if (row == 8) {
         settings_.loginCountry = index == 0 ? std::string() : kLoginCountries[index - 1];
     } else {
@@ -2631,7 +2629,10 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
         int right = x + kCard - 10 - (platformLabel(t.platform) ? 96 + 6 : 0);
         Rect k{right - 34, y + kCard - 34, 34, 24};
         c.fillRect(k, rgba(0, 0, 0, 220), 4);
-        drawKeyboardGlyph(c, k.x + 6, k.y + 6, 22, kWhite);
+        if (fonts_.hasIcons)  // the console's own keyboard-and-mouse icon
+            fonts_.icons.draw(c, kIconKeyboardMouse, k.x + (k.w - fonts_.icons.measure(kIconKeyboardMouse, 18)) / 2, k.y + 3, 18, kWhite);
+        else
+            drawKeyboardGlyph(c, k.x + 6, k.y + 6, 22, kWhite);
     }
     if (const char* p = platformLabel(t.platform)) {
         constexpr int kBadgeW = 96;
@@ -3257,9 +3258,8 @@ void AppUi::drawSettings(Canvas& c) {
     const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
                                         tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry),
-                                        tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume),
-                                        tr(Str::KeyboardMode)};
-    constexpr int kRowW = 1200, kRowH = 46, kGap = 6;
+                                        tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume)};
+    constexpr int kRowW = 1200, kRowH = 50, kGap = 6;
     Rect rows[kSettingRows];
     int y = 262;
     for (int i = 0; i < kSettingRows; ++i) {

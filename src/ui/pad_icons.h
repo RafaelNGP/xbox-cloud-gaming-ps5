@@ -33,6 +33,12 @@ void drawPadIcon(Canvas& c, const Font& font, int x, int y, int w, int index, bo
 int padIconHeight(int w);
 
 // The four side by side, `gap` apart; returns the width taken.
-int drawPadRow(Canvas& c, const Font& font, int x, int y, int w, int gap, const PadSlots& pads, Color background);
+// One slot: its pad, or the keyboard and mouse playing in it.
+void drawSlotIcon(Canvas& c, const Font& font, int x, int y, int w, int index, const PadSlot& slot, Color background,
+                  const Font* icons = nullptr);
+
+// `icons`: the console's icon font, for the keyboard (nullptr: drawn).
+int drawPadRow(Canvas& c, const Font& font, int x, int y, int w, int gap, const PadSlots& pads, Color background,
+               const Font* icons = nullptr);
 
 }  // namespace xc::ui

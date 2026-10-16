@@ -168,4 +168,10 @@ bool Fonts::load(const std::string& dir) {
            bold.load(dir + "/Inter-Bold.ttf");
 }
 
+bool Fonts::loadIcons(const std::vector<std::string>& paths) {
+    for (const auto& p : paths)
+        if (icons.load(p)) return hasIcons = true;
+    return false;
+}
+
 }  // namespace xc::ui

@@ -45,6 +45,32 @@ void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& o
     out.rightStickY = stick.y;
 }
 
+void mergePads(ControllerState& pad, const ControllerState& e) {
+    pad.dpadUp |= e.dpadUp;
+    pad.dpadDown |= e.dpadDown;
+    pad.dpadLeft |= e.dpadLeft;
+    pad.dpadRight |= e.dpadRight;
+    pad.btnA |= e.btnA;
+    pad.btnB |= e.btnB;
+    pad.btnX |= e.btnX;
+    pad.btnY |= e.btnY;
+    pad.btnL1 |= e.btnL1;
+    pad.btnR1 |= e.btnR1;
+    pad.btnL3 |= e.btnL3;
+    pad.btnR3 |= e.btnR3;
+    pad.btnOptions |= e.btnOptions;
+    pad.btnTouchpad |= e.btnTouchpad;
+    auto further = [](float& a, float b) {
+        if (std::abs(b) > std::abs(a)) a = b;
+    };
+    further(pad.leftStickX, e.leftStickX);
+    further(pad.leftStickY, e.leftStickY);
+    further(pad.rightStickX, e.rightStickX);
+    further(pad.rightStickY, e.rightStickY);
+    pad.triggerL2 = std::max(pad.triggerL2, e.triggerL2);
+    pad.triggerR2 = std::max(pad.triggerR2, e.triggerR2);
+}
+
 void keyboardToPad(const std::vector<uint8_t>& held, ControllerState& pad) {
     auto down = [&](std::initializer_list<uint8_t> vks) {
         for (uint8_t vk : vks)

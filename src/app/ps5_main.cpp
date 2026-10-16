@@ -38,6 +38,7 @@
 #include <utility>
 
 extern "C" int sceSystemServiceHideSplashScreen(void);
+extern "C" const char* sceKernelGetFsSandboxRandomWord(void);
 
 namespace xc::app {
 
@@ -127,7 +128,6 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.highRefresh = choice.highRefresh;
         g_settings.maxBitrateMbps = choice.maxBitrateMbps;
         g_settings.gameVolume = choice.gameVolume;
-        g_settings.keyboardMode = choice.keyboardMode;
         g_settings.save(settingsPath());  // warns itself
         XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
                 g_settings.region.empty() ? "auto" : g_settings.region.c_str());
@@ -222,6 +222,15 @@ int main(int argc, char** argv) {
 
     ui::Fonts fonts;
     if (!fonts.load(platform::assetDir() + "/fonts")) XC_LOGE("fonts missing in %s", platform::assetDir().c_str());
+    {
+        // The console's icon font (keyboard and mouse...): read where the
+        // system keeps it, not shipped with the app.
+        const char* word = sceKernelGetFsSandboxRandomWord();
+        std::string sandbox = std::string("/") + (word ? word : "");
+        bool ok = fonts.loadIcons({"/system_ex/common_ex/font2/PS4Icon.ttf", sandbox + "/common_ex/font2/PS4Icon.ttf",
+                                   sandbox + "_ex/common_ex/font2/PS4Icon.ttf"});
+        XC_LOGI("system icon font: %s", ok ? "loaded" : "not found (drawn icons)");
+    }
     g_images = std::make_unique<ui::ImageCache>(
         [] {
             if (g_ui) g_ui->invalidate();
@@ -250,7 +259,6 @@ int main(int argc, char** argv) {
         choice.highRefresh = g_settings.highRefresh;
         choice.maxBitrateMbps = g_settings.maxBitrateMbps;
         choice.gameVolume = g_settings.gameVolume;
-        choice.keyboardMode = g_settings.keyboardMode;
         g_ui->setAllow1440(allow1440Locked());
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
         g_ui->setSettings(choice);
@@ -363,6 +371,23 @@ int main(int argc, char** argv) {
                 streamScreen.redrawMenu();
             }
         }
+        // Keys 1-4 (off a game, or with the app's menu open in one): the
+        // player the keyboard and mouse play as. 1 native with player 1;
+        // 2-4 that player's controller (3 or 4 with two players: just its slot).
+        if (!inGame || streamScreen.menuOpen()) {
+            for (const auto& k : kbm.keys) {
+                if (!k.pressed || k.vk < '1' || k.vk > '4') continue;
+                int player = k.vk - '1';
+                {
+                    std::lock_guard<std::mutex> lock(g_settingsMutex);
+                    g_settings.keyboardPlayer = player;
+                    g_settings.save(settingsPath());
+                }
+                platform::notify(ui::trf(ui::Str::KeyboardPlayer, std::to_string(player + 1)),
+                                 "keyboard: player " + std::to_string(player + 1));
+                padsCheckedAt = 0;  // the players' row at once
+            }
+        }
         // Home: the Xbox button in a game (as the touchpad swiped up).
         bool homeKey = std::binary_search(kbm.held.begin(), kbm.held.end(), uint8_t{0x24});
         if (inGame && homeKey && !homeKeyBefore && !streamScreen.menuOpen()) g_xboxButtonUntil = now0() + 250;
@@ -371,7 +396,7 @@ int main(int argc, char** argv) {
         bool appMenuPressed = appMenuKey && !appMenuKeyBefore;
         appMenuKeyBefore = appMenuKey;
         if (!inGame || streamScreen.menuOpen()) input::keyboardToPad(kbm.held, pad);
-        kbmConnected = kbm.keyboard || kbm.mouse;
+        kbmConnected = kbm.keyboard || kbm.mouse || g_autoplay.kbHints;
         streamScreen.setKbm(std::move(kbm));
         {
             // The triggers' resistance: in a game and in its Settings tester only.

@@ -966,6 +966,14 @@ static void testKeyboardAsGamepad() {
     in.keyboard = true;
     for (int i = 0; i < 20; ++i) xc::input::keyboardAsGamepad(in, stick, out);  // the mouse still: back to the centre
     CHECK(out.rightStickX == 0.0f && !out.btnA);
+    xc::input::ControllerState pad, kb;
+    pad.btnB = true;
+    pad.leftStickX = 0.3f;
+    kb.btnA = true;
+    kb.leftStickX = -1.0f;
+    kb.triggerR2 = 1.0f;
+    xc::input::mergePads(pad, kb);
+    CHECK(pad.btnA && pad.btnB && pad.leftStickX == -1.0f && pad.triggerR2 == 1.0f);
 }
 
 int main() {

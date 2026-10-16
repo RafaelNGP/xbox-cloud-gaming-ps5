@@ -20,9 +20,8 @@ namespace xc::app {
 
 class StreamPlayer;
 
-// The slot the keyboard and mouse play in as a controller of their own
-// (Settings: as another player): the first without a controller; -1 when
-// that's off or nothing is plugged in.
+// The slot the keyboard and mouse play in as that player's controller
+// (keys 2-4); -1 for player 1 (native mouse and keyboard) or nothing plugged in.
 int keyboardPadSlot(bool keyboardConnected);
 
 class StreamScreen {
@@ -75,6 +74,7 @@ private:
     input::KbmInput kbm_;
     int kbSlotAttached_ = -1;  // the keyboard's slot as a controller, announced
     input::MouseStick mouseStick_;
+    input::ControllerState kbPad_;  // the keyboard as a controller, this pass
     std::vector<uint8_t> keysInGame_;  // keys the game was told are down
     bool wasStreaming_ = false;
     uint64_t lastMenuRedrawMs_ = 0;

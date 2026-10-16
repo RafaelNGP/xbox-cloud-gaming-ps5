@@ -55,8 +55,17 @@ private:
 // The three weights the UI uses.
 struct Fonts {
     Font regular, semibold, bold;
+    // The console's own icon font (keyboard and mouse, controller...), read
+    // from the system at run time, never shipped; hasIcons false without it.
+    Font icons;
+    bool hasIcons = false;
     bool load(const std::string& dir);
+    // The first of `paths` that loads; false when none does.
+    bool loadIcons(const std::vector<std::string>& paths);
 };
+
+// Code points of the console's icon font.
+constexpr const char* kIconKeyboardMouse = "\xEF\xA3\xBE";  // U+F8FE
 
 // Next UTF-8 code point from `s` at `i` (advances `i`); U+FFFD on bad input.
 uint32_t nextCodepoint(std::string_view s, size_t& i);

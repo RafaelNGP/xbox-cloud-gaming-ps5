@@ -35,6 +35,10 @@ struct MouseStick {
 };
 void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& out);
 
+// Adds `extra` (the keyboard as a controller) to `pad`: buttons pressed on
+// either, the stick or trigger pushed further.
+void mergePads(ControllerState& pad, const ControllerState& extra);
+
 // Adds what the keys held press to `pad` (buttons on, sticks pushed); the
 // controller's own input stays.
 void keyboardToPad(const std::vector<uint8_t>& held, ControllerState& pad);

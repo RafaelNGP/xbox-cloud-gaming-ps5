@@ -74,7 +74,7 @@ struct Settings {
     bool highRefresh = false;  // 119.88 Hz output (VRR where the console turns it on) while streaming
     int maxBitrateMbps = 0;    // the stream's bitrate cap: 0 automatic (the tier's), else 20, 15, 10 or 5
     int gameVolume = 100;      // percent: 25, 50, 75, 100 or 150
-    int keyboardMode = 0;      // USB keyboard and mouse: 0 native, with player 1; 1 a controller of their own (another player)
+    int keyboardPlayer = 0;    // the player a USB keyboard and mouse play as (0..3; keys 1-4): 0 native with player 1, else that player's controller
     int micGain = 1;        // 0: 50%, 1: 100%, 2: 150%
     int audioRoute = 0;     // 0: TV/HDMI (Main), 1: DualSense Speaker / Headset (Pad)
     // The release the user said "Not now" to: not offered again on start.

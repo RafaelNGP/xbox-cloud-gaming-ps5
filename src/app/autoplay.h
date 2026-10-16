@@ -53,7 +53,8 @@ struct Autoplay {
     bool imeTest = false;        // open the system keyboard on the home screen
     bool menuTest = false;       // in the game: open the menu, switch to 720p
     int decodeThreads = 1;
-    int videoLoss = 0;           // loss=N: N% of the video packets held back, delivered when NACKed
+    int videoLoss = 0;
+    bool kbHints = false;  // kbhints: as if a keyboard were plugged in and used           // loss=N: N% of the video packets held back, delivered when NACKed
     int deband = -1;             // deband=0..3: instead of the setting
     int sharpness = -1;          // sharp=0..3: instead of the setting
     std::string resolution;      // res=720p|1080p|1440p: instead of the setting

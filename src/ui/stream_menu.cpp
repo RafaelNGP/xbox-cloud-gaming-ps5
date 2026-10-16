@@ -279,7 +279,8 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     for (int i = 0; i < static_cast<int>(pads_.size()); ++i) {
         int sx = kPad + i * slotW;
         constexpr int kIconW = 56;
-        drawPadIcon(c, fonts_.bold, sx + (slotW - kIconW) / 2, y, kIconW, i, pads_[i].connected, kPanel);
+        drawSlotIcon(c, fonts_.bold, sx + (slotW - kIconW) / 2, y, kIconW, i, pads_[i], kPanel,
+                     fonts_.hasIcons ? &fonts_.icons : nullptr);
         if (!pads_[i].connected || pads_[i].name.empty()) continue;
         auto name = fonts_.regular.wrap(pads_[i].name, 15, slotW - 8, 1);
         if (!name.empty())

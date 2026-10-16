@@ -249,9 +249,7 @@ enum class Str {
     MenuKeyHint,        // in-game menu, keyboard in use: its keys (F12 the menu, Home the Xbox button)
     FilterMouseKeyboard, // search filter: games the cloud plays with native mouse and keyboard
     MouseKeyboardSupport, // game page, beside the console and genres
-    KeyboardMode,       // Settings row: what a USB keyboard and mouse are
-    KeyboardNative,     // ... native mouse and keyboard, with player 1
-    KeyboardAsPad,      // ... a controller of their own (another player)
+    KeyboardPlayer,     // notification: keys 1-4 chose the player the keyboard plays as (%s: 1..4)
     Count
 };
 
