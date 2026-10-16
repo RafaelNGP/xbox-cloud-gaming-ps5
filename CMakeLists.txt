@@ -195,6 +195,8 @@ if(NOT XCLOUD_PS5 AND (NOT DEFINED XCLOUD_DESKTOP_APP OR XCLOUD_DESKTOP_APP))
             src/input/sdl_input.cpp
             src/input/controller_sdl.cpp
             src/input/kbm_sdl.cpp
+            src/media/audio_out_sdl.cpp
+            src/media/audio_in_sdl.cpp
         )
         target_link_libraries(xcloud_backends_sdl_io PUBLIC xcloud_core xcloud_media SDL3::SDL3)
         if(NOT MSVC)
