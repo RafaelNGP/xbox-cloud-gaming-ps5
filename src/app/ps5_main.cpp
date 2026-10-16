@@ -15,6 +15,9 @@
 #include "display/display.h"
 #include "display/gpu.h"
 #include "input/controller.h"
+#include "input/kbm.h"
+#include "input/keyboard_nav.h"
+#include "ui/input_mode.h"
 #include "input/tuning.h"
 #include "net/http.h"
 #include "platform/platform.h"
@@ -35,6 +38,7 @@
 #include <utility>
 
 extern "C" int sceSystemServiceHideSplashScreen(void);
+extern "C" const char* sceKernelGetFsSandboxRandomWord(void);
 
 namespace xc::app {
 
@@ -124,6 +128,7 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.highRefresh = choice.highRefresh;
         g_settings.maxBitrateMbps = choice.maxBitrateMbps;
         g_settings.gameVolume = choice.gameVolume;
+        g_settings.keyMap = choice.keyMap;
         g_settings.save(settingsPath());  // warns itself
         XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
                 g_settings.region.empty() ? "auto" : g_settings.region.c_str());
@@ -214,9 +219,19 @@ int main(int argc, char** argv) {
     }
     bool haveDisplay = display::init(!g_autoplay.cpuDisplay);
     if (!input::init()) XC_LOGE("controller init failed");
+    input::kbmInit(input::padUserId(0));  // USB keyboards and mice (logs what it found)
 
     ui::Fonts fonts;
     if (!fonts.load(platform::assetDir() + "/fonts")) XC_LOGE("fonts missing in %s", platform::assetDir().c_str());
+    {
+        // The console's icon font (keyboard and mouse...): read where the
+        // system keeps it, not shipped with the app.
+        const char* word = sceKernelGetFsSandboxRandomWord();
+        std::string sandbox = std::string("/") + (word ? word : "");
+        bool ok = fonts.loadIcons({"/system_ex/common_ex/font2/PS4Icon.ttf", sandbox + "/common_ex/font2/PS4Icon.ttf",
+                                   sandbox + "_ex/common_ex/font2/PS4Icon.ttf"});
+        XC_LOGI("system icon font: %s", ok ? "loaded" : "not found (drawn icons)");
+    }
     g_images = std::make_unique<ui::ImageCache>(
         [] {
             if (g_ui) g_ui->invalidate();
@@ -245,10 +260,12 @@ int main(int argc, char** argv) {
         choice.highRefresh = g_settings.highRefresh;
         choice.maxBitrateMbps = g_settings.maxBitrateMbps;
         choice.gameVolume = g_settings.gameVolume;
+        choice.keyMap = g_settings.keyMap;
         g_ui->setAllow1440(allow1440Locked());
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
         g_ui->setSettings(choice);
         g_ui->setPerGameSettings(g_settings.perGame);
+        g_ui->setGyroDefaults(g_settings.gyroMode, g_settings.gyroLevel);
         applyControllerSettings();
         g_ui->setRegionLatency(g_settings.regionRtt);
         g_ui->setPrefs(g_settings.hidden, g_settings.librarySort == "az"        ? ui::LibrarySort::AZ
@@ -271,6 +288,26 @@ int main(int argc, char** argv) {
 
     // Never return from main: the app is closed from the home screen.
     input::ControllerState prev{}, pad{};
+    bool appMenuKeyBefore = false, homeKeyBefore = false;  // F12 / Home held at the last pass
+    uint8_t mouseButtonsBefore = 0;      // the mouse buttons at the last pass (a press chooses a key)
+    std::vector<uint8_t> swallowedKeys;  // keys pressed to be chosen, kept from the screens until let go
+    bool kbmConnected = false;                              // a USB keyboard or mouse in use
+    uint64_t keyboardActiveAt = 0;                          // when a key or the mouse was last used (ms)
+    // The slot showing the keyboard (-1 none): the keyboard's player, while
+    // the keyboard was used after that player's own controller (or it has none).
+    auto keyboardIconSlot = [&]() -> int {
+        if (!kbmConnected) return -1;
+        int player;
+        {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            player = g_settings.keyboardPlayer;
+        }
+        if (player < 0 || player >= input::kMaxPads) return -1;
+        bool keyboardLast = !input::padConnected(player) || keyboardActiveAt > input::padActiveAt(player);
+        return keyboardLast ? player : -1;
+    };
+    int keyboardIconShown = -2;  // as last drawn in the players' row
+    auto now0 = [] { return platform::nowMs(); };
     Repeater up, down, left, right, dpadLeft, dpadRight;
     // Smooth scrolling: rows / cards still to move (fractions carry over),
     // the touchpad's last point, and its speed for the glide after release.
@@ -331,8 +368,79 @@ int main(int argc, char** argv) {
             // The log is already on disk (flushed by line).
             _exit(0);
         }
+        // Gyro aiming moves the aim in a game, not the app's menu.
+        input::setGyroActive(g_ui->screen() == ui::Screen::Streaming && !streamScreen.menuOpen());
         input::poll(pad);
         autoplayPad(pad);
+        // USB keyboard: the app's screens (and its menu in a game) as with the
+        // controller; in a game otherwise, its keys and the mouse go to the game.
+        input::KbmInput kbm = input::kbmPoll();
+        bool inGame = g_ui->screen() == ui::Screen::Streaming;
+        {
+            // The hints follow the device last used: a key or the mouse
+            // switches them to the keyboard's keys, the controller back.
+            bool keyPressed = std::any_of(kbm.keys.begin(), kbm.keys.end(), [](const input::KeyEvent& k) { return k.pressed; });
+            bool padUsed = pad.btnA || pad.btnB || pad.btnX || pad.btnY || pad.dpadUp || pad.dpadDown || pad.dpadLeft ||
+                           pad.dpadRight || pad.btnL1 || pad.btnR1 || pad.btnOptions || pad.btnTouchpad ||
+                           std::abs(pad.leftStickX) > 0.5f || std::abs(pad.leftStickY) > 0.5f ||
+                           std::abs(pad.rightStickX) > 0.5f || std::abs(pad.rightStickY) > 0.5f;
+            bool keyboard = ui::g_keyboardHints;
+            if (keyPressed || kbm.moved) keyboard = true, keyboardActiveAt = now0();
+            else if (padUsed) keyboard = false;
+            if (keyboard != ui::g_keyboardHints) {
+                ui::g_keyboardHints = keyboard;
+                g_ui->invalidate();
+                streamScreen.redrawMenu();
+            }
+        }
+        // Keys 1-4 (off a game, or with the app's menu open in one): the
+        // player the keyboard and mouse play as. 1 native with player 1;
+        // 2-4 that player's controller (3 or 4 with two players: just its slot).
+        // The keyboard keys' screen waiting for a key: the next key or mouse
+        // button pressed is the one chosen (not a move through the screens);
+        // keys pressed for it stay out of the screens until let go.
+        bool capturing = g_ui->capturingKey();
+        if (capturing) {
+            for (const auto& k : kbm.keys)
+                if (k.pressed) g_ui->captureKey(k.vk), swallowedKeys.push_back(k.vk);
+            for (int b = 0; b < 5; ++b)
+                if ((kbm.buttons & ~mouseButtonsBefore) & (1 << b)) g_ui->captureKey(static_cast<uint8_t>(input::kMouseLeft + b));
+        }
+        mouseButtonsBefore = kbm.buttons;
+        std::erase_if(swallowedKeys, [&](uint8_t vk) { return !std::binary_search(kbm.held.begin(), kbm.held.end(), vk); });
+        if ((!inGame || streamScreen.menuOpen()) && !capturing) {
+            for (const auto& k : kbm.keys) {
+                if (!k.pressed || k.vk < '1' || k.vk > '4') continue;
+                int player = k.vk - '1';
+                {
+                    std::lock_guard<std::mutex> lock(g_settingsMutex);
+                    g_settings.keyboardPlayer = player;
+                    g_settings.save(settingsPath());
+                }
+                platform::notify(ui::trf(ui::Str::KeyboardPlayer, std::to_string(player + 1)),
+                                 "keyboard: player " + std::to_string(player + 1));
+                padsCheckedAt = 0;  // the players' row at once
+            }
+        }
+        // Home: the Xbox button in a game (as the touchpad swiped up).
+        bool homeKey = std::binary_search(kbm.held.begin(), kbm.held.end(), uint8_t{0x24});
+        if (inGame && homeKey && !homeKeyBefore && !streamScreen.menuOpen()) g_xboxButtonUntil = now0() + 250;
+        homeKeyBefore = homeKey;
+        bool appMenuKey = std::binary_search(kbm.held.begin(), kbm.held.end(), input::kVkAppMenu);
+        bool appMenuPressed = appMenuKey && !appMenuKeyBefore;
+        appMenuKeyBefore = appMenuKey;
+        if ((!inGame || streamScreen.menuOpen()) && !capturing) {
+            std::vector<uint8_t> navKeys;
+            for (uint8_t vk : kbm.held)
+                if (std::find(swallowedKeys.begin(), swallowedKeys.end(), vk) == swallowedKeys.end()) navKeys.push_back(vk);
+            input::keyboardToPad(navKeys, pad);
+        }
+        kbmConnected = kbm.keyboard || kbm.mouse || g_autoplay.kbHints;
+        if (int shown = keyboardIconSlot(); shown != keyboardIconShown) {
+            keyboardIconShown = shown;
+            padsCheckedAt = 0;  // the players' row at once, as the device in use changes
+        }
+        streamScreen.setKbm(std::move(kbm));
         {
             // The triggers' resistance: in a game and in its Settings tester only.
             float l2, r2;
@@ -369,6 +477,12 @@ int main(int argc, char** argv) {
             ui::PadSlots slots;
             for (int i = 0; i < input::kMaxPads; ++i)
                 slots[static_cast<size_t>(i)] = {input::padConnected(i), input::padUserName(i)};
+            // The keyboard: in a slot of its own as another player's
+            // controller (Settings), else on player 1's while it's the device in use.
+            if (int kb = keyboardIconSlot(); kb >= 0) {
+                slots[static_cast<size_t>(kb)].keyboard = true;
+                slots[static_cast<size_t>(kb)].connected = true;
+            }
             g_ui->setPads(slots);
             streamScreen.setPads(slots);
         }
@@ -438,7 +552,8 @@ int main(int argc, char** argv) {
             scroll.cards -= static_cast<float>(nav.scrollCards);
         }
         nav.nowMs = now;
-        bool menuCombo = pad.btnOptions && pad.btnTouchpad && !(prev.btnOptions && prev.btnTouchpad);
+        bool menuCombo = (pad.btnOptions && pad.btnTouchpad && !(prev.btnOptions && prev.btnTouchpad)) ||
+                         (inGame && appMenuPressed);
         prev = pad;
         autoplayNav(nav, menuCombo, now);
         if (g_ui->screen() == ui::Screen::Streaming) {

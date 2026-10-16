@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 #include "ui/app_ui.h"
+#include "ui/input_mode.h"
 
 #include "input/tuning.h"
 #include "xcloud/catalog.h"
@@ -51,6 +52,25 @@ enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad,
 // The resolution list, lowest first: SettingsChoice::resolution value per
 // position (0 = 1080p, 1 = 720p, 2 = 1440p, as saved).
 constexpr int kResolutionOrder[3] = {1, 0, 2};
+// Settings' rows on screen, alike ones together (the row ids stay what
+// settingsRow_ and the helpers use): language and sign-in country; the
+// stream (resolution, 120 Hz, bitrate, region); sound; the controller and
+// keyboard; updates last. A group starts at each kSettingsGroupStart.
+constexpr int kSettingsOrder[kSettingRows] = {0, 8, 1, 9, 10, 2, 11, 3, 4, 5, 6, 12, 7};
+constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, true, false, false, false, true,
+                                                    true, false, false, false, false, true};
+int settingsPos(int row) {
+    for (int i = 0; i < kSettingRows; ++i)
+        if (kSettingsOrder[i] == row) return i;
+    return 0;
+}
+// The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
+// sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7
+// confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default).
+constexpr int kGameRowOrder[11] = {0, 4, 8, 1, 2, 3, 5, 6, 7, 9, 10};
+constexpr bool kGameGroupStart[11] = {false, true, false, true, false, false, true, false, false, false, true};
+// The keyboard keys' screen: two columns of inputs, then "Reset to default".
+constexpr int kKeysPerColumn = input::kKeyActions / 2;
 
 // Grids ("Your games", search results): cards with the name below.
 constexpr int kGridPitchY = 300;
@@ -691,6 +711,7 @@ void AppUi::showFilteredSearch(Tab tab, bool cheapest, int mode, const std::stri
     searchOnKeys_ = true;
     query_.clear();
     filterFree_ = false;
+    filterMouseKeyboard_ = false;
     filterCheapest_ = cheapest;
     filterConsole_ = 0;
     filterMode_ = mode;
@@ -799,6 +820,7 @@ void AppUi::runSearch() {
     for (const auto& t : tab_ == Tab::GamePass ? gamePassPool_ : libraryPool_) {
         if (hidden_.count(t.productId)) continue;
         if (filterConsole_ && t.platform != kConsoleCodes[filterConsole_]) continue;
+        if (filterMouseKeyboard_ && !t.mouseKeyboard) continue;
         // Play mode and language need the full details: a game without them
         // yet comes in when they arrive.
         static constexpr uint32_t kModeBits[] = {0, xcloud::kModeSingle, xcloud::kModeOnlineMulti, xcloud::kModeOnlineCoop,
@@ -975,12 +997,72 @@ void AppUi::openTester(Tester t) {
     testerRow_ = 0;
     testerStick_ = 0;
     testerBackup_ = settings_;
+    keysRow_ = keysCol_ = 0;
+    captureSince_ = 0;
+    keyRefused_ = 0;
     dirty_ = true;
+}
+
+bool AppUi::capturingKey() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return tester_ == Tester::Keys && captureSince_ && (screen_ == Screen::Settings || gameSettingsOpen_);
+}
+
+void AppUi::captureKey(uint8_t code) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (tester_ != Tester::Keys || !captureSince_ || keysRow_ >= kKeysPerColumn) return;
+    dirty_ = true;
+    if (input::isReservedKey(code)) {  // still waiting: another key
+        keyRefused_ = code;
+        return;
+    }
+    auto action = static_cast<input::KeyAction>((keysCol_ / 2) * kKeysPerColumn + keysRow_);
+    input::assignKey(settings_.keyMap, action, keysCol_ % 2, code);
+    captureSince_ = 0;
+    keyRefused_ = 0;
+}
+
+void AppUi::handleKeysTester(const NavInput& in) {
+    // Caller holds mutex_. Each change applies at once; Circle goes back
+    // with them (as Settings itself), "Reset to default" puts the first back.
+    auto& map = settings_.keyMap;
+    if (captureSince_) {
+        // Waiting for a key (captureKey): Circle or 10 s give up.
+        if (in.back || (in.nowMs > captureSince_ && in.nowMs - captureSince_ > 10000))
+            captureSince_ = 0, keyRefused_ = 0, dirty_ = true;
+        return;
+    }
+    constexpr int kRows = kKeysPerColumn + 1;
+    if (in.up) keysRow_ = (keysRow_ + kRows - 1) % kRows, dirty_ = true;
+    if (in.down) keysRow_ = (keysRow_ + 1) % kRows, dirty_ = true;
+    if (keysRow_ < kKeysPerColumn) {
+        if (in.left && keysCol_ > 0) --keysCol_, dirty_ = true;
+        if (in.right && keysCol_ < 3) ++keysCol_, dirty_ = true;
+    }
+    size_t action = static_cast<size_t>((keysCol_ / 2) * kKeysPerColumn + keysRow_);
+    if (in.accept) {
+        if (keysRow_ == kKeysPerColumn)
+            map = input::defaultKeyMap();
+        else
+            captureSince_ = in.nowMs ? in.nowMs : 1;
+        keyRefused_ = 0;
+        dirty_ = true;
+    }
+    if (in.square && keysRow_ < kKeysPerColumn) map[action][static_cast<size_t>(keysCol_ % 2)] = 0, dirty_ = true;
+    if (in.back) {
+        if (gameSettingsOpen_) {
+            if (map != activeGameProfile_.keyMap) activeGameProfile_.keyMap = map, activeGameHasCustom_ = true;
+            settings_ = testerBackup_;
+        }
+        tester_ = Tester::None;
+        dirty_ = true;
+    }
 }
 
 void AppUi::handleTester(const NavInput& in) {
     // Caller holds mutex_. Changes apply as they are made (the pad follows);
     // Cross keeps them, Circle puts the old ones back.
+    if (tester_ == Tester::Keys) return handleKeysTester(in);
     if (tester_ == Tester::Sticks) {
         // L1 / R1 pick the stick, the D-pad (only: the sticks are what is
         // being tried) changes its dead zone.
@@ -1119,6 +1201,12 @@ void AppUi::setSettings(const SettingsChoice& choice) {
     dirty_ = true;
 }
 
+void AppUi::setGyroDefaults(int mode, int level) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    gyroMode_ = mode;
+    gyroLevel_ = level;
+}
+
 void AppUi::setPerGameSettings(const std::map<std::string, app::GameProfile>& perGame) {
     std::lock_guard<std::mutex> lock(mutex_);
     perGameSettings_ = perGame;
@@ -1147,6 +1235,9 @@ void AppUi::openGameSettings() {
         activeGameProfile_.triggerPulses = settings_.triggerPulses;
         activeGameProfile_.circleConfirms = settings_.circleConfirms;
         activeGameProfile_.highRefresh = settings_.highRefresh;
+        activeGameProfile_.keyMap = settings_.keyMap;
+        activeGameProfile_.gyroMode = gyroMode_;
+        activeGameProfile_.gyroLevel = gyroLevel_;
     }
 }
 
@@ -1170,7 +1261,8 @@ void AppUi::setPads(const PadSlots& pads) {
     std::lock_guard<std::mutex> lock(mutex_);
     bool changed = false;
     for (size_t i = 0; i < pads.size(); ++i)
-        changed |= pads[i].connected != pads_[i].connected || pads[i].name != pads_[i].name;
+        changed |= pads[i].connected != pads_[i].connected || pads[i].name != pads_[i].name ||
+                   pads[i].keyboard != pads_[i].keyboard;  // the keyboard taking a player's slot, or leaving it
     if (!changed) return;
     pads_ = pads;
     dirty_ = true;
@@ -1209,7 +1301,8 @@ bool AppUi::accentColor(Color& out) {
 
 void AppUi::drawPads(Canvas& c) {
     // Bottom left, on the line of the button hints (which are right-aligned).
-    drawPadRow(c, fonts_.bold, kMargin, kH - 26 - padIconHeight(48), 48, 16, pads_, kBg);
+    drawPadRow(c, fonts_.bold, kMargin, kH - 26 - padIconHeight(48), 48, 16, pads_, kBg,
+               fonts_.hasIcons ? &fonts_.icons : nullptr);
 }
 
 void AppUi::setRegions(std::vector<std::string> regions, const std::string& defaultRegion) {
@@ -1254,6 +1347,10 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         for (int mbps : kBitrateCaps) out.push_back(std::to_string(mbps) + " Mbps");
     } else if (row == 11) {
         for (int v : kVolumes) out.push_back(std::to_string(v) + " %");
+    } else if (row == 12) {
+        // The keys' own screen changes them.
+        out = {tr(settings_.keyMap == input::defaultKeyMap() ? Str::ProfileDefault : Str::ProfileCustom)};
+
     } else if (row == 8) {
         out.push_back(tr(Str::LoginCountryOff));
         for (const char* country : kLoginCountries) out.push_back(loginCountryName(country));
@@ -1273,7 +1370,7 @@ int AppUi::settingSelected(int row) const {
         for (int i = 0; i < 3; ++i)
             if (kResolutionOrder[i] == settings_.resolution) return i;
     }
-    if (row == 3) return 0;
+    if (row == 3 || row == 12) return 0;
     if (row == 4) return settings_.triggerStrength;
     if (row == 5) return settings_.circleConfirms ? 1 : 0;
     if (row == 6) return settings_.lightBarMode;
@@ -1306,8 +1403,8 @@ void AppUi::applySetting(int row, int index) {
         setLanguage(static_cast<Language>(index));  // the UI switches right away
     } else if (row == 1) {
         settings_.resolution = kResolutionOrder[index];
-    } else if (row == 3) {
-        (void)index;  // the tester sets each stick's
+    } else if (row == 3 || row == 12) {
+        (void)index;  // the tester sets each stick's, the keys' screen the keys
     } else if (row == 4) {
         settings_.triggerStrength = index;
     } else if (row == 5) {
@@ -1322,6 +1419,7 @@ void AppUi::applySetting(int row, int index) {
         settings_.maxBitrateMbps = index == 0 ? 0 : kBitrateCaps[index - 1];
     } else if (row == 11) {
         settings_.gameVolume = kVolumes[index];
+
     } else if (row == 8) {
         settings_.loginCountry = index == 0 ? std::string() : kLoginCountries[index - 1];
     } else {
@@ -1648,8 +1746,8 @@ std::vector<AppUi::Filter> AppUi::filterRow(int row) const {
     // Caller holds mutex_. Prices only matter in "Your games" (Game Pass
     // games aren't bought).
     if (row == 1) return {Filter::Mode, Filter::Genre, Filter::Publisher, Filter::Language};
-    if (tab_ == Tab::GamePass) return {Filter::Console};
-    return {Filter::Free, Filter::Cheapest, Filter::Console};
+    if (tab_ == Tab::GamePass) return {Filter::Console, Filter::MouseKeyboard};
+    return {Filter::Free, Filter::Cheapest, Filter::Console, Filter::MouseKeyboard};
 }
 
 std::vector<std::string> AppUi::poolGenres() const {
@@ -1738,6 +1836,7 @@ void AppUi::chooseFilterLocked(Filter f, int index) {
 std::string AppUi::filterText(Filter f) const {
     // Caller holds mutex_. A list shows its name until a choice is made.
     if (f == Filter::Free) return tr(Str::FilterFree);
+    if (f == Filter::MouseKeyboard) return tr(Str::FilterMouseKeyboard);
     if (f == Filter::Cheapest) return tr(Str::FilterCheapest);
     int sel = filterSelected(f);
     if (sel > 0 || f == Filter::Console) {
@@ -1751,6 +1850,7 @@ bool AppUi::filterOn(Filter f) const {
     // Caller holds mutex_.
     if (f == Filter::Free) return filterFree_;
     if (f == Filter::Cheapest) return filterCheapest_;
+    if (f == Filter::MouseKeyboard) return filterMouseKeyboard_;
     return filterSelected(f) > 0;
 }
 
@@ -1761,7 +1861,7 @@ void AppUi::pressFilter(Filter f) {
         filterListIndex_ = filterSelected(f);
         filterListTop_ = 0;
     } else {
-        (f == Filter::Free ? filterFree_ : filterCheapest_) ^= true;
+        (f == Filter::Free ? filterFree_ : f == Filter::MouseKeyboard ? filterMouseKeyboard_ : filterCheapest_) ^= true;
         runSearch();
     }
     dirty_ = true;
@@ -1855,7 +1955,7 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
         handleTester(in);
         return;
     }
-    int rowCount = activeGameHasCustom_ ? 10 : 9;
+    int rowCount = activeGameHasCustom_ ? 11 : 10;
     if (in.up) {
         gameSettingsRow_ = (gameSettingsRow_ + rowCount - 1) % rowCount;
         dirty_ = true;
@@ -1864,9 +1964,10 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
         gameSettingsRow_ = (gameSettingsRow_ + 1) % rowCount;
         dirty_ = true;
     }
+    const int rowId = kGameRowOrder[std::clamp(gameSettingsRow_, 0, 10)];
     if (in.left || in.right) {
         int dir = in.right ? 1 : -1;
-        switch (gameSettingsRow_) {
+        switch (rowId) {
         case 0:
             activeGameHasCustom_ = !activeGameHasCustom_;
             dirty_ = true;
@@ -1924,7 +2025,7 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
         }
     }
     if (in.accept) {
-        switch (gameSettingsRow_) {
+        switch (rowId) {
         case 0:
             activeGameHasCustom_ = !activeGameHasCustom_;
             dirty_ = true;
@@ -1987,8 +2088,13 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             activeGameHasCustom_ = true;
             dirty_ = true;
             break;
-        case 9: // Reset to default
+        case 9: // Keyboard keys: their own screen, on this game's
+            openTester(Tester::Keys);
+            settings_.keyMap = activeGameProfile_.keyMap;
+            break;
+        case 10: // Reset to default
             activeGameHasCustom_ = false;
+            activeGameProfile_.keyMap = settings_.keyMap;
             activeGameProfile_.sharpness = settings_.sharpness;
             activeGameProfile_.deband = settings_.deband;
             activeGameProfile_.upscaler = settings_.upscaler;
@@ -2001,6 +2107,8 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             activeGameProfile_.triggerPulses = settings_.triggerPulses;
             activeGameProfile_.circleConfirms = settings_.circleConfirms;
             activeGameProfile_.highRefresh = settings_.highRefresh;
+            activeGameProfile_.gyroMode = gyroMode_;
+            activeGameProfile_.gyroLevel = gyroLevel_;
             gameSettingsRow_ = 0;
             dirty_ = true;
             break;
@@ -2077,13 +2185,15 @@ UiEvent AppUi::handle(const NavInput& in) {
                 dirty_ = true;
                 break;
             }
-            if (in.down && settingsRow_ < kSettingRows - 1) ++settingsRow_, dirty_ = true;
-            if (in.up && settingsRow_ > 0) --settingsRow_, dirty_ = true;
+            if (int pos = settingsPos(settingsRow_); in.down && pos < kSettingRows - 1)
+                settingsRow_ = kSettingsOrder[pos + 1], dirty_ = true;
+            else if (in.up && pos > 0)
+                settingsRow_ = kSettingsOrder[pos - 1], dirty_ = true;
             if (in.right) changeSetting(+1);
             if (in.left) changeSetting(-1);
-            if (in.accept && (settingsRow_ == 3 || settingsRow_ == 4)) {
-                // Dead zone, trigger vibration: their testers instead of a list.
-                openTester(settingsRow_ == 3 ? Tester::Sticks : Tester::Triggers);
+            if (in.accept && (settingsRow_ == 3 || settingsRow_ == 4 || settingsRow_ == 12)) {
+                // Dead zone, trigger vibration, keyboard keys: their own screens instead of a list.
+                openTester(settingsRow_ == 3 ? Tester::Sticks : settingsRow_ == 4 ? Tester::Triggers : Tester::Keys);
             } else if (in.accept && settingsRow_ == 7) {
                 // Updates: a newer version is installed (the settings saved first).
                 if (!updateAvailable_.empty() && !updateChecking_) {
@@ -2302,11 +2412,21 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
         // With Circle confirming, the pad reports it as Cross (and the
         // other way round): the hints show the button to press.
         int icon = it->first;
-        if (circleConfirms_ && (icon == kIconCross || icon == kIconCircle))
-            icon = icon == kIconCross ? kIconCircle : kIconCross;
         int w = fonts_.semibold.measure(it->second, kPx);
         x -= w;
         fonts_.semibold.draw(c, it->second, x, y, kPx, kGray);
+        if (g_keyboardHints) {  // the keyboard's key, as a key cap
+            const char* key = keyLabel(icon);
+            int kw = fonts_.bold.measure(key, 15) + 18;
+            Rect cap{x - 10 - kw, y + 1, kw, 26};
+            c.fillRect(cap, rgba(255, 255, 255, 30), 6);
+            c.strokeRect(cap, kGray, 2, 6);
+            fonts_.bold.draw(c, key, cap.x + 9, fonts_.bold.centeredY(cap.y, cap.h, 15), 15, kWhite);
+            x = cap.x - kGap;
+            continue;
+        }
+        if (circleConfirms_ && (icon == kIconCross || icon == kIconCircle))
+            icon = icon == kIconCross ? kIconCircle : kIconCross;
         x -= 10 + 2 * kR;
         float cx = x + kR, cy = y + 13;
         if (icon == kIconL2R2) {
@@ -2462,7 +2582,7 @@ void AppUi::drawTabs(Canvas& c) {
         c.fillRect(r, rgba(255, 255, 255, 40), 8);
         fonts_.bold.draw(c, name, cx - fonts_.bold.measure(name, 16) / 2, fonts_.bold.centeredY(r.y, r.h, 16), 16, kGray);
     };
-    shoulder("L1", x - 40);
+    shoulder(g_keyboardHints ? "Q" : "L1", x - 40);
     for (int i = 0; i < 3; ++i) {
         bool on = static_cast<int>(tab_) == i;
         Rect r{x, kY, widths[i], kH};
@@ -2470,7 +2590,7 @@ void AppUi::drawTabs(Canvas& c) {
         fonts_.semibold.draw(c, labels[i], x + kPad, fonts_.semibold.centeredY(kY, kH, kPx), kPx, on ? kBg : kGray);
         x += widths[i] + kGap;
     }
-    shoulder("R1", x - kGap + 40);
+    shoulder(g_keyboardHints ? "E" : "R1", x - kGap + 40);
 }
 
 namespace {
@@ -2606,6 +2726,18 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
         }
     }
     // Bottom-right: the console it was made for; one style and width for all.
+    // Left of it, how it's played: keyboard and mouse (the cloud takes them
+    // in it) or the controller only.
+    if (t.mouseKeyboard || fonts_.hasIcons) {
+        int right = x + kCard - 10 - (platformLabel(t.platform) ? 96 + 6 : 0);
+        Rect k{right - 34, y + kCard - 34, 34, 24};
+        c.fillRect(k, rgba(0, 0, 0, 220), 4);
+        const char* glyph = t.mouseKeyboard ? kIconKeyboardMouse : kIconGamepad;
+        if (fonts_.hasIcons)  // the console's own icons
+            fonts_.icons.draw(c, glyph, k.x + (k.w - fonts_.icons.measure(glyph, 18)) / 2, k.y + 3, 18, kWhite);
+        else
+            drawKeyboardGlyph(c, k.x + 6, k.y + 6, 22, kWhite);
+    }
     if (const char* p = platformLabel(t.platform)) {
         constexpr int kBadgeW = 96;
         Rect badge{x + kCard - 10 - kBadgeW, y + kCard - 34, kBadgeW, 24};
@@ -2694,9 +2826,11 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
         std::string label = trf(Str::SortLabel, tr(sortName));
         int w = fonts_.semibold.measure(label, 22);
         int right = left + kGridW;
+        const char* sortKey = g_keyboardHints ? "R" : "R3";
         Rect pill{right - 44, 112, 44, 28};
         c.fillRect(pill, rgba(255, 255, 255, 40), 8);
-        fonts_.bold.draw(c, "R3", pill.x + (pill.w - fonts_.bold.measure("R3", 16)) / 2,
+        if (g_keyboardHints) c.strokeRect(pill, kGray, 2, 8);
+        fonts_.bold.draw(c, sortKey, pill.x + (pill.w - fonts_.bold.measure(sortKey, 16)) / 2,
                          fonts_.bold.centeredY(pill.y, pill.h, 16), 16, kGray);
         fonts_.semibold.draw(c, label, pill.x - 14 - w, fonts_.semibold.centeredY(pill.y, pill.h, 22), 22, kGray);
     }
@@ -3073,6 +3207,7 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     std::string cats;
     if (const char* p = platformLabel(g->platform)) cats = p;
     for (const auto& cat : g->categories) cats += (cats.empty() ? "" : "  \xE2\x80\xA2  ") + cat;
+    if (g->mouseKeyboard) cats += std::string(cats.empty() ? "" : "  \xE2\x80\xA2  ") + tr(Str::MouseKeyboardSupport);
     if (!cats.empty()) {
         fonts_.regular.draw(c, cats, kMargin, y, 24, kDim);
         y += 44;
@@ -3227,26 +3362,29 @@ void AppUi::drawSettings(Canvas& c) {
     const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
                                         tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry),
-                                        tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume)};
-    constexpr int kRowW = 1200, kRowH = 50, kGap = 6;
-    Rect rows[kSettingRows];
-    int y = 262;
-    for (int i = 0; i < kSettingRows; ++i) {
+                                        tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume),
+                                        tr(Str::KeyboardKeys)};
+    constexpr int kRowW = 1200, kRowH = 46, kGap = 5, kGroupGap = 16;
+    Rect rows[kSettingRows];  // by row id
+    int y = 236;
+    for (int pos = 0; pos < kSettingRows; ++pos) {
+        const int i = kSettingsOrder[pos];
+        if (kSettingsGroupStart[pos]) y += kGroupGap;
         Rect r{kMargin, y, kRowW, kRowH};
         rows[i] = r;
         bool focused = i == settingsRow_;
         c.fillRect(r, focused ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 16);
         if (focused && !dropdownOpen_) c.strokeRect({r.x - 5, r.y - 5, r.w + 10, r.h + 10}, kWhite, 3, 20);
-        int ty = fonts_.semibold.centeredY(r.y, r.h, 30);
-        fonts_.semibold.draw(c, labels[i], r.x + 36, ty, 30, kWhite);
+        int ty = fonts_.semibold.centeredY(r.y, r.h, 28);
+        fonts_.semibold.draw(c, labels[i], r.x + 36, ty, 28, kWhite);
         if (i == 7) {
             // Updates: the state; Cross updates when there is a newer version.
             std::string value = updateChecking_            ? tr(Str::UpdateChecking)
                                 : !updateAvailable_.empty() ? trf(Str::UpdateReady, updateAvailable_)
                                                             : trf(Str::UpToDate, "v" + updateCurrent_);
             Color color = !updateAvailable_.empty() && !updateChecking_ ? rgba(120, 220, 120) : focused ? kWhite : kGray;
-            int w = fonts_.regular.measure(value, 30);
-            fonts_.regular.draw(c, value, r.x + r.w - 44 - w, fonts_.regular.centeredY(r.y, r.h, 30), 30, color);
+            int w = fonts_.regular.measure(value, 28);
+            fonts_.regular.draw(c, value, r.x + r.w - 44 - w, fonts_.regular.centeredY(r.y, r.h, 28), 28, color);
             y += kRowH + kGap;
             continue;
         }
@@ -3262,8 +3400,8 @@ void AppUi::drawSettings(Canvas& c) {
             // The confirm button, as the button itself.
             drawFaceButton(c, settings_.circleConfirms ? kIconCircle : kIconCross, vx - 20.0f, cy, 20);
         } else {
-            int w = fonts_.regular.measure(value, 30);
-            fonts_.regular.draw(c, value, vx - w, fonts_.regular.centeredY(r.y, r.h, 30), 30, focused ? kWhite : kGray);
+            int w = fonts_.regular.measure(value, 28);
+            fonts_.regular.draw(c, value, vx - w, fonts_.regular.centeredY(r.y, r.h, 28), 28, focused ? kWhite : kGray);
             if (i == 6 && settings_.lightBarMode == 1) {  // the colour chosen
                 c.fillCircle(vx - w - 30.0f, cy, 14, settings_.lightBarColour);
                 c.strokeArc(vx - w - 30.0f, cy, 14, 2, 0, 6.2832f, rgba(255, 255, 255, 120));
@@ -3282,6 +3420,7 @@ void AppUi::drawSettings(Canvas& c) {
     }
     if (tester_ == Tester::Sticks) return drawStickTester(c);
     if (tester_ == Tester::Triggers) return drawTriggerTester(c);
+    if (tester_ == Tester::Keys) return drawKeysTester(c);
     if (dropdownOpen_) {
         // The list under (or, near the bottom, over) the row, right-aligned
         // with it; scrolls past kVisible choices.
@@ -3514,6 +3653,76 @@ void AppUi::drawTriggerTester(Canvas& c) {
         fonts_.regular.draw(c, help[i], panel.x + 56, panel.y + panel.h - 70 + static_cast<int>(i) * 30, 22, kDim);
 }
 
+void AppUi::drawKeysTester(Canvas& c) {
+    Rect panel = drawModal(c, 1500, 860, tr(Str::KeyboardKeys));
+    // Each input: its name (the PlayStation button, the Xbox one beside),
+    // then its two keys. Left column the sticks, D-pad, A and B; right the rest.
+    constexpr const char* kUp = " \xE2\x86\x91", *kDown = " \xE2\x86\x93", *kLeft = " \xE2\x86\x90", *kRight = " \xE2\x86\x92";
+    const std::string stick = tr(Str::StickLeft), dpad = tr(Str::DPad);
+    const std::string names[input::kKeyActions] = {
+        stick + kUp, stick + kDown, stick + kLeft, stick + kRight, dpad + kUp, dpad + kDown, dpad + kLeft, dpad + kRight,
+        "A", "B", "X", "Y", "L1  (LB)", "R1  (RB)", "L2  (LT)", "R2  (RT)", "L3", "R3", "View", "Menu"};
+    const int faceIcon[4] = {kIconCross, kIconCircle, kIconSquare, kIconTriangle};  // A B X Y
+    constexpr int kRowH = 52, kGap = 8, kChipW = 170, kColGap = 40;
+    const int colW = (panel.w - 112 - kColGap) / 2;
+    const bool capturing = captureSince_ != 0;
+    for (int a = 0; a < input::kKeyActions; ++a) {
+        const int col = a / kKeysPerColumn, row = a % kKeysPerColumn;
+        Rect r{panel.x + 56 + col * (colW + kColGap), panel.y + 106 + row * (kRowH + kGap), colW, kRowH};
+        const bool rowOn = row == keysRow_ && col == keysCol_ / 2;
+        c.fillRect(r, rowOn ? rgba(255, 255, 255, 30) : rgba(255, 255, 255, 12), 14);
+        int ty = fonts_.semibold.centeredY(r.y, r.h, 24);
+        if (a >= static_cast<int>(input::KeyAction::A) && a <= static_cast<int>(input::KeyAction::Y)) {
+            int k = a - static_cast<int>(input::KeyAction::A);
+            drawFaceButton(c, faceIcon[k], r.x + 38.0f, r.y + r.h / 2.0f, 16);
+            fonts_.semibold.draw(c, "(" + names[a] + ")", r.x + 66, ty, 24, kGray);
+        } else {
+            fonts_.semibold.draw(c, names[a], r.x + 22, ty, 24, kWhite);
+        }
+        for (int slot = 0; slot < 2; ++slot) {
+            Rect chip{r.x + r.w - 10 - (2 - slot) * kChipW - (1 - slot) * 10, r.y + 7, kChipW, r.h - 14};
+            const bool on = rowOn && keysCol_ % 2 == slot;
+            uint8_t code = settings_.keyMap[static_cast<size_t>(a)][static_cast<size_t>(slot)];
+            std::string text = on && capturing ? "..." : code ? input::keyName(code) : "\xE2\x80\x94";  // an em dash: none
+            c.fillRect(chip, on ? kWhite : rgba(255, 255, 255, code ? 26 : 10), 10);
+            if (on && capturing) c.strokeRect({chip.x - 4, chip.y - 4, chip.w + 8, chip.h + 8}, rgba(90, 220, 110), 3, 13);
+            int tw = fonts_.semibold.measure(text, 22);
+            fonts_.semibold.draw(c, text, chip.x + (chip.w - tw) / 2, fonts_.semibold.centeredY(chip.y, chip.h, 22), 22,
+                                 on ? kBg : code ? kWhite : kDim);
+        }
+    }
+    // Reset to default, across both columns.
+    Rect reset{panel.x + 56, panel.y + 106 + kKeysPerColumn * (kRowH + kGap) + 8, panel.w - 112, kRowH};
+    const bool resetOn = keysRow_ == kKeysPerColumn;
+    c.fillRect(reset, resetOn ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 14);
+    if (resetOn) c.strokeRect({reset.x - 4, reset.y - 4, reset.w + 8, reset.h + 8}, kWhite, 2, 18);
+    const char* resetLabel = tr(Str::ResetToDefault);
+    fonts_.semibold.draw(c, resetLabel, reset.x + (reset.w - fonts_.semibold.measure(resetLabel, 24)) / 2,
+                         fonts_.semibold.centeredY(reset.y, reset.h, 24), 24, resetOn ? kWhite : rgba(240, 100, 100));
+    // Waiting for a key: say so (and why a key was refused); else the help.
+    int hy = panel.y + panel.h - 74;
+    if (capturing) {
+        std::string ask = tr(Str::PressKey);
+        fonts_.bold.draw(c, ask, panel.x + (panel.w - fonts_.bold.measure(ask, 28)) / 2, hy - 4, 28, kWhite);
+        if (keyRefused_) {
+            std::string why = trf(Str::KeyReserved, input::keyName(keyRefused_));
+            fonts_.regular.draw(c, why, panel.x + (panel.w - fonts_.regular.measure(why, 22)) / 2, hy + 34, 22,
+                                rgba(240, 100, 100));
+        }
+    } else {
+        auto help = fonts_.regular.wrap(tr(Str::KeysHelp), 22, panel.w - 112, 2);
+        for (size_t i = 0; i < help.size(); ++i)
+            fonts_.regular.draw(c, help[i], panel.x + 56, hy + static_cast<int>(i) * 30, 22, kDim);
+    }
+    c.fillRect({0, kH - 80, kW, 80}, kBg);  // its own hints over drawModal's
+    if (capturing)
+        drawHints(c, {{kIconCircle, tr(Str::Cancel)}});
+    else if (resetOn)
+        drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
+    else
+        drawHints(c, {{kIconCross, tr(Str::ChangeKey)}, {kIconSquare, tr(Str::ClearKey)}, {kIconCircle, tr(Str::Back)}});
+}
+
 void AppUi::drawColourPicker(Canvas& c) {
     c.fillRect({0, 0, kW, kH}, rgba(0, 0, 0, 160));
     constexpr int kPanelW = 1000, kPanelH = 540;
@@ -3630,6 +3839,10 @@ void AppUi::drawGameSettings(Canvas& c) {
         drawTriggerTester(c);
         return;
     }
+    if (tester_ == Tester::Keys) {
+        drawKeysTester(c);
+        return;
+    }
     std::string title = tr(Str::GameSettings);
     if (!detail_.name.empty()) {
         std::string full = title + "  \xE2\x80\xA2  " + detail_.name;
@@ -3645,22 +3858,24 @@ void AppUi::drawGameSettings(Canvas& c) {
             title = title + "  \xE2\x80\xA2  " + cut + "...";
         }
     }
-    constexpr int kModalW = 1140, kModalH = 800;
+    constexpr int kModalW = 1140, kModalH = 860;
     Rect panel = drawModal(c, kModalW, kModalH, title);
 
-    int rowCount = activeGameHasCustom_ ? 10 : 9;
-    constexpr int kRowH = 52, kGap = 8;
-    int y = panel.y + 110;
+    int rowCount = activeGameHasCustom_ ? 11 : 10;
+    constexpr int kRowH = 52, kGap = 7, kGroupGap = 12;
+    int y = panel.y + 106;
 
-    for (int i = 0; i < rowCount; ++i) {
+    for (int pos = 0; pos < rowCount; ++pos) {
+        const int i = kGameRowOrder[pos];
+        if (kGameGroupStart[pos]) y += kGroupGap;
         Rect r{panel.x + 50, y, panel.w - 100, kRowH};
-        bool focused = (i == gameSettingsRow_);
+        bool focused = (pos == gameSettingsRow_);
         c.fillRect(r, focused ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 14);
         if (focused) c.strokeRect({r.x - 4, r.y - 4, r.w + 8, r.h + 8}, kWhite, 2, 18);
 
         int ty = fonts_.semibold.centeredY(r.y, r.h, 26);
 
-        if (i == 9) {
+        if (i == 10) {
             const char* resetLabel = tr(Str::ResetToDefault);
             int tw = fonts_.semibold.measure(resetLabel, 26);
             fonts_.semibold.draw(c, resetLabel, r.x + (r.w - tw) / 2, ty, 26, focused ? kWhite : rgba(240, 100, 100));
@@ -3717,6 +3932,10 @@ void AppUi::drawGameSettings(Canvas& c) {
         case 8:
             label = tr(Str::HighRefresh);
             value = tr(activeGameProfile_.highRefresh ? Str::HighRefreshOn : Str::Deactivated);
+            break;
+        case 9:
+            label = tr(Str::KeyboardKeys);
+            value = tr(activeGameProfile_.keyMap == input::defaultKeyMap() ? Str::ProfileDefault : Str::ProfileCustom);
             break;
         default: break;
         }

@@ -710,6 +710,16 @@ bool StreamSession::start(std::string& err) {
 }
 bool StreamSession::isOpen() const { return impl_->open; }
 
+void StreamSession::sendMouse(const MouseFrame& frame) {
+    if (!impl_->open) return;
+    Impl::sendBinary(impl_->input, mouseReport(impl_->inputSequence++, impl_->nowMs(), {frame}));
+}
+
+void StreamSession::sendKeys(const std::vector<KeyFrame>& keys) {
+    if (!impl_->open || keys.empty()) return;
+    Impl::sendBinary(impl_->input, keyboardReport(impl_->inputSequence++, impl_->nowMs(), keys));
+}
+
 void StreamSession::sendGamepad(const GamepadFrame& frame) {
     if (!impl_->open) return;
     Impl& d = *impl_;

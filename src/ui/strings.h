@@ -246,6 +246,22 @@ enum class Str {
     BitrateCap,         // Settings row: the stream's bitrate cap (for Wi-Fi)
     BitrateAuto,        // ... its default: the resolution's own
     GameVolume,         // Settings row: the game's sound level
+    MenuKeyHint,        // in-game menu, keyboard in use: its keys (F12 the menu, Home the Xbox button)
+    FilterMouseKeyboard, // search filter: games the cloud plays with native mouse and keyboard
+    MouseKeyboardSupport, // game page, beside the console and genres
+    KeyboardPlayer,     // notification: keys 1-4 chose the player the keyboard plays as (%s: 1..4)
+    InQueueNoEstimate,  // launching, in the queue, the service gives no estimate
+    KeyboardKeys,       // Settings / game settings row and its screen: the keys of the keyboard as a controller
+    DPad,               // keyboard keys: the D-pad (then an arrow)
+    PressKey,           // keyboard keys: waiting for the new key
+    KeyReserved,        // keyboard keys: F12, Home and 1-4 can't be chosen (%s: the key)
+    ChangeKey,          // keyboard keys hint: Cross changes the key
+    ClearKey,           // keyboard keys hint: Square takes it off
+    KeysHelp,           // keyboard keys: the mouse and the keys the app keeps
+    Gyro,               // in-game menu: gyro aiming (turning the DualSense moves the aim)
+    GyroAlways,         // ... on all the time
+    GyroAiming,         // ... only while L2 is held
+    GyroIntensity,      // in-game menu: how far a turn moves the aim
     Count
 };
 

@@ -269,6 +269,22 @@ constexpr Column kEnglish = {
     "Maximum bitrate", // BitrateCap
     "Automatic", // BitrateAuto
     "Game volume", // GameVolume
+    "Keyboard: F12 this menu · Home Xbox button", // MenuKeyHint
+    "Mouse & keyboard", // FilterMouseKeyboard
+    "Mouse and keyboard", // MouseKeyboardSupport
+    "Keyboard and mouse: player %s", // KeyboardPlayer
+    "You're in the queue.", // InQueueNoEstimate
+    "Keyboard keys", // KeyboardKeys
+    "D-pad", // DPad
+    "Press a key or mouse button", // PressKey
+    "%s is kept by the app", // KeyReserved
+    "Change", // ChangeKey
+    "Clear", // ClearKey
+    "The mouse moves the right stick and a wheel notch presses Triangle. F12 (menu), Home (Xbox button) and 1-4 (player) are kept by the app.", // KeysHelp
+    "Gyro aiming", // Gyro
+    "Always", // GyroAlways
+    "While aiming (L2)", // GyroAiming
+    "Gyro intensity", // GyroIntensity
 };
 
 constexpr Column kPortugueseBR = {
@@ -508,6 +524,22 @@ constexpr Column kPortugueseBR = {
     "Bitrate máximo", // BitrateCap
     "Automático", // BitrateAuto
     "Volume do jogo", // GameVolume
+    "Teclado: F12 este menu · Home botão Xbox", // MenuKeyHint
+    "Teclado e mouse", // FilterMouseKeyboard
+    "Teclado e mouse", // MouseKeyboardSupport
+    "Teclado e mouse: jogador %s", // KeyboardPlayer
+    "Você está na fila.", // InQueueNoEstimate
+    "Teclas do teclado", // KeyboardKeys
+    "Direcional", // DPad
+    "Pressione uma tecla ou botão do mouse", // PressKey
+    "%s é reservada pelo app", // KeyReserved
+    "Alterar", // ChangeKey
+    "Limpar", // ClearKey
+    "O mouse move o analógico direito e cada clique da roda aperta Triângulo. F12 (menu), Home (botão Xbox) e 1-4 (jogador) são reservadas pelo app.", // KeysHelp
+    "Mira por giroscópio", // Gyro
+    "Sempre", // GyroAlways
+    "Ao mirar (L2)", // GyroAiming
+    "Intensidade do giroscópio", // GyroIntensity
 };
 
 constexpr Column kSpanish = {
@@ -747,6 +779,22 @@ constexpr Column kSpanish = {
     "Bitrate máximo", // BitrateCap
     "Automático", // BitrateAuto
     "Volumen del juego", // GameVolume
+    "Teclado: F12 este menú · Inicio botón Xbox", // MenuKeyHint
+    "Teclado y ratón", // FilterMouseKeyboard
+    "Teclado y ratón", // MouseKeyboardSupport
+    "Teclado y ratón: jugador %s", // KeyboardPlayer
+    "Estás en la cola.", // InQueueNoEstimate
+    "Teclas del teclado", // KeyboardKeys
+    "Cruceta", // DPad
+    "Pulsa una tecla o un botón del ratón", // PressKey
+    "La app reserva %s", // KeyReserved
+    "Cambiar", // ChangeKey
+    "Borrar", // ClearKey
+    "El ratón mueve el stick derecho y cada paso de la rueda pulsa Triángulo. F12 (menú), Inicio (botón Xbox) y 1-4 (jugador) las reserva la app.", // KeysHelp
+    "Apuntado con giroscopio", // Gyro
+    "Siempre", // GyroAlways
+    "Al apuntar (L2)", // GyroAiming
+    "Intensidad del giroscopio", // GyroIntensity
 };
 
 constexpr Column kFrench = {
@@ -986,6 +1034,22 @@ constexpr Column kFrench = {
     "Débit maximal", // BitrateCap
     "Automatique", // BitrateAuto
     "Volume du jeu", // GameVolume
+    "Clavier : F12 ce menu · Origine bouton Xbox", // MenuKeyHint
+    "Clavier et souris", // FilterMouseKeyboard
+    "Clavier et souris", // MouseKeyboardSupport
+    "Clavier et souris : joueur %s", // KeyboardPlayer
+    "Vous êtes dans la file d'attente.", // InQueueNoEstimate
+    "Touches du clavier", // KeyboardKeys
+    "Croix directionnelle", // DPad
+    "Appuyez sur une touche ou un bouton de la souris", // PressKey
+    "%s est réservée par l'app", // KeyReserved
+    "Modifier", // ChangeKey
+    "Effacer", // ClearKey
+    "La souris déplace le joystick droit et chaque cran de la molette appuie sur Triangle. F12 (menu), Origine (bouton Xbox) et 1-4 (joueur) sont réservées par l'app.", // KeysHelp
+    "Visée gyroscopique", // Gyro
+    "Toujours", // GyroAlways
+    "En visant (L2)", // GyroAiming
+    "Intensité du gyroscope", // GyroIntensity
 };
 
 constexpr Column kGerman = {
@@ -1225,6 +1289,22 @@ constexpr Column kGerman = {
     "Maximale Bitrate", // BitrateCap
     "Automatisch", // BitrateAuto
     "Spiellautstärke", // GameVolume
+    "Tastatur: F12 dieses Menü · Pos1 Xbox-Taste", // MenuKeyHint
+    "Maus & Tastatur", // FilterMouseKeyboard
+    "Maus und Tastatur", // MouseKeyboardSupport
+    "Tastatur und Maus: Spieler %s", // KeyboardPlayer
+    "Du bist in der Warteschlange.", // InQueueNoEstimate
+    "Tastaturbelegung", // KeyboardKeys
+    "Steuerkreuz", // DPad
+    "Drücke eine Taste oder Maustaste", // PressKey
+    "%s ist für die App reserviert", // KeyReserved
+    "Ändern", // ChangeKey
+    "Löschen", // ClearKey
+    "Die Maus bewegt den rechten Stick, jede Rasterstufe des Mausrads drückt Dreieck. F12 (Menü), Pos1 (Xbox-Taste) und 1-4 (Spieler) sind für die App reserviert.", // KeysHelp
+    "Gyro-Zielen", // Gyro
+    "Immer", // GyroAlways
+    "Beim Zielen (L2)", // GyroAiming
+    "Gyro-Stärke", // GyroIntensity
 };
 
 constexpr Column kItalian = {
@@ -1464,6 +1544,22 @@ constexpr Column kItalian = {
     "Bitrate massimo", // BitrateCap
     "Automatico", // BitrateAuto
     "Volume del gioco", // GameVolume
+    "Tastiera: F12 questo menu · Home pulsante Xbox", // MenuKeyHint
+    "Tastiera e mouse", // FilterMouseKeyboard
+    "Tastiera e mouse", // MouseKeyboardSupport
+    "Tastiera e mouse: giocatore %s", // KeyboardPlayer
+    "Sei in coda.", // InQueueNoEstimate
+    "Tasti della tastiera", // KeyboardKeys
+    "Croce direzionale", // DPad
+    "Premi un tasto o un pulsante del mouse", // PressKey
+    "%s è riservato all'app", // KeyReserved
+    "Cambia", // ChangeKey
+    "Cancella", // ClearKey
+    "Il mouse muove la levetta destra e ogni scatto della rotella preme Triangolo. F12 (menu), Home (tasto Xbox) e 1-4 (giocatore) sono riservati all'app.", // KeysHelp
+    "Mira giroscopica", // Gyro
+    "Sempre", // GyroAlways
+    "Mirando (L2)", // GyroAiming
+    "Intensità giroscopio", // GyroIntensity
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

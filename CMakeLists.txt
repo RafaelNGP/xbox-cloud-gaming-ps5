@@ -34,8 +34,13 @@ add_library(xcloud_core STATIC
     src/xcloud/titlehub.cpp
     src/xcloud/regions.cpp
     src/xcloud/prices.cpp
+    src/input/kbm.cpp
+    src/input/kbm_map.cpp
+    src/input/key_map.cpp
+    src/input/keyboard_nav.cpp
     src/xcloud/social.cpp
     src/platform/posix_common.cpp
+    src/input/gyro.cpp
 )
 target_include_directories(xcloud_core PUBLIC src)
 if(NOT MSVC)

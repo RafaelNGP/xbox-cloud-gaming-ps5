@@ -6,6 +6,7 @@
 #pragma once
 
 #include "input/controller.h"
+#include "input/kbm.h"
 #include "stream/stream_session.h"
 #include "xcloud/gssv.h"
 
@@ -26,6 +27,8 @@ public:
     // From the input thread, once per polled pad state; `index` 0..3 is the
     // controller's slot (input::pollPad).
     void sendInput(const input::ControllerState& pad, int index = 0);
+    // USB mouse and keyboard (input/kbm.h), for the games that take them.
+    void sendKbm(const input::KbmInput& in);
     // False while another window has the focus on the cloud console (the
     // account picker, a publisher's page).
     bool titleFocused() const;

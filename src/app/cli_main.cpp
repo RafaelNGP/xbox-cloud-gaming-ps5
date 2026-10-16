@@ -121,7 +121,7 @@ bool provision(auth::AuthManager& am, xcloud::GssvClient& gssv, const std::strin
             return false;
         }
         if (st.state == xcloud::SessionState::WaitingForResources) {
-            XC_LOGI("in queue, estimated wait %ds", gssv.waitTimeSeconds());
+            XC_LOGI("in queue, estimated wait %ds", gssv.titleWaitSeconds(titleId));
         } else {
             XC_LOGI("session state: %s", st.raw.c_str());
         }

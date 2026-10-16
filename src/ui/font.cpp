@@ -2,6 +2,8 @@
 // Copyright (C) 2026 RafaelNGP
 #include "ui/font.h"
 
+#include <cstdio>
+
 #include "platform/platform.h"
 #include "util/log.h"
 
@@ -166,6 +168,16 @@ std::vector<std::string> Font::wrap(std::string_view input, int px, int maxWidth
 bool Fonts::load(const std::string& dir) {
     return regular.load(dir + "/Inter-Regular.ttf") && semibold.load(dir + "/Inter-SemiBold.ttf") &&
            bold.load(dir + "/Inter-Bold.ttf");
+}
+
+bool Fonts::loadIcons(const std::vector<std::string>& paths) {
+    for (const auto& p : paths) {
+        FILE* f = std::fopen(p.c_str(), "rb");  // a path the system doesn't have here: tried quietly
+        if (!f) continue;
+        std::fclose(f);
+        if (icons.load(p)) return hasIcons = true;
+    }
+    return false;
 }
 
 }  // namespace xc::ui

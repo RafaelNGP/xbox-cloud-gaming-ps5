@@ -63,6 +63,10 @@ void refreshPads();
 // Whether the pad at `index` answered its last poll, and its user's name
 // (empty when the slot is free).
 bool padConnected(int index);
+// When pad `index` was last used (a button or a stick pushed), ms; 0 never.
+uint64_t padActiveAt(int index);
+// A button pressed or a stick / trigger pushed past halfway.
+bool inUse(const ControllerState& s);
 std::string padUserName(int index);
 int32_t padUserId(int index = 0);
 // Rumble, 0..255 per motor (large = low frequency, small = high frequency),
@@ -92,6 +96,11 @@ void setTriggerResistanceActive(bool on);
 // system (the player's colour). Any thread; polling applies it.
 void setLightBar(uint8_t r, uint8_t g, uint8_t b, int pad = 0);
 void resetLightBar(int pad = 0);
+// Gyro aiming (input/gyro.h): the mode (off, always, while L2 is held)
+// and the intensity 1..kGyroLevels; it only moves the right stick while
+// active (in a game with its menu closed).
+void setGyro(int mode, int level);
+void setGyroActive(bool on);
 // DualSense: suppresses vibration and trigger effect bleed while embedded mic is active
 void setEmbeddedMicActive(bool active, int pad = 0);
 

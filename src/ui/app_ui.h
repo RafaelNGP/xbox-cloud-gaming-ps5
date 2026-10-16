@@ -44,6 +44,8 @@ struct GameTile {
     bool purchasable = false;
     // Free in the store (free-to-play): the "Free" search filter.
     bool freeInStore = false;
+    // The cloud takes native mouse and keyboard in it (xCloud's "MKB").
+    bool mouseKeyboard = false;
     // Console it was made for: "360", "ONE", "XS" (xcloud/titlehub.h); empty
     // while unknown.
     std::string platform;
@@ -116,12 +118,13 @@ struct SettingsChoice {
     bool highRefresh = false;  // 120 Hz output while a game streams
     int maxBitrateMbps = 0;    // 0 automatic, else 20 / 15 / 10 / 5
     int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
+    input::KeyMap keyMap = input::defaultKeyMap();  // the keyboard as a player's controller
 };
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 12;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
-                                  // sign-in country, 120 Hz output, bitrate cap, game volume
+constexpr int kSettingRows = 13;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+                                  // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys
 
 // The countries "Sign in as another country" offers (xcloud::loginCountryAddress).
 constexpr const char* kLoginCountries[] = {"br", "jp", "kr", "pl", "us"};
@@ -244,6 +247,9 @@ public:
     void setSettings(const SettingsChoice& choice);
     // Per-game settings
     void setPerGameSettings(const std::map<std::string, app::GameProfile>& perGame);
+    // The general gyro aiming (set from the in-game menu): what a game
+    // without its own profile starts its game settings with.
+    void setGyroDefaults(int mode, int level);
     bool gameSettingsOpen() const { return gameSettingsOpen_; }
     void openGameSettings();
     void closeGameSettings();
@@ -291,7 +297,7 @@ public:
     // The search keyboard's focus (row, column), for the tests.
     std::pair<int, int> searchKeyFocus() const;
     std::vector<std::pair<std::string, PriceInfo>> searchResults(size_t max) const;
-    enum class Filter { Free, Cheapest, Console, Mode, Genre, Publisher, Language };
+    enum class Filter { Free, Cheapest, Console, Mode, Genre, Publisher, Language, MouseKeyboard };
     void chooseFilter(Filter f, int index);
     // Autoplay tests: where the focus is ("Game Pass row 2 card 6", ...).
     std::string focusDescription() const;
@@ -299,6 +305,11 @@ public:
 
     // --- UI thread -----------------------------------------------------------
     UiEvent handle(const NavInput& in);
+    // The keyboard keys' screen waits for a key: the main loop gives it the
+    // next key or mouse button pressed (input::kMouseLeft..) instead of
+    // moving through the screens with it.
+    bool capturingKey() const;
+    void captureKey(uint8_t code);
     bool needsRedraw(uint64_t nowMs) const;
     void render(Canvas& c, uint64_t nowMs);
 
@@ -356,7 +367,7 @@ private:
     // only) and Console; then Mode, Genre, Publisher and Language. The lists open a
     // drop-down; Free and Lowest price turn on and off.
     std::vector<Filter> filterRow(int row) const;
-    bool isList(Filter f) const { return f != Filter::Free && f != Filter::Cheapest; }
+    bool isList(Filter f) const { return f != Filter::Free && f != Filter::Cheapest && f != Filter::MouseKeyboard; }
     std::string filterText(Filter f) const;  // the chip's label: its choice when one is made
     bool filterOn(Filter f) const;
     std::vector<std::string> filterOptions(Filter f) const;
@@ -387,11 +398,13 @@ private:
     Color pickerColour() const;
     void drawColourPicker(Canvas& c);
     // The testers that Dead zone and Trigger vibration open in Settings.
-    enum class Tester { None, Sticks, Triggers };
+    enum class Tester { None, Sticks, Triggers, Keys };
     void openTester(Tester t);
     void handleTester(const NavInput& in);
     void drawStickTester(Canvas& c);
     void drawTriggerTester(Canvas& c);
+    void handleKeysTester(const NavInput& in);
+    void drawKeysTester(Canvas& c);
     // A modal panel over Settings with its title; returns its rectangle.
     Rect drawModal(Canvas& c, int w, int h, const std::string& title);
     void drawUpdating(Canvas& c, uint64_t nowMs);
@@ -431,7 +444,7 @@ private:
     void drawLoadingBar(Canvas& c, int x, int y, int w, uint64_t nowMs);
     LibrarySort librarySort_ = LibrarySort::Recent;
     // Search filters (the row of buttons under the keys).
-    bool filterFree_ = false, filterCheapest_ = false;
+    bool filterFree_ = false, filterCheapest_ = false, filterMouseKeyboard_ = false;
     int filterConsole_ = 0;   // 0 all, 1 Series X|S, 2 Xbox One, 3 Xbox 360
     int filterMode_ = 0;      // 0 all, single, online multiplayer, online co-op, local
     std::string filterGenre_;  // empty: all
@@ -488,6 +501,13 @@ private:
     Tester tester_ = Tester::None;
     SettingsChoice testerBackup_;  // what Circle puts back
     int testerRow_ = 0;            // the trigger tester's row: intensity, frequency, resistance, style
+    // The keyboard keys' screen: the row (kKeysPerColumn: restore defaults),
+    // the key across both columns (0, 1 the left column's two, 2, 3 the
+    // right's), waiting for a key since (ms; 0 not), a key refused and until when.
+    int keysRow_ = 0, keysCol_ = 0;
+    uint64_t captureSince_ = 0;
+    uint8_t keyRefused_ = 0;
+    uint64_t keyRefusedUntil_ = 0;
     int testerStick_ = 0;          // the stick tester: the one being adjusted (L1 / R1)
     float testSticks_[4] = {0, 0, 0, 0}, testL2_ = 0, testR2_ = 0;
     bool pickerOpen_ = false;
@@ -514,6 +534,7 @@ private:
     bool gameSettingsOpen_ = false;
     int gameSettingsRow_ = 0;
     app::GameProfile activeGameProfile_;
+    int gyroMode_ = 0, gyroLevel_ = 5;  // setGyroDefaults
     bool activeGameHasCustom_ = false;
     void handleGameSettings(const NavInput& in, UiEvent& ev);
     void drawGameSettings(Canvas& c);

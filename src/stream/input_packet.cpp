@@ -90,6 +90,38 @@ std::vector<uint8_t> gamepadReport(uint32_t sequence, double timestampMs, const 
     return b;
 }
 
+std::vector<uint8_t> mouseReport(uint32_t sequence, double timestampMs, const std::vector<MouseFrame>& frames) {
+    size_t count = std::min<size_t>(frames.size(), 30);
+    auto b = header(kReportMouse, sequence, timestampMs, kHeaderSize + 1 + count * 18);
+    size_t o = kHeaderSize;
+    put8(b, o++, static_cast<uint8_t>(count));
+    for (size_t i = 0; i < count; ++i) {
+        const MouseFrame& f = frames[i];
+        put32(b, o, static_cast<uint32_t>(f.dx));
+        put32(b, o + 4, static_cast<uint32_t>(f.dy));
+        put32(b, o + 8, static_cast<uint32_t>(f.wheelX));
+        put32(b, o + 12, static_cast<uint32_t>(f.wheelY));
+        put8(b, o + 16, f.buttons);
+        put8(b, o + 17, 0);  // 0: relative movement
+        o += 18;
+    }
+    return b;
+}
+
+std::vector<uint8_t> keyboardReport(uint32_t sequence, double timestampMs, const std::vector<KeyFrame>& frames) {
+    size_t count = std::min<size_t>(frames.size(), 30);
+    auto b = header(kReportKeyboard, sequence, timestampMs, kHeaderSize + 1 + count * 3);
+    size_t o = kHeaderSize;
+    put8(b, o++, static_cast<uint8_t>(count));
+    for (size_t i = 0; i < count; ++i) {
+        put8(b, o, 2);  // a virtual-key code (1 known, 2 VKey, 3 app command)
+        put8(b, o + 1, frames[i].pressed ? 1 : 0);
+        put8(b, o + 2, frames[i].vk);
+        o += 3;
+    }
+    return b;
+}
+
 bool parseVibration(const uint8_t* d, size_t len, Vibration& out) {
     if (len < 13 || d[0] != kReportVibration) return false;
     out.gamepadIndex = d[3];

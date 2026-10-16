@@ -122,6 +122,7 @@ private:
     std::vector<Item> purchasable_;  // streamable once bought
     std::set<std::string> purchasableSet_;
     std::set<std::string> freeInStore_;  // product ids free in the store
+    std::set<std::string> mouseKeyboard_;  // product ids the cloud streams with native mouse and keyboard
     // Details from a cache in another language: shown until replaced.
     std::set<std::string> otherLanguage_;
     Progress progress_;

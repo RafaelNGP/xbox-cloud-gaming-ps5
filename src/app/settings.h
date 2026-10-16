@@ -3,6 +3,8 @@
 // User settings, kept in <dataDir>/settings.json.
 #pragma once
 
+#include "input/key_map.h"
+
 #include <cstdint>
 #include <map>
 #include <string>
@@ -25,6 +27,11 @@ struct GameProfile {
     bool circleConfirms = false;
     // Display
     bool highRefresh = false;    // 120 Hz output (VRR) while streaming
+    // Keyboard and mouse as a controller: which keys play what
+    input::KeyMap keyMap = input::defaultKeyMap();
+    // Gyro aiming: 0 off, 1 always, 2 while L2 is held; intensity 1..10
+    int gyroMode = 0;
+    int gyroLevel = 5;
 };
 
 // Key to identify a game profile: productId first, else titleId.
@@ -74,6 +81,10 @@ struct Settings {
     bool highRefresh = false;  // 119.88 Hz output (VRR where the console turns it on) while streaming
     int maxBitrateMbps = 0;    // the stream's bitrate cap: 0 automatic (the tier's), else 20, 15, 10 or 5
     int gameVolume = 100;      // percent: 25, 50, 75, 100 or 150
+    input::KeyMap keyMap = input::defaultKeyMap();  // the keys when the keyboard is a player's controller
+    int keyboardPlayer = 0;    // the player a USB keyboard and mouse play as (0..3; keys 1-4): 0 native with player 1, else that player's controller
+    int gyroMode = 0;          // gyro aiming (input/gyro.h): 0 off, 1 always, 2 while L2 is held
+    int gyroLevel = 5;         // its intensity, 1..10
     int micGain = 1;        // 0: 50%, 1: 100%, 2: 150%
     int audioRoute = 0;     // 0: TV/HDMI (Main), 1: DualSense Speaker / Headset (Pad)
     // The release the user said "Not now" to: not offered again on start.

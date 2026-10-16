@@ -198,6 +198,15 @@ is rolled back at the next start), then the app restarts itself
 - Audio queue cut back to 40 ms past 60 ms (it held up to 120 ms); Settings: maximum bitrate (Auto / 20 / 15 / 10 / 5 Mbps) and game volume (25–150 %).
 - Rest mode: a stream reconnects on its own when the console wakes (tested); the crash guard no longer takes the suspended app for a stall.
 
+### Keyboard & mouse, key remapping, gyro aiming — done (next release)
+- USB keyboard and mouse (libSceKeyboard, libSceMouse loaded at run time): native mouse and keyboard to the games the cloud lists as MKB (229 of ~2750); for the others, the keyboard and mouse as a player's controller (keys 1-4 choose the player; WASD, mouse as the right stick, the wheel as Triangle). F12 opens the game menu, Home is the Xbox button.
+- The app's screens by keyboard (arrows / WASD, Enter, Esc, Tab, Q / E tabs...), the hints switching to key caps as soon as a key is used; the players' row shows the keyboard in its player's slot.
+- Keyboard keys: their own screen (Settings and each game's settings): two keys or mouse buttons per input, reserved keys refused, back to the defaults.
+- Gyro aiming (DualSense): off / always / while L2 aims, intensity 1-10, in the game menu, saved in general or per game; left / right is the turn about the room's vertical (gravity), so a tilted pad aims as far sideways as up / down.
+- Cards: the console's keyboard-and-mouse icon on MKB games, its controller icon on the others; a Mouse & keyboard search filter; the players' pads drawn with the console's controller icon.
+- Settings grouped (language and sign-in country; stream; sound; controller and keyboard; updates last); the game settings likewise.
+- Sign-in: the xCloud login is tried again on a 5xx (six tries over ~25 s); the renewed refresh token is saved at once. The queue's wait from `/v1/waittime/{titleId}` while queued; the pictures' quantiser (QP) in the statistics line.
+
 ## Next
 
 | Item | Why | Size |
@@ -208,12 +217,12 @@ is rolled back at the next start), then the app restarts itself
 | Free play with ads | Microsoft's ad-supported offering (`xgpuwebf2p` login and sessions, its own list): play without a subscription, with the service's limits; the ads are never skipped (as green-nx, Nubix, XStreaming) | small–medium |
 | Game Pass trial badge (later) | The store's answer says `isTrial`; a TRIAL mark next to the plan. Not now | small |
 | Unreliable input channel (protocol v9) | The official client sends input on an unordered channel, so a lost packet doesn't hold the ones after it; needs a capture of its frames | medium |
-| Button remapping, gyro aim, touchpad mouse | Per-game profiles: remapping (Edge paddles too), the DualSense gyro as the right stick (JoyShockMapper-style), the touchpad as a mouse once keyboard & mouse are in | medium |
+| Controller remapping, touchpad mouse | Per-game: the DualSense's buttons remapped (Edge paddles too), the touchpad as a mouse for MKB games; gyro aiming and the keyboard's keys are done | medium |
+| Gyro in Settings | Gyro aiming in Settings and the game settings too (now in the game menu only); an inverted / separate horizontal sensitivity if asked | small |
 | Favourites, game language | A favourites row; the game's language apart from the app's | small |
 | Lost audio filled | Opus concealment / in-band FEC for lost audio packets: needs libopus (FFmpeg's own Opus decoder has neither) | small–medium |
 | Home-screen tile per game | The PS5 Forwarder Format (ProsperoLight): a tile that starts one cloud game directly | small |
 | Crash address in reports | The fault's offset in the code and a script that names the function (ProsperoLight / ProsperoEden), for the unexpected-close report | small |
-| USB keyboard & mouse + badges (v1.0+) | Some xCloud games accept native keyboard and mouse input; deferred to v1.0+ | medium |
 | Dedicated voice chat output routing | Route voice chat audio independently to DualSense controller speaker or headset while keeping game audio on TV (if xCloud exposes separate voice track) | medium |
 
 ## Dropped (and why)

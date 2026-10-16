@@ -3,6 +3,7 @@
 #include "ui/stream_menu.h"
 
 #include "ui/strings.h"
+#include "ui/input_mode.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -116,6 +117,16 @@ MenuAction StreamMenu::handle(const NavInput& in) {
         circleConfirms_ = !circleConfirms_;
         return MenuAction::ConfirmButton;
     }
+    if (selected_ == GyroItem && (in.left || in.right || in.accept)) {
+        gyroMode_ = in.left ? (gyroMode_ + 2) % 3 : (gyroMode_ + 1) % 3;  // off, always, while aiming
+        return MenuAction::Gyro;
+    }
+    if (selected_ == GyroLevelItem && (in.left || in.right)) {
+        int level = std::clamp(gyroLevel_ + (in.right ? 1 : -1), 1, 10);
+        if (level == gyroLevel_) return MenuAction::None;
+        gyroLevel_ = level;
+        return MenuAction::Gyro;
+    }
     if (selected_ == Stats && (in.left || in.right)) {
         stats_ = !stats_;
         return MenuAction::Stats;
@@ -158,6 +169,8 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
                             : i == Triggers       ? tr(Str::TriggerRumble)
                             : i == DeadzoneItem   ? tr(Str::Deadzone)
                             : i == ConfirmItem    ? tr(Str::ConfirmButton)
+                            : i == GyroItem       ? tr(Str::Gyro)
+                            : i == GyroLevelItem  ? tr(Str::GyroIntensity)
                             : homeConsole_        ? tr(Str::MenuEndStream)
                                                   : tr(Str::MenuLeave);
         fonts_.semibold.draw(c, label, row.x + 16, ty, kPx, fg);
@@ -197,6 +210,14 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         }
         if (i == DeadzoneItem) {
             value = std::to_string(deadzone_) + " %";
+            if (sel) value = "< " + value + " >";
+        }
+        if (i == GyroItem) {
+            value = tr(gyroMode_ == 1 ? Str::GyroAlways : gyroMode_ == 2 ? Str::GyroAiming : Str::Off);
+            if (sel) value = "< " + value + " >";
+        }
+        if (i == GyroLevelItem) {
+            value = std::to_string(gyroLevel_) + " / 10";
             if (sel) value = "< " + value + " >";
         }
         if (i == ConfirmItem) {
@@ -278,7 +299,8 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     for (int i = 0; i < static_cast<int>(pads_.size()); ++i) {
         int sx = kPad + i * slotW;
         constexpr int kIconW = 56;
-        drawPadIcon(c, fonts_.bold, sx + (slotW - kIconW) / 2, y, kIconW, i, pads_[i].connected, kPanel);
+        drawSlotIcon(c, fonts_.bold, sx + (slotW - kIconW) / 2, y, kIconW, i, pads_[i], kPanel,
+                     fonts_.hasIcons ? &fonts_.icons : nullptr);
         if (!pads_[i].connected || pads_[i].name.empty()) continue;
         auto name = fonts_.regular.wrap(pads_[i].name, 15, slotW - 8, 1);
         if (!name.empty())
@@ -299,7 +321,7 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     int hy = kMenuH - 50, x = kPad;
     {
         // The touchpad's gestures, small, above the button hints.
-        auto lines = fonts_.regular.wrap(tr(Str::MenuGestureHint), 16, kMenuW - 2 * kPad, 2);
+        auto lines = fonts_.regular.wrap(tr(g_keyboardHints ? Str::MenuKeyHint : Str::MenuGestureHint), 16, kMenuW - 2 * kPad, 2);
         int gy = hy - 14 - static_cast<int>(lines.size()) * 22;
         for (const auto& l : lines) {
             fonts_.regular.draw(c, l, kPad, gy, 16, kDim);
@@ -315,6 +337,20 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
             c.strokeArc(x + 13, hy + 12, 6.0f, 2.5f, 0, 6.2832f, rgba(255, 102, 102));
         }
     };
+    if (g_keyboardHints) {  // Enter / Esc as key caps
+        auto cap = [&](const char* key) {
+            int kw = fonts_.bold.measure(key, 15) + 18;
+            c.fillRect({x, hy, kw, 26}, rgba(255, 255, 255, 30), 6);
+            c.strokeRect({x, hy, kw, 26}, kGray, 2, 6);
+            fonts_.bold.draw(c, key, x + 9, fonts_.bold.centeredY(hy, 26, 15), 15, kWhite);
+            return kw;
+        };
+        int kw = cap("Enter");
+        x = fonts_.semibold.draw(c, tr(Str::Select), x + kw + 8, hy, 20, kGray) + 32;
+        kw = cap("Esc");
+        fonts_.semibold.draw(c, tr(Str::Back), x + kw + 8, hy, 20, kGray);
+        return c;
+    }
     icon(!circleConfirms_);
     x = fonts_.semibold.draw(c, tr(Str::Select), x + 34, hy, 20, kGray) + 32;
     icon(circleConfirms_);

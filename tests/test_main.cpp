@@ -9,6 +9,7 @@
 #include "app/report.h"
 #include "media/audio_encoder.h"
 #include "media/decoder.h"
+#include "input/gyro.h"
 #include "input/tuning.h"
 #include "net/http.h"
 #include "platform/platform.h"
@@ -21,6 +22,8 @@
 #include "util/json.h"
 #include "auth/auth_manager.h"
 #include "stream/h264_receiver.h"
+#include "input/kbm.h"
+#include "input/keyboard_nav.h"
 #include "platform/platform.h"
 #include "auth/msa.h"
 #include "ui/image_cache.h"
@@ -421,6 +424,11 @@ static void testStreamMenu() {
     CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Deadzone);
     press([](xc::ui::NavInput& n) { n.down = true; });
     CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::ConfirmButton);
+    press([](xc::ui::NavInput& n) { n.down = true; });  // gyro aiming: off -> always -> while aiming
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Gyro && menu.gyroMode() == 1);
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Gyro && menu.gyroMode() == 2);
+    press([](xc::ui::NavInput& n) { n.down = true; });  // its intensity, 1..10
+    CHECK(press([](xc::ui::NavInput& n) { n.left = true; }) == MenuAction::Gyro && menu.gyroLevel() == 4);
     press([](xc::ui::NavInput& n) { n.down = true; });  // "Leave game", last
     CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Leave);
     CHECK(!menu.isOpen());
@@ -903,6 +911,120 @@ static void testAudioDecoderEmptyPacket() {
     CHECK(!out.empty());
 }
 
+// Native mouse and keyboard reports: header, counts and fields.
+static void testMouseKeyboardReports() {
+    using namespace xc::stream;
+    auto m = mouseReport(7, 1.0, {MouseFrame{-3, 5, 0, 1, 1}});
+    CHECK(m.size() == 14 + 1 + 18);
+    CHECK(m[0] == 32 && m[1] == 0 && m[2] == 7);  // type 32 (mouse), sequence 7
+    CHECK(m[14] == 1);                              // one frame
+    CHECK(m[15] == 0xFD && m[16] == 0xFF && m[17] == 0xFF && m[18] == 0xFF);  // dx -3, little-endian
+    CHECK(m[19] == 5 && m[27] == 1 && m[31] == 1 && m[32] == 0);              // dy, wheel Y, buttons, relative
+    auto k = keyboardReport(8, 1.0, {KeyFrame{0x41, true}, KeyFrame{0x41, false}});
+    CHECK(k.size() == 14 + 1 + 6);
+    CHECK(k[0] == 64 && k[14] == 2);
+    CHECK(k[15] == 2 && k[16] == 1 && k[17] == 0x41);
+    CHECK(k[18] == 2 && k[19] == 0 && k[20] == 0x41);
+}
+
+// USB keyboard: HID usages and modifier bits to Windows virtual keys.
+static void testHidToVk() {
+    using xc::input::hidToVk;
+    CHECK(hidToVk(0x04) == 'A' && hidToVk(0x1D) == 'Z');
+    CHECK(hidToVk(0x1E) == '1' && hidToVk(0x26) == '9' && hidToVk(0x27) == '0');
+    CHECK(hidToVk(0x28) == 0x0D && hidToVk(0x29) == 0x1B && hidToVk(0x2C) == 0x20);
+    CHECK(hidToVk(0x3A) == 0x70 && hidToVk(0x45) == 0x7B);  // F1, F12
+    CHECK(hidToVk(0x4F) == 0x27 && hidToVk(0x52) == 0x26);  // right, up
+    CHECK(hidToVk(0x59) == 0x61 && hidToVk(0x62) == 0x60);  // keypad 1, 0
+    CHECK(hidToVk(0x00) == 0 && hidToVk(0xE0) == 0);
+    CHECK(xc::input::modifierVk(0) == 0x11 && xc::input::modifierVk(1) == 0x10 && xc::input::modifierVk(2) == 0x12);
+    CHECK(xc::input::modifierVk(5) == 0x10 && xc::input::modifierVk(7) == 0x5C);
+}
+
+// The app's screens by keyboard: keys held -> the controller's buttons.
+static void testKeyboardNav() {
+    xc::input::ControllerState pad;
+    xc::input::keyboardToPad({0x0D, 'W', 0x22}, pad);  // enter, w, page down
+    CHECK(pad.btnA && pad.dpadUp && !pad.dpadDown && pad.rightStickY == 1.0f);
+    xc::input::ControllerState p2;
+    p2.btnB = true;  // the controller's own press stays
+    xc::input::keyboardToPad({0x25, 0x1B, 0x09, 'Q', 'E', 'F', 'H', 'Z'}, p2);
+    CHECK(p2.dpadLeft && p2.btnB && p2.btnOptions && p2.btnL1 && p2.btnR1 && p2.btnY && p2.btnX && p2.triggerL2 == 1.0f);
+    xc::input::ControllerState p3;
+    xc::input::keyboardToPad({}, p3);
+    CHECK(!p3.btnA && !p3.dpadUp && p3.rightStickY == 0.0f);
+}
+
+// The keyboard and mouse as a controller of their own.
+static void testKeyboardAsGamepad() {
+    xc::input::KbmInput in;
+    in.keyboard = true;
+    in.held = {0x20, 'D', 'W'};  // space, d, w (sorted)
+    in.buttons = 1;              // left button
+    in.dx = 24;                  // a fast move right
+    xc::input::MouseStick stick;
+    xc::input::ControllerState out;
+    xc::input::keyboardAsGamepad(in, stick, out);
+    CHECK(out.connected && out.btnA && out.leftStickX == 1.0f && out.leftStickY == -1.0f);
+    CHECK(out.triggerR2 == 1.0f && out.triggerL2 == 0.0f);
+    CHECK(out.rightStickX > 0.4f && out.rightStickY == 0.0f);
+    in = {};
+    in.keyboard = true;
+    for (int i = 0; i < 20; ++i) xc::input::keyboardAsGamepad(in, stick, out);  // the mouse still: back to the centre
+    CHECK(out.rightStickX == 0.0f && !out.btnA);
+    // A wheel notch: Y pressed for a few passes, then released.
+    in = {};
+    in.keyboard = true;
+    in.wheel = 1;
+    xc::input::keyboardAsGamepad(in, stick, out);
+    CHECK(out.btnY);
+    in.wheel = 0;
+    bool released = false;
+    for (int i = 0; i < 12; ++i) {
+        xc::input::keyboardAsGamepad(in, stick, out);
+        released |= !out.btnY;
+    }
+    CHECK(released && !out.btnY);
+    xc::input::ControllerState pad, kb;
+    pad.btnB = true;
+    pad.leftStickX = 0.3f;
+    kb.btnA = true;
+    kb.leftStickX = -1.0f;
+    kb.triggerR2 = 1.0f;
+    xc::input::mergePads(pad, kb);
+    CHECK(pad.btnA && pad.btnB && pad.leftStickX == -1.0f && pad.triggerR2 == 1.0f);
+}
+
+// Keys chosen in Settings: one key moves off the input it was on.
+static void testKeyMap() {
+    using namespace xc::input;
+    KeyMap map = defaultKeyMap();
+    assignKey(map, KeyAction::A, 0, 'E');  // E was Y
+    CHECK(map[static_cast<size_t>(KeyAction::A)][0] == 'E' && map[static_cast<size_t>(KeyAction::Y)][0] == 0);
+    assignKey(map, KeyAction::Y, 1, kMouseBack);
+    KbmInput in;
+    in.keyboard = in.mouse = true;
+    in.held = {'E'};
+    in.buttons = 8;  // back
+    MouseStick stick;
+    ControllerState out;
+    keyboardAsGamepad(in, stick, out, map);
+    CHECK(out.btnA && out.btnY && !out.triggerR2);
+    CHECK(keyName(0x20) == "Space" && keyName('W') == "W" && keyName(kMouseLeft) == "Mouse L" && keyName(0x7B) == "F12");
+    CHECK(isReservedKey(0x7B) && isReservedKey('2') && !isReservedKey('5'));
+    // Saved and read back, in the settings and a game's profile.
+    xc::app::Settings st;
+    st.keyMap = map;
+    st.perGame["g"] = st.defaultProfile();
+    st.perGame["g"].keyMap[0] = {'I', 0};
+    std::string path = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp") + "/xc_keymap_test.json";
+    CHECK(st.save(path));
+    xc::app::Settings back;
+    CHECK(back.load(path));
+    CHECK(back.keyMap == map && back.perGame["g"].keyMap[0][0] == 'I');
+    std::remove(path.c_str());
+}
+
 // The xCloud login: a 5xx is tried again, a refusal is not.
 static void testLoginRetry() {
     using namespace xc;
@@ -931,8 +1053,49 @@ static void testLoginRetry() {
     net::setTestTransport({});
 }
 
+// Gyro aiming: still is nothing, a turn left aims left (past the games'
+// dead zone), more intensity aims further, the push eases back to nothing.
+static void testGyro() {
+    using namespace xc::input;
+    GyroState s;
+    float x = 1, y = 1;
+    const float still[3] = {0.01f, -0.01f, 0.0f};
+    gyroToStick(still, nullptr, 5, s, x, y);
+    CHECK(x == 0 && y == 0);
+    const float left[3] = {0.0f, 0.5f, 0.0f};  // yaw +: turning left
+    for (int i = 0; i < 8; ++i) gyroToStick(left, nullptr, 5, s, x, y);
+    CHECK(x < -0.3f && x > -0.6f && std::abs(y) < 1e-6f);
+    GyroState s2;
+    float x2 = 0, y2 = 0;
+    for (int i = 0; i < 8; ++i) gyroToStick(left, nullptr, 10, s2, x2, y2);
+    CHECK(x2 < x);
+    const float up[3] = {0.3f, 0.0f, 0.0f};  // pitch +: the top tilted up
+    GyroState s3;
+    for (int i = 0; i < 8; ++i) gyroToStick(up, nullptr, 5, s3, x, y);
+    CHECK(y < -0.12f && x == 0);
+    const float tiny[3] = {0.0f, 0.03f, 0.0f};  // a slow turn: still past the dead zone
+    GyroState s4;
+    for (int i = 0; i < 8; ++i) gyroToStick(tiny, nullptr, 5, s4, x, y);
+    CHECK(x <= -0.12f);
+    for (int i = 0; i < 20; ++i) gyroToStick(still, nullptr, 5, s4, x, y);
+    CHECK(x == 0);
+    // Held tilted 45 degrees towards the player: a turn about the room's
+    // vertical shows on the pad's yaw and roll; it aims as far as held flat.
+    const float c = 0.7071f, tilted[3] = {0.0f, 0.5f * c, 0.5f * c}, gravity[3] = {0.0f, c, c};
+    GyroState s5;
+    float x5 = 0, y5 = 0;
+    for (int i = 0; i < 60; ++i) gyroToStick(tilted, gravity, 5, s5, x5, y5);
+    CHECK(x5 < -0.3f);
+    GyroState flat;
+    float xf = 0, yf = 0;
+    const float level[3] = {0.0f, 1.0f, 0.0f};
+    for (int i = 0; i < 60; ++i) gyroToStick(left, level, 5, flat, xf, yf);
+    CHECK(std::abs(x5 - xf) < 0.01f);
+}
+
 int main() {
     testLoginRetry();
+    testGyro();
     testReport();
     testCrashGuard();
     testBuiltinCa();
@@ -959,6 +1122,11 @@ int main() {
     testJson();
     testUrl();
     testInputPacket();
+    testMouseKeyboardReports();
+    testHidToVk();
+    testKeyboardNav();
+    testKeyboardAsGamepad();
+    testKeyMap();
     testTeredo();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);

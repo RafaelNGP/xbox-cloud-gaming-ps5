@@ -147,6 +147,7 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
         !knownGamePass_.count(productId))
         t.playable = true;
     t.freeInStore = freeInStore_.count(productId) > 0;
+    t.mouseKeyboard = mouseKeyboard_.count(productId) > 0;
     // A free-to-play game not on the account yet is got like one bought
     // (the store page's QR code), only free.
     t.purchasable = !t.playable && (purchasableSet_.count(productId) || t.freeInStore);
@@ -284,6 +285,7 @@ bool Library::loadCache() {
     for (const auto& [id, code] : (*j)["platforms"].members()) platform_[id] = code.str();
     for (const auto& [pid, xbox] : (*j)["xboxTitles"].members()) xboxTitleOf_[pid] = xbox.str();
     for (const auto& id : (*j)["freeInStore"].items()) freeInStore_.insert(id.str());
+    for (const auto& id : (*j)["mouseKeyboard"].items()) mouseKeyboard_.insert(id.str());
     for (const auto& t : (*j)["ownedTitles"].items()) ownedTitles_.insert(t.str());
     gamePassMember_ = (*j)["gamePassMember"].asBool();
     for (const auto& p : (*j)["ownedProducts"].items()) ownedProducts_.insert(p.str());
@@ -346,6 +348,9 @@ void Library::saveCache() const {
     json::Value free = json::Value::array();
     for (const auto& id : freeInStore_) free.push(id);
     root.set("freeInStore", free);
+    json::Value mkb = json::Value::array();
+    for (const auto& id : mouseKeyboard_) mkb.push(id);
+    root.set("mouseKeyboard", mkb);
     if (!platform::writeFileAtomic(cachePath_, root.dump())) XC_LOGW("library: could not write %s", cachePath_.c_str());
 }
 
@@ -395,6 +400,9 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
             if (t.productId.empty()) continue;
             recent_.push_back(t.productId);
             if (!t.xboxTitleId.empty()) xboxTitleOf_[t.productId] = t.xboxTitleId;
+            // Its inputs come with it: the first cards show keyboard and
+            // mouse without waiting for the whole list (or a cache that has it).
+            if (t.mouseKeyboard) mouseKeyboard_.insert(t.productId);
             r.items.emplace_back(t.productId, t.titleId);
             if (!products_.count(t.productId)) ids.push_back(t.productId);
         }
@@ -491,6 +499,7 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
         if (xcloud::isNonGameAddon(t.titleId)) continue;
         if (!t.productId.empty() && !t.xboxTitleId.empty()) xboxTitleOf_[t.productId] = t.xboxTitleId;
         if (t.isFreeInStore && !t.productId.empty()) freeInStore_.insert(t.productId);
+        if (t.mouseKeyboard && !t.productId.empty()) mouseKeyboard_.insert(t.productId);
         if (t.hasEntitlement) {
             ownedTitles.insert(t.titleId);
             if (t.productId.empty()) continue;

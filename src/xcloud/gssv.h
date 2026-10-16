@@ -42,6 +42,9 @@ struct Title {
     // besides F2P, such as CALLISTO for Game Pass). Entitled but not this:
     // the account's own game, bought or free-to-play.
     bool viaSubscription = false;
+    // The cloud streams it with native mouse and keyboard (its
+    // supportedInputTypes has "MKB").
+    bool mouseKeyboard = false;
 };
 
 // One of the user's own consoles (xhome offering), from /v6/servers/home.
@@ -123,8 +126,6 @@ public:
     bool startSession(const std::string& titleId, const std::string& locale, std::string& err);
     bool hasSession() const { return !sessionPath_.empty(); }
     bool sessionState(SessionStatus& out, std::string& err);
-    // Estimated queue time in seconds while WaitingForResources (-1 unknown).
-    int waitTimeSeconds();
     // Before a session: the estimated wait to start `titleId` (xCloud title
     // id), in seconds; -1 unknown.
     int titleWaitSeconds(const std::string& titleId);

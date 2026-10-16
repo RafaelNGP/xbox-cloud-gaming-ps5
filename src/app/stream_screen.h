@@ -9,6 +9,8 @@
 
 #include "app/auto_deband.h"
 #include "input/controller.h"
+#include "input/kbm.h"
+#include "input/keyboard_nav.h"
 #include "ui/app_ui.h"
 #include "ui/stream_menu.h"
 
@@ -17,6 +19,10 @@
 namespace xc::app {
 
 class StreamPlayer;
+
+// The slot the keyboard and mouse play in as that player's controller
+// (keys 2-4); -1 for player 1 (native mouse and keyboard) or nothing plugged in.
+int keyboardPadSlot(bool keyboardConnected);
 
 class StreamScreen {
 public:
@@ -27,6 +33,12 @@ public:
     // Each pass while streaming: `pad` the first controller, `nav` its
     // presses, `menuCombo` OPTIONS + TOUCHPAD just pressed.
     void update(const input::ControllerState& pad, ui::NavInput nav, bool menuCombo);
+    // This frame's USB keyboard and mouse: to the game while the app's menu
+    // is closed (update() sends them).
+    void setKbm(input::KbmInput kbm) { kbm_ = std::move(kbm); }
+    bool menuOpen() const;
+    // The hints changed device (keyboard / controller): the overlay again.
+    void redrawMenu();
     // Each pass on any other screen: what the stream left is cleared, and a
     // console keyboard still up is closed.
     void idle();
@@ -58,7 +70,14 @@ private:
     int triggerStrength_ = 2;
     int deadzone_ = 15;
     bool circleConfirms_ = false;
+    input::KeyMap keyMap_ = input::defaultKeyMap();  // this game's keys (the keyboard as a controller)
+    int gyroMode_ = 0, gyroLevel_ = 5;  // gyro aiming (input/gyro.h), this game's
     bool highRefresh_ = false;  // 120 Hz turned on for this stream
+    input::KbmInput kbm_;
+    int kbSlotAttached_ = -1;  // the keyboard's slot as a controller, announced
+    input::MouseStick mouseStick_;
+    input::ControllerState kbPad_;  // the keyboard as a controller, this pass
+    std::vector<uint8_t> keysInGame_;  // keys the game was told are down
     bool wasStreaming_ = false;
     uint64_t lastMenuRedrawMs_ = 0;
 };

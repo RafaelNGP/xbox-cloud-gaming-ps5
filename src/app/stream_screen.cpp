@@ -8,6 +8,8 @@
 #include "app/stream_player.h"
 #include "display/display.h"
 #include "display/gpu.h"
+#include "input/kbm.h"
+#include "input/keyboard_nav.h"
 #include "media/audio_out.h"
 #include "platform/platform.h"
 #include "ui/strings.h"
@@ -119,6 +121,10 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         triggerStrength_ = prof.triggerStrength;
         deadzone_ = prof.deadzoneLeft;
         circleConfirms_ = prof.circleConfirms;
+        keyMap_ = prof.keyMap;
+        gyroMode_ = prof.gyroMode;
+        gyroLevel_ = prof.gyroLevel;
+        input::setGyro(gyroMode_, gyroLevel_);
         input::setDeadzone(prof.deadzoneLeft / 100.0f, prof.deadzoneRight / 100.0f);
         input::setTriggerFeel(prof.triggerStrength, prof.triggerHz, prof.triggerResistance, prof.triggerPulses);
         input::setCircleConfirms(prof.circleConfirms);
@@ -149,9 +155,16 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             float micLvl = g_player ? g_player->micLevel() : 0.0f;
             bool micMuted = g_player ? (g_player->micMuted() || g_player->isMicHardwareMuted()) : false;
             menu_.setDebandInUse(autoDeband_.level());
+            menu_.setGyro(gyroMode_, gyroLevel_);
             menu_.open(streamResolution_, showStats_, sharpness_, deband_, upscaler_, g_playingHome, allow1440,
                        hasCustomProfile_, triggerStrength_, deadzone_, circleConfirms_, micLvl, micMuted);
             overlaySeq_ = 0;
+        } else if (wasOpen && (menuCombo || swipeMenu_)) {
+            // The same gesture or key closes it again.
+            swipeMenu_ = false;
+            menu_.close();
+            overlaySeq_ = 0;
+            g_player->requestKeyframe();
         } else if (wasOpen) {
             switch (menu_.handle(nav)) {
             case ui::MenuAction::Leave: g_cancel = true; break;
@@ -195,6 +208,9 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     p.circleConfirms = circleConfirms_;
                     auto had = g_settings.perGame.find(gameKey_);  // not set from this menu: kept
                     p.highRefresh = had != g_settings.perGame.end() ? had->second.highRefresh : g_settings.highRefresh;
+                    p.keyMap = had != g_settings.perGame.end() ? had->second.keyMap : g_settings.keyMap;
+                    p.gyroMode = gyroMode_;
+                    p.gyroLevel = gyroLevel_;
                     g_settings.perGame[gameKey_] = p;
                 } else {
                     g_settings.perGame.erase(gameKey_);
@@ -205,7 +221,12 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     streamResolution_ = def.resolution;
                     deadzone_ = def.deadzoneLeft;
                     triggerStrength_ = def.triggerStrength;
+                    keyMap_ = def.keyMap;
                     circleConfirms_ = def.circleConfirms;
+                    gyroMode_ = def.gyroMode;
+                    gyroLevel_ = def.gyroLevel;
+                    input::setGyro(gyroMode_, gyroLevel_);
+                    menu_.setGyro(gyroMode_, gyroLevel_);
                     display::setSharpness(kSharpAmount[sharpness_]);
                     applyDeband_();
                     applyUpscaler(upscaler_);
@@ -274,6 +295,23 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 break;
             }
+            case ui::MenuAction::Gyro: {
+                gyroMode_ = menu_.gyroMode();
+                gyroLevel_ = menu_.gyroLevel();
+                input::setGyro(gyroMode_, gyroLevel_);
+                std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                if (hasCustomProfile_) {
+                    g_settings.perGame[gameKey_].gyroMode = gyroMode_;
+                    g_settings.perGame[gameKey_].gyroLevel = gyroLevel_;
+                } else {
+                    g_settings.gyroMode = gyroMode_;
+                    g_settings.gyroLevel = gyroLevel_;
+                    if (g_ui) g_ui->setGyroDefaults(gyroMode_, gyroLevel_);
+                }
+                g_settings.save(settingsPath());
+                if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
+                break;
+            }
             case ui::MenuAction::ConfirmButton: {
                 circleConfirms_ = menu_.circleConfirms();
                 input::setCircleConfirms(circleConfirms_);
@@ -316,12 +354,12 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         if (!padReleased_ || menuCombo) sent = input::ControllerState{};
         // Swiping up or right on the touchpad is the Xbox button (once
         // per swipe; the games never see the touchpad's touches).
-        if (pad.touching && !menu_.isOpen() && g_keyboardFor.empty()) {
+        if (pad.touching && g_keyboardFor.empty()) {
             if (!swipe_.active) swipe_ = {true, false, pad.touchX, pad.touchY};
             float dx = pad.touchX - swipe_.x, dy = swipe_.y - pad.touchY;  // dy > 0: up
             bool right = dx > 0.30f && std::abs(dy) < 0.30f, up = dy > 0.40f && std::abs(dx) < 0.30f;
             bool left = dx < -0.30f && std::abs(dy) < 0.30f, down = dy < -0.40f && std::abs(dx) < 0.30f;
-            if (!swipe_.fired && (right || up)) {
+            if (!swipe_.fired && (right || up) && !menu_.isOpen()) {
                 swipe_.fired = true;
                 g_xboxButtonUntil = platform::nowMs() + 250;
                 XC_LOGI("touchpad swipe_ %s: Xbox button", right ? "right" : "up");
@@ -335,10 +373,49 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         }
         if (platform::nowMs() < g_xboxButtonUntil) sent.btnNexus = true;
         g_player->sendInput(sent);
+        // The keyboard as another player's controller (Settings): its own
+        // slot, announced like a pad; no native mouse and keyboard then.
+        // Keys 2-4: that player's controller. With that player's own pad
+        // connected the two add up (below); alone, the keyboard is announced
+        // in the slot by itself.
+        int kbSlot = keyboardPadSlot(kbm_.keyboard || kbm_.mouse);
+        kbPad_ = input::ControllerState{};
+        if (kbSlot >= 0 && !menu_.isOpen()) input::keyboardAsGamepad(kbm_, mouseStick_, kbPad_, keyMap_);
+        int alone = kbSlot >= 0 && !input::padConnected(kbSlot) ? kbSlot : -1;
+        if (alone != kbSlotAttached_) {
+            if (kbSlotAttached_ >= 0 && !input::padConnected(kbSlotAttached_)) g_player->setPadConnected(kbSlotAttached_, false);
+            if (alone >= 0) g_player->setPadConnected(alone, true);
+            kbSlotAttached_ = alone;
+        }
+        if (alone >= 0) {
+            g_player->sendInput(kbPad_, alone);  // all released while the app's menu is open
+        } else if (kbSlot >= 0) {
+            // Added to that player's pad in the loop below.
+        } else if (!menu_.isOpen()) {
+        // USB keyboard and mouse: straight to the game (those that take
+        // them) while the app's menu is closed; F12 is the app's.
+            input::KbmInput toGame = kbm_;
+            toGame.keys.erase(std::remove_if(toGame.keys.begin(), toGame.keys.end(),
+                                             [](const input::KeyEvent& k) { return k.vk == input::kVkAppMenu || k.vk == 0x24; }),
+                              toGame.keys.end());
+            for (const auto& k : toGame.keys) {
+                auto at = std::find(keysInGame_.begin(), keysInGame_.end(), k.vk);
+                if (k.pressed && at == keysInGame_.end()) keysInGame_.push_back(k.vk);
+                if (!k.pressed && at != keysInGame_.end()) keysInGame_.erase(at);
+            }
+            g_player->sendKbm(toGame);
+        } else if (!keysInGame_.empty()) {
+            // The menu opened with keys down: the game lets go of them.
+            input::KbmInput release;
+            for (uint8_t vk : keysInGame_) release.keys.push_back({vk, false});
+            keysInGame_.clear();
+            g_player->sendKbm(release);
+        }
         // The other players' controllers, straight to the game.
         for (int i = 1; i < input::kMaxPads; ++i) {
             input::ControllerState other;
             bool on = input::pollPad(i, other);
+            if (on && i == kbSlot) input::mergePads(other, kbPad_);  // the keyboard plays with this player's pad
             if (on != padAttached_[i]) {
                 padAttached_[i] = on;
                 g_player->setPadConnected(i, on);
@@ -403,7 +480,22 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
     }
 }
 
+bool StreamScreen::menuOpen() const { return menu_.isOpen(); }
+void StreamScreen::redrawMenu() { overlaySeq_ = 0; }
+
+int keyboardPadSlot(bool keyboardConnected) {
+    int player;
+    {
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        player = g_settings.keyboardPlayer;
+    }
+    return keyboardConnected && player > 0 && player < input::kMaxPads ? player : -1;
+}
+
 void StreamScreen::idle() {
+    keysInGame_.clear();
+    kbSlotAttached_ = -1;
+    mouseStick_ = {};
     if (!g_keyboardFor.empty()) updateTextInput(nullptr);
     touchEnabled_ = false;  // each stream starts with touch off
     if (overlayShown_) {

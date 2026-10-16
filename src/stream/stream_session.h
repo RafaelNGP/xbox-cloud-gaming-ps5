@@ -88,6 +88,9 @@ public:
     void sendGamepad(const GamepadFrame& frame);
     // Voice chat: sends an encoded Opus frame to the stream server (RTP @ 48 kHz).
     void sendAudio(const uint8_t* opus, size_t size, uint32_t timestamp);
+    // Native mouse and keyboard (games that take them).
+    void sendMouse(const MouseFrame& frame);
+    void sendKeys(const std::vector<KeyFrame>& keys);
     // Touch input on or off (off at the start).
     void setTouchEnabled(bool on);
     // A controller at `index` (1..3; 0 is attached at the start) came or went.
