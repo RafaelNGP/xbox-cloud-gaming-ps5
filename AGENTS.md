@@ -97,4 +97,12 @@ Para evitar degradação de desempenho, latência alta e manter a interação á
   3. Publicar ou anexar com `gh release create vX.Y.Z PPSA99810.zip PPSA99810.zip.sig PPSA99810.zip.sha256 ...` (ou `gh release upload --clobber`).
   4. **Verificação Obrigatória**: Sempre executar `gh release view vX.Y.Z` e confirmar que todos os 3 assets estão listados e públicos antes de considerar o release finalizado.
 
+---
 
+## 7. Multiplataforma (PS5, Linux, Windows)
+
+- O **PS5 é a plataforma principal**; Linux e Windows rodam o mesmo núcleo do app (`src/app/app_core.cpp`) com backends próprios. O mapa completo está em `docs/multiplatform.md`.
+- **Toda alteração deve manter Linux e Windows compilando.** Uma funcionalidade exclusiva do PS5 vira no-op controlado por capacidade no desktop (`display::caps()`, `shell::canSelfUpdate()`...) ou tem a opção escondida — nunca quebra o build nem trava o app.
+- **NUNCA chame funções `sce*`, inclua headers do SDK do PS5 ou use `#if XCLOUD_PS5` fora dos arquivos de backend do PS5** (`*_ps5.cpp`, `src/platform/ps5/`, `src/display/gpu.cpp`). O script `tools/check-platform-boundaries.sh` verifica isso (também no CI).
+- Antes de considerar uma alteração pronta, compile os alvos de desktop (`ninja -C build-test` ou `build-host`, incluindo `psbox-headless`, e rode `xcloud-tests`), o app do PS5 (`ninja -C build-ps5 xcloud_app` + `bash tools/ps5/link.sh build-ps5`) e rode o script de fronteiras.
+- O fluxo de validação por screenshots no console (seção 2) continua obrigatório para mudanças de UI no PS5.
