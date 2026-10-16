@@ -66,6 +66,7 @@ struct Fonts {
 
 // Code points of the console's icon font.
 constexpr const char* kIconKeyboardMouse = "\xEF\xA3\xBE";  // U+F8FE
+constexpr const char* kIconGamepad = "\xEF\xA1\xB4";        // U+F874
 
 // Next UTF-8 code point from `s` at `i` (advances `i`); U+FFFD on bad input.
 uint32_t nextCodepoint(std::string_view s, size_t& i);

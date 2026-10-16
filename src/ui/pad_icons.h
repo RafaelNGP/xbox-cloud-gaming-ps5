@@ -33,7 +33,8 @@ void drawPadIcon(Canvas& c, const Font& font, int x, int y, int w, int index, bo
 int padIconHeight(int w);
 
 // The four side by side, `gap` apart; returns the width taken.
-// One slot: its pad, or the keyboard and mouse playing in it.
+// One slot: its pad, or the keyboard and mouse playing in it (`icons`: the
+// console's icon font, whose controller and keyboard are used; nullptr: drawn).
 void drawSlotIcon(Canvas& c, const Font& font, int x, int y, int w, int index, const PadSlot& slot, Color background,
                   const Font* icons = nullptr);
 

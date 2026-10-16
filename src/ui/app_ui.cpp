@@ -2726,13 +2726,15 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
         }
     }
     // Bottom-right: the console it was made for; one style and width for all.
-    // Left of it, a small keyboard: the cloud takes mouse and keyboard in it.
-    if (t.mouseKeyboard) {
+    // Left of it, how it's played: keyboard and mouse (the cloud takes them
+    // in it) or the controller only.
+    if (t.mouseKeyboard || fonts_.hasIcons) {
         int right = x + kCard - 10 - (platformLabel(t.platform) ? 96 + 6 : 0);
         Rect k{right - 34, y + kCard - 34, 34, 24};
         c.fillRect(k, rgba(0, 0, 0, 220), 4);
-        if (fonts_.hasIcons)  // the console's own keyboard-and-mouse icon
-            fonts_.icons.draw(c, kIconKeyboardMouse, k.x + (k.w - fonts_.icons.measure(kIconKeyboardMouse, 18)) / 2, k.y + 3, 18, kWhite);
+        const char* glyph = t.mouseKeyboard ? kIconKeyboardMouse : kIconGamepad;
+        if (fonts_.hasIcons)  // the console's own icons
+            fonts_.icons.draw(c, glyph, k.x + (k.w - fonts_.icons.measure(glyph, 18)) / 2, k.y + 3, 18, kWhite);
         else
             drawKeyboardGlyph(c, k.x + 6, k.y + 6, 22, kWhite);
     }

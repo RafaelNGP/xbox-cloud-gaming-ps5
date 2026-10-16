@@ -400,6 +400,9 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
             if (t.productId.empty()) continue;
             recent_.push_back(t.productId);
             if (!t.xboxTitleId.empty()) xboxTitleOf_[t.productId] = t.xboxTitleId;
+            // Its inputs come with it: the first cards show keyboard and
+            // mouse without waiting for the whole list (or a cache that has it).
+            if (t.mouseKeyboard) mouseKeyboard_.insert(t.productId);
             r.items.emplace_back(t.productId, t.titleId);
             if (!products_.count(t.productId)) ids.push_back(t.productId);
         }
