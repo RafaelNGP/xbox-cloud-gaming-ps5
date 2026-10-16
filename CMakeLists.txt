@@ -44,7 +44,7 @@ add_library(xcloud_core STATIC
 )
 target_include_directories(xcloud_core PUBLIC src)
 if(NOT MSVC)
-    target_compile_options(xcloud_core PRIVATE -Wall -Wextra -Wno-unused-parameter)
+    target_compile_options(xcloud_core PUBLIC -g1 -fno-omit-frame-pointer PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
 # mbedTLS and libdatachannel are built from deps/ for both targets.

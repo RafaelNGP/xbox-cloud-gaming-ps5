@@ -75,7 +75,7 @@ std::string crashMarkerPath() { return platform::dataDir() + "/crash.marker"; }
 // "Report a problem": the bug form's link, filled in, as a QR code. `what`
 // is the error shown (empty from Settings); `previousSession` takes the log
 // of the session that went down instead of this one.
-void openReport(const std::string& what, bool previousSession, const std::string& heading) {
+void openReport(const std::string& what, bool previousSession, const std::string& heading, const std::string& crash = {}) {
     std::string logText;
     platform::readFile(platform::dataDir() + "/xcloud.log", logText);
     std::vector<std::string> privateWords = {g_ui->gamertag()};
@@ -87,9 +87,12 @@ void openReport(const std::string& what, bool previousSession, const std::string
     info.release = XC_APP_VERSION;
     info.firmware = platform::firmwareVersion();
     info.log = report::sanitize(report::logExcerpt(logText, previousSession), privateWords);
+    info.crash = report::sanitize(crash, privateWords);
     std::string url = report::issueUrl(info);
-    XC_LOGI("report: QR code shown (%zu characters)", url.size());
-    g_ui->showReport(url, heading);
+    std::string detail = info.crash;
+    if (!detail.empty() && !info.release.empty()) detail += " (v" + info.release + ")";
+    XC_LOGI("report: QR code shown (%zu characters)%s%s", url.size(), detail.empty() ? "" : " — ", detail.c_str());
+    g_ui->showReport(url, heading, detail);
 }
 
 // Dead zone, trigger vibration and confirm button from g_settings.
@@ -179,7 +182,9 @@ int main(int argc, char** argv) {
     // Did the last session go down? (A crash leaves a marker; being closed
     // from the system's menu doesn't.) Offered as a report once signed in.
     g_lastCrash = crash::takePrevious(crashMarkerPath());
-    if (g_lastCrash.found) XC_LOGW("the last session went down: %s (%s)", g_lastCrash.kind.c_str(), g_lastCrash.stage.c_str());
+    if (g_lastCrash.found)
+        XC_LOGW("the last session went down: %s (%s)%s%s", g_lastCrash.kind.c_str(), g_lastCrash.stage.c_str(),
+                g_lastCrash.crash.empty() ? "" : " — ", g_lastCrash.crash.c_str());
     crash::install(crashMarkerPath());
     loadAutoplay();
     // An update cut short: the old files went back, and the old eboot.bin
@@ -336,10 +341,10 @@ int main(int argc, char** argv) {
             size_t i = static_cast<size_t>(sc);
             if (sc != ui::Screen::Streaming && sc != ui::Screen::Launching && i < std::size(kNames)) crash::setStage(kNames[i]);
             // After a crash: its report, once the app is up again.
-            if (g_lastCrash.found && (sc == ui::Screen::Home || sc == ui::Screen::Error)) {
+            if (g_lastCrash.found && !g_autoplay.crashTest && (sc == ui::Screen::Home || sc == ui::Screen::Error)) {
                 g_lastCrash.found = false;
                 openReport("Closed unexpectedly: " + g_lastCrash.kind + " while " + g_lastCrash.stage, true,
-                           ui::tr(ui::Str::CrashedLastTime));
+                           ui::tr(ui::Str::CrashedLastTime), g_lastCrash.crash);
             }
         }
         // A Microsoft service refused for the console's clock: said once, even

@@ -73,9 +73,10 @@ ok "signing key matches the app's"
 echo "== build"
 buildlog=$(mktemp)
 cmake --build build-ps5 -j"$(nproc)" >"$buildlog" 2>&1 || { cat "$buildlog"; fail "the PS5 build failed"; }
-tools/ps5/link.sh build-ps5 >"$buildlog" 2>&1 || { cat "$buildlog"; fail "linking eboot.bin failed"; }
+XC_VERSION="$tag" tools/ps5/link.sh build-ps5 >"$buildlog" 2>&1 || { cat "$buildlog"; fail "linking eboot.bin failed"; }
 rm -f "$buildlog"
-ok "PS5 build linked"
+[[ -s "$root/symbols/$tag/eboot.elf" ]] || fail "symbols/$tag/eboot.elf was not saved"
+ok "PS5 build linked (symbols at symbols/$tag/eboot.elf)"
 rm -rf "$out"
 mkdir -p "$out"
 env -u XC_INCLUDE_ACCOUNT XC_VERSION="$tag" tools/ps5/package.sh build-ps5 "$out" >/dev/null
@@ -92,7 +93,7 @@ ok "signed: $out/PPSA99810.zip.sig"
 
 echo "== checks in the package"
 zip=$out/PPSA99810.zip
-if unzip -Z1 "$zip" | grep -nE "$private"; then fail "a private file in the zip"; fi
+if unzip -Z1 "$zip" | grep -nE "$private|\.elf$"; then fail "a private or symbol file in the zip"; fi
 if zipinfo "$zip" | grep -E '^[-d]' | grep -v '^.rwxrwxrwx'; then fail "files in the zip without mode 0777"; fi
 ok "every entry mode 0777"
 ok "no private file ($(unzip -Z1 "$zip" | grep -vc '/$') files)"

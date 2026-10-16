@@ -571,6 +571,7 @@ static void testReport() {
     CHECK(s.find("example.com") == std::string::npos && s.find("<email>") != std::string::npos);
     CHECK(s.find("0123456789abcdef0123") == std::string::npos && s.find("<id>") != std::string::npos);
     CHECK(sanitize("v0.9.5 at 1080p, 60 fps, 9 ms", {}) == "v0.9.5 at 1080p, 60 fps, 9 ms");  // nothing private
+    CHECK(sanitize("crash: SIGSEGV pc=eboot+0x1a2b3c addr=0x0", {}) == "crash: SIGSEGV pc=eboot+0x1a2b3c addr=0x0");
 
     // The excerpt: the session wanted, its warnings / errors and last lines.
     std::string log = "10:00 [I] === PSBox Cloud Gaming starting ===\n10:00 [E] old error\n"
@@ -583,24 +584,32 @@ static void testReport() {
     CHECK(before.find("old error") != std::string::npos && before.find("line") == std::string::npos);
     CHECK(logExcerpt("no sessions\n", true).empty());
 
-    // The link fits the QR code; the log keeps its end.
-    Info info{"Error: certificates", "TLS setup failed", "0.9.6", "13.00", ""};
+    // The link fits the QR code; the log keeps its end, and a crash report
+    // keeps its offset and app version in the issue body.
+    Info info{"Error: certificates", "TLS setup failed", "0.9.6", "13.00", "", "crash: SIGSEGV pc=eboot+0x1a2b3c addr=0x0"};
     for (int i = 0; i < 200; ++i) info.log += "12:00 [I] a long line of the log number " + std::to_string(i) + "\n";
     std::string url = issueUrl(info, 1800);
     CHECK(url.size() <= 1800 && url.find("template=bug_report.yml") != std::string::npos);
     CHECK(url.find("number+199") != std::string::npos && url.find("number+0%0A") == std::string::npos);
     CHECK(url.find("release=0.9.6") != std::string::npos && url.find("title=Error:+certificates") != std::string::npos);
+    CHECK(url.find("pc%3Deboot%2B0x1a2b3c") != std::string::npos && url.find("(v0.9.6)") != std::string::npos);
+}
+
+[[gnu::noinline]] static void triggerNullWriteCrash() {
+    volatile int* p = nullptr;
+    asm volatile("" : "+r"(p));
+    *p = 1;
 }
 
 static void testCrashGuard() {
-    // A crash in a child process leaves the marker with its stage.
+    // A crash in a child process leaves the marker with its stage and faulting PC offset.
     std::string marker = "/tmp/xcloud-tests-crash.marker";
     std::remove(marker.c_str());
     pid_t pid = fork();
     if (pid == 0) {
         xc::app::crash::install(marker);
         xc::app::crash::setStage("streaming TEST");
-        std::raise(SIGSEGV);
+        triggerNullWriteCrash();
         _exit(0);
     }
     int status = 0;
@@ -608,7 +617,26 @@ static void testCrashGuard() {
     CHECK(WIFSIGNALED(status) && WTERMSIG(status) == SIGSEGV);  // still dies of it
     auto prev = xc::app::crash::takePrevious(marker);
     CHECK(prev.found && prev.kind == "signal 11 (SIGSEGV)" && prev.stage == "streaming TEST");
+    CHECK(prev.crash.rfind("crash: SIGSEGV pc=eboot+0x", 0) == 0);
+    CHECK(prev.crash.find("addr=0x0") != std::string::npos);
+    // The offset points inside triggerNullWriteCrash().
+    unsigned long long pcOff = std::strtoull(prev.crash.c_str() + sizeof("crash: SIGSEGV pc=eboot+0x") - 1, nullptr, 16);
+    CHECK(pcOff > 0);
     CHECK(!xc::app::crash::takePrevious(marker).found);  // taken once
+
+    // A signal raised inside a system library (std::raise) records that library's name and offset.
+    pid = fork();
+    if (pid == 0) {
+        xc::app::crash::install(marker);
+        xc::app::crash::setStage("home");
+        std::raise(SIGABRT);
+        _exit(0);
+    }
+    waitpid(pid, &status, 0);
+    CHECK(WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT);
+    prev = xc::app::crash::takePrevious(marker);
+    CHECK(prev.found && prev.kind == "signal 6 (SIGABRT)" && prev.stage == "home");
+    CHECK(prev.crash.rfind("crash: SIGABRT pc=", 0) == 0 && prev.crash.find("+0x") != std::string::npos);
 }
 
 static void testBuiltinCa() {

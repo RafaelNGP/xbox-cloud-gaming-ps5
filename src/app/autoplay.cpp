@@ -639,6 +639,8 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         if (now - homeSince > waitMs) {
             uiSaved = true;
             saveCanvas("ui.ppm");
+            if (g_autoplay.title == "AUTOTEST" && !g_autoplay.crashTest && g_ui->reportOpen())
+                XC_LOGI("AUTOPLAY END: crash report shown");
         }
     }
     if (tuneShot) {
@@ -669,7 +671,9 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
     }
     if (g_autoplay.crashTest && uiSaved) {
         XC_LOGI("AUTOPLAY END: crash test (SIGSEGV now)");
-        std::raise(SIGSEGV);
+        volatile int* nullPtr = nullptr;
+        asm volatile("" : "+r"(nullPtr));
+        *nullPtr = 1;
     }
     if (g_autoplay.quickTest && uiSaved) {
         g_autoplay.quickTest = false;

@@ -297,11 +297,12 @@ std::vector<std::string> AppUi::consoleNames() const {
     return out;
 }
 
-void AppUi::showReport(const std::string& url, const std::string& heading) {
+void AppUi::showReport(const std::string& url, const std::string& heading, const std::string& detail) {
     std::lock_guard<std::mutex> lock(mutex_);
     reportOpen_ = true;
     reportUrl_ = url;
     reportHeading_ = heading;
+    reportDetail_ = detail;
     dirty_ = true;
 }
 
@@ -3496,6 +3497,13 @@ void AppUi::drawReport(Canvas& c) {
             y += 38;
         }
         y += 20;
+    }
+    if (!reportDetail_.empty()) {
+        y += 8;
+        for (const auto& line : fonts_.regular.wrap(reportDetail_, 22, textW, 3)) {
+            fonts_.regular.draw(c, line, panel.x + 56, y, 22, kWhite);
+            y += 32;
+        }
     }
     c.fillRect({0, kH - 80, kW, 80}, kBg);
     drawHints(c, {{kIconCircle, tr(Str::Back)}});

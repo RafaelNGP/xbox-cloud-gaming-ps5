@@ -187,7 +187,7 @@ public:
     std::vector<std::string> consoleNames() const;  // the same: the user's names for their consoles
     // "Report a problem": a QR code of `url` (the GitHub bug form, filled
     // in) over whatever is on screen, with `heading`; Circle closes it.
-    void showReport(const std::string& url, const std::string& heading);
+    void showReport(const std::string& url, const std::string& heading, const std::string& detail = {});
     bool reportOpen() const;
     // Replaces the rows, keeping the focus on the same game when possible.
     void setRows(std::vector<GameRow> rows);
@@ -493,7 +493,7 @@ private:
     int countryIndex_ = 0;  // 0 off, then kLoginCountries
     bool settingsFromError_ = false;  // Circle goes back to the error
     std::string settingsCountry_;  // the sign-in country when Settings opened
-    std::string reportUrl_, reportHeading_;
+    std::string reportUrl_, reportHeading_, reportDetail_;
     bool updatePrompt_ = false;  // the pop-up is up (on the home screen)
     int promptFocus_ = 0;        // 0 Update now, 1 Not now
     std::string updatingTo_, updateStatus_;
