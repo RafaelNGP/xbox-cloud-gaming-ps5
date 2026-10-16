@@ -1248,6 +1248,11 @@ void AppUi::setSettings(const SettingsChoice& choice) {
     dirty_ = true;
 }
 
+SettingsChoice AppUi::settings() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return settings_;
+}
+
 void AppUi::setGyroDefaults(int mode, int level) {
     std::lock_guard<std::mutex> lock(mutex_);
     gyroMode_ = mode;
