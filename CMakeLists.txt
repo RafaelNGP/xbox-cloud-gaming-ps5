@@ -115,6 +115,11 @@ if(NOT MSVC)
     target_compile_options(xcloud_appcore PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
+# TEMPORARY (branch m1-core only): input/input_ext.h's functions until every
+# input backend defines them (branch m1-io). The integrator deletes this block,
+# src/input/input_ext_stub.cpp and each ${XC_INPUT_EXT_STUB} below.
+set(XC_INPUT_EXT_STUB src/input/input_ext_stub.cpp)
+
 if(XCLOUD_PS5)
     target_sources(xcloud_core PRIVATE src/platform/ps5/platform_ps5.cpp src/platform/ps5/libc_compat.c src/platform/ps5/net_probe.cpp src/platform/ps5/keyboard_ps5.cpp)
 
@@ -129,6 +134,7 @@ if(XCLOUD_PS5)
         src/media/hw_decoder_ps5.cpp
         src/input/controller_ps5.cpp
         src/input/kbm_ps5.cpp
+        ${XC_INPUT_EXT_STUB}
     )
     target_include_directories(xcloud_app PRIVATE "${PS5_RADV}/include")
     # The USB keyboard / mouse backend kept the warnings it had in xcloud_core.
@@ -157,6 +163,7 @@ else()
         $<TARGET_OBJECTS:xcloud_appcore>
         src/app/headless_main.cpp
         src/app/shell_null.cpp
+        ${XC_INPUT_EXT_STUB}
     )
     target_link_libraries(psbox-headless PRIVATE xcloud_backends_null xcloud_stream xcloud_media xcloud_ui xc_ffmpeg
                                                  datachannel-static)
