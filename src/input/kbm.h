@@ -20,7 +20,8 @@ struct KeyEvent {
 
 struct KbmInput {
     bool keyboard = false, mouse = false;  // connected
-    std::vector<KeyEvent> keys;
+    std::vector<KeyEvent> keys;  // went down / up since the last poll
+    std::vector<uint8_t> held;   // held now, sorted
     int32_t dx = 0, dy = 0, wheel = 0;  // mouse movement and wheel steps since the last poll
     uint8_t buttons = 0;                // 1 left, 2 right, 4 middle, 8 back, 16 forward
     bool moved = false;                 // anything to send for the mouse (movement, wheel or buttons changed)

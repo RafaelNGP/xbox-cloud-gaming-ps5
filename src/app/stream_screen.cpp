@@ -9,6 +9,7 @@
 #include "display/display.h"
 #include "display/gpu.h"
 #include "input/kbm.h"
+#include "input/keyboard_nav.h"
 #include "media/audio_out.h"
 #include "platform/platform.h"
 #include "ui/strings.h"
@@ -336,8 +337,26 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         }
         if (platform::nowMs() < g_xboxButtonUntil) sent.btnNexus = true;
         g_player->sendInput(sent);
-        // USB keyboard and mouse: straight to the game (those that take them).
-        g_player->sendKbm(input::kbmPoll());
+        // USB keyboard and mouse: straight to the game (those that take
+        // them) while the app's menu is closed; F12 is the app's.
+        if (!menu_.isOpen()) {
+            input::KbmInput toGame = kbm_;
+            toGame.keys.erase(std::remove_if(toGame.keys.begin(), toGame.keys.end(),
+                                             [](const input::KeyEvent& k) { return k.vk == input::kVkAppMenu; }),
+                              toGame.keys.end());
+            for (const auto& k : toGame.keys) {
+                auto at = std::find(keysInGame_.begin(), keysInGame_.end(), k.vk);
+                if (k.pressed && at == keysInGame_.end()) keysInGame_.push_back(k.vk);
+                if (!k.pressed && at != keysInGame_.end()) keysInGame_.erase(at);
+            }
+            g_player->sendKbm(toGame);
+        } else if (!keysInGame_.empty()) {
+            // The menu opened with keys down: the game lets go of them.
+            input::KbmInput release;
+            for (uint8_t vk : keysInGame_) release.keys.push_back({vk, false});
+            keysInGame_.clear();
+            g_player->sendKbm(release);
+        }
         // The other players' controllers, straight to the game.
         for (int i = 1; i < input::kMaxPads; ++i) {
             input::ControllerState other;
@@ -406,7 +425,10 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
     }
 }
 
+bool StreamScreen::menuOpen() const { return menu_.isOpen(); }
+
 void StreamScreen::idle() {
+    keysInGame_.clear();
     if (!g_keyboardFor.empty()) updateTextInput(nullptr);
     touchEnabled_ = false;  // each stream starts with touch off
     if (overlayShown_) {

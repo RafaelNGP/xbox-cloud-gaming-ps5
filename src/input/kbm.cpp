@@ -67,6 +67,10 @@ bool g_keyboardReady = false, g_mouseReady = false;
 int g_keyboards[kSlots] = {-1, -1}, g_mice[kSlots] = {-1, -1};
 uint64_t g_nextScanMs = 0;
 std::vector<uint8_t> g_held;  // virtual keys down, sorted
+// Each keyboard's keys held at its last record: a read with no new record
+// means nothing changed (not that every key went up).
+std::vector<uint8_t> g_slotHeld[kSlots];
+bool g_slotConnected[kSlots] = {};
 uint8_t g_buttons = 0;
 bool g_loggedKeyboard = false, g_loggedMouse = false;
 
@@ -119,7 +123,8 @@ KbmInput kbmPoll() {
     if (!g_keyboardReady && !g_mouseReady) return out;
     rescan(platform::nowMs());
 
-    // Keyboards: the newest record says what is held now.
+    // Keyboards: the newest record says what is held now; with none new,
+    // what the last one said still holds.
     std::vector<uint8_t> held;
     KeyboardState ks[16];
     for (int i = 0; i < kSlots; ++i) {
@@ -128,21 +133,28 @@ KbmInput kbmPoll() {
         if (n < 0) {  // gone: closed, reopened at the next scan
             sceKeyboardClose(g_keyboards[i]);
             g_keyboards[i] = -1;
+            g_slotHeld[i].clear();
+            g_slotConnected[i] = false;
             continue;
         }
-        if (n == 0) continue;
-        const KeyboardState& k = ks[std::min(n, 16) - 1];
-        if (!k.connected) continue;
+        if (n > 0) {
+            const KeyboardState& k = ks[std::min(n, 16) - 1];
+            g_slotConnected[i] = k.connected != 0;
+            g_slotHeld[i].clear();
+            if (k.connected && !k.intercepted) {  // intercepted: the system has it (its own keyboard UI)
+                for (int b = 0; b < 8; ++b)
+                    if (k.modifiers & (1u << b)) g_slotHeld[i].push_back(modifierVk(b));
+                for (int j = 0; j < std::clamp(k.length, 0, 16); ++j)
+                    if (uint8_t vk = hidToVk(k.keys[j])) g_slotHeld[i].push_back(vk);
+            }
+        }
+        if (!g_slotConnected[i]) continue;
         out.keyboard = true;
         if (!g_loggedKeyboard) {
             g_loggedKeyboard = true;
             XC_LOGI("keyboard in use");
         }
-        if (k.intercepted) continue;  // the system has it (its own keyboard UI)
-        for (int b = 0; b < 8; ++b)
-            if (k.modifiers & (1u << b)) held.push_back(modifierVk(b));
-        for (int j = 0; j < std::clamp(k.length, 0, 16); ++j)
-            if (uint8_t vk = hidToVk(k.keys[j])) held.push_back(vk);
+        held.insert(held.end(), g_slotHeld[i].begin(), g_slotHeld[i].end());
     }
     std::sort(held.begin(), held.end());
     held.erase(std::unique(held.begin(), held.end()), held.end());
@@ -151,6 +163,7 @@ KbmInput kbmPoll() {
     for (uint8_t vk : held)
         if (!std::binary_search(g_held.begin(), g_held.end(), vk)) out.keys.push_back({vk, true});
     g_held.swap(held);
+    out.held = g_held;
     static int logged = 0;  // the first few, to check a keyboard works (not what is typed after)
     for (const auto& e : out.keys)
         if (logged < 10) XC_LOGI("keyboard: key 0x%02x %s (%d)", e.vk, e.pressed ? "down" : "up", ++logged);

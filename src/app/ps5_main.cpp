@@ -16,6 +16,7 @@
 #include "display/gpu.h"
 #include "input/controller.h"
 #include "input/kbm.h"
+#include "input/keyboard_nav.h"
 #include "input/tuning.h"
 #include "net/http.h"
 #include "platform/platform.h"
@@ -273,6 +274,7 @@ int main(int argc, char** argv) {
 
     // Never return from main: the app is closed from the home screen.
     input::ControllerState prev{}, pad{};
+    bool appMenuKeyBefore = false;  // F12 held at the last pass
     Repeater up, down, left, right, dpadLeft, dpadRight;
     // Smooth scrolling: rows / cards still to move (fractions carry over),
     // the touchpad's last point, and its speed for the glide after release.
@@ -335,6 +337,15 @@ int main(int argc, char** argv) {
         }
         input::poll(pad);
         autoplayPad(pad);
+        // USB keyboard: the app's screens (and its menu in a game) as with the
+        // controller; in a game otherwise, its keys and the mouse go to the game.
+        input::KbmInput kbm = input::kbmPoll();
+        bool inGame = g_ui->screen() == ui::Screen::Streaming;
+        bool appMenuKey = std::binary_search(kbm.held.begin(), kbm.held.end(), input::kVkAppMenu);
+        bool appMenuPressed = appMenuKey && !appMenuKeyBefore;
+        appMenuKeyBefore = appMenuKey;
+        if (!inGame || streamScreen.menuOpen()) input::keyboardToPad(kbm.held, pad);
+        streamScreen.setKbm(std::move(kbm));
         {
             // The triggers' resistance: in a game and in its Settings tester only.
             float l2, r2;
@@ -440,7 +451,8 @@ int main(int argc, char** argv) {
             scroll.cards -= static_cast<float>(nav.scrollCards);
         }
         nav.nowMs = now;
-        bool menuCombo = pad.btnOptions && pad.btnTouchpad && !(prev.btnOptions && prev.btnTouchpad);
+        bool menuCombo = (pad.btnOptions && pad.btnTouchpad && !(prev.btnOptions && prev.btnTouchpad)) ||
+                         (inGame && appMenuPressed);
         prev = pad;
         autoplayNav(nav, menuCombo, now);
         if (g_ui->screen() == ui::Screen::Streaming) {

@@ -22,6 +22,7 @@
 #include "auth/auth_manager.h"
 #include "stream/h264_receiver.h"
 #include "input/kbm.h"
+#include "input/keyboard_nav.h"
 #include "platform/platform.h"
 #include "auth/msa.h"
 #include "ui/image_cache.h"
@@ -934,6 +935,20 @@ static void testHidToVk() {
     CHECK(xc::input::modifierVk(5) == 0x10 && xc::input::modifierVk(7) == 0x5C);
 }
 
+// The app's screens by keyboard: keys held -> the controller's buttons.
+static void testKeyboardNav() {
+    xc::input::ControllerState pad;
+    xc::input::keyboardToPad({0x0D, 'W', 0x22}, pad);  // enter, w, page down
+    CHECK(pad.btnA && pad.dpadUp && !pad.dpadDown && pad.rightStickY == 1.0f);
+    xc::input::ControllerState p2;
+    p2.btnB = true;  // the controller's own press stays
+    xc::input::keyboardToPad({0x25, 0x1B, 0x09, 'Q', 'E', 'F', 'H', 'Z'}, p2);
+    CHECK(p2.dpadLeft && p2.btnB && p2.btnOptions && p2.btnL1 && p2.btnR1 && p2.btnY && p2.btnX && p2.triggerL2 == 1.0f);
+    xc::input::ControllerState p3;
+    xc::input::keyboardToPad({}, p3);
+    CHECK(!p3.btnA && !p3.dpadUp && p3.rightStickY == 0.0f);
+}
+
 int main() {
     testReport();
     testCrashGuard();
@@ -963,6 +978,7 @@ int main() {
     testInputPacket();
     testMouseKeyboardReports();
     testHidToVk();
+    testKeyboardNav();
     testTeredo();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);

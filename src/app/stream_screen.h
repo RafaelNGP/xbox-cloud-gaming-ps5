@@ -9,6 +9,7 @@
 
 #include "app/auto_deband.h"
 #include "input/controller.h"
+#include "input/kbm.h"
 #include "ui/app_ui.h"
 #include "ui/stream_menu.h"
 
@@ -27,6 +28,10 @@ public:
     // Each pass while streaming: `pad` the first controller, `nav` its
     // presses, `menuCombo` OPTIONS + TOUCHPAD just pressed.
     void update(const input::ControllerState& pad, ui::NavInput nav, bool menuCombo);
+    // This frame's USB keyboard and mouse: to the game while the app's menu
+    // is closed (update() sends them).
+    void setKbm(input::KbmInput kbm) { kbm_ = std::move(kbm); }
+    bool menuOpen() const;
     // Each pass on any other screen: what the stream left is cleared, and a
     // console keyboard still up is closed.
     void idle();
@@ -59,6 +64,8 @@ private:
     int deadzone_ = 15;
     bool circleConfirms_ = false;
     bool highRefresh_ = false;  // 120 Hz turned on for this stream
+    input::KbmInput kbm_;
+    std::vector<uint8_t> keysInGame_;  // keys the game was told are down
     bool wasStreaming_ = false;
     uint64_t lastMenuRedrawMs_ = 0;
 };
