@@ -245,6 +245,7 @@ public:
     // another country (Square), and Settings (Options).
     void showRegionRefused(const std::string& message);
     void setSettings(const SettingsChoice& choice);
+    SettingsChoice settings() const;  // what Settings holds now (the autoplay tests put it back)
     // Per-game settings
     void setPerGameSettings(const std::map<std::string, app::GameProfile>& perGame);
     // The general gyro aiming (set from the in-game menu): what a game
