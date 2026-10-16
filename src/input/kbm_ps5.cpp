@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RafaelNGP
 // USB keyboards and mice through libSceKeyboard and libSceMouse (kbm.h).
 // kbm_null.cpp stands in elsewhere.
+#include "input/input_ext.h"
 #include "input/kbm.h"
 
 #include "platform/platform.h"
@@ -206,5 +207,8 @@ KbmInput kbmPoll() {
     g_buttons = buttons;
     return out;
 }
+
+// The console's mouse has no pointer on screen to hold.
+void kbmSetCaptured(bool) {}
 
 }  // namespace xc::input

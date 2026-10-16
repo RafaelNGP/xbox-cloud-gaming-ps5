@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
+// The microphone on the PS5 (audio_in.h): libSceAudioIn read by a thread of
+// its own in 256-sample grains; gain, mute, the meter and the 20 ms frames
+// are audio_in_common.h's. audio_in_sdl.cpp and audio_in_null.cpp stand in
+// elsewhere.
 #include "media/audio_in.h"
 #include "input/controller.h"
+#include "media/audio_in_common.h"
 #include "util/log.h"
 
-#include <algorithm>
-#include <cmath>
-#include <cstring>
 #include <thread>
 #include <vector>
 
-#if defined(XCLOUD_PS5)
 extern "C" {
 struct SceUserServiceInitializeParams {
     uint32_t priority;
@@ -24,15 +25,13 @@ int sceAudioInClose(int handle);
 int sceAudioInGetSilentState(int handle);
 int sceAudioInSetGain(int handle, int gain);
 }
-#endif
 
 namespace xc::media {
 
 struct AudioIn::Impl {
     std::thread thread;
-#if defined(XCLOUD_PS5)
     int handle = -1;
-#endif
+    MicPipeline mic;
 };
 
 AudioIn::AudioIn() : impl_(std::make_unique<Impl>()) {}
@@ -45,7 +44,6 @@ bool AudioIn::open(AudioCallback cb) {
     if (running_) return true;
     callback_ = std::move(cb);
 
-#if defined(XCLOUD_PS5)
     static bool initialised = false;
     if (!initialised) {
         int rc = sceAudioInInit();
@@ -69,7 +67,7 @@ bool AudioIn::open(AudioCallback cb) {
     }
     XC_LOGI("audio in: opening port for user 0x%08x (%d)...", static_cast<unsigned>(userId), userId);
 
-    constexpr unsigned kGrain = 256;
+    constexpr unsigned kGrain = MicPipeline::kGrain;
     // type 0 = VoiceChat (or type 1 = General); param 0 = S16 mono
     impl_->handle = sceAudioInOpen(userId, 0, 0, kGrain, kSampleRate, 0);
     if (impl_->handle < 0) {
@@ -86,12 +84,10 @@ bool AudioIn::open(AudioCallback cb) {
         return false;
     }
     running_ = true;
+    impl_->mic.reset();
 
     impl_->thread = std::thread([this]() {
-        constexpr unsigned kGrain = 256;
         std::vector<int16_t> grain(kGrain);
-        std::vector<int16_t> accumulated;
-        accumulated.reserve(kFrameSize + kGrain);
         unsigned lastStatus = 0xFFFFFFFF;
         uint64_t loopCount = 0;
 
@@ -117,50 +113,12 @@ bool AudioIn::open(AudioCallback cb) {
             }
 
             bool isMuted = muted_.load(std::memory_order_relaxed) || hardwareMuted_.load(std::memory_order_relaxed);
-            float currentGain = gain_.load(std::memory_order_relaxed);
-
-            float peak = 0.0f;
-            if (isMuted) {
-                std::fill(grain.begin(), grain.end(), 0);
-            } else {
-                for (auto& s : grain) {
-                    if (std::fabs(currentGain - 1.0f) > 0.01f) {
-                        float scaled = static_cast<float>(s) * currentGain;
-                        scaled = std::clamp(scaled, -32768.0f, 32767.0f);
-                        s = static_cast<int16_t>(scaled);
-                    }
-                    float a = std::abs(static_cast<float>(s)) / 32768.0f;
-                    if (a > peak) peak = a;
-                }
-            }
-
-            // Perceptual scale: speech in DualSense typically has 500..6000 amplitude
-            float scaledPeak = std::clamp(std::sqrt(peak * 3.5f), 0.0f, 1.0f);
-
-            float prev = level_.load(std::memory_order_relaxed);
-            // Smooth natural VU decay (~350ms falloff)
-            float nextLevel = (scaledPeak >= prev) ? scaledPeak : (prev * 0.96f);
-            if (nextLevel < 0.01f) nextLevel = 0.0f;
-            level_.store(nextLevel, std::memory_order_relaxed);
-
-            accumulated.insert(accumulated.end(), grain.begin(), grain.end());
-
-            while (accumulated.size() >= kFrameSize) {
-                if (callback_) {
-                    callback_(accumulated.data(), kFrameSize);
-                }
-                accumulated.erase(accumulated.begin(), accumulated.begin() + static_cast<long>(kFrameSize));
-            }
+            impl_->mic.process(grain.data(), grain.size(), isMuted, gain_.load(std::memory_order_relaxed), level_, callback_);
         }
     });
 
     XC_LOGI("audio in: PS5 audio input opened (handle %d, 48 kHz mono S16)", impl_->handle);
     return true;
-#else
-    running_ = true;
-    XC_LOGI("audio in: host audio input stub started");
-    return true;
-#endif
 }
 
 void AudioIn::close() {
@@ -173,12 +131,10 @@ void AudioIn::close() {
         impl_->thread.join();
     }
 
-#if defined(XCLOUD_PS5)
     if (impl_->handle >= 0) {
         sceAudioInClose(impl_->handle);
         impl_->handle = -1;
     }
-#endif
     callback_ = nullptr;
     XC_LOGI("audio in: closed");
 }
