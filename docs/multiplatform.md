@@ -30,8 +30,10 @@ plan to get there.
 `cmake/platform.cmake` sets `XC_PLATFORM` and the `xc_platform` interface
 target (linked by `xcloud_core`, so every target gets it):
 `XC_PLATFORM_PS5`, `XC_PLATFORM_LINUX` or `XC_PLATFORM_WINDOWS`, and
-`XC_PLATFORM_DESKTOP` on the last two. They are for the rare spot that can't
-be split into backends; `XCLOUD_PS5` still works as before.
+`XC_PLATFORM_DESKTOP` on the last two. The desktop ones are for the rare spot
+that can't be split into backends; a test for the PS5 (`XC_PLATFORM_PS5`,
+`XCLOUD_PS5`, "not desktop") stays in the PS5 backends. `XCLOUD_PS5` still
+works as before.
 
 ## The app core
 
@@ -119,11 +121,13 @@ shared code:
 
 ## Rules for contributors
 
-1. No `sce*` call, PS5 SDK header (`<ps5platform/...>`) or `#if` on
-   `XCLOUD_PS5` / `XC_PLATFORM_PS5` / `__PROSPERO__` outside the PS5 backends.
-   `tools/check-platform-boundaries.sh` enforces it (CI runs it) and lists the
-   allowed files; the legacy ones (`audio_out.cpp`, `audio_in.cpp`,
-   `crash_guard.cpp`) carry a TODO naming the milestone that splits them.
+1. No `sce*` call, PS5 SDK header (`<ps5platform/...>`), `XCLOUD_PS5` /
+   `XC_PLATFORM_PS5` / `__PROSPERO__` / `__ORBIS__`, or `#if` on `__FreeBSD__`
+   or on "not `XC_PLATFORM_DESKTOP`" outside the PS5 backends.
+   `tools/check-platform-boundaries.sh` enforces it (CI runs it; comments
+   don't count) and lists the allowed files; the legacy ones (`audio_out.cpp`,
+   `audio_in.cpp`, `crash_guard.cpp`) carry a TODO naming the milestone that
+   splits them.
 2. Something new that differs by platform: free functions in a portable
    header, one file per backend (`*_ps5.cpp`, `*_null.cpp`, later
    `*_sdl.cpp`), and the build lists which one each app links. A PS5-only
