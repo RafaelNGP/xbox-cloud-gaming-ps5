@@ -6,7 +6,6 @@
 
 #include "app/ps5_app.h"
 #include "display/display.h"
-#include "display/gpu.h"
 #include "media/audio_in.h"
 #include "media/decoder.h"
 #include "platform/platform.h"
@@ -69,8 +68,8 @@ void loadAutoplay() {
         if (opt.rfind("loss=", 0) == 0) g_autoplay.videoLoss = std::atoi(opt.c_str() + 5);
         if (opt == "ai") g_autoplay.upscaler = 1;
         if (opt == "restore") g_autoplay.restore = true;
-        if (opt.rfind("swap=", 0) == 0) display::gpu::setSwapImages(std::atoi(opt.c_str() + 5));
-        if (opt == "nopace") display::gpu::setPresentWait(false);
+        if (opt.rfind("swap=", 0) == 0) display::setSwapImages(std::atoi(opt.c_str() + 5));
+        if (opt == "nopace") display::setPresentWait(false);
         if (opt == "detailtest") g_autoplay.detailTest = true;
         if (opt == "pad") g_autoplay.pad = true;
         if (opt == "consoles") g_autoplay.consoles = true;

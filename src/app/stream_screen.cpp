@@ -7,7 +7,6 @@
 #include "app/ps5_app.h"
 #include "app/stream_player.h"
 #include "display/display.h"
-#include "display/gpu.h"
 #include "input/kbm.h"
 #include "input/keyboard_nav.h"
 #include "media/audio_out.h"
@@ -131,7 +130,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         if (g_ui) g_ui->setCircleConfirms(prof.circleConfirms);
         // 120 Hz (VRR) for this game's stream only: the menus stay at 60 Hz
         // (OLED TVs may flicker under VRR when little is drawn).
-        highRefresh_ = prof.highRefresh && display::gpu::setHighRefresh(true);
+        highRefresh_ = prof.highRefresh && display::setHighRefresh(true);
 
         media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
         if (g_player) {
@@ -511,7 +510,7 @@ void StreamScreen::idle() {
         input::setTriggerFeel(g_settings.triggerStrength, g_settings.triggerHz, g_settings.triggerResistance, g_settings.triggerPulses);
         input::setCircleConfirms(g_settings.circleConfirms);
         if (g_ui) g_ui->setCircleConfirms(g_settings.circleConfirms);
-        if (highRefresh_) display::gpu::setHighRefresh(false);
+        if (highRefresh_) display::setHighRefresh(false);
         highRefresh_ = false;
     }
 }

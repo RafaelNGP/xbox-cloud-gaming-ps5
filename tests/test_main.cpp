@@ -7,6 +7,7 @@
 #include "app/updater.h"
 #include "app/crash_guard.h"
 #include "app/report.h"
+#include "display/display.h"
 #include "media/audio_encoder.h"
 #include "media/decoder.h"
 #include "media/hw_decoder.h"
@@ -1141,6 +1142,9 @@ static void testNullBackends() {
     CHECK(!kbm.keyboard && !kbm.mouse && kbm.keys.empty() && !kbm.moved);
     media::HwDecoder hw;
     CHECK(!hw.init(1920, 1088) && !hw.ready());
+    display::DisplayCaps caps = display::caps();
+    CHECK(!caps.upscalers && !caps.deband && !caps.sharpen && !caps.highRefreshSwitch && !caps.presentTiming);
+    CHECK(!display::canSwitchRefresh() && !display::setHighRefresh(true) && !display::bringUpTest(1));
 }
 
 int main() {

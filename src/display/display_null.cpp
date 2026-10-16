@@ -23,6 +23,12 @@ void setSharpness(int) {}
 void setDeband(int) {}
 void setUpscaler(int) {}
 void setRestore(bool) {}
+DisplayCaps caps() { return {}; }
+void setSwapImages(int) {}
+void setPresentWait(bool) {}
+bool setHighRefresh(bool) { return false; }
+bool canSwitchRefresh() { return false; }
+bool bringUpTest(int) { return false; }
 uint64_t lastPresentId() { return 0; }
 bool lastShown(uint64_t&, uint64_t&) { return false; }
 bool readBackRgb(std::vector<uint8_t>&, int&, int&) { return false; }

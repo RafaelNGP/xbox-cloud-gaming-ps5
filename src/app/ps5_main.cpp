@@ -13,7 +13,6 @@
 #include "app/stream_screen.h"
 #include "app/updater.h"
 #include "display/display.h"
-#include "display/gpu.h"
 #include "input/controller.h"
 #include "input/kbm.h"
 #include "input/keyboard_nav.h"
@@ -208,17 +207,16 @@ int main(int argc, char** argv) {
     // one that doesn't. Decided once per start, as RADV opens VideoOut once.
     // With the patched RADV the output starts at 60 Hz and each game's stream
     // turns 120 Hz on (StreamScreen); without it, the setting decides here.
-    if (!g_settings.highRefresh || display::gpu::canSwitchRefresh()) {
+    if (!g_settings.highRefresh || display::canSwitchRefresh()) {
         std::string path = platform::dataDir() + "/videoout-60hz.json";
         platform::writeFileAtomic(path, "{\"attribute3\": 0}\n");
         ::setenv("PS5_VIDEOOUT_PARAM_JSON", path.c_str(), 1);
     }
     XC_LOGI("display: 120 Hz output %s", !g_settings.highRefresh ? "off"
-                                         : display::gpu::canSwitchRefresh() ? "in games" : "on");
+                                         : display::canSwitchRefresh() ? "in games" : "on");
 
     if (g_autoplay.vkTest) {
-        bool ok = display::gpu::init();
-        if (ok) display::gpu::probe(300);
+        bool ok = display::bringUpTest(300);
         XC_LOGI("AUTOPLAY END: vktest %s", ok ? "ran" : "failed");
         for (;;) platform::sleepMs(1000);
     }

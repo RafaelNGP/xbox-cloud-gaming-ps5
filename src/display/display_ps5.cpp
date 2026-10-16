@@ -503,6 +503,27 @@ void setDeband(int level) { gpu::setDeband(level); }
 void setUpscaler(int mode) { gpu::setUpscaler(mode); }
 void setRestore(bool on) { gpu::setRestore(on); }
 
+// The CPU path sharpens too; the rest is the GPU's.
+DisplayCaps caps() {
+    DisplayCaps c;
+    c.upscalers = c.deband = c.presentTiming = gpu::ready();
+    c.sharpen = true;
+    c.highRefreshSwitch = gpu::canSwitchRefresh();
+    return c;
+}
+
+// Straight to the GPU, whether it came up or not, as these always went.
+void setSwapImages(int count) { gpu::setSwapImages(count); }
+void setPresentWait(bool on) { gpu::setPresentWait(on); }
+bool setHighRefresh(bool on) { return gpu::setHighRefresh(on); }
+bool canSwitchRefresh() { return gpu::canSwitchRefresh(); }
+
+bool bringUpTest(int frames) {
+    bool ok = gpu::init();
+    if (ok) gpu::probe(frames);
+    return ok;
+}
+
 uint64_t lastPresentId() { return gpu::ready() ? gpu::lastPresentId() : 0; }
 bool lastShown(uint64_t& id, uint64_t& atUs) { return gpu::ready() && gpu::lastShown(id, atUs); }
 
