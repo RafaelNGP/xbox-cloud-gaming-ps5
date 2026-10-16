@@ -40,6 +40,7 @@ add_library(xcloud_core STATIC
     src/input/keyboard_nav.cpp
     src/xcloud/social.cpp
     src/platform/posix_common.cpp
+    src/input/gyro.cpp
 )
 target_include_directories(xcloud_core PUBLIC src)
 if(NOT MSVC)

@@ -77,6 +77,8 @@ bool Settings::load(const std::string& path) {
     gameVolume = static_cast<int>(std::clamp<int64_t>((*j)["gameVolume"].asInt(gameVolume), 0, 200));
     keyMap = readKeyMap((*j)["keyMap"], input::defaultKeyMap());
     keyboardPlayer = static_cast<int>(std::clamp<int64_t>((*j)["keyboardPlayer"].asInt(keyboardPlayer), 0, 3));
+    gyroMode = static_cast<int>(std::clamp<int64_t>((*j)["gyroMode"].asInt(gyroMode), 0, 2));
+    gyroLevel = static_cast<int>(std::clamp<int64_t>((*j)["gyroLevel"].asInt(gyroLevel), 1, 10));
     micGain = static_cast<int>(std::clamp<int64_t>((*j)["micGain"].asInt(micGain), 0, 2));
     audioRoute = static_cast<int>(std::clamp<int64_t>((*j)["audioRoute"].asInt(audioRoute), 0, 1));
     skippedUpdate = (*j)["skippedUpdate"].str();
@@ -112,6 +114,8 @@ bool Settings::load(const std::string& path) {
         p.circleConfirms = obj["circleConfirms"].asBool(circleConfirms);
         p.highRefresh = obj["highRefresh"].asBool(highRefresh);
         p.keyMap = readKeyMap(obj["keyMap"], keyMap);
+        p.gyroMode = static_cast<int>(std::clamp<int64_t>(obj["gyroMode"].asInt(gyroMode), 0, 2));
+        p.gyroLevel = static_cast<int>(std::clamp<int64_t>(obj["gyroLevel"].asInt(gyroLevel), 1, 10));
         perGame[id] = p;
     }
     return true;
@@ -132,6 +136,8 @@ GameProfile Settings::defaultProfile() const {
     p.circleConfirms = circleConfirms;
     p.highRefresh = highRefresh;
     p.keyMap = keyMap;
+    p.gyroMode = gyroMode;
+    p.gyroLevel = gyroLevel;
     return p;
 }
 
@@ -190,6 +196,8 @@ bool Settings::save(const std::string& path) const {
     v.set("gameVolume", gameVolume);
     v.set("keyMap", keyMapJson(keyMap));
     v.set("keyboardPlayer", keyboardPlayer);
+    v.set("gyroMode", gyroMode);
+    v.set("gyroLevel", gyroLevel);
     v.set("micGain", micGain);
     v.set("audioRoute", audioRoute);
     v.set("skippedUpdate", skippedUpdate);
@@ -213,6 +221,8 @@ bool Settings::save(const std::string& path) const {
         obj.set("circleConfirms", p.circleConfirms);
         obj.set("highRefresh", p.highRefresh);
         obj.set("keyMap", keyMapJson(p.keyMap));
+        obj.set("gyroMode", p.gyroMode);
+        obj.set("gyroLevel", p.gyroLevel);
         pg.set(id, obj);
     }
     v.set("perGame", pg);

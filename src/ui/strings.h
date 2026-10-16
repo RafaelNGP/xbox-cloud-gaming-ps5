@@ -258,6 +258,10 @@ enum class Str {
     ChangeKey,          // keyboard keys hint: Cross changes the key
     ClearKey,           // keyboard keys hint: Square takes it off
     KeysHelp,           // keyboard keys: the mouse and the keys the app keeps
+    Gyro,               // in-game menu: gyro aiming (turning the DualSense moves the aim)
+    GyroAlways,         // ... on all the time
+    GyroAiming,         // ... only while L2 is held
+    GyroIntensity,      // in-game menu: how far a turn moves the aim
     Count
 };
 

@@ -265,6 +265,7 @@ int main(int argc, char** argv) {
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
         g_ui->setSettings(choice);
         g_ui->setPerGameSettings(g_settings.perGame);
+        g_ui->setGyroDefaults(g_settings.gyroMode, g_settings.gyroLevel);
         applyControllerSettings();
         g_ui->setRegionLatency(g_settings.regionRtt);
         g_ui->setPrefs(g_settings.hidden, g_settings.librarySort == "az"        ? ui::LibrarySort::AZ
@@ -367,6 +368,8 @@ int main(int argc, char** argv) {
             // The log is already on disk (flushed by line).
             _exit(0);
         }
+        // Gyro aiming moves the aim in a game, not the app's menu.
+        input::setGyroActive(g_ui->screen() == ui::Screen::Streaming && !streamScreen.menuOpen());
         input::poll(pad);
         autoplayPad(pad);
         // USB keyboard: the app's screens (and its menu in a game) as with the

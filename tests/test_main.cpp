@@ -9,6 +9,7 @@
 #include "app/report.h"
 #include "media/audio_encoder.h"
 #include "media/decoder.h"
+#include "input/gyro.h"
 #include "input/tuning.h"
 #include "net/http.h"
 #include "platform/platform.h"
@@ -423,6 +424,11 @@ static void testStreamMenu() {
     CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Deadzone);
     press([](xc::ui::NavInput& n) { n.down = true; });
     CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::ConfirmButton);
+    press([](xc::ui::NavInput& n) { n.down = true; });  // gyro aiming: off -> always -> while aiming
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Gyro && menu.gyroMode() == 1);
+    CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Gyro && menu.gyroMode() == 2);
+    press([](xc::ui::NavInput& n) { n.down = true; });  // its intensity, 1..10
+    CHECK(press([](xc::ui::NavInput& n) { n.left = true; }) == MenuAction::Gyro && menu.gyroLevel() == 4);
     press([](xc::ui::NavInput& n) { n.down = true; });  // "Leave game", last
     CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Leave);
     CHECK(!menu.isOpen());
@@ -1047,8 +1053,37 @@ static void testLoginRetry() {
     net::setTestTransport({});
 }
 
+// Gyro aiming: still is nothing, a turn left aims left (past the games'
+// dead zone), more intensity aims further, the push eases back to nothing.
+static void testGyro() {
+    using namespace xc::input;
+    GyroState s;
+    float x = 1, y = 1;
+    const float still[3] = {0.01f, -0.01f, 0.0f};
+    gyroToStick(still, 5, s, x, y);
+    CHECK(x == 0 && y == 0);
+    const float left[3] = {0.0f, 0.5f, 0.0f};  // yaw +: turning left
+    for (int i = 0; i < 8; ++i) gyroToStick(left, 5, s, x, y);
+    CHECK(x < -0.3f && x > -0.6f && std::abs(y) < 1e-6f);
+    GyroState s2;
+    float x2 = 0, y2 = 0;
+    for (int i = 0; i < 8; ++i) gyroToStick(left, 10, s2, x2, y2);
+    CHECK(x2 < x);
+    const float up[3] = {0.3f, 0.0f, 0.0f};  // pitch +: the top tilted up
+    GyroState s3;
+    for (int i = 0; i < 8; ++i) gyroToStick(up, 5, s3, x, y);
+    CHECK(y < -0.12f && x == 0);
+    const float tiny[3] = {0.0f, 0.03f, 0.0f};  // a slow turn: still past the dead zone
+    GyroState s4;
+    for (int i = 0; i < 8; ++i) gyroToStick(tiny, 5, s4, x, y);
+    CHECK(x <= -0.12f);
+    for (int i = 0; i < 20; ++i) gyroToStick(still, 5, s4, x, y);
+    CHECK(x == 0);
+}
+
 int main() {
     testLoginRetry();
+    testGyro();
     testReport();
     testCrashGuard();
     testBuiltinCa();

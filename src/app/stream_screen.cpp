@@ -122,6 +122,9 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         deadzone_ = prof.deadzoneLeft;
         circleConfirms_ = prof.circleConfirms;
         keyMap_ = prof.keyMap;
+        gyroMode_ = prof.gyroMode;
+        gyroLevel_ = prof.gyroLevel;
+        input::setGyro(gyroMode_, gyroLevel_);
         input::setDeadzone(prof.deadzoneLeft / 100.0f, prof.deadzoneRight / 100.0f);
         input::setTriggerFeel(prof.triggerStrength, prof.triggerHz, prof.triggerResistance, prof.triggerPulses);
         input::setCircleConfirms(prof.circleConfirms);
@@ -152,6 +155,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             float micLvl = g_player ? g_player->micLevel() : 0.0f;
             bool micMuted = g_player ? (g_player->micMuted() || g_player->isMicHardwareMuted()) : false;
             menu_.setDebandInUse(autoDeband_.level());
+            menu_.setGyro(gyroMode_, gyroLevel_);
             menu_.open(streamResolution_, showStats_, sharpness_, deband_, upscaler_, g_playingHome, allow1440,
                        hasCustomProfile_, triggerStrength_, deadzone_, circleConfirms_, micLvl, micMuted);
             overlaySeq_ = 0;
@@ -205,6 +209,8 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     auto had = g_settings.perGame.find(gameKey_);  // not set from this menu: kept
                     p.highRefresh = had != g_settings.perGame.end() ? had->second.highRefresh : g_settings.highRefresh;
                     p.keyMap = had != g_settings.perGame.end() ? had->second.keyMap : g_settings.keyMap;
+                    p.gyroMode = gyroMode_;
+                    p.gyroLevel = gyroLevel_;
                     g_settings.perGame[gameKey_] = p;
                 } else {
                     g_settings.perGame.erase(gameKey_);
@@ -217,6 +223,10 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     triggerStrength_ = def.triggerStrength;
                     keyMap_ = def.keyMap;
                     circleConfirms_ = def.circleConfirms;
+                    gyroMode_ = def.gyroMode;
+                    gyroLevel_ = def.gyroLevel;
+                    input::setGyro(gyroMode_, gyroLevel_);
+                    menu_.setGyro(gyroMode_, gyroLevel_);
                     display::setSharpness(kSharpAmount[sharpness_]);
                     applyDeband_();
                     applyUpscaler(upscaler_);
@@ -280,6 +290,23 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 } else {
                     g_settings.deadzoneLeft = deadzone_;
                     g_settings.deadzoneRight = deadzone_;
+                }
+                g_settings.save(settingsPath());
+                if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
+                break;
+            }
+            case ui::MenuAction::Gyro: {
+                gyroMode_ = menu_.gyroMode();
+                gyroLevel_ = menu_.gyroLevel();
+                input::setGyro(gyroMode_, gyroLevel_);
+                std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                if (hasCustomProfile_) {
+                    g_settings.perGame[gameKey_].gyroMode = gyroMode_;
+                    g_settings.perGame[gameKey_].gyroLevel = gyroLevel_;
+                } else {
+                    g_settings.gyroMode = gyroMode_;
+                    g_settings.gyroLevel = gyroLevel_;
+                    if (g_ui) g_ui->setGyroDefaults(gyroMode_, gyroLevel_);
                 }
                 g_settings.save(settingsPath());
                 if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);

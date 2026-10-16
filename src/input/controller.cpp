@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 #include "input/controller.h"
+#include "input/gyro.h"
 #include "input/tuning.h"
 #include "util/log.h"
 
@@ -79,6 +80,7 @@ int scePadInit(void);
 int scePadOpen(int32_t userId, int32_t type, int32_t index, const void* param);
 int scePadClose(int32_t handle);
 int scePadReadState(int32_t handle, ScePadData* data);
+int scePadSetMotionSensorState(int32_t handle, bool enable);
 
 struct ScePadVibrationParam {
     uint8_t largeMotor;
@@ -162,6 +164,7 @@ struct Pad {
     float light[3] = {0, 0, 0};
     bool lightStarted = false;
     std::atomic<uint64_t> activeAt{0};  // the last poll with a button or stick in use (ms)
+    GyroState gyro;  // gyro aiming's eased push
 };
 Pad g_pads[kMaxPads];
 std::atomic<float> g_deadzone[2] = {0.15f, 0.15f};
@@ -169,6 +172,9 @@ std::atomic<bool> g_circleConfirms{false};
 std::atomic<int> g_triggerStrength{kTriggerMedium}, g_triggerHz{1}, g_triggerResistance{0};
 std::atomic<bool> g_triggerPulses{false}, g_triggerLogging{false}, g_resistanceActive{false};
 bool g_rumbleLogged = false;
+std::atomic<int> g_gyroMode{kGyroOff}, g_gyroLevel{5};
+std::atomic<bool> g_gyroActive{false};
+int g_gyroLogged = 0;  // the first turns, to check the axes' signs
 
 inline float normStick(uint8_t val) {
     // 0..255 -> -1.0 .. 1.0
@@ -188,6 +194,9 @@ bool openPad(Pad& pad, int32_t userId, int slot) {
     // The DualSense starts in haptics mode, where scePadSetVibration succeeds
     // and does nothing; mode 2 is classic two-motor rumble (as ProsperoEden).
     int mode = scePadSetVibrationMode(h, 2);
+    // The motion sensors (gyro aiming) report only once turned on.
+    if (int rc = scePadSetMotionSensorState(h, true); rc < 0)
+        XC_LOGW("scePadSetMotionSensorState: 0x%08x", static_cast<unsigned>(rc));
     pad.userId = userId;
     pad.handle = h;
     if (sceUserServiceGetUserName(userId, pad.name, sizeof pad.name) != 0) pad.name[0] = 0;
@@ -444,6 +453,23 @@ bool pollPad(int index, ControllerState& out) {
     out.triggerL2 = normTrigger(pad.l2);
     out.triggerR2 = normTrigger(pad.r2);
 
+    // Gyro aiming: in a game (menu closed), always or while L2 aims.
+    int gyroMode = g_gyroMode.load(std::memory_order_relaxed);
+    bool gyroOn = g_gyroActive && (gyroMode == kGyroAlways || (gyroMode == kGyroAiming && out.triggerL2 > 0.3f));
+    if (gyroOn) {
+        float gx, gy;
+        gyroToStick(pad.angularVelocity, g_gyroLevel.load(std::memory_order_relaxed), slot.gyro, gx, gy);
+        float x = out.rightStickX + gx, y = out.rightStickY + gy, m = std::hypot(x, y);
+        if (m > 1.0f) x /= m, y /= m;
+        out.rightStickX = x;
+        out.rightStickY = y;
+        if (g_gyroLogged < 6 && std::abs(pad.angularVelocity[1]) + std::abs(pad.angularVelocity[0]) > 1.0f)
+            XC_LOGI("gyro: pitch %.2f yaw %.2f roll %.2f rad/s -> stick %.2f,%.2f (%d)", pad.angularVelocity[0],
+                    pad.angularVelocity[1], pad.angularVelocity[2], gx, gy, ++g_gyroLogged);
+    } else {
+        slot.gyro = {};
+    }
+
     // The DualSense touchpad reports 0..1919 x 0..1079.
     if (pad.touchData.touchNum > 0) {
         out.touching = true;
@@ -456,6 +482,12 @@ bool pollPad(int index, ControllerState& out) {
 }
 
 uint64_t padActiveAt(int index) { return index >= 0 && index < kMaxPads ? g_pads[index].activeAt.load() : 0; }
+void setGyro(int mode, int level) {
+    g_gyroMode = std::clamp(mode, 0, 2);
+    g_gyroLevel = std::clamp(level, 1, kGyroLevels);
+}
+
+void setGyroActive(bool on) { g_gyroActive = on; }
 
 void setEmbeddedMicActive(bool active, int pad) {
     if (pad < 0 || pad >= kMaxPads) return;
@@ -500,6 +532,8 @@ void setTriggerFeel(int, int, int, bool) {}
 void setTriggerLogging(bool) {}
 void setTriggerResistanceActive(bool) {}
 void setEmbeddedMicActive(bool, int) {}
+void setGyro(int, int) {}
+void setGyroActive(bool) {}
 } // namespace xc::input
 
 #endif

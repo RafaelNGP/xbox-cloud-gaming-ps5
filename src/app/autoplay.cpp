@@ -752,6 +752,12 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
 
             ui::StreamMenu menu(g_ui->fonts());
             menu.open(0, false, 1, 1, 0, false, true, false, 2, 15, false, 0.65f, false);
+            menu.setGyro(2, 7);  // gyro aiming while aiming, intensity 7, its row selected
+            for (int i = 0; i < 10; ++i) {
+                ui::NavInput down;
+                down.down = true;
+                menu.handle(down);
+            }
             ui::StreamInfo info;
             info.region = "East US";
             info.rttMs = 18;

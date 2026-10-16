@@ -1201,6 +1201,12 @@ void AppUi::setSettings(const SettingsChoice& choice) {
     dirty_ = true;
 }
 
+void AppUi::setGyroDefaults(int mode, int level) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    gyroMode_ = mode;
+    gyroLevel_ = level;
+}
+
 void AppUi::setPerGameSettings(const std::map<std::string, app::GameProfile>& perGame) {
     std::lock_guard<std::mutex> lock(mutex_);
     perGameSettings_ = perGame;
@@ -1230,6 +1236,8 @@ void AppUi::openGameSettings() {
         activeGameProfile_.circleConfirms = settings_.circleConfirms;
         activeGameProfile_.highRefresh = settings_.highRefresh;
         activeGameProfile_.keyMap = settings_.keyMap;
+        activeGameProfile_.gyroMode = gyroMode_;
+        activeGameProfile_.gyroLevel = gyroLevel_;
     }
 }
 
@@ -2099,6 +2107,8 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             activeGameProfile_.triggerPulses = settings_.triggerPulses;
             activeGameProfile_.circleConfirms = settings_.circleConfirms;
             activeGameProfile_.highRefresh = settings_.highRefresh;
+            activeGameProfile_.gyroMode = gyroMode_;
+            activeGameProfile_.gyroLevel = gyroLevel_;
             gameSettingsRow_ = 0;
             dirty_ = true;
             break;

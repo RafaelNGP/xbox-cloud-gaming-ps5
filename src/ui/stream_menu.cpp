@@ -117,6 +117,16 @@ MenuAction StreamMenu::handle(const NavInput& in) {
         circleConfirms_ = !circleConfirms_;
         return MenuAction::ConfirmButton;
     }
+    if (selected_ == GyroItem && (in.left || in.right || in.accept)) {
+        gyroMode_ = in.left ? (gyroMode_ + 2) % 3 : (gyroMode_ + 1) % 3;  // off, always, while aiming
+        return MenuAction::Gyro;
+    }
+    if (selected_ == GyroLevelItem && (in.left || in.right)) {
+        int level = std::clamp(gyroLevel_ + (in.right ? 1 : -1), 1, 10);
+        if (level == gyroLevel_) return MenuAction::None;
+        gyroLevel_ = level;
+        return MenuAction::Gyro;
+    }
     if (selected_ == Stats && (in.left || in.right)) {
         stats_ = !stats_;
         return MenuAction::Stats;
@@ -159,6 +169,8 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
                             : i == Triggers       ? tr(Str::TriggerRumble)
                             : i == DeadzoneItem   ? tr(Str::Deadzone)
                             : i == ConfirmItem    ? tr(Str::ConfirmButton)
+                            : i == GyroItem       ? tr(Str::Gyro)
+                            : i == GyroLevelItem  ? tr(Str::GyroIntensity)
                             : homeConsole_        ? tr(Str::MenuEndStream)
                                                   : tr(Str::MenuLeave);
         fonts_.semibold.draw(c, label, row.x + 16, ty, kPx, fg);
@@ -198,6 +210,14 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         }
         if (i == DeadzoneItem) {
             value = std::to_string(deadzone_) + " %";
+            if (sel) value = "< " + value + " >";
+        }
+        if (i == GyroItem) {
+            value = tr(gyroMode_ == 1 ? Str::GyroAlways : gyroMode_ == 2 ? Str::GyroAiming : Str::Off);
+            if (sel) value = "< " + value + " >";
+        }
+        if (i == GyroLevelItem) {
+            value = std::to_string(gyroLevel_) + " / 10";
             if (sel) value = "< " + value + " >";
         }
         if (i == ConfirmItem) {

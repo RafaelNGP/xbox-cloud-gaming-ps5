@@ -28,7 +28,7 @@ struct StreamInfo {
 // Close: the menu went away (Circle, OPTIONS, or the Xbox button): a fresh key frame is asked for.
 enum class MenuAction {
     None, Close, Leave, Resolution, Stats, Sharpness, Deband, Upscaler, XboxButton,
-    ProfileToggle, Triggers, Deadzone, ConfirmButton, MicToggle
+    ProfileToggle, Triggers, Deadzone, ConfirmButton, MicToggle, Gyro
 };
 
 class StreamMenu {
@@ -66,6 +66,10 @@ public:
     void setDeadzone(int deadzone) { deadzone_ = deadzone; }
     bool circleConfirms() const { return circleConfirms_; }
     void setCircleConfirms(bool cc) { circleConfirms_ = cc; }
+    // Gyro aiming: mode (input::GyroMode) and intensity 1..input::kGyroLevels.
+    int gyroMode() const { return gyroMode_; }
+    int gyroLevel() const { return gyroLevel_; }
+    void setGyro(int mode, int level) { gyroMode_ = mode, gyroLevel_ = level; }
     bool micMuted() const { return micMuted_; }
     void setMicMuted(bool muted) { micMuted_ = muted; }
     float micLevel() const { return micLevel_; }
@@ -97,6 +101,8 @@ private:
         Triggers,
         DeadzoneItem,
         ConfirmItem,
+        GyroItem,
+        GyroLevelItem,
         Leave,
         ItemCount
     };
@@ -112,6 +118,7 @@ private:
     bool hasCustomProfile_ = false;
     int triggerStrength_ = 2;
     int deadzone_ = 15;
+    int gyroMode_ = 0, gyroLevel_ = 5;
     bool micMuted_ = false;
     float micLevel_ = 0.0f;
     PadSlots pads_{};

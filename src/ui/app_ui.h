@@ -247,6 +247,9 @@ public:
     void setSettings(const SettingsChoice& choice);
     // Per-game settings
     void setPerGameSettings(const std::map<std::string, app::GameProfile>& perGame);
+    // The general gyro aiming (set from the in-game menu): what a game
+    // without its own profile starts its game settings with.
+    void setGyroDefaults(int mode, int level);
     bool gameSettingsOpen() const { return gameSettingsOpen_; }
     void openGameSettings();
     void closeGameSettings();
@@ -531,6 +534,7 @@ private:
     bool gameSettingsOpen_ = false;
     int gameSettingsRow_ = 0;
     app::GameProfile activeGameProfile_;
+    int gyroMode_ = 0, gyroLevel_ = 5;  // setGyroDefaults
     bool activeGameHasCustom_ = false;
     void handleGameSettings(const NavInput& in, UiEvent& ev);
     void drawGameSettings(Canvas& c);

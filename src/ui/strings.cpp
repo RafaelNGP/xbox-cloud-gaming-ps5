@@ -281,6 +281,10 @@ constexpr Column kEnglish = {
     "Change", // ChangeKey
     "Clear", // ClearKey
     "The mouse moves the right stick and a wheel notch presses Triangle. F12 (menu), Home (Xbox button) and 1-4 (player) are kept by the app.", // KeysHelp
+    "Gyro aiming", // Gyro
+    "Always", // GyroAlways
+    "While aiming (L2)", // GyroAiming
+    "Gyro intensity", // GyroIntensity
 };
 
 constexpr Column kPortugueseBR = {
@@ -532,6 +536,10 @@ constexpr Column kPortugueseBR = {
     "Alterar", // ChangeKey
     "Limpar", // ClearKey
     "O mouse move o analógico direito e cada clique da roda aperta Triângulo. F12 (menu), Home (botão Xbox) e 1-4 (jogador) são reservadas pelo app.", // KeysHelp
+    "Mira por giroscópio", // Gyro
+    "Sempre", // GyroAlways
+    "Ao mirar (L2)", // GyroAiming
+    "Intensidade do giroscópio", // GyroIntensity
 };
 
 constexpr Column kSpanish = {
@@ -783,6 +791,10 @@ constexpr Column kSpanish = {
     "Cambiar", // ChangeKey
     "Borrar", // ClearKey
     "El ratón mueve el stick derecho y cada paso de la rueda pulsa Triángulo. F12 (menú), Inicio (botón Xbox) y 1-4 (jugador) las reserva la app.", // KeysHelp
+    "Apuntado con giroscopio", // Gyro
+    "Siempre", // GyroAlways
+    "Al apuntar (L2)", // GyroAiming
+    "Intensidad del giroscopio", // GyroIntensity
 };
 
 constexpr Column kFrench = {
@@ -1034,6 +1046,10 @@ constexpr Column kFrench = {
     "Modifier", // ChangeKey
     "Effacer", // ClearKey
     "La souris déplace le joystick droit et chaque cran de la molette appuie sur Triangle. F12 (menu), Origine (bouton Xbox) et 1-4 (joueur) sont réservées par l'app.", // KeysHelp
+    "Visée gyroscopique", // Gyro
+    "Toujours", // GyroAlways
+    "En visant (L2)", // GyroAiming
+    "Intensité du gyroscope", // GyroIntensity
 };
 
 constexpr Column kGerman = {
@@ -1285,6 +1301,10 @@ constexpr Column kGerman = {
     "Ändern", // ChangeKey
     "Löschen", // ClearKey
     "Die Maus bewegt den rechten Stick, jede Rasterstufe des Mausrads drückt Dreieck. F12 (Menü), Pos1 (Xbox-Taste) und 1-4 (Spieler) sind für die App reserviert.", // KeysHelp
+    "Gyro-Zielen", // Gyro
+    "Immer", // GyroAlways
+    "Beim Zielen (L2)", // GyroAiming
+    "Gyro-Stärke", // GyroIntensity
 };
 
 constexpr Column kItalian = {
@@ -1536,6 +1556,10 @@ constexpr Column kItalian = {
     "Cambia", // ChangeKey
     "Cancella", // ClearKey
     "Il mouse muove la levetta destra e ogni scatto della rotella preme Triangolo. F12 (menu), Home (tasto Xbox) e 1-4 (giocatore) sono riservati all'app.", // KeysHelp
+    "Mira giroscopica", // Gyro
+    "Sempre", // GyroAlways
+    "Mirando (L2)", // GyroAiming
+    "Intensità giroscopio", // GyroIntensity
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,
