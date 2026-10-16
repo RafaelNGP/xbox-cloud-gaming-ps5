@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-15, v0.9.7.
+Last update: 2026-10-16, v1.0.0.
 
 ## Now
 
@@ -198,7 +198,7 @@ is rolled back at the next start), then the app restarts itself
 - Audio queue cut back to 40 ms past 60 ms (it held up to 120 ms); Settings: maximum bitrate (Auto / 20 / 15 / 10 / 5 Mbps) and game volume (25–150 %).
 - Rest mode: a stream reconnects on its own when the console wakes (tested); the crash guard no longer takes the suspended app for a stall.
 
-### Keyboard & mouse, key remapping, gyro aiming — done (next release)
+### Keyboard & mouse, key remapping, gyro aiming, crash addresses — done (v1.0.0)
 - USB keyboard and mouse (libSceKeyboard, libSceMouse loaded at run time): native mouse and keyboard to the games the cloud lists as MKB (229 of ~2750); for the others, the keyboard and mouse as a player's controller (keys 1-4 choose the player; WASD, mouse as the right stick, the wheel as Triangle). F12 opens the game menu, Home is the Xbox button.
 - The app's screens by keyboard (arrows / WASD, Enter, Esc, Tab, Q / E tabs...), the hints switching to key caps as soon as a key is used; the players' row shows the keyboard in its player's slot.
 - Keyboard keys: their own screen (Settings and each game's settings): two keys or mouse buttons per input, reserved keys refused, back to the defaults.
@@ -206,6 +206,7 @@ is rolled back at the next start), then the app restarts itself
 - Cards: the console's keyboard-and-mouse icon on MKB games, its controller icon on the others; a Mouse & keyboard search filter; the players' pads drawn with the console's controller icon.
 - Settings grouped (language and sign-in country; stream; sound; controller and keyboard; updates last); the game settings likewise.
 - Sign-in: the xCloud login is tried again on a 5xx (six tries over ~25 s); the renewed refresh token is saved at once. The queue's wait from `/v1/waittime/{titleId}` while queued; the pictures' quantiser (QP) in the statistics line.
+- Crash reports: a fatal signal records the faulting instruction's offset in eboot (`pc=eboot+0x...`), the accessed address (`addr=0x...`) and the caller return addresses (`bt=...`), shown on the report panel and in the GitHub issue link; `tools/ps5/link.sh` keeps `symbols/vX.Y.Z/eboot.elf` and `tools/symbolize.sh` translates offsets back to function and `file:line`.
 
 ## Next
 
@@ -222,7 +223,6 @@ is rolled back at the next start), then the app restarts itself
 | Favourites, game language | A favourites row; the game's language apart from the app's | small |
 | Lost audio filled | Opus concealment / in-band FEC for lost audio packets: needs libopus (FFmpeg's own Opus decoder has neither) | small–medium |
 | Home-screen tile per game | The PS5 Forwarder Format (ProsperoLight): a tile that starts one cloud game directly | small |
-| Crash address in reports | The fault's offset in the code and a script that names the function (ProsperoLight / ProsperoEden), for the unexpected-close report | small |
 | Dedicated voice chat output routing | Route voice chat audio independently to DualSense controller speaker or headset while keeping game audio on TV (if xCloud exposes separate voice track) | medium |
 
 ## Dropped (and why)
