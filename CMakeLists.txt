@@ -97,17 +97,29 @@ target_compile_definitions(xcloud_ui PUBLIC XC_APP_VERSION="${PROJECT_VERSION}")
 target_include_directories(xcloud_ui PUBLIC extern/stb extern/qrcodegen)
 target_link_libraries(xcloud_ui PUBLIC xcloud_core)
 
+# --- The app: start-up, main loop, worker thread, streaming --------------------
+# The same objects in every front end, each linking them with its platform's
+# backends and shell (docs/multiplatform.md).
+add_library(xcloud_appcore OBJECT
+    src/app/app_state.cpp
+    src/app/app_core.cpp
+    src/app/worker.cpp
+    src/app/stream_screen.cpp
+    src/app/price_loop.cpp
+    src/app/autoplay.cpp
+    src/app/stream_player.cpp
+)
+target_link_libraries(xcloud_appcore PUBLIC xcloud_stream xcloud_media xcloud_ui)
+
 if(XCLOUD_PS5)
     target_sources(xcloud_core PRIVATE src/platform/ps5/platform_ps5.cpp src/platform/ps5/libc_compat.c src/platform/ps5/net_probe.cpp src/platform/ps5/keyboard_ps5.cpp)
 
-    # The app itself: linked into eboot.bin by tools/ps5/link.sh.
+    # The app itself, with the PS5's backends: linked into eboot.bin by
+    # tools/ps5/link.sh.
     add_library(xcloud_app STATIC
-        src/app/app_core.cpp
-        src/app/worker.cpp
-        src/app/stream_screen.cpp
-        src/app/price_loop.cpp
-        src/app/autoplay.cpp
-        src/app/stream_player.cpp
+        $<TARGET_OBJECTS:xcloud_appcore>
+        src/app/ps5_main.cpp
+        src/app/shell_ps5.cpp
         src/display/display_ps5.cpp
         src/display/gpu.cpp
         src/media/hw_decoder_ps5.cpp
@@ -131,6 +143,19 @@ else()
     target_link_libraries(xcloud_backends_null PUBLIC xcloud_core)
     if(NOT MSVC)
         target_compile_options(xcloud_backends_null PRIVATE -Wall -Wextra -Wno-unused-parameter)
+    endif()
+
+    # The app with the null backends and no window: keeps the shared app
+    # building and starting on the desktop (no SDL; the desktop app is next).
+    add_executable(psbox-headless
+        $<TARGET_OBJECTS:xcloud_appcore>
+        src/app/headless_main.cpp
+        src/app/shell_null.cpp
+    )
+    target_link_libraries(psbox-headless PRIVATE xcloud_backends_null xcloud_stream xcloud_media xcloud_ui xc_ffmpeg
+                                                 datachannel-static)
+    if(NOT MSVC)
+        target_compile_options(psbox-headless PRIVATE -Wall -Wextra -Wno-unused-parameter)
     endif()
 
     add_executable(xcloud-cli src/app/cli_main.cpp)

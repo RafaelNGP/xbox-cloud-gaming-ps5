@@ -7,6 +7,7 @@
 #include "app/autoplay.h"
 #include "app/crash_guard.h"
 #include "app/library.h"
+#include "app/shell.h"
 #include "app/stream_player.h"
 #include "app/update_check.h"
 #include "app/updater.h"
@@ -22,7 +23,6 @@
 
 #include <cstdlib>
 #include <map>
-#include <sys/stat.h>
 #include <unistd.h>
 #include <memory>
 #include <thread>
@@ -427,6 +427,11 @@ void checkForUpdate() {
     XC_LOGI("latest release: %s (this is %s)", found ? r.tag.c_str() : err.c_str(), XC_APP_VERSION);
     bool offer = found && isNewerVersion(r.tag, XC_APP_VERSION) && !r.zipUrl.empty() && !r.sigUrl.empty();
     if (found && isNewerVersion(r.tag, XC_APP_VERSION) && !offer) XC_LOGW("%s has no signed package", r.tag.c_str());
+    if (offer && !shell::canSelfUpdate()) {
+        // This build doesn't install updates itself (only the PS5's does).
+        XC_LOGI("%s is out: this build doesn't update itself", r.tag.c_str());
+        offer = false;
+    }
     {
         std::lock_guard<std::mutex> lock(g_releaseMutex);
         g_release = offer ? r : Release{};
@@ -454,9 +459,7 @@ void runUpdate() {
     // Only where the app runs from: installed elsewhere, it would write next
     // to the wrong eboot.bin.
     std::string dir = platform::appDir(), err;
-    struct stat here {}, running {};
-    bool ok = ::stat((dir + "/eboot.bin").c_str(), &here) == 0 && ::stat("/app0/eboot.bin", &running) == 0 &&
-              here.st_ino == running.st_ino;
+    bool ok = shell::isInstalledCopy(dir);
     if (!ok) err = "the app doesn't run from " + dir;
     int lastPct = -1;
     ok = ok && installRelease(r, dir, XC_APP_VERSION, [&](UpdateStep step, double f) {

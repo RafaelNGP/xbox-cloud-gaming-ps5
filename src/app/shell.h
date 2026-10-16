@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RafaelNGP
+// The parts of start-up and of the app's life that only some platforms
+// have, as free functions each front end's shell defines, picked at link
+// time like the backends: shell_ps5.cpp on the console, shell_null.cpp for a
+// desktop build without a window (psbox-headless). See docs/multiplatform.md.
+#pragma once
+
+#include "app/settings.h"
+
+#include <string>
+#include <vector>
+
+namespace xc::app::shell {
+
+// Before settings.json is read: an update cut short is rolled back (and the
+// app started again), a store update's leftovers brought back.
+void beforeSettings();
+// Once the settings are read, before the display comes up: the PS5 hides
+// its splash screen and settles the video mode (120 Hz).
+void beforeDisplay(const Settings& settings);
+// Where the system's icon font may be (keyboard and mouse glyphs), first
+// choice first; empty when there is none (the UI draws its own icons).
+std::vector<std::string> iconFontPaths();
+// Each pass of the main loop: the system's events. False once the user
+// closed the app (never on the PS5, where the system ends it).
+bool pumpEvents();
+// Whether this build installs an update itself; elsewhere a newer release
+// is only noted in the log, never offered.
+bool canSelfUpdate();
+// Whether the running app is the copy in `dir` (where an update goes): one
+// started from elsewhere wouldn't be the one replaced.
+bool isInstalledCopy(const std::string& dir);
+// After an update: the new version started in place of this one, else the
+// app closed (its next start is the new one).
+[[noreturn]] void restartOrExit();
+
+}  // namespace xc::app::shell
