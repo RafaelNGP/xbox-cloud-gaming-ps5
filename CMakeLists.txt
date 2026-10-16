@@ -39,6 +39,7 @@ add_library(xcloud_core STATIC
     src/input/kbm_map.cpp
     src/input/key_map.cpp
     src/input/keyboard_nav.cpp
+    src/input/sdl_mapping.cpp
     src/xcloud/social.cpp
     src/platform/posix_common.cpp
     src/input/gyro.cpp
@@ -178,4 +179,26 @@ else()
     add_executable(xcloud-tests tests/test_main.cpp)
     target_link_libraries(xcloud-tests PRIVATE xcloud_stream xcloud_media xcloud_ui xcloud_backends_null xc_ffmpeg datachannel-static)
     add_test(NAME unit COMMAND xcloud-tests)
+endif()
+
+# --- Desktop input and sound on SDL3 (controllers, keyboard / mouse, audio) ---
+# The SDL backends of controller.h, kbm.h, input_ext.h, audio_out.h and
+# audio_in.h, for the desktop app in place of the null ones (controller_null,
+# kbm_null, audio_*_null: not both). Only where SDL3 is found and the desktop
+# app is wanted: xcloud-cli, xcloud-tests and psbox-headless stay SDL-free.
+if(NOT XCLOUD_PS5 AND (NOT DEFINED XCLOUD_DESKTOP_APP OR XCLOUD_DESKTOP_APP))
+    if(NOT TARGET SDL3::SDL3)
+        find_package(SDL3 CONFIG QUIET)
+    endif()
+    if(TARGET SDL3::SDL3)
+        add_library(xcloud_backends_sdl_io OBJECT
+            src/input/sdl_input.cpp
+            src/input/controller_sdl.cpp
+            src/input/kbm_sdl.cpp
+        )
+        target_link_libraries(xcloud_backends_sdl_io PUBLIC xcloud_core xcloud_media SDL3::SDL3)
+        if(NOT MSVC)
+            target_compile_options(xcloud_backends_sdl_io PRIVATE -Wall -Wextra -Wno-unused-parameter)
+        endif()
+    endif()
 endif()
