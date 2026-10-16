@@ -3,10 +3,10 @@
 // The worker thread: sign-in, the library, the account's consoles, and
 // playing a title (queue -> /connect -> Provisioned -> StreamPlayer). It
 // owns AuthManager and the GssvClients and does all the network work.
+#include "app/app_state.h"
 #include "app/autoplay.h"
 #include "app/crash_guard.h"
 #include "app/library.h"
-#include "app/ps5_app.h"
 #include "app/stream_player.h"
 #include "app/update_check.h"
 #include "app/updater.h"

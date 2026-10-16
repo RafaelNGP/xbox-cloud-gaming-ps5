@@ -102,7 +102,7 @@ if(XCLOUD_PS5)
 
     # The app itself: linked into eboot.bin by tools/ps5/link.sh.
     add_library(xcloud_app STATIC
-        src/app/ps5_main.cpp
+        src/app/app_core.cpp
         src/app/worker.cpp
         src/app/stream_screen.cpp
         src/app/price_loop.cpp

@@ -3,7 +3,7 @@
 // Store prices for the games to buy as they come on screen, kept a day in
 // <dataDir>/prices.json; the same thread fetches the description of an
 // opened game that has none yet.
-#include "app/ps5_app.h"
+#include "app/app_state.h"
 #include "platform/platform.h"
 #include "ui/strings.h"
 #include "util/json.h"

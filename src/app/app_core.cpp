@@ -5,10 +5,10 @@
 // worker.cpp (all the network work, on its own thread), stream_screen.cpp
 // (the game's menu, gestures and controllers while streaming),
 // price_loop.cpp (store prices) and autoplay.cpp (the unattended tests).
+#include "app/app_state.h"
 #include "app/autoplay.h"
 #include "app/crash_guard.h"
 #include "app/report.h"
-#include "app/ps5_app.h"
 #include "app/settings.h"
 #include "app/stream_screen.h"
 #include "app/updater.h"

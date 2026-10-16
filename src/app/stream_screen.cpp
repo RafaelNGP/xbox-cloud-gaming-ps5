@@ -3,8 +3,8 @@
 // The streaming screen on the main thread; see stream_screen.h.
 #include "app/stream_screen.h"
 
+#include "app/app_state.h"
 #include "app/autoplay.h"
-#include "app/ps5_app.h"
 #include "app/stream_player.h"
 #include "display/display.h"
 #include "input/kbm.h"

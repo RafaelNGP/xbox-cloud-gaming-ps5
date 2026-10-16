@@ -4,7 +4,7 @@
 #include "app/autoplay.h"
 #include "ui/input_mode.h"
 
-#include "app/ps5_app.h"
+#include "app/app_state.h"
 #include "display/display.h"
 #include "media/audio_in.h"
 #include "media/decoder.h"
