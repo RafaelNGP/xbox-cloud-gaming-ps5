@@ -27,6 +27,7 @@ struct Previous {
     bool found = false;
     std::string kind;   // "signal 11 (SIGSEGV)", "uncaught exception", "stalled"
     std::string stage;  // setStage()'s at the time
+    std::string crash;  // "crash: SIGSEGV pc=eboot+0x1a2b3c addr=0x0 ..."
 };
 // The last session's marker, if it left one (then removed).
 Previous takePrevious(const std::string& markerPath);

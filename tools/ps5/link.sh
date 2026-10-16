@@ -75,6 +75,13 @@ libs=("$build/libxcloud_ui.a"
     "${stubs[@]}" "${radv_link_inputs[@]}" \
     --as-needed "$sdk"/target/lib/*.so
 
+# Keep the ELF with symbols and line tables (by version) so crash offsets
+# (pc=eboot+0x...) can be translated back to function and line.
+ver=${XC_VERSION:-v$(sed -n 's/^project(xcloud_ps5 VERSION \([0-9.]*\).*/\1/p' "$root/CMakeLists.txt")}
+[[ $ver == v* ]] || ver="v$ver"
+mkdir -p "$root/symbols/$ver"
+cp -f "$work/llvm-pie.elf" "$root/symbols/$ver/eboot.elf"
+
 stub_args=()
 for s in "${stubs[@]}"; do stub_args+=(--stub "$s"); done
 "$tool" link --in "$work/llvm-pie.elf" --out "$work/eboot.elf" \
@@ -82,4 +89,4 @@ for s in "${stubs[@]}"; do stub_args+=(--stub "$s"); done
     --module-sdk 0x02000009 --companion-sdk 0x08050001 --file-name eboot.elf
 "$tool" self --sign --in "$work/eboot.elf" --out "$build/eboot.bin" --magic 0x1D3D154F
 "$tool" self --inspect --file "$build/eboot.bin" > /dev/null
-echo "eboot.bin built: $build/eboot.bin ($(stat -c %s "$build/eboot.bin") bytes)"
+echo "eboot.bin built: $build/eboot.bin ($(stat -c %s "$build/eboot.bin") bytes, symbols at symbols/$ver/eboot.elf)"

@@ -118,7 +118,7 @@ std::string logExcerpt(const std::string& logText, bool previousSession, size_t 
     std::set<size_t> keep;
     for (size_t i = 0; i < lines.size(); ++i)
         if (i == 0 || lines[i].find("[E]") != std::string::npos || lines[i].find("[W]") != std::string::npos ||
-            lines[i].find("session summary:") != std::string::npos ||
+            lines[i].find("session summary:") != std::string::npos || lines[i].find("crash:") != std::string::npos ||
             i + lastLines >= lines.size())
             keep.insert(i);
     std::string out;
@@ -132,7 +132,16 @@ std::string logExcerpt(const std::string& logText, bool previousSession, size_t 
 }
 
 std::string issueUrl(const Info& info, size_t maxLength) {
-    std::string head = std::string(kForm) + "&title=" + encode(info.title) + "&what=" + encode(info.what) +
+    std::string what = info.what;
+    if (!info.crash.empty() && what.find(info.crash) == std::string::npos) {
+        if (!what.empty()) what += "\n";
+        what += info.crash;
+    }
+    if ((!info.crash.empty() || what.find("crash:") != std::string::npos) && !info.release.empty() &&
+        what.find(info.release) == std::string::npos) {
+        what += " (v" + info.release + ")";
+    }
+    std::string head = std::string(kForm) + "&title=" + encode(info.title) + "&what=" + encode(what) +
                        "&release=" + encode(info.release) + "&firmware=" + encode(info.firmware) + "&log=";
     // The log's end matters most: whole lines are dropped from its start
     // until the link fits.
