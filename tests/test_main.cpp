@@ -1139,6 +1139,21 @@ static void testGyro() {
 
 // The desktop's stand-ins for the PS5 backends: nothing connected, the
 // settings kept for their getters.
+// A font that didn't load (no assets folder) draws and measures nothing
+// instead of crashing in stb_truetype.
+static void testMissingFont() {
+    ui::Font font;
+    CHECK(!font.load("/nonexistent/Inter-Regular.ttf") && !font.loaded());
+    ui::Canvas c(64, 32);
+    c.clear(ui::rgba(1, 2, 3));
+    CHECK(font.measure("Hello", 24) == 0);
+    CHECK(font.draw(c, "Hello", 5, 4, 24, ui::rgba(255, 255, 255)) == 5);
+    CHECK(c.data()[5 * 64 + 10] == ui::rgba(1, 2, 3));
+    CHECK(font.centeredY(10, 40, 24) == 10 && font.lineHeight(24) == 24);
+    CHECK(font.fit("Hello", 24, 100) == "Hello");
+    CHECK(font.wrap("Hello world", 24, 100, 2).size() == 1);
+}
+
 // The desktop app's in-app notices (platform/toasts.h).
 static void testToasts() {
     using platform::ToastQueue;
@@ -1199,6 +1214,7 @@ static void testNullBackends() {
 int main() {
     testNullBackends();
     testToasts();
+    testMissingFont();
     testLoginRetry();
     testGyro();
     testReport();
