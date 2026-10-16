@@ -328,6 +328,7 @@ Canvas StreamMenu::renderStats(const StreamInfo& info) const {
     text += fmt("%.0f fps", info.fps) + "  " + fmt("%.1f Mbps", info.mbps);
     if (info.rttMs > 0) text += "  " + std::to_string(info.rttMs) + " ms";
     text += "  " + fmt("%.1f%%", info.lossPct);
+    if (info.qp >= 0) text += "  QP " + fmt("%.0f", info.qp);  // the encoder's quantiser: lower is finer
     if (!micMuted_) text += "  MIC";
     constexpr int kPx = 20, kH = 36;
     std::string warn = info.degraded ? std::string("  ") + tr(Str::ConnectionUnstable) : std::string();

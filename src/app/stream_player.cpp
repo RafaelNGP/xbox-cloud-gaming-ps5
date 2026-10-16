@@ -82,6 +82,7 @@ struct StreamPlayer::Impl {
     std::atomic<uint64_t> triggerVibrations{0};
     std::atomic<uint64_t> displayUs{0}, displayCount{0}, displayMaxUs{0};
     std::atomic<uint64_t> decodeUs{0}, decodeCalls{0}, decodeMaxUs{0}, drawUs{0}, drawCalls{0}, drawMaxUs{0};
+    std::atomic<uint64_t> qpSumX100{0}, qpCount{0};  // pictures' quantiser since the last stats()
     int decodeThreads = 1;
     int simulatedLoss = 0;
     int maxBitrateMbps = 0;
@@ -284,6 +285,10 @@ struct StreamPlayer::Impl {
                 continue;
             }
             ++decodedFrames;
+            if (decoder.lastQp() >= 0) {
+                qpSumX100 += static_cast<uint64_t>(decoder.lastQp() * 100);
+                ++qpCount;
+            }
             pictureSize = (static_cast<uint32_t>(pic.width) << 16) | static_cast<uint32_t>(pic.height);
             bool screenshot = saveSnapshotIfAsked(pic);
             // A newer frame already waits: decode this one (the next needs it)
@@ -759,6 +764,8 @@ StreamPlayer::Stats StreamPlayer::stats() const {
     uint64_t rc = impl_->drawCalls.exchange(0), ru = impl_->drawUs.exchange(0);
     st.decodeAvgUs = dc ? du / dc : 0;
     st.decodeMaxUs = impl_->decodeMaxUs.exchange(0);
+    uint64_t qn = impl_->qpCount.exchange(0), qs = impl_->qpSumX100.exchange(0);
+    st.qpAvg = qn ? qs / 100.0 / static_cast<double>(qn) : -1;
     st.drawAvgUs = rc ? ru / rc : 0;
     st.drawMaxUs = impl_->drawMaxUs.exchange(0);
     uint64_t dn = impl_->displayCount.exchange(0), du2 = impl_->displayUs.exchange(0);
