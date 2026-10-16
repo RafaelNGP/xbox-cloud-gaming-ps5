@@ -126,8 +126,6 @@ public:
     bool startSession(const std::string& titleId, const std::string& locale, std::string& err);
     bool hasSession() const { return !sessionPath_.empty(); }
     bool sessionState(SessionStatus& out, std::string& err);
-    // Estimated queue time in seconds while WaitingForResources (-1 unknown).
-    int waitTimeSeconds();
     // Before a session: the estimated wait to start `titleId` (xCloud title
     // id), in seconds; -1 unknown.
     int titleWaitSeconds(const std::string& titleId);

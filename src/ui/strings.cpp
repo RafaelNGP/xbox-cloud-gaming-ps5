@@ -273,6 +273,7 @@ constexpr Column kEnglish = {
     "Mouse & keyboard", // FilterMouseKeyboard
     "Mouse and keyboard", // MouseKeyboardSupport
     "Keyboard and mouse: player %s", // KeyboardPlayer
+    "You're in the queue.", // InQueueNoEstimate
 };
 
 constexpr Column kPortugueseBR = {
@@ -516,6 +517,7 @@ constexpr Column kPortugueseBR = {
     "Teclado e mouse", // FilterMouseKeyboard
     "Teclado e mouse", // MouseKeyboardSupport
     "Teclado e mouse: jogador %s", // KeyboardPlayer
+    "Você está na fila.", // InQueueNoEstimate
 };
 
 constexpr Column kSpanish = {
@@ -759,6 +761,7 @@ constexpr Column kSpanish = {
     "Teclado y ratón", // FilterMouseKeyboard
     "Teclado y ratón", // MouseKeyboardSupport
     "Teclado y ratón: jugador %s", // KeyboardPlayer
+    "Estás en la cola.", // InQueueNoEstimate
 };
 
 constexpr Column kFrench = {
@@ -1002,6 +1005,7 @@ constexpr Column kFrench = {
     "Clavier et souris", // FilterMouseKeyboard
     "Clavier et souris", // MouseKeyboardSupport
     "Clavier et souris : joueur %s", // KeyboardPlayer
+    "Vous êtes dans la file d'attente.", // InQueueNoEstimate
 };
 
 constexpr Column kGerman = {
@@ -1245,6 +1249,7 @@ constexpr Column kGerman = {
     "Maus & Tastatur", // FilterMouseKeyboard
     "Maus und Tastatur", // MouseKeyboardSupport
     "Tastatur und Maus: Spieler %s", // KeyboardPlayer
+    "Du bist in der Warteschlange.", // InQueueNoEstimate
 };
 
 constexpr Column kItalian = {
@@ -1488,6 +1493,7 @@ constexpr Column kItalian = {
     "Tastiera e mouse", // FilterMouseKeyboard
     "Tastiera e mouse", // MouseKeyboardSupport
     "Tastiera e mouse: giocatore %s", // KeyboardPlayer
+    "Sei in coda.", // InQueueNoEstimate
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

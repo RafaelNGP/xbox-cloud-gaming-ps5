@@ -250,6 +250,7 @@ enum class Str {
     FilterMouseKeyboard, // search filter: games the cloud plays with native mouse and keyboard
     MouseKeyboardSupport, // game page, beside the console and genres
     KeyboardPlayer,     // notification: keys 1-4 chose the player the keyboard plays as (%s: 1..4)
+    InQueueNoEstimate,  // launching, in the queue, the service gives no estimate
     Count
 };
 

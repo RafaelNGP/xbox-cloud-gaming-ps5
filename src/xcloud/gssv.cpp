@@ -500,13 +500,6 @@ bool GssvClient::sessionState(SessionStatus& out, std::string& err) {
     return true;
 }
 
-int GssvClient::waitTimeSeconds() {
-    auto r = net::perform(authed(resolution_, login_, "GET", sessionUrl("/waittime")));
-    auto j = json::parse(r.body);
-    if (!r.ok() || !j) return -1;
-    return static_cast<int>((*j)["estimatedTotalWaitTimeInSeconds"].asInt(-1));
-}
-
 int GssvClient::titleWaitSeconds(const std::string& titleId) {
     if (titleId.empty() || login_.gsToken.empty()) return -1;
     auto r = net::perform(authed(resolution_, login_, "GET", url("/v1/waittime/" + titleId)));

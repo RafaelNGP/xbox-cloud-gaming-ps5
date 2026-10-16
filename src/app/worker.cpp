@@ -341,6 +341,10 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     // Provisioning: give up after a minute (the cloud's queue may take long).
     const uint64_t provisioningSince = platform::nowMs();
     int pollErrors = 0;
+    // The queue's estimate: the title's (the service has no per-session one),
+    // asked every 15 s and counted down in between; -1 unknown.
+    int queueSeconds = -1;
+    uint64_t queueAskedAt = 0;
     for (int i = 0; i < 900 && !g_cancel; ++i) {
         if (gssv.isHome() && platform::nowMs() - provisioningSince > 60000) {
             result = "ConsoleDidNotWake: no answer in 60 s";
@@ -359,8 +363,18 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
         }
         pollErrors = 0;
         XC_LOGI("session state: %s", st.raw.c_str());
-        if (st.state == xcloud::SessionState::WaitingForResources)
-            g_ui->setLaunchStatus(ui::trf(ui::Str::InQueue, formatWait(gssv.waitTimeSeconds())));
+        if (st.state == xcloud::SessionState::WaitingForResources) {
+            uint64_t now = platform::nowMs();
+            if (!queueAskedAt || now - queueAskedAt >= 15000) {
+                int s = gssv.titleWaitSeconds(game.titleId);
+                XC_LOGI("queue: estimated %d s", s);
+                if (s >= 0 || queueSeconds < 0) queueSeconds = s;
+                queueAskedAt = now;
+            }
+            int left = queueSeconds < 0 ? -1 : std::max(0, queueSeconds - static_cast<int>((now - queueAskedAt) / 1000));
+            g_ui->setLaunchStatus(left < 0 ? std::string(ui::tr(ui::Str::InQueueNoEstimate))
+                                           : ui::trf(ui::Str::InQueue, formatWait(left)));
+        }
         if (st.state == xcloud::SessionState::Provisioning && gssv.isHome())
             g_ui->setLaunchStatus(ui::tr(ui::Str::WakingConsole));  // a sleeping Xbox takes ~10 s
         if (st.state == xcloud::SessionState::Failed) {
