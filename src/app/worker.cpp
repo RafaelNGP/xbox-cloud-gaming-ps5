@@ -95,7 +95,8 @@ std::string stream(xcloud::GssvClient& gssv) {
         if (g_settings.gestureHints < 3) {
             ++g_settings.gestureHints;
             g_settings.save(settingsPath());
-            platform::notify(ui::tr(ui::Str::GestureHint));
+            // (Without a touchpad: the buttons and keys that do the same.)
+            platform::notify(ui::tr(g_ui->caps().touchpad ? ui::Str::GestureHint : ui::Str::GestureHintButtons));
         }
     }
 
@@ -427,10 +428,13 @@ void checkForUpdate() {
     std::string err;
     bool found = findLatestRelease(r, err, g_autoplay.updateFeed);
     XC_LOGI("latest release: %s (this is %s)", found ? r.tag.c_str() : err.c_str(), XC_APP_VERSION);
-    bool offer = found && isNewerVersion(r.tag, XC_APP_VERSION) && !r.zipUrl.empty() && !r.sigUrl.empty();
-    if (found && isNewerVersion(r.tag, XC_APP_VERSION) && !offer) XC_LOGW("%s has no signed package", r.tag.c_str());
-    if (offer && !shell::canSelfUpdate()) {
-        // This build doesn't install updates itself (only the PS5's does).
+    bool newer = found && isNewerVersion(r.tag, XC_APP_VERSION);
+    bool offer = newer && !r.zipUrl.empty() && !r.sigUrl.empty();
+    if (newer && !offer) XC_LOGW("%s has no signed package", r.tag.c_str());
+    const bool selfUpdate = shell::canSelfUpdate();
+    if (newer && !selfUpdate) {
+        // This build doesn't install updates itself (only the PS5's does):
+        // Settings names the new version and opens its page instead.
         XC_LOGI("%s is out: this build doesn't update itself", r.tag.c_str());
         offer = false;
     }
@@ -438,7 +442,7 @@ void checkForUpdate() {
         std::lock_guard<std::mutex> lock(g_releaseMutex);
         g_release = offer ? r : Release{};
     }
-    g_ui->setUpdateState(XC_APP_VERSION, offer ? r.tag : std::string(), false);
+    g_ui->setUpdateState(XC_APP_VERSION, offer || (newer && !selfUpdate) ? r.tag : std::string(), false);
     bool skipped;
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
@@ -550,7 +554,7 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         } else if (net::lastTlsProblem() == net::TlsProblem::Clock) {
             // The console's clock: a certificate isn't valid at its date (the
             // log line above has the details).
-            g_ui->showError(ui::trf(ui::Str::ClockWrong, net::todayText()));
+            g_ui->showError(ui::trf(shell::caps().console ? ui::Str::ClockWrong : ui::Str::ClockWrongPc, net::todayText()));
         } else if (net::lastTlsProblem() == net::TlsProblem::Untrusted ||
                    net::lastTlsProblem() == net::TlsProblem::NameMismatch) {
             g_ui->showError(ui::tr(ui::Str::ConnectionIntercepted));

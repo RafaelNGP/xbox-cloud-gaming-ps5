@@ -18,6 +18,7 @@
 #include "app/stream_screen.h"
 #include "display/display.h"
 #include "input/controller.h"
+#include "input/input_ext.h"
 #include "input/kbm.h"
 #include "input/keyboard_nav.h"
 #include "ui/input_mode.h"
@@ -114,6 +115,31 @@ bool saveSettings(const ui::SettingsChoice& choice) {
     }
     applyControllerSettings();
     return languageChanged;
+}
+
+// What the screens offer (ui::UiCaps): the pads' features (input_ext.h),
+// the display's and the platform's. The PS5 offers every option as it
+// always has: its pads are DualSense, and what its display can't honour at
+// the moment does nothing there, as before (an upscaler on the CPU
+// fallback; 120 Hz then decided at start-up).
+ui::UiCaps uiCaps() {
+    const shell::Caps sc = shell::caps();
+    const display::DisplayCaps dc = display::caps();
+    const input::PadCaps pc = input::anyPadCaps();
+    ui::UiCaps c;
+    c.lightBar = pc.lightBar;
+    c.triggerRumble = pc.triggerRumble;
+    c.adaptiveTriggers = pc.adaptiveTriggers;
+    c.gyro = pc.gyro;
+    c.touchpad = pc.touchpad;
+    c.upscalers = sc.console || dc.upscalers;
+    c.sharpen = sc.console || dc.sharpen;
+    c.deband = sc.console || dc.deband;
+    c.highRefresh = sc.console || dc.highRefreshSwitch;
+    c.console = sc.console;
+    c.openUrl = sc.openUrl;
+    c.selfUpdate = sc.selfUpdate;
+    return c;
 }
 
 // --- Input ---------------------------------------------------------------------
@@ -283,6 +309,7 @@ bool coreStartup() {
                                           : g_settings.librarySort == "console" ? ui::LibrarySort::Console
                                                                                 : ui::LibrarySort::Recent);
     }
+    g_ui->setCaps(uiCaps());
     g_core->canvas.emplace(display::kWidth, display::kHeight);
 
     if (!net::initTls(g_autoplay.badCa ? platform::assetDir() + "/missing.pem" : platform::caBundlePath())) {
@@ -297,6 +324,7 @@ bool coreStartup() {
         startWorker();
     }
     g_core->streamScreen.emplace(fonts);
+    g_core->streamScreen->setCaps(uiCaps());
     crash::startWatchdog(15000);  // a main loop stuck for 15 s leaves a marker
     return true;
 }
@@ -331,7 +359,9 @@ bool Core::frame() {
         ui::Screen now = g_ui->screen();
         if (now == ui::Screen::Home || now == ui::Screen::Details || now == ui::Screen::Settings) {
             clockTold = true;
-            platform::notify(ui::trf(ui::Str::ClockWrongNotice, net::todayText()), "the console's clock looks wrong (notification)");
+            platform::notify(ui::trf(shell::caps().console ? ui::Str::ClockWrongNotice : ui::Str::ClockWrongNoticePc,
+                                     net::todayText()),
+                             "the console's clock looks wrong (notification)");
         }
     }
     // After an update: the new version, started in place of this one.
@@ -376,7 +406,10 @@ bool Core::frame() {
     }
     mouseButtonsBefore = kbm.buttons;
     std::erase_if(swallowedKeys, [&](uint8_t vk) { return !std::binary_search(kbm.held.begin(), kbm.held.end(), vk); });
-    if ((!inGame || streamScreen->menuOpen()) && !capturing) {
+    // On a desktop the digits are typed for other things too: Ctrl + 1-4 there.
+    static const bool playerKeysNeedCtrl = !shell::caps().console;
+    bool ctrlHeld = std::binary_search(kbm.held.begin(), kbm.held.end(), uint8_t{0x11});
+    if ((!inGame || streamScreen->menuOpen()) && !capturing && (!playerKeysNeedCtrl || ctrlHeld)) {
         for (const auto& k : kbm.keys) {
             if (!k.pressed || k.vk < '1' || k.vk > '4') continue;
             int player = k.vk - '1';
@@ -453,6 +486,10 @@ bool Core::frame() {
         }
         g_ui->setPads(slots);
         streamScreen->setPads(slots);
+        // The pads that came or went may change what the screens offer.
+        ui::UiCaps caps = uiCaps();
+        g_ui->setCaps(caps);
+        streamScreen->setCaps(caps);
     }
 
     ui::NavInput nav;
@@ -617,6 +654,12 @@ bool Core::frame() {
             g_command = kSignIn;
             break;
         case ui::Action::Report: openReport(ev.reportWhat, false, ui::tr(ui::Str::ReportProblem)); break;
+        case ui::Action::OpenUrl: {
+            // A desktop: the sign-in page, the report form, the release page.
+            bool ok = shell::openUrl(ev.url);
+            XC_LOGI("browser: %s (a link of %zu characters)", ok ? "opened" : "could not be opened", ev.url.size());
+            break;
+        }
         case ui::Action::None: break;
     }
 

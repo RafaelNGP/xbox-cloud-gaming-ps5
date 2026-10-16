@@ -4,7 +4,7 @@
 // TOUCHPAD, or a swipe), the touchpad's Xbox button, the controllers sent to
 // the game, the console keyboard for its text fields, the picture settings
 // (sharpness, upscaling, block smoothing with "auto") and what is laid over
-// the picture (the menu or the statistics line).
+// the picture (the menu or the statistics line, and a desktop's toasts).
 #pragma once
 
 #include "app/auto_deband.h"
@@ -26,7 +26,7 @@ int keyboardPadSlot(bool keyboardConnected);
 
 class StreamScreen {
 public:
-    explicit StreamScreen(const ui::Fonts& fonts) : menu_(fonts) {}
+    explicit StreamScreen(const ui::Fonts& fonts) : fonts_(fonts), menu_(fonts) {}
 
     // The controllers' slots, for the menu.
     void setPads(const ui::PadSlots& slots);
@@ -39,13 +39,19 @@ public:
     bool menuOpen() const;
     // The hints changed device (keyboard / controller): the overlay again.
     void redrawMenu();
+    // What the display and the pads can do: the game menu hides the rest.
+    void setCaps(const ui::UiCaps& caps);
     // Each pass on any other screen: what the stream left is cleared, and a
     // console keyboard still up is closed.
     void idle();
 
 private:
     void applyDeband_();
+    // The mouse held by the window (input::kbmSetCaptured) while it should
+    // be: a game has the keyboard and mouse, its menu closed, the window focused.
+    void setMouseCaptured_(bool captured);
 
+    const ui::Fonts& fonts_;
     ui::StreamMenu menu_;
     const StreamPlayer* overlayPlayer_ = nullptr;
     int streamResolution_ = 0;  // as SettingsChoice::resolution
@@ -80,6 +86,8 @@ private:
     std::vector<uint8_t> keysInGame_;  // keys the game was told are down
     bool wasStreaming_ = false;
     uint64_t lastMenuRedrawMs_ = 0;
+    uint64_t toastsShown_ = 0;    // platform::toasts()'s version in the overlay
+    bool mouseCaptured_ = false;  // as last asked of input::kbmSetCaptured
 };
 
 }  // namespace xc::app

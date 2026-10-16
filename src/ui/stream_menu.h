@@ -83,6 +83,12 @@ public:
                           bool hasCustomProfile);
     // The controllers in use, under the connection.
     void setPads(const PadSlots& pads) { pads_ = pads; }
+    // What the display and the pads can do (UiCaps, all by default as on
+    // the PS5): the upscaler, sharpness and block smoothing need the
+    // display's; trigger vibration and gyro aiming a pad with them; the
+    // footer names the buttons when no pad has a touchpad.
+    void setCapabilities(const UiCaps& caps);
+    const UiCaps& capabilities() const { return caps_; }
 
     Canvas renderMenu(const StreamInfo& info) const;
     Canvas renderStats(const StreamInfo& info) const;
@@ -107,7 +113,11 @@ private:
         ItemCount
     };
 
+    // Whether `item` is in the menu with caps_.
+    bool itemShown(int item) const;
+
     const Fonts& fonts_;
+    UiCaps caps_;
     bool open_ = false, stats_ = false;
     int selected_ = XboxButton;
     int resolution_ = 0, applied_ = 0;

@@ -32,6 +32,23 @@ std::string fmt(const char* f, double v) {
 
 }  // namespace
 
+bool StreamMenu::itemShown(int item) const {
+    switch (item) {
+    case Upscaler: return caps_.upscalers;
+    case Sharpness: return caps_.sharpen;
+    case Deband: return caps_.deband;
+    case Triggers: return caps_.triggerRumble || caps_.adaptiveTriggers;
+    case GyroItem:
+    case GyroLevelItem: return caps_.gyro;
+    default: return true;
+    }
+}
+
+void StreamMenu::setCapabilities(const UiCaps& caps) {
+    caps_ = caps;
+    while (!itemShown(selected_)) selected_ = (selected_ + 1) % ItemCount;  // off a row that went away
+}
+
 void StreamMenu::setProfileValues(int resolution, int sharpness, int deband, int upscaler,
                                   int triggerStrength, int deadzone, bool circleConfirms,
                                   bool hasCustomProfile) {
@@ -72,8 +89,9 @@ MenuAction StreamMenu::handle(const NavInput& in) {
         open_ = false;
         return MenuAction::Close;
     }
-    if (in.up) selected_ = (selected_ + ItemCount - 1) % ItemCount;
-    if (in.down) selected_ = (selected_ + 1) % ItemCount;
+    // Up / down over the items shown (the Xbox button always is).
+    if (in.up) do selected_ = (selected_ + ItemCount - 1) % ItemCount; while (!itemShown(selected_));
+    if (in.down) do selected_ = (selected_ + 1) % ItemCount; while (!itemShown(selected_));
     if (selected_ == Profile && (in.left || in.right || in.accept)) {
         hasCustomProfile_ = !hasCustomProfile_;
         return MenuAction::ProfileToggle;
@@ -153,8 +171,10 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
 
     // The items: the selected one white, like the Xbox guide.
     constexpr int kRowH = 40, kTop = 84, kPx = 20;
+    int shown = 0;  // the items on screen so far
     for (int i = 0; i < ItemCount; ++i) {
-        Rect row{kPad - 16, kTop + i * kRowH, kMenuW - 2 * (kPad - 16), kRowH - 4};
+        if (!itemShown(i)) continue;
+        Rect row{kPad - 16, kTop + shown++ * kRowH, kMenuW - 2 * (kPad - 16), kRowH - 4};
         bool sel = i == selected_;
         if (sel) c.fillRect(row, kWhite, 8);
         Color fg = sel ? kDark : kWhite;
@@ -229,7 +249,7 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
             fonts_.semibold.draw(c, value, row.x + row.w - 16 - w, ty, kPx, sel ? kDark : kGray);
         }
     }
-    int y = kTop + ItemCount * kRowH + 6;
+    int y = kTop + shown * kRowH + 6;
     if (resolutionAsked_) {
         fonts_.regular.draw(c, tr(Str::ResolutionNote), kPad, y, 16, kDim);
         y += 22;
@@ -321,7 +341,9 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     int hy = kMenuH - 50, x = kPad;
     {
         // The touchpad's gestures, small, above the button hints.
-        auto lines = fonts_.regular.wrap(tr(g_keyboardHints ? Str::MenuKeyHint : Str::MenuGestureHint), 16, kMenuW - 2 * kPad, 2);
+        // (Without a touchpad: the buttons and keys that do the same.)
+        Str hint = g_keyboardHints ? Str::MenuKeyHint : caps_.touchpad ? Str::MenuGestureHint : Str::MenuButtonHint;
+        auto lines = fonts_.regular.wrap(tr(hint), 16, kMenuW - 2 * kPad, 2);
         int gy = hy - 14 - static_cast<int>(lines.size()) * 22;
         for (const auto& l : lines) {
             fonts_.regular.draw(c, l, kPad, gy, 16, kDim);

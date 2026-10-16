@@ -262,6 +262,13 @@ enum class Str {
     GyroAlways,         // ... on all the time
     GyroAiming,         // ... only while L2 is held
     GyroIntensity,      // in-game menu: how far a turn moves the aim
+    ClockWrongPc,       // ClockWrong on a desktop: "this computer", no PS5 menu path; "%s" = its date
+    ClockWrongNoticePc, // ClockWrongNotice on a desktop; "%s" = the date
+    LoginCountryOffPc,  // LoginCountryOff on a desktop: the computer's own country
+    OpenInBrowser,      // hint (sign-in code, report QR code): Cross / Enter opens the page in the browser
+    UpdateReadyPc,      // Settings > Updates on a desktop: "%s" = the new version; Cross opens its page
+    GestureHintButtons, // GestureHint for pads without a touchpad: the buttons and keys that do the same
+    MenuButtonHint,     // MenuGestureHint for pads without a touchpad
     Count
 };
 
