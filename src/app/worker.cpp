@@ -71,7 +71,7 @@ std::string stream(xcloud::GssvClient& gssv) {
     player.setHwDecodeProbe(g_autoplay.hwDecode);
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
-        player.setMicGain(g_settings.micGain);
+        player.setMicGain(g_settings.micGainFactor());
         player.setMicEnabled(g_settings.micEnabled);
         player.setMaxBitrate(g_settings.maxBitrateMbps);
         media::audioSetVolume(g_settings.gameVolume / 100.0f);

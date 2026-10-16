@@ -134,7 +134,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
 
         media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
         if (g_player) {
-            g_player->setMicGain(g_settings.micGain);
+            g_player->setMicGain(g_settings.micGainFactor());
         }
 
         overlaySeq_ = 0;

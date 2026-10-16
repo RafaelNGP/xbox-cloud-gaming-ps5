@@ -304,6 +304,18 @@ static void testSettingsMigration() {
     std::remove(path.c_str());
 }
 
+// The microphone's gain is stored as a choice (0..2), not as the factor.
+static void testMicGain() {
+    app::Settings s;
+    CHECK(s.micGain == 1 && s.micGainFactor() == 1.0f);
+    s.micGain = 0;
+    CHECK(s.micGainFactor() == 0.5f);
+    s.micGain = 2;
+    CHECK(s.micGainFactor() == 1.5f);
+    s.micGain = 7;  // out of range (a hand-edited file): the nearest choice
+    CHECK(s.micGainFactor() == 1.5f);
+}
+
 static void testPerGameSettings() {
     std::string path = "/tmp/xcloud-tests-pergame.json";
     xc::app::Settings s;
@@ -1170,6 +1182,7 @@ int main() {
     testVersions();
     testStreamMenu();
     testSettingsMigration();
+    testMicGain();
     testPerGameSettings();
     testStrings();
     testRegions();
