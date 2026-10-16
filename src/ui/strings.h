@@ -246,6 +246,7 @@ enum class Str {
     BitrateCap,         // Settings row: the stream's bitrate cap (for Wi-Fi)
     BitrateAuto,        // ... its default: the resolution's own
     GameVolume,         // Settings row: the game's sound level
+    MenuKeyHint,        // in-game menu, keyboard in use: its keys (F12 the menu, Home the Xbox button)
     Count
 };
 

@@ -154,6 +154,12 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             menu_.open(streamResolution_, showStats_, sharpness_, deband_, upscaler_, g_playingHome, allow1440,
                        hasCustomProfile_, triggerStrength_, deadzone_, circleConfirms_, micLvl, micMuted);
             overlaySeq_ = 0;
+        } else if (wasOpen && (menuCombo || swipeMenu_)) {
+            // The same gesture or key closes it again.
+            swipeMenu_ = false;
+            menu_.close();
+            overlaySeq_ = 0;
+            g_player->requestKeyframe();
         } else if (wasOpen) {
             switch (menu_.handle(nav)) {
             case ui::MenuAction::Leave: g_cancel = true; break;
@@ -318,12 +324,12 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         if (!padReleased_ || menuCombo) sent = input::ControllerState{};
         // Swiping up or right on the touchpad is the Xbox button (once
         // per swipe; the games never see the touchpad's touches).
-        if (pad.touching && !menu_.isOpen() && g_keyboardFor.empty()) {
+        if (pad.touching && g_keyboardFor.empty()) {
             if (!swipe_.active) swipe_ = {true, false, pad.touchX, pad.touchY};
             float dx = pad.touchX - swipe_.x, dy = swipe_.y - pad.touchY;  // dy > 0: up
             bool right = dx > 0.30f && std::abs(dy) < 0.30f, up = dy > 0.40f && std::abs(dx) < 0.30f;
             bool left = dx < -0.30f && std::abs(dy) < 0.30f, down = dy < -0.40f && std::abs(dx) < 0.30f;
-            if (!swipe_.fired && (right || up)) {
+            if (!swipe_.fired && (right || up) && !menu_.isOpen()) {
                 swipe_.fired = true;
                 g_xboxButtonUntil = platform::nowMs() + 250;
                 XC_LOGI("touchpad swipe_ %s: Xbox button", right ? "right" : "up");
@@ -342,7 +348,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         if (!menu_.isOpen()) {
             input::KbmInput toGame = kbm_;
             toGame.keys.erase(std::remove_if(toGame.keys.begin(), toGame.keys.end(),
-                                             [](const input::KeyEvent& k) { return k.vk == input::kVkAppMenu; }),
+                                             [](const input::KeyEvent& k) { return k.vk == input::kVkAppMenu || k.vk == 0x24; }),
                               toGame.keys.end());
             for (const auto& k : toGame.keys) {
                 auto at = std::find(keysInGame_.begin(), keysInGame_.end(), k.vk);
@@ -426,6 +432,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
 }
 
 bool StreamScreen::menuOpen() const { return menu_.isOpen(); }
+void StreamScreen::redrawMenu() { overlaySeq_ = 0; }
 
 void StreamScreen::idle() {
     keysInGame_.clear();

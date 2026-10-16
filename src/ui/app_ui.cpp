@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 #include "ui/app_ui.h"
+#include "ui/input_mode.h"
 
 #include "input/tuning.h"
 #include "xcloud/catalog.h"
@@ -2302,11 +2303,21 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
         // With Circle confirming, the pad reports it as Cross (and the
         // other way round): the hints show the button to press.
         int icon = it->first;
-        if (circleConfirms_ && (icon == kIconCross || icon == kIconCircle))
-            icon = icon == kIconCross ? kIconCircle : kIconCross;
         int w = fonts_.semibold.measure(it->second, kPx);
         x -= w;
         fonts_.semibold.draw(c, it->second, x, y, kPx, kGray);
+        if (g_keyboardHints) {  // the keyboard's key, as a key cap
+            const char* key = keyLabel(icon);
+            int kw = fonts_.bold.measure(key, 15) + 18;
+            Rect cap{x - 10 - kw, y + 1, kw, 26};
+            c.fillRect(cap, rgba(255, 255, 255, 30), 6);
+            c.strokeRect(cap, kGray, 2, 6);
+            fonts_.bold.draw(c, key, cap.x + 9, fonts_.bold.centeredY(cap.y, cap.h, 15), 15, kWhite);
+            x = cap.x - kGap;
+            continue;
+        }
+        if (circleConfirms_ && (icon == kIconCross || icon == kIconCircle))
+            icon = icon == kIconCross ? kIconCircle : kIconCross;
         x -= 10 + 2 * kR;
         float cx = x + kR, cy = y + 13;
         if (icon == kIconL2R2) {
@@ -2462,7 +2473,7 @@ void AppUi::drawTabs(Canvas& c) {
         c.fillRect(r, rgba(255, 255, 255, 40), 8);
         fonts_.bold.draw(c, name, cx - fonts_.bold.measure(name, 16) / 2, fonts_.bold.centeredY(r.y, r.h, 16), 16, kGray);
     };
-    shoulder("L1", x - 40);
+    shoulder(g_keyboardHints ? "Q" : "L1", x - 40);
     for (int i = 0; i < 3; ++i) {
         bool on = static_cast<int>(tab_) == i;
         Rect r{x, kY, widths[i], kH};
@@ -2470,7 +2481,7 @@ void AppUi::drawTabs(Canvas& c) {
         fonts_.semibold.draw(c, labels[i], x + kPad, fonts_.semibold.centeredY(kY, kH, kPx), kPx, on ? kBg : kGray);
         x += widths[i] + kGap;
     }
-    shoulder("R1", x - kGap + 40);
+    shoulder(g_keyboardHints ? "E" : "R1", x - kGap + 40);
 }
 
 namespace {

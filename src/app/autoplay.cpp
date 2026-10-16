@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RafaelNGP
 // Unattended test mode (tools/ps5/autotest.sh); see autoplay.h.
 #include "app/autoplay.h"
+#include "ui/input_mode.h"
 
 #include "app/ps5_app.h"
 #include "display/display.h"
@@ -63,6 +64,7 @@ void loadAutoplay() {
         if (opt == "cpudisplay") g_autoplay.cpuDisplay = true;
         if (opt == "hwdecode") g_autoplay.hwDecode = true;
         if (opt == "droptest") g_autoplay.dropTest = true;
+        if (opt == "kbhints") ui::g_keyboardHints = true;  // the hints as with a keyboard (screenshots)
         if (opt.rfind("loss=", 0) == 0) g_autoplay.videoLoss = std::atoi(opt.c_str() + 5);
         if (opt == "ai") g_autoplay.upscaler = 1;
         if (opt == "restore") g_autoplay.restore = true;

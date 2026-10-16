@@ -269,6 +269,7 @@ constexpr Column kEnglish = {
     "Maximum bitrate", // BitrateCap
     "Automatic", // BitrateAuto
     "Game volume", // GameVolume
+    "Keyboard: F12 this menu · Home Xbox button", // MenuKeyHint
 };
 
 constexpr Column kPortugueseBR = {
@@ -508,6 +509,7 @@ constexpr Column kPortugueseBR = {
     "Bitrate máximo", // BitrateCap
     "Automático", // BitrateAuto
     "Volume do jogo", // GameVolume
+    "Teclado: F12 este menu · Home botão Xbox", // MenuKeyHint
 };
 
 constexpr Column kSpanish = {
@@ -747,6 +749,7 @@ constexpr Column kSpanish = {
     "Bitrate máximo", // BitrateCap
     "Automático", // BitrateAuto
     "Volumen del juego", // GameVolume
+    "Teclado: F12 este menú · Inicio botón Xbox", // MenuKeyHint
 };
 
 constexpr Column kFrench = {
@@ -986,6 +989,7 @@ constexpr Column kFrench = {
     "Débit maximal", // BitrateCap
     "Automatique", // BitrateAuto
     "Volume du jeu", // GameVolume
+    "Clavier : F12 ce menu · Origine bouton Xbox", // MenuKeyHint
 };
 
 constexpr Column kGerman = {
@@ -1225,6 +1229,7 @@ constexpr Column kGerman = {
     "Maximale Bitrate", // BitrateCap
     "Automatisch", // BitrateAuto
     "Spiellautstärke", // GameVolume
+    "Tastatur: F12 dieses Menü · Pos1 Xbox-Taste", // MenuKeyHint
 };
 
 constexpr Column kItalian = {
@@ -1464,6 +1469,7 @@ constexpr Column kItalian = {
     "Bitrate massimo", // BitrateCap
     "Automatico", // BitrateAuto
     "Volume del gioco", // GameVolume
+    "Tastiera: F12 questo menu · Home pulsante Xbox", // MenuKeyHint
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

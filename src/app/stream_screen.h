@@ -32,6 +32,8 @@ public:
     // is closed (update() sends them).
     void setKbm(input::KbmInput kbm) { kbm_ = std::move(kbm); }
     bool menuOpen() const;
+    // The hints changed device (keyboard / controller): the overlay again.
+    void redrawMenu();
     // Each pass on any other screen: what the stream left is cleared, and a
     // console keyboard still up is closed.
     void idle();

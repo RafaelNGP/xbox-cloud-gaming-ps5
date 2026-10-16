@@ -3,6 +3,7 @@
 #include "ui/stream_menu.h"
 
 #include "ui/strings.h"
+#include "ui/input_mode.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -299,7 +300,7 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     int hy = kMenuH - 50, x = kPad;
     {
         // The touchpad's gestures, small, above the button hints.
-        auto lines = fonts_.regular.wrap(tr(Str::MenuGestureHint), 16, kMenuW - 2 * kPad, 2);
+        auto lines = fonts_.regular.wrap(tr(g_keyboardHints ? Str::MenuKeyHint : Str::MenuGestureHint), 16, kMenuW - 2 * kPad, 2);
         int gy = hy - 14 - static_cast<int>(lines.size()) * 22;
         for (const auto& l : lines) {
             fonts_.regular.draw(c, l, kPad, gy, 16, kDim);
@@ -315,6 +316,20 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
             c.strokeArc(x + 13, hy + 12, 6.0f, 2.5f, 0, 6.2832f, rgba(255, 102, 102));
         }
     };
+    if (g_keyboardHints) {  // Enter / Esc as key caps
+        auto cap = [&](const char* key) {
+            int kw = fonts_.bold.measure(key, 15) + 18;
+            c.fillRect({x, hy, kw, 26}, rgba(255, 255, 255, 30), 6);
+            c.strokeRect({x, hy, kw, 26}, kGray, 2, 6);
+            fonts_.bold.draw(c, key, x + 9, fonts_.bold.centeredY(hy, 26, 15), 15, kWhite);
+            return kw;
+        };
+        int kw = cap("Enter");
+        x = fonts_.semibold.draw(c, tr(Str::Select), x + kw + 8, hy, 20, kGray) + 32;
+        kw = cap("Esc");
+        fonts_.semibold.draw(c, tr(Str::Back), x + kw + 8, hy, 20, kGray);
+        return c;
+    }
     icon(!circleConfirms_);
     x = fonts_.semibold.draw(c, tr(Str::Select), x + 34, hy, 20, kGray) + 32;
     icon(circleConfirms_);

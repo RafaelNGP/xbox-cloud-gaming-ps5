@@ -17,6 +17,7 @@
 #include "input/controller.h"
 #include "input/kbm.h"
 #include "input/keyboard_nav.h"
+#include "ui/input_mode.h"
 #include "input/tuning.h"
 #include "net/http.h"
 #include "platform/platform.h"
@@ -274,7 +275,8 @@ int main(int argc, char** argv) {
 
     // Never return from main: the app is closed from the home screen.
     input::ControllerState prev{}, pad{};
-    bool appMenuKeyBefore = false;  // F12 held at the last pass
+    bool appMenuKeyBefore = false, homeKeyBefore = false;  // F12 / Home held at the last pass
+    auto now0 = [] { return platform::nowMs(); };
     Repeater up, down, left, right, dpadLeft, dpadRight;
     // Smooth scrolling: rows / cards still to move (fractions carry over),
     // the touchpad's last point, and its speed for the glide after release.
@@ -341,6 +343,27 @@ int main(int argc, char** argv) {
         // controller; in a game otherwise, its keys and the mouse go to the game.
         input::KbmInput kbm = input::kbmPoll();
         bool inGame = g_ui->screen() == ui::Screen::Streaming;
+        {
+            // The hints follow the device last used: a key or the mouse
+            // switches them to the keyboard's keys, the controller back.
+            bool keyPressed = std::any_of(kbm.keys.begin(), kbm.keys.end(), [](const input::KeyEvent& k) { return k.pressed; });
+            bool padUsed = pad.btnA || pad.btnB || pad.btnX || pad.btnY || pad.dpadUp || pad.dpadDown || pad.dpadLeft ||
+                           pad.dpadRight || pad.btnL1 || pad.btnR1 || pad.btnOptions || pad.btnTouchpad ||
+                           std::abs(pad.leftStickX) > 0.5f || std::abs(pad.leftStickY) > 0.5f ||
+                           std::abs(pad.rightStickX) > 0.5f || std::abs(pad.rightStickY) > 0.5f;
+            bool keyboard = ui::g_keyboardHints;
+            if (keyPressed || kbm.moved) keyboard = true;
+            else if (padUsed) keyboard = false;
+            if (keyboard != ui::g_keyboardHints) {
+                ui::g_keyboardHints = keyboard;
+                g_ui->invalidate();
+                streamScreen.redrawMenu();
+            }
+        }
+        // Home: the Xbox button in a game (as the touchpad swiped up).
+        bool homeKey = std::binary_search(kbm.held.begin(), kbm.held.end(), uint8_t{0x24});
+        if (inGame && homeKey && !homeKeyBefore && !streamScreen.menuOpen()) g_xboxButtonUntil = now0() + 250;
+        homeKeyBefore = homeKey;
         bool appMenuKey = std::binary_search(kbm.held.begin(), kbm.held.end(), input::kVkAppMenu);
         bool appMenuPressed = appMenuKey && !appMenuKeyBefore;
         appMenuKeyBefore = appMenuKey;
