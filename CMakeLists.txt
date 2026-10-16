@@ -10,6 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # XCLOUD_PS5 is set by cmake/ps5.toolchain.cmake.
 option(XCLOUD_PS5 "Build for the PS5 (payload SDK)" OFF)
+include(cmake/platform.cmake)
 
 # --- Portable core: auth, HTTPS, xCloud protocol -----------------------------
 # The CA bundle inside the binary too: used when assets/cacert.pem can't be read.
@@ -34,7 +35,7 @@ add_library(xcloud_core STATIC
     src/xcloud/titlehub.cpp
     src/xcloud/regions.cpp
     src/xcloud/prices.cpp
-    src/input/kbm.cpp
+    src/input/controller_common.cpp
     src/input/kbm_map.cpp
     src/input/key_map.cpp
     src/input/keyboard_nav.cpp
@@ -49,7 +50,7 @@ endif()
 
 # mbedTLS and libdatachannel are built from deps/ for both targets.
 include(cmake/deps/mbedtls.cmake)
-target_link_libraries(xcloud_core PUBLIC xc_mbedtls)
+target_link_libraries(xcloud_core PUBLIC xc_mbedtls xc_platform)
 if(NOT XCLOUD_PS5)
     find_package(Threads REQUIRED)
 endif()
@@ -107,10 +108,11 @@ if(XCLOUD_PS5)
         src/app/price_loop.cpp
         src/app/autoplay.cpp
         src/app/stream_player.cpp
-        src/display/display.cpp
+        src/display/display_ps5.cpp
         src/display/gpu.cpp
-        src/media/hw_decoder.cpp
-        src/input/controller.cpp
+        src/media/hw_decoder_ps5.cpp
+        src/input/controller_ps5.cpp
+        src/input/kbm_ps5.cpp
     )
     target_include_directories(xcloud_app PRIVATE "${PS5_RADV}/include")
     target_link_libraries(xcloud_app PUBLIC xcloud_stream xcloud_media xcloud_ui)
@@ -118,11 +120,24 @@ else()
     target_link_libraries(xcloud_core PUBLIC Threads::Threads)
     target_sources(xcloud_core PRIVATE src/platform/host/platform_host.cpp)
 
+    # No screen, pads, USB keyboard or hardware decoder: what a desktop
+    # build links in place of the PS5's backends (docs/multiplatform.md).
+    add_library(xcloud_backends_null OBJECT
+        src/display/display_null.cpp
+        src/input/controller_null.cpp
+        src/input/kbm_null.cpp
+        src/media/hw_decoder_null.cpp
+    )
+    target_link_libraries(xcloud_backends_null PUBLIC xcloud_core)
+    if(NOT MSVC)
+        target_compile_options(xcloud_backends_null PRIVATE -Wall -Wextra -Wno-unused-parameter)
+    endif()
+
     add_executable(xcloud-cli src/app/cli_main.cpp)
     target_link_libraries(xcloud-cli PRIVATE xcloud_stream xcloud_media xcloud_ui xc_ffmpeg)
 
     enable_testing()
     add_executable(xcloud-tests tests/test_main.cpp)
-    target_link_libraries(xcloud-tests PRIVATE xcloud_stream xcloud_media xcloud_ui xc_ffmpeg datachannel-static)
+    target_link_libraries(xcloud-tests PRIVATE xcloud_stream xcloud_media xcloud_ui xcloud_backends_null xc_ffmpeg datachannel-static)
     add_test(NAME unit COMMAND xcloud-tests)
 endif()

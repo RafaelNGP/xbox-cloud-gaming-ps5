@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
+// USB keyboards and mice through libSceKeyboard and libSceMouse (kbm.h).
+// kbm_null.cpp stands in elsewhere.
 #include "input/kbm.h"
 
 #include "platform/platform.h"
@@ -8,8 +10,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <string>
-
-#if defined(XCLOUD_PS5)
 
 extern "C" {
 int sceSysmoduleLoadModule(uint16_t id);
@@ -208,12 +208,3 @@ KbmInput kbmPoll() {
 }
 
 }  // namespace xc::input
-
-#else  // the desktop build: no USB devices read
-
-namespace xc::input {
-bool kbmInit(int32_t) { return false; }
-KbmInput kbmPoll() { return {}; }
-}  // namespace xc::input
-
-#endif

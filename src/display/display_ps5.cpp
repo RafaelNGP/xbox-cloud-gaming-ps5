@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
+// The PS5's display: the GPU (gpu.cpp) when it comes up, else VideoOut
+// buffers drawn on the CPU. display_null.cpp stands in elsewhere.
 #include "display/display.h"
 #include "display/gpu.h"
 #include "platform/platform.h"
@@ -16,8 +18,6 @@
 #include <mutex>
 #include <thread>
 #include <vector>
-
-#if defined(XCLOUD_PS5)
 
 extern "C" {
 size_t sceKernelGetDirectMemorySize();
@@ -517,28 +517,3 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
 }
 
 } // namespace xc::display
-
-#else
-
-// Host PC fallback implementation
-namespace xc::display {
-std::mutex& frameMutex() {
-    static std::mutex m;
-    return m;
-}
-bool init(bool) { return true; }
-void shutdown() {}
-void present() {}
-bool drawYuv420(const uint8_t*, const uint8_t*, const uint8_t*, int, int, int, int, int, bool) { return true; }
-void drawRgba(const uint32_t*) {}
-void setOverlay(const uint32_t*, int, int, int, int, uint8_t) {}
-void setSharpness(int) {}
-void setDeband(int) {}
-void setUpscaler(int) {}
-void setRestore(bool) {}
-uint64_t lastPresentId() { return 0; }
-bool lastShown(uint64_t&, uint64_t&) { return false; }
-bool readBackRgb(std::vector<uint8_t>&, int&, int&) { return false; }
-} // namespace xc::display
-
-#endif

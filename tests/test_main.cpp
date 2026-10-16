@@ -9,6 +9,8 @@
 #include "app/report.h"
 #include "media/audio_encoder.h"
 #include "media/decoder.h"
+#include "media/hw_decoder.h"
+#include "input/controller.h"
 #include "input/gyro.h"
 #include "input/tuning.h"
 #include "net/http.h"
@@ -1121,7 +1123,28 @@ static void testGyro() {
     CHECK(std::abs(x5 - xf) < 0.01f);
 }
 
+// The desktop's stand-ins for the PS5 backends: nothing connected, the
+// settings kept for their getters.
+static void testNullBackends() {
+    CHECK(input::init());
+    input::ControllerState pad;
+    pad.btnA = true;
+    CHECK(!input::poll(pad) && !pad.connected && !pad.btnA);
+    CHECK(!input::pollPad(2, pad) && !input::padConnected(0) && input::padUserName(0).empty());
+    CHECK(input::padUserId(0) == -1 && input::padActiveAt(0) == 0);
+    input::setCircleConfirms(true);
+    CHECK(input::circleConfirms());
+    input::setCircleConfirms(false);
+    CHECK(!input::circleConfirms());
+    CHECK(!input::kbmInit(-1));
+    input::KbmInput kbm = input::kbmPoll();
+    CHECK(!kbm.keyboard && !kbm.mouse && kbm.keys.empty() && !kbm.moved);
+    media::HwDecoder hw;
+    CHECK(!hw.init(1920, 1088) && !hw.ready());
+}
+
 int main() {
+    testNullBackends();
     testLoginRetry();
     testGyro();
     testReport();

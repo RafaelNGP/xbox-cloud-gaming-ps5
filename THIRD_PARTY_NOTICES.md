@@ -70,7 +70,7 @@ Copyright (c) 2021 Advanced Micro Devices, Inc.: see `extern/fsr1/LICENSE.txt`.
 
 ## References
 
-- `src/media/hw_decoder.cpp` declares libSceVideodec2's structures as the PS5
+- `src/media/hw_decoder_ps5.cpp` declares libSceVideodec2's structures as the PS5
   lays them out, and sets the decoder up (sysmodule 207, memory type 12,
   compute queue 0/0) after BlackBearReloaded's
   [ProsperoLight](https://github.com/blackbearreloaded/ProsperoLight) and
