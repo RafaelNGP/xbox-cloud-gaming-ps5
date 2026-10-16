@@ -9,6 +9,10 @@
 #include "app/report.h"
 #include "display/display.h"
 #include "media/audio_encoder.h"
+#include "media/audio_in.h"
+#include "media/audio_in_common.h"
+#include "media/audio_out.h"
+#include "media/audio_queue.h"
 #include "media/decoder.h"
 #include "media/hw_decoder.h"
 #include "input/controller.h"
@@ -27,6 +31,7 @@
 #include "stream/h264_receiver.h"
 #include "input/kbm.h"
 #include "input/keyboard_nav.h"
+#include "input/sdl_mapping.h"
 #include "platform/platform.h"
 #include "auth/msa.h"
 #include "ui/image_cache.h"
@@ -35,6 +40,8 @@
 #include "xcloud/prices.h"
 #include "xcloud/regions.h"
 
+#include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <csignal>
@@ -1159,8 +1166,202 @@ static void testNullBackends() {
     CHECK(!display::canSwitchRefresh() && !display::setHighRefresh(true) && !display::bringUpTest(1));
 }
 
+// --- M1 input / audio backends (pure parts, null backends) ----------------
+
+// The audio queue: bounded at ~60 ms (cut back to 40 ms, oldest first),
+// silence past its end, the volume, and what the periodic log counts.
+static void testAudioQueue() {
+    media::AudioQueue q;
+    std::vector<float> in(48 * 2 * 10, 0.25f);  // 10 ms
+    q.push(in.data(), 480);
+    CHECK(q.queuedFrames() == 0);  // closed: ignored
+    q.open();
+    for (int i = 0; i < 5; ++i) q.push(in.data(), 480);  // 50 ms: under the bound
+    CHECK(q.queuedFrames() == 2400 && q.stats().trimmed == 0);
+    q.push(in.data(), 480);
+    q.push(in.data(), 480);  // 70 ms: past 60, back to 40
+    CHECK(q.queuedFrames() == media::AudioQueue::kTrimTo && q.stats().trimmed == 3360 - 1920);
+    // The oldest go first: mark the newest frame and find it last.
+    float mark[2] = {0.5f, -0.5f};
+    q.push(mark, 1);
+    std::vector<float> out(1921 * 2);
+    q.pull(out.data(), 1921);
+    CHECK(out[1920 * 2] == 0.5f && out[1920 * 2 + 1] == -0.5f && out[0] == 0.25f);
+    CHECK(q.queuedFrames() == 0);
+    q.pull(out.data(), 256);  // empty: silence, counted
+    CHECK(out[0] == 0.0f && out[511] == 0.0f);
+    media::AudioQueue::Stats st = q.stats();
+    CHECK(st.pulls == 2 && st.empty == 1 && st.frames == 1921 + 256 && st.depthMax == 1921);
+    // Volume: clamped to 0..2, applied and clipped at full scale.
+    q.setVolume(5.0f);
+    CHECK(q.volume() == 2.0f);
+    float loud[4] = {0.75f, -0.25f, 0.1f, -0.9f};
+    q.push(loud, 2);
+    q.pull(out.data(), 2);
+    CHECK(out[0] == 1.0f && out[1] == -0.5f && std::abs(out[2] - 0.2f) < 1e-6f && out[3] == -1.0f);
+    q.setVolume(-1.0f);
+    CHECK(q.volume() == 0.0f);
+    q.setVolume(1.0f);
+    // ~10 s of sound pulled (480000 frames): logged, and the counts start
+    // again. 2179 frames so far, so the 1867th grain of 256 crosses it.
+    for (int i = 0; i < 1875; ++i) q.pull(out.data(), 256);
+    CHECK(q.stats().pulls == 8 && q.stats().frames == 8 * 256 && q.stats().trimmed == 0);
+    q.close();
+    q.push(loud, 2);
+    CHECK(q.queuedFrames() == 0);
+}
+
+// The microphone's pipeline: gain (clipped), mute, the meter, 20 ms frames.
+static void testMicPipeline() {
+    media::MicPipeline mic;
+    std::atomic<float> level{0.0f};
+    std::vector<std::vector<int16_t>> frames;
+    media::AudioIn::AudioCallback cb = [&](const int16_t* pcm, size_t n) { frames.emplace_back(pcm, pcm + n); };
+    std::vector<int16_t> grain(media::MicPipeline::kGrain, 1000);
+    for (int i = 0; i < 3; ++i) mic.process(grain.data(), grain.size(), false, 1.0f, level, cb);
+    CHECK(frames.empty() && level.load() > 0.3f);  // 768 samples: not a frame yet
+    mic.process(grain.data(), grain.size(), false, 1.0f, level, cb);
+    CHECK(frames.size() == 1 && frames[0].size() == media::AudioIn::kFrameSize && frames[0][959] == 1000);
+    std::vector<int16_t> loud(media::MicPipeline::kGrain, 30000);
+    mic.process(loud.data(), loud.size(), false, 1.5f, level, cb);
+    CHECK(loud[0] == 32767 && level.load() == 1.0f);  // clipped at full scale
+    std::vector<int16_t> half(media::MicPipeline::kGrain, 1000);
+    mic.process(half.data(), half.size(), false, 0.5f, level, cb);
+    CHECK(half[0] == 500);
+    float before = level.load();
+    mic.process(grain.data(), grain.size(), true, 1.0f, level, cb);  // muted: silence, the meter falls back
+    CHECK(grain[0] == 0 && level.load() < before && level.load() > 0.9f * before);
+    CHECK(frames.size() == 1);  // three grains since the first frame: 64 + 768 samples left
+    mic.process(grain.data(), grain.size(), true, 1.0f, level, cb);
+    CHECK(frames.size() == 2 && frames[1][959] == 0);
+}
+
+// The DualSense's trigger effects through SDL: the bytes for off, feedback
+// (resistance) and vibration, and where each trigger's block sits.
+static void testDs5TriggerEffects() {
+    using namespace xc::input;
+    uint8_t b[kDs5TriggerBlock];
+    ds5TriggerBlock(TriggerCommand{}, b);  // mode 0
+    const uint8_t off[11] = {0x05, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    CHECK(std::equal(b, b + 11, off));
+    TriggerCommand weight = triggerCommand(0, 2, 1, 2, false, 0);  // medium resistance: from 3, strength 4
+    CHECK(weight.mode == 1 && weight.data[0] == 3 && weight.data[1] == 4);
+    ds5TriggerBlock(weight, b);
+    const uint8_t feedback[11] = {0x21, 0xF8, 0x03, 0x00, 0xB6, 0x6D, 0x1B, 0, 0, 0, 0};
+    CHECK(std::equal(b, b + 11, feedback));
+    TriggerCommand vib = triggerCommand(38, 2, 1, 2, false, 0);  // amplitude 4 at 60 Hz, from 0
+    CHECK(vib.mode == 3 && vib.data[1] == 4 && vib.data[2] == 60);
+    ds5TriggerBlock(vib, b);
+    const uint8_t vibration[11] = {0x26, 0xFF, 0x03, 0xDB, 0xB6, 0x6D, 0x1B, 0, 0, 60, 0};
+    CHECK(std::equal(b, b + 11, vibration));
+    TriggerCommand strongest;  // a pulse at its hardest: strength 8 -> 7 in every zone
+    strongest.mode = 1;
+    strongest.data[1] = 8;
+    ds5TriggerBlock(strongest, b);
+    const uint8_t full[11] = {0x21, 0xFF, 0x03, 0xFF, 0xFF, 0xFF, 0x3F, 0, 0, 0, 0};
+    CHECK(std::equal(b, b + 11, full));
+    TriggerCommand silent;  // vibration with no amplitude: off
+    silent.mode = 3;
+    silent.data[2] = 60;
+    ds5TriggerBlock(silent, b);
+    CHECK(std::equal(b, b + 11, off));
+    uint8_t packet[kDs5EffectsSize];
+    ds5TriggerEffects(vib, weight, packet);  // L2 vibrating, R2 weighted
+    CHECK(packet[0] == 0x0C && packet[1] == 0 && packet[2] == 0 && packet[9] == 0);
+    CHECK(std::equal(packet + kDs5RightTrigger, packet + kDs5RightTrigger + 11, feedback));
+    CHECK(std::equal(packet + kDs5LeftTrigger, packet + kDs5LeftTrigger + 11, vibration));
+    CHECK(std::all_of(packet + 32, packet + kDs5EffectsSize, [](uint8_t v) { return v == 0; }));  // no light bar
+}
+
+// SDL's mouse button mask -> the wire's bits (right and middle swap places).
+static void testSdlMouseButtons() {
+    using xc::input::sdlMouseButtons;
+    CHECK(sdlMouseButtons(0) == 0);
+    CHECK(sdlMouseButtons(1) == 1);    // left
+    CHECK(sdlMouseButtons(2) == 4);    // middle
+    CHECK(sdlMouseButtons(4) == 2);    // right
+    CHECK(sdlMouseButtons(8) == 8);    // X1: back
+    CHECK(sdlMouseButtons(16) == 16);  // X2: forward
+    CHECK(sdlMouseButtons(1 | 4) == 3 && sdlMouseButtons(31) == 31 && sdlMouseButtons(0xFFFFFFE0u) == 0);
+}
+
+// SDL's scancodes are HID usages: the same keys as the PS5's keyboard.
+static void testScancodeToVk() {
+    using xc::input::scancodeToVk;
+    for (int sc = 0; sc < 224; ++sc) CHECK(scancodeToVk(sc) == xc::input::hidToVk(static_cast<uint16_t>(sc)));
+    CHECK(scancodeToVk(4) == 'A' && scancodeToVk(29) == 'Z' && scancodeToVk(30) == '1' && scancodeToVk(39) == '0');
+    CHECK(scancodeToVk(40) == 0x0D && scancodeToVk(41) == 0x1B && scancodeToVk(44) == 0x20 && scancodeToVk(58) == 0x70);
+    CHECK(scancodeToVk(79) == 0x27 && scancodeToVk(82) == 0x26);  // right, up
+    const uint8_t mods[8] = {0x11, 0x10, 0x12, 0x5B, 0x11, 0x10, 0x12, 0x5C};  // LCtrl LShift LAlt LGui, then right
+    for (int i = 0; i < 8; ++i) CHECK(scancodeToVk(224 + i) == mods[i]);
+    CHECK(scancodeToVk(0) == 0 && scancodeToVk(232) == 0 && scancodeToVk(257) == 0 && scancodeToVk(-1) == 0);
+}
+
+// SDL's sensors and axes in the units the shared code takes.
+static void testSdlSensorUnits() {
+    using namespace xc::input;
+    const float ms2[3] = {0.0f, 9.80665f, -4.903325f};
+    float g[3];
+    sdlAccelToG(ms2, g);
+    CHECK(g[0] == 0.0f && std::abs(g[1] - 1.0f) < 1e-6f && std::abs(g[2] + 0.5f) < 1e-6f);
+    // Held flat and still at 1 g: gyro aiming's "up" stays put, no push.
+    GyroState s;
+    const float still[3] = {0, 0, 0};
+    float x = 1, y = 1;
+    for (int i = 0; i < 10; ++i) gyroToStick(still, g, 5, s, x, y);
+    CHECK(x == 0 && y == 0);
+    CHECK(sdlStickAxis(32767) == 1.0f && sdlStickAxis(-32768) == -1.0f && sdlStickAxis(0) == 0.0f);
+    CHECK(std::abs(sdlStickAxis(16384) - 0.5f) < 0.001f);
+    CHECK(sdlTriggerAxis(32767) == 1.0f && sdlTriggerAxis(0) == 0.0f && sdlTriggerAxis(-5) == 0.0f);
+    uint8_t c[3];
+    playerLightColour(0, c);
+    CHECK(c[0] == 0 && c[1] == 112 && c[2] == 220);
+    playerLightColour(3, c);
+    CHECK(c[0] == 225 && c[1] == 90 && c[2] == 175);
+    CHECK(triggerMotorLevel(0) == 0 && triggerMotorLevel(128) == 128 && triggerMotorLevel(128, 1) == 64);
+    CHECK(triggerMotorLevel(200, 3) == 255 && triggerMotorLevel(1, 4) == 255 && triggerMotorLevel(200, 0) == 0);
+}
+
+// The null backends stay honest about M1's additions: no pad and no
+// capabilities, capturing the mouse does nothing, sound goes nowhere.
+static void testNullBackendsM1() {
+    input::PadCaps caps = input::padCaps(0), any = input::anyPadCaps();
+    CHECK(caps.kind == input::PadKind::None && !caps.rumble && !caps.triggerRumble && !caps.adaptiveTriggers);
+    CHECK(any.kind == input::PadKind::None && !any.lightBar && !any.gyro && !any.touchpad);
+    CHECK(input::padDeviceName(0).empty() && input::padCaps(9).kind == input::PadKind::None);
+    input::setRumble(255, 255, 100, 0);  // nowhere to go, and nothing breaks
+    input::setLightBar(1, 2, 3, 0);
+    input::ControllerState pad;
+    CHECK(!input::poll(pad) && !input::padConnected(0));
+    input::kbmSetCaptured(true);
+    input::KbmInput kbm = input::kbmPoll();
+    CHECK(!kbm.keyboard && !kbm.mouse && !kbm.moved && kbm.dx == 0);
+    input::kbmSetCaptured(false);
+    CHECK(media::audioStart() && media::audioStart());
+    std::vector<float> sound(48 * 2 * 100, 0.1f);  // 100 ms, never played: kept to the bound
+    media::audioPush(sound.data(), 4800);
+    CHECK(media::audioQueue().queuedFrames() == media::AudioQueue::kTrimTo);
+    media::audioStop();
+    CHECK(media::audioQueue().queuedFrames() == 0);
+    media::audioPush(sound.data(), 480);
+    CHECK(media::audioQueue().queuedFrames() == 0);  // stopped: ignored
+    media::AudioIn mic;
+    bool called = false;
+    CHECK(mic.open([&](const int16_t*, size_t) { called = true; }) && mic.isRecording());
+    CHECK(!mic.isHardwareMuted() && mic.level() == 0.0f);
+    mic.close();
+    CHECK(!mic.isRecording() && !called);
+}
+
 int main() {
     testNullBackends();
+    testNullBackendsM1();
+    testAudioQueue();
+    testMicPipeline();
+    testDs5TriggerEffects();
+    testSdlMouseButtons();
+    testScancodeToVk();
+    testSdlSensorUnits();
     testLoginRetry();
     testGyro();
     testReport();
