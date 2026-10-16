@@ -1035,7 +1035,7 @@ static void testLoginRetry() {
     });
     xcloud::GssvClient gssv;
     std::string err;
-    CHECK(gssv.login(auth::XblToken{}, err) && calls == 3);
+    CHECK(gssv.login(auth::XblToken{}, err) && calls == 3);  // (3 s of waits)
     calls = 0;
     net::setTestTransport([&](const net::Request&) {
         ++calls;
