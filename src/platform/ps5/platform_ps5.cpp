@@ -197,6 +197,9 @@ std::string firmwareVersion() {
     return s;
 }
 
+// One user per app sandbox: nothing to hide the sign-in from.
+void makePrivate(const std::string&) {}
+
 void notify(const std::string& text) { notify(text, text); }
 
 void notify(const std::string& text, const std::string& forLog) {

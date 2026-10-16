@@ -16,6 +16,7 @@
 #include "input/tuning.h"
 #include "net/http.h"
 #include "platform/platform.h"
+#include "platform/toasts.h"
 #include "stream/input_packet.h"
 #include "stream/stream_session.h"
 #include "ui/app_ui.h"
@@ -1138,6 +1139,42 @@ static void testGyro() {
 
 // The desktop's stand-ins for the PS5 backends: nothing connected, the
 // settings kept for their getters.
+// The desktop app's in-app notices (platform/toasts.h).
+static void testToasts() {
+    using platform::ToastQueue;
+    ToastQueue q;
+    uint64_t v0 = q.version(1000);
+    CHECK(q.visible(1000).empty() && q.version(1000) == v0);
+    q.push("one", 1000);
+    q.push("", 1000);  // nothing
+    CHECK(q.visible(1000) == std::vector<std::string>{"one"});
+    uint64_t v1 = q.version(1000);
+    CHECK(v1 != v0 && q.version(1001) == v1);  // nothing changed: no redraw
+    q.push("two", 2000);
+    q.push("three", 2500);
+    q.push("four", 3000);  // waits: three on screen at most
+    CHECK((q.visible(3000) == std::vector<std::string>{"one", "two", "three"}));
+    // "one" has had its time: "four" takes its place, and the version moves.
+    uint64_t v2 = q.version(5999);
+    CHECK(q.version(6000) != v2);
+    CHECK((q.visible(6000) == std::vector<std::string>{"two", "three", "four"}));
+    // The same text again restarts it at the end instead of stacking.
+    q.push("two", 6500);
+    CHECK((q.visible(6500) == std::vector<std::string>{"three", "four", "two"}));
+    CHECK((q.visible(7499) == std::vector<std::string>{"three", "four", "two"}));
+    CHECK((q.visible(7500) == std::vector<std::string>{"four", "two"}));  // three's time (from 2500) is up
+    CHECK((q.visible(11000) == std::vector<std::string>{"two"}));        // four's (from 6000)
+    CHECK(q.visible(11500).empty());
+    // Bounded: the oldest dropped beyond kMaxQueued.
+    for (size_t i = 0; i < ToastQueue::kMaxQueued + 5; ++i) q.push("n" + std::to_string(i), 20000);
+    auto shown = q.visible(20000);
+    CHECK(shown.size() == ToastQueue::kMaxShown && shown.front() == "n5");
+    q.clear();
+    CHECK(q.visible(20000).empty());
+    // Off by default: the tools keep printing notifications.
+    CHECK(!platform::toastsEnabled());
+}
+
 static void testNullBackends() {
     CHECK(input::init());
     input::ControllerState pad;
@@ -1161,6 +1198,7 @@ static void testNullBackends() {
 
 int main() {
     testNullBackends();
+    testToasts();
     testLoginRetry();
     testGyro();
     testReport();

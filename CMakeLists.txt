@@ -41,6 +41,7 @@ add_library(xcloud_core STATIC
     src/input/keyboard_nav.cpp
     src/xcloud/social.cpp
     src/platform/posix_common.cpp
+    src/platform/toasts.cpp
     src/input/gyro.cpp
 )
 target_include_directories(xcloud_core PUBLIC src)
@@ -142,7 +143,7 @@ if(XCLOUD_PS5)
     target_link_libraries(xcloud_app PUBLIC xcloud_stream xcloud_media xcloud_ui)
 else()
     target_link_libraries(xcloud_core PUBLIC Threads::Threads)
-    target_sources(xcloud_core PRIVATE src/platform/host/platform_host.cpp)
+    target_sources(xcloud_core PRIVATE src/platform/linux/platform_linux.cpp)
 
     # No screen, pads, USB keyboard or hardware decoder: what a desktop
     # build links in place of the PS5's backends (docs/multiplatform.md).
