@@ -287,6 +287,21 @@ int main(int argc, char** argv) {
     input::ControllerState prev{}, pad{};
     bool appMenuKeyBefore = false, homeKeyBefore = false;  // F12 / Home held at the last pass
     bool kbmConnected = false;                              // a USB keyboard or mouse in use
+    uint64_t keyboardActiveAt = 0;                          // when a key or the mouse was last used (ms)
+    // The slot showing the keyboard (-1 none): the keyboard's player, while
+    // the keyboard was used after that player's own controller (or it has none).
+    auto keyboardIconSlot = [&]() -> int {
+        if (!kbmConnected) return -1;
+        int player;
+        {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            player = g_settings.keyboardPlayer;
+        }
+        if (player < 0 || player >= input::kMaxPads) return -1;
+        bool keyboardLast = !input::padConnected(player) || keyboardActiveAt > input::padActiveAt(player);
+        return keyboardLast ? player : -1;
+    };
+    int keyboardIconShown = -2;  // as last drawn in the players' row
     auto now0 = [] { return platform::nowMs(); };
     Repeater up, down, left, right, dpadLeft, dpadRight;
     // Smooth scrolling: rows / cards still to move (fractions carry over),
@@ -363,7 +378,7 @@ int main(int argc, char** argv) {
                            std::abs(pad.leftStickX) > 0.5f || std::abs(pad.leftStickY) > 0.5f ||
                            std::abs(pad.rightStickX) > 0.5f || std::abs(pad.rightStickY) > 0.5f;
             bool keyboard = ui::g_keyboardHints;
-            if (keyPressed || kbm.moved) keyboard = true;
+            if (keyPressed || kbm.moved) keyboard = true, keyboardActiveAt = now0();
             else if (padUsed) keyboard = false;
             if (keyboard != ui::g_keyboardHints) {
                 ui::g_keyboardHints = keyboard;
@@ -397,6 +412,10 @@ int main(int argc, char** argv) {
         appMenuKeyBefore = appMenuKey;
         if (!inGame || streamScreen.menuOpen()) input::keyboardToPad(kbm.held, pad);
         kbmConnected = kbm.keyboard || kbm.mouse || g_autoplay.kbHints;
+        if (int shown = keyboardIconSlot(); shown != keyboardIconShown) {
+            keyboardIconShown = shown;
+            padsCheckedAt = 0;  // the players' row at once, as the device in use changes
+        }
         streamScreen.setKbm(std::move(kbm));
         {
             // The triggers' resistance: in a game and in its Settings tester only.
@@ -436,8 +455,10 @@ int main(int argc, char** argv) {
                 slots[static_cast<size_t>(i)] = {input::padConnected(i), input::padUserName(i)};
             // The keyboard: in a slot of its own as another player's
             // controller (Settings), else on player 1's while it's the device in use.
-            if (int kb = keyboardPadSlot(kbmConnected); kb >= 0) slots[static_cast<size_t>(kb)] = {true, "", true};
-            else if (kbmConnected && ui::g_keyboardHints) slots[0].keyboard = slots[0].connected = true;
+            if (int kb = keyboardIconSlot(); kb >= 0) {
+                slots[static_cast<size_t>(kb)].keyboard = true;
+                slots[static_cast<size_t>(kb)].connected = true;
+            }
             g_ui->setPads(slots);
             streamScreen.setPads(slots);
         }

@@ -12,6 +12,15 @@
 
 #include "platform/platform.h"
 
+namespace xc::input {
+bool inUse(const ControllerState& s) {
+    return s.btnA || s.btnB || s.btnX || s.btnY || s.dpadUp || s.dpadDown || s.dpadLeft || s.dpadRight || s.btnL1 ||
+           s.btnR1 || s.btnL3 || s.btnR3 || s.btnOptions || s.btnTouchpad || s.triggerL2 > 0.5f || s.triggerR2 > 0.5f ||
+           std::abs(s.leftStickX) > 0.5f || std::abs(s.leftStickY) > 0.5f || std::abs(s.rightStickX) > 0.5f ||
+           std::abs(s.rightStickY) > 0.5f;
+}
+}  // namespace xc::input
+
 #if defined(XCLOUD_PS5)
 
 extern "C" {
@@ -152,6 +161,7 @@ struct Pad {
     uint32_t lightApplied = 0;
     float light[3] = {0, 0, 0};
     bool lightStarted = false;
+    std::atomic<uint64_t> activeAt{0};  // the last poll with a button or stick in use (ms)
 };
 Pad g_pads[kMaxPads];
 std::atomic<float> g_deadzone[2] = {0.15f, 0.15f};
@@ -440,9 +450,12 @@ bool pollPad(int index, ControllerState& out) {
         out.touchX = std::clamp(pad.touchData.touch[0].x / 1919.0f, 0.0f, 1.0f);
         out.touchY = std::clamp(pad.touchData.touch[0].y / 1079.0f, 0.0f, 1.0f);
     }
+    if (inUse(out)) slot.activeAt = platform::nowMs();
 
     return true;
 }
+
+uint64_t padActiveAt(int index) { return index >= 0 && index < kMaxPads ? g_pads[index].activeAt.load() : 0; }
 
 void setEmbeddedMicActive(bool active, int pad) {
     if (pad < 0 || pad >= kMaxPads) return;
@@ -480,6 +493,7 @@ bool circleConfirms() { return false; }
 void setLightBar(uint8_t, uint8_t, uint8_t, int) {}
 void resetLightBar(int) {}
 bool padConnected(int index) { return index == 0; }
+uint64_t padActiveAt(int) { return 0; }
 std::string padUserName(int index) { return index == 0 ? "Player" : ""; }
 int32_t padUserId(int) { return 0; }
 void setTriggerFeel(int, int, int, bool) {}

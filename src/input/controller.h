@@ -63,6 +63,10 @@ void refreshPads();
 // Whether the pad at `index` answered its last poll, and its user's name
 // (empty when the slot is free).
 bool padConnected(int index);
+// When pad `index` was last used (a button or a stick pushed), ms; 0 never.
+uint64_t padActiveAt(int index);
+// A button pressed or a stick / trigger pushed past halfway.
+bool inUse(const ControllerState& s);
 std::string padUserName(int index);
 int32_t padUserId(int index = 0);
 // Rumble, 0..255 per motor (large = low frequency, small = high frequency),
