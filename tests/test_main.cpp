@@ -1161,6 +1161,45 @@ static void testMissingFont() {
     CHECK(font.wrap("Hello world", 24, 100, 2).size() == 1);
 }
 
+// Settings' rows with the capabilities: all of them, in the same order and
+// groups as ever, on the PS5; the desktop's hide what can't work there.
+static void testVisibleSettingsRows() {
+    using ui::SettingsRowPos;
+    auto ids = [](const std::vector<SettingsRowPos>& v) {
+        std::vector<int> out;
+        for (const auto& r : v) out.push_back(r.row);
+        return out;
+    };
+    auto groups = [](const std::vector<SettingsRowPos>& v) {
+        std::vector<bool> out;
+        for (const auto& r : v) out.push_back(r.groupStart);
+        return out;
+    };
+    const ui::UiCaps ps5;
+    auto all = ui::visibleSettingsRows(ps5);
+    CHECK((ids(all) == std::vector<int>{0, 8, 1, 9, 10, 2, 11, 3, 4, 5, 6, 12, 7}));
+    CHECK((groups(all) == std::vector<bool>{false, false, true, false, false, false, true, true, false, false, false, false, true}));
+    ui::UiCaps pc;
+    pc.lightBar = pc.triggerRumble = pc.adaptiveTriggers = pc.gyro = pc.touchpad = false;
+    pc.upscalers = pc.sharpen = pc.deband = pc.highRefresh = pc.console = pc.selfUpdate = false;
+    pc.openUrl = true;
+    auto desk = ui::visibleSettingsRows(pc);
+    CHECK((ids(desk) == std::vector<int>{0, 8, 1, 10, 2, 11, 3, 5, 12, 7}));
+    CHECK((groups(desk) == std::vector<bool>{false, false, true, false, false, true, true, false, false, true}));
+    ui::UiCaps xbox = pc;  // an Xbox pad: impulse triggers, no light bar
+    xbox.triggerRumble = true;
+    auto x = ids(ui::visibleSettingsRows(xbox));
+    CHECK(std::find(x.begin(), x.end(), 4) != x.end() && std::find(x.begin(), x.end(), 6) == x.end());
+    // A game's settings.
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 9, 10}));
+    CHECK((groups(ui::visibleGameSettingsRows(ps5, true)) ==
+           std::vector<bool>{false, true, false, true, false, false, true, false, false, false, true}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 9}));
+    auto game = ui::visibleGameSettingsRows(pc, false);
+    CHECK((ids(game) == std::vector<int>{0, 4, 5, 7, 9}));
+    CHECK((groups(game) == std::vector<bool>{false, true, true, false, false}));
+}
+
 // The desktop app's in-app notices (platform/toasts.h).
 static void testToasts() {
     using platform::ToastQueue;
@@ -1408,6 +1447,7 @@ static void testNullBackendsM1() {
 int main() {
     testNullBackends();
     testToasts();
+    testVisibleSettingsRows();
     testMissingFont();
     testNullBackendsM1();
     testAudioQueue();
