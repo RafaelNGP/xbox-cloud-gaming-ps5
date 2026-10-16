@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RafaelNGP
 #include "ui/pad_icons.h"
 
+#include <algorithm>
 #include <string>
 #include <utility>
 
@@ -14,6 +15,17 @@ Color playerColor(int index) {
     case 2: return rgba(40, 170, 80);
     default: return rgba(225, 90, 175);
     }
+}
+
+void drawKeyboardGlyph(Canvas& c, int x, int y, int w, Color color) {
+    int h = w * 10 / 24, t = std::max(2, w / 14), r = std::max(2, w / 10);
+    c.strokeRect({x, y, w, h}, color, t, r);
+    int key = std::max(2, w / 12), gap = (w - 2 * t - 2 * key) / 6;
+    for (int row = 0; row < 2; ++row)  // two rows of six keys
+        for (int k = 0; k < 6; ++k)
+            c.fillRect({x + t + key + k * gap, y + t + key / 2 + row * (key + key / 2 + 1), std::max(1, gap - key / 2), key},
+                       color, 1);
+    c.fillRect({x + w / 4, y + h - t - key - key / 2, w / 2, key}, color, 1);  // the space bar
 }
 
 int padIconHeight(int w) { return w * 7 / 10 + 4 + w * 3 / 10; }
@@ -63,8 +75,21 @@ void drawPadIcon(Canvas& c, const Font& font, int x, int y, int w, int index, bo
 }
 
 int drawPadRow(Canvas& c, const Font& font, int x, int y, int w, int gap, const PadSlots& pads, Color background) {
-    for (int i = 0; i < static_cast<int>(pads.size()); ++i)
-        drawPadIcon(c, font, x + i * (w + gap), y, w, i, pads[i].connected, background);
+    for (int i = 0; i < static_cast<int>(pads.size()); ++i) {
+        int px = x + i * (w + gap);
+        if (pads[i].keyboard) {  // a keyboard (and mouse) in the player's colour, numbered like a pad
+            Color col = playerColor(i);
+            int kh = w * 10 / 24;
+            int top = y + (w * 7 / 10 - kh) / 2;
+            drawKeyboardGlyph(c, px, top, w * 3 / 4, col);
+            c.fillRect({px + w * 3 / 4 + w / 16, top + kh / 6, w / 6, kh * 5 / 6}, col, w / 12);  // the mouse
+            std::string n = std::to_string(i + 1);
+            int npx = w * 3 / 10;
+            font.draw(c, n, px + (w - font.measure(n, npx)) / 2, y + w * 7 / 10 + 4, npx, rgba(255, 255, 255));
+            continue;
+        }
+        drawPadIcon(c, font, px, y, w, i, pads[i].connected, background);
+    }
     return static_cast<int>(pads.size()) * (w + gap) - gap;
 }
 

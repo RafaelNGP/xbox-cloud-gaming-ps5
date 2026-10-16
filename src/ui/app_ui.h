@@ -44,6 +44,8 @@ struct GameTile {
     bool purchasable = false;
     // Free in the store (free-to-play): the "Free" search filter.
     bool freeInStore = false;
+    // The cloud takes native mouse and keyboard in it (xCloud's "MKB").
+    bool mouseKeyboard = false;
     // Console it was made for: "360", "ONE", "XS" (xcloud/titlehub.h); empty
     // while unknown.
     std::string platform;
@@ -116,12 +118,13 @@ struct SettingsChoice {
     bool highRefresh = false;  // 120 Hz output while a game streams
     int maxBitrateMbps = 0;    // 0 automatic, else 20 / 15 / 10 / 5
     int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
+    int keyboardMode = 0;      // 0 native (player 1), 1 a controller of its own
 };
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 12;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
-                                  // sign-in country, 120 Hz output, bitrate cap, game volume
+constexpr int kSettingRows = 13;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+                                  // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard
 
 // The countries "Sign in as another country" offers (xcloud::loginCountryAddress).
 constexpr const char* kLoginCountries[] = {"br", "jp", "kr", "pl", "us"};
@@ -291,7 +294,7 @@ public:
     // The search keyboard's focus (row, column), for the tests.
     std::pair<int, int> searchKeyFocus() const;
     std::vector<std::pair<std::string, PriceInfo>> searchResults(size_t max) const;
-    enum class Filter { Free, Cheapest, Console, Mode, Genre, Publisher, Language };
+    enum class Filter { Free, Cheapest, Console, Mode, Genre, Publisher, Language, MouseKeyboard };
     void chooseFilter(Filter f, int index);
     // Autoplay tests: where the focus is ("Game Pass row 2 card 6", ...).
     std::string focusDescription() const;
@@ -356,7 +359,7 @@ private:
     // only) and Console; then Mode, Genre, Publisher and Language. The lists open a
     // drop-down; Free and Lowest price turn on and off.
     std::vector<Filter> filterRow(int row) const;
-    bool isList(Filter f) const { return f != Filter::Free && f != Filter::Cheapest; }
+    bool isList(Filter f) const { return f != Filter::Free && f != Filter::Cheapest && f != Filter::MouseKeyboard; }
     std::string filterText(Filter f) const;  // the chip's label: its choice when one is made
     bool filterOn(Filter f) const;
     std::vector<std::string> filterOptions(Filter f) const;
@@ -431,7 +434,7 @@ private:
     void drawLoadingBar(Canvas& c, int x, int y, int w, uint64_t nowMs);
     LibrarySort librarySort_ = LibrarySort::Recent;
     // Search filters (the row of buttons under the keys).
-    bool filterFree_ = false, filterCheapest_ = false;
+    bool filterFree_ = false, filterCheapest_ = false, filterMouseKeyboard_ = false;
     int filterConsole_ = 0;   // 0 all, 1 Series X|S, 2 Xbox One, 3 Xbox 360
     int filterMode_ = 0;      // 0 all, single, online multiplayer, online co-op, local
     std::string filterGenre_;  // empty: all

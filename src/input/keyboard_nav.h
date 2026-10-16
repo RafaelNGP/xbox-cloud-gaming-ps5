@@ -15,6 +15,7 @@
 #pragma once
 
 #include "input/controller.h"
+#include "input/kbm.h"
 
 #include <cstdint>
 #include <vector>
@@ -23,6 +24,16 @@ namespace xc::input {
 
 // The key that opens the app's menu during a game (F12).
 constexpr uint8_t kVkAppMenu = 0x7B;
+
+// The keyboard and mouse as a controller of their own (another player, so
+// a second controller isn't needed): W A S D the left stick, the mouse the
+// right stick, the arrows the D-pad; Space A, C B, R X, E Y, Q LB, F RB, the
+// mouse's right / left buttons LT / RT, Shift and the middle button the
+// sticks' clicks, Tab View, Esc Menu.
+struct MouseStick {
+    float x = 0, y = 0;  // the right stick, eased towards the mouse's speed
+};
+void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& out);
 
 // Adds what the keys held press to `pad` (buttons on, sticks pushed); the
 // controller's own input stays.

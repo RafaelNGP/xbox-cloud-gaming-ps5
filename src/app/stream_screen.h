@@ -10,6 +10,7 @@
 #include "app/auto_deband.h"
 #include "input/controller.h"
 #include "input/kbm.h"
+#include "input/keyboard_nav.h"
 #include "ui/app_ui.h"
 #include "ui/stream_menu.h"
 
@@ -18,6 +19,11 @@
 namespace xc::app {
 
 class StreamPlayer;
+
+// The slot the keyboard and mouse play in as a controller of their own
+// (Settings: as another player): the first without a controller; -1 when
+// that's off or nothing is plugged in.
+int keyboardPadSlot(bool keyboardConnected);
 
 class StreamScreen {
 public:
@@ -67,6 +73,8 @@ private:
     bool circleConfirms_ = false;
     bool highRefresh_ = false;  // 120 Hz turned on for this stream
     input::KbmInput kbm_;
+    int kbSlotAttached_ = -1;  // the keyboard's slot as a controller, announced
+    input::MouseStick mouseStick_;
     std::vector<uint8_t> keysInGame_;  // keys the game was told are down
     bool wasStreaming_ = false;
     uint64_t lastMenuRedrawMs_ = 0;

@@ -270,6 +270,11 @@ constexpr Column kEnglish = {
     "Automatic", // BitrateAuto
     "Game volume", // GameVolume
     "Keyboard: F12 this menu · Home Xbox button", // MenuKeyHint
+    "Mouse & keyboard", // FilterMouseKeyboard
+    "Mouse and keyboard", // MouseKeyboardSupport
+    "Keyboard & mouse", // KeyboardMode
+    "Native (player 1)", // KeyboardNative
+    "As a controller (another player)", // KeyboardAsPad
 };
 
 constexpr Column kPortugueseBR = {
@@ -510,6 +515,11 @@ constexpr Column kPortugueseBR = {
     "Automático", // BitrateAuto
     "Volume do jogo", // GameVolume
     "Teclado: F12 este menu · Home botão Xbox", // MenuKeyHint
+    "Teclado e mouse", // FilterMouseKeyboard
+    "Teclado e mouse", // MouseKeyboardSupport
+    "Teclado e mouse", // KeyboardMode
+    "Nativo (jogador 1)", // KeyboardNative
+    "Como controle (outro jogador)", // KeyboardAsPad
 };
 
 constexpr Column kSpanish = {
@@ -750,6 +760,11 @@ constexpr Column kSpanish = {
     "Automático", // BitrateAuto
     "Volumen del juego", // GameVolume
     "Teclado: F12 este menú · Inicio botón Xbox", // MenuKeyHint
+    "Teclado y ratón", // FilterMouseKeyboard
+    "Teclado y ratón", // MouseKeyboardSupport
+    "Teclado y ratón", // KeyboardMode
+    "Nativo (jugador 1)", // KeyboardNative
+    "Como mando (otro jugador)", // KeyboardAsPad
 };
 
 constexpr Column kFrench = {
@@ -990,6 +1005,11 @@ constexpr Column kFrench = {
     "Automatique", // BitrateAuto
     "Volume du jeu", // GameVolume
     "Clavier : F12 ce menu · Origine bouton Xbox", // MenuKeyHint
+    "Clavier et souris", // FilterMouseKeyboard
+    "Clavier et souris", // MouseKeyboardSupport
+    "Clavier et souris", // KeyboardMode
+    "Natif (joueur 1)", // KeyboardNative
+    "Comme manette (autre joueur)", // KeyboardAsPad
 };
 
 constexpr Column kGerman = {
@@ -1230,6 +1250,11 @@ constexpr Column kGerman = {
     "Automatisch", // BitrateAuto
     "Spiellautstärke", // GameVolume
     "Tastatur: F12 dieses Menü · Pos1 Xbox-Taste", // MenuKeyHint
+    "Maus & Tastatur", // FilterMouseKeyboard
+    "Maus und Tastatur", // MouseKeyboardSupport
+    "Tastatur & Maus", // KeyboardMode
+    "Nativ (Spieler 1)", // KeyboardNative
+    "Als Controller (weiterer Spieler)", // KeyboardAsPad
 };
 
 constexpr Column kItalian = {
@@ -1470,6 +1495,11 @@ constexpr Column kItalian = {
     "Automatico", // BitrateAuto
     "Volume del gioco", // GameVolume
     "Tastiera: F12 questo menu · Home pulsante Xbox", // MenuKeyHint
+    "Tastiera e mouse", // FilterMouseKeyboard
+    "Tastiera e mouse", // MouseKeyboardSupport
+    "Tastiera e mouse", // KeyboardMode
+    "Nativo (giocatore 1)", // KeyboardNative
+    "Come controller (altro giocatore)", // KeyboardAsPad
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

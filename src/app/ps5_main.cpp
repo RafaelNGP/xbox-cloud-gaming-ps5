@@ -127,6 +127,7 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.highRefresh = choice.highRefresh;
         g_settings.maxBitrateMbps = choice.maxBitrateMbps;
         g_settings.gameVolume = choice.gameVolume;
+        g_settings.keyboardMode = choice.keyboardMode;
         g_settings.save(settingsPath());  // warns itself
         XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
                 g_settings.region.empty() ? "auto" : g_settings.region.c_str());
@@ -249,6 +250,7 @@ int main(int argc, char** argv) {
         choice.highRefresh = g_settings.highRefresh;
         choice.maxBitrateMbps = g_settings.maxBitrateMbps;
         choice.gameVolume = g_settings.gameVolume;
+        choice.keyboardMode = g_settings.keyboardMode;
         g_ui->setAllow1440(allow1440Locked());
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
         g_ui->setSettings(choice);
@@ -276,6 +278,7 @@ int main(int argc, char** argv) {
     // Never return from main: the app is closed from the home screen.
     input::ControllerState prev{}, pad{};
     bool appMenuKeyBefore = false, homeKeyBefore = false;  // F12 / Home held at the last pass
+    bool kbmConnected = false;                              // a USB keyboard or mouse in use
     auto now0 = [] { return platform::nowMs(); };
     Repeater up, down, left, right, dpadLeft, dpadRight;
     // Smooth scrolling: rows / cards still to move (fractions carry over),
@@ -368,6 +371,7 @@ int main(int argc, char** argv) {
         bool appMenuPressed = appMenuKey && !appMenuKeyBefore;
         appMenuKeyBefore = appMenuKey;
         if (!inGame || streamScreen.menuOpen()) input::keyboardToPad(kbm.held, pad);
+        kbmConnected = kbm.keyboard || kbm.mouse;
         streamScreen.setKbm(std::move(kbm));
         {
             // The triggers' resistance: in a game and in its Settings tester only.
@@ -405,6 +409,10 @@ int main(int argc, char** argv) {
             ui::PadSlots slots;
             for (int i = 0; i < input::kMaxPads; ++i)
                 slots[static_cast<size_t>(i)] = {input::padConnected(i), input::padUserName(i)};
+            // The keyboard: in a slot of its own as another player's
+            // controller (Settings), else on player 1's while it's the device in use.
+            if (int kb = keyboardPadSlot(kbmConnected); kb >= 0) slots[static_cast<size_t>(kb)] = {true, "", true};
+            else if (kbmConnected && ui::g_keyboardHints) slots[0].keyboard = slots[0].connected = true;
             g_ui->setPads(slots);
             streamScreen.setPads(slots);
         }

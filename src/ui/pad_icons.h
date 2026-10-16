@@ -13,13 +13,18 @@ namespace xc::ui {
 
 struct PadSlot {
     bool connected = false;
-    std::string name;  // the PS5 user's
+    std::string name;   // the PS5 user's
+    bool keyboard = false;  // a USB keyboard and mouse plays in this slot
 };
 using PadSlots = std::array<PadSlot, 4>;
 
 // Each player's colour, as the DualSense light bar shows it: blue, red,
 // green, pink.
 Color playerColor(int index);
+
+// A keyboard, `w` wide (about w / 2.4 tall), its top-left at (x, y): an
+// outline and three rows of keys, in `color` (cards, the players' row).
+void drawKeyboardGlyph(Canvas& c, int x, int y, int w, Color color);
 
 // One pad, a DualSense `w` wide with its number `index + 1` below
 // (padIconHeight(w) in all): in the player's colour when connected, dim

@@ -949,6 +949,25 @@ static void testKeyboardNav() {
     CHECK(!p3.btnA && !p3.dpadUp && p3.rightStickY == 0.0f);
 }
 
+// The keyboard and mouse as a controller of their own.
+static void testKeyboardAsGamepad() {
+    xc::input::KbmInput in;
+    in.keyboard = true;
+    in.held = {0x20, 'D', 'W'};  // space, d, w (sorted)
+    in.buttons = 1;              // left button
+    in.dx = 24;                  // a fast move right
+    xc::input::MouseStick stick;
+    xc::input::ControllerState out;
+    xc::input::keyboardAsGamepad(in, stick, out);
+    CHECK(out.connected && out.btnA && out.leftStickX == 1.0f && out.leftStickY == -1.0f);
+    CHECK(out.triggerR2 == 1.0f && out.triggerL2 == 0.0f);
+    CHECK(out.rightStickX > 0.4f && out.rightStickY == 0.0f);
+    in = {};
+    in.keyboard = true;
+    for (int i = 0; i < 20; ++i) xc::input::keyboardAsGamepad(in, stick, out);  // the mouse still: back to the centre
+    CHECK(out.rightStickX == 0.0f && !out.btnA);
+}
+
 int main() {
     testReport();
     testCrashGuard();
@@ -979,6 +998,7 @@ int main() {
     testMouseKeyboardReports();
     testHidToVk();
     testKeyboardNav();
+    testKeyboardAsGamepad();
     testTeredo();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);

@@ -3,8 +3,47 @@
 #include "input/keyboard_nav.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace xc::input {
+
+void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& out) {
+    out = ControllerState{};
+    out.connected = in.keyboard || in.mouse;
+    auto down = [&](std::initializer_list<uint8_t> vks) {
+        for (uint8_t vk : vks)
+            if (std::binary_search(in.held.begin(), in.held.end(), vk)) return true;
+        return false;
+    };
+    out.leftStickX = (down({'D'}) ? 1.0f : 0.0f) - (down({'A'}) ? 1.0f : 0.0f);
+    out.leftStickY = (down({'S'}) ? 1.0f : 0.0f) - (down({'W'}) ? 1.0f : 0.0f);  // pad convention: +down
+    out.dpadUp = down({0x26});
+    out.dpadDown = down({0x28});
+    out.dpadLeft = down({0x25});
+    out.dpadRight = down({0x27});
+    out.btnA = down({0x20});
+    out.btnB = down({'C'});
+    out.btnX = down({'R'});
+    out.btnY = down({'E'});
+    out.btnL1 = down({'Q'});
+    out.btnR1 = down({'F'});
+    out.btnL3 = down({0x10});  // shift
+    out.btnR3 = down({'V'}) || (in.buttons & 4);
+    out.btnTouchpad = down({0x09});  // View
+    out.btnOptions = down({0x1B});   // Menu
+    out.triggerL2 = (in.buttons & 2) ? 1.0f : 0.0f;
+    out.triggerR2 = (in.buttons & 1) ? 1.0f : 0.0f;
+    // The mouse: about 12 counts a pass is the stick all the way; eased so
+    // a still mouse lets the stick come back to the centre.
+    constexpr float kFull = 12.0f, kEase = 0.45f;
+    float tx = std::clamp(in.dx / kFull, -1.0f, 1.0f), ty = std::clamp(in.dy / kFull, -1.0f, 1.0f);
+    stick.x += (tx - stick.x) * kEase;
+    stick.y += (ty - stick.y) * kEase;
+    if (std::abs(stick.x) < 0.02f) stick.x = 0;
+    if (std::abs(stick.y) < 0.02f) stick.y = 0;
+    out.rightStickX = stick.x;
+    out.rightStickY = stick.y;
+}
 
 void keyboardToPad(const std::vector<uint8_t>& held, ControllerState& pad) {
     auto down = [&](std::initializer_list<uint8_t> vks) {

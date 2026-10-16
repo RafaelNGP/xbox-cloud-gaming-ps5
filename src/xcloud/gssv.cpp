@@ -311,6 +311,7 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
     uint64_t started = platform::nowMs();
     std::string continuation;
     int pages = 0;
+    std::map<std::string, int> inputTypes;  // for the log: how many titles take each
     do {
         std::string path = recentOnly ? "/v2/titles/mru?mr=25" : "/v2/titles?mr=200";
         if (!continuation.empty()) path += "&ct=" + net::urlEncode(continuation);
@@ -331,6 +332,10 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
             title.hasEntitlement = t["details"]["hasEntitlement"].asBool();
             title.xboxTitleId = t["details"]["xboxTitleId"].str();
             title.isFreeInStore = t["details"]["isFreeInStore"].asBool();
+            for (const auto& input : t["details"]["supportedInputTypes"].items()) {
+                ++inputTypes[input.str()];
+                if (input.str() == "MKB") title.mouseKeyboard = true;
+            }
             // What lets this account play it: a subscription's program
             // (CALLISTO for Game Pass in the cloud) or F2P; none when bought.
             for (const auto& program : t["details"]["userPrograms"].items())
@@ -349,6 +354,11 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
     } while (!continuation.empty() && out.size() < 5000);
     XC_LOGI("title list%s: %zu titles in %llu ms", recentOnly ? " (recent)" : "", out.size(),
             static_cast<unsigned long long>(platform::nowMs() - started));
+    if (!inputTypes.empty()) {
+        std::string types;
+        for (const auto& [name, n] : inputTypes) types += (types.empty() ? "" : ", ") + name + " " + std::to_string(n);
+        XC_LOGI("title list: input types: %s", types.c_str());
+    }
     return true;
 }
 

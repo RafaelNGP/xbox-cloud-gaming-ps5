@@ -692,6 +692,7 @@ void AppUi::showFilteredSearch(Tab tab, bool cheapest, int mode, const std::stri
     searchOnKeys_ = true;
     query_.clear();
     filterFree_ = false;
+    filterMouseKeyboard_ = false;
     filterCheapest_ = cheapest;
     filterConsole_ = 0;
     filterMode_ = mode;
@@ -800,6 +801,7 @@ void AppUi::runSearch() {
     for (const auto& t : tab_ == Tab::GamePass ? gamePassPool_ : libraryPool_) {
         if (hidden_.count(t.productId)) continue;
         if (filterConsole_ && t.platform != kConsoleCodes[filterConsole_]) continue;
+        if (filterMouseKeyboard_ && !t.mouseKeyboard) continue;
         // Play mode and language need the full details: a game without them
         // yet comes in when they arrive.
         static constexpr uint32_t kModeBits[] = {0, xcloud::kModeSingle, xcloud::kModeOnlineMulti, xcloud::kModeOnlineCoop,
@@ -1255,6 +1257,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         for (int mbps : kBitrateCaps) out.push_back(std::to_string(mbps) + " Mbps");
     } else if (row == 11) {
         for (int v : kVolumes) out.push_back(std::to_string(v) + " %");
+    } else if (row == 12) {
+        out = {tr(Str::KeyboardNative), tr(Str::KeyboardAsPad)};
     } else if (row == 8) {
         out.push_back(tr(Str::LoginCountryOff));
         for (const char* country : kLoginCountries) out.push_back(loginCountryName(country));
@@ -1285,6 +1289,7 @@ int AppUi::settingSelected(int row) const {
             if (kBitrateCaps[i] == settings_.maxBitrateMbps) return static_cast<int>(i) + 1;
         return 0;
     }
+    if (row == 12) return settings_.keyboardMode;
     if (row == 11) {
         for (size_t i = 0; i < std::size(kVolumes); ++i)
             if (kVolumes[i] == settings_.gameVolume) return static_cast<int>(i);
@@ -1323,6 +1328,8 @@ void AppUi::applySetting(int row, int index) {
         settings_.maxBitrateMbps = index == 0 ? 0 : kBitrateCaps[index - 1];
     } else if (row == 11) {
         settings_.gameVolume = kVolumes[index];
+    } else if (row == 12) {
+        settings_.keyboardMode = index;
     } else if (row == 8) {
         settings_.loginCountry = index == 0 ? std::string() : kLoginCountries[index - 1];
     } else {
@@ -1649,8 +1656,8 @@ std::vector<AppUi::Filter> AppUi::filterRow(int row) const {
     // Caller holds mutex_. Prices only matter in "Your games" (Game Pass
     // games aren't bought).
     if (row == 1) return {Filter::Mode, Filter::Genre, Filter::Publisher, Filter::Language};
-    if (tab_ == Tab::GamePass) return {Filter::Console};
-    return {Filter::Free, Filter::Cheapest, Filter::Console};
+    if (tab_ == Tab::GamePass) return {Filter::Console, Filter::MouseKeyboard};
+    return {Filter::Free, Filter::Cheapest, Filter::Console, Filter::MouseKeyboard};
 }
 
 std::vector<std::string> AppUi::poolGenres() const {
@@ -1739,6 +1746,7 @@ void AppUi::chooseFilterLocked(Filter f, int index) {
 std::string AppUi::filterText(Filter f) const {
     // Caller holds mutex_. A list shows its name until a choice is made.
     if (f == Filter::Free) return tr(Str::FilterFree);
+    if (f == Filter::MouseKeyboard) return tr(Str::FilterMouseKeyboard);
     if (f == Filter::Cheapest) return tr(Str::FilterCheapest);
     int sel = filterSelected(f);
     if (sel > 0 || f == Filter::Console) {
@@ -1752,6 +1760,7 @@ bool AppUi::filterOn(Filter f) const {
     // Caller holds mutex_.
     if (f == Filter::Free) return filterFree_;
     if (f == Filter::Cheapest) return filterCheapest_;
+    if (f == Filter::MouseKeyboard) return filterMouseKeyboard_;
     return filterSelected(f) > 0;
 }
 
@@ -1762,7 +1771,7 @@ void AppUi::pressFilter(Filter f) {
         filterListIndex_ = filterSelected(f);
         filterListTop_ = 0;
     } else {
-        (f == Filter::Free ? filterFree_ : filterCheapest_) ^= true;
+        (f == Filter::Free ? filterFree_ : f == Filter::MouseKeyboard ? filterMouseKeyboard_ : filterCheapest_) ^= true;
         runSearch();
     }
     dirty_ = true;
@@ -2617,6 +2626,13 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
         }
     }
     // Bottom-right: the console it was made for; one style and width for all.
+    // Left of it, a small keyboard: the cloud takes mouse and keyboard in it.
+    if (t.mouseKeyboard) {
+        int right = x + kCard - 10 - (platformLabel(t.platform) ? 96 + 6 : 0);
+        Rect k{right - 34, y + kCard - 34, 34, 24};
+        c.fillRect(k, rgba(0, 0, 0, 220), 4);
+        drawKeyboardGlyph(c, k.x + 6, k.y + 6, 22, kWhite);
+    }
     if (const char* p = platformLabel(t.platform)) {
         constexpr int kBadgeW = 96;
         Rect badge{x + kCard - 10 - kBadgeW, y + kCard - 34, kBadgeW, 24};
@@ -2705,9 +2721,11 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
         std::string label = trf(Str::SortLabel, tr(sortName));
         int w = fonts_.semibold.measure(label, 22);
         int right = left + kGridW;
+        const char* sortKey = g_keyboardHints ? "R" : "R3";
         Rect pill{right - 44, 112, 44, 28};
         c.fillRect(pill, rgba(255, 255, 255, 40), 8);
-        fonts_.bold.draw(c, "R3", pill.x + (pill.w - fonts_.bold.measure("R3", 16)) / 2,
+        if (g_keyboardHints) c.strokeRect(pill, kGray, 2, 8);
+        fonts_.bold.draw(c, sortKey, pill.x + (pill.w - fonts_.bold.measure(sortKey, 16)) / 2,
                          fonts_.bold.centeredY(pill.y, pill.h, 16), 16, kGray);
         fonts_.semibold.draw(c, label, pill.x - 14 - w, fonts_.semibold.centeredY(pill.y, pill.h, 22), 22, kGray);
     }
@@ -3084,6 +3102,7 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     std::string cats;
     if (const char* p = platformLabel(g->platform)) cats = p;
     for (const auto& cat : g->categories) cats += (cats.empty() ? "" : "  \xE2\x80\xA2  ") + cat;
+    if (g->mouseKeyboard) cats += std::string(cats.empty() ? "" : "  \xE2\x80\xA2  ") + tr(Str::MouseKeyboardSupport);
     if (!cats.empty()) {
         fonts_.regular.draw(c, cats, kMargin, y, 24, kDim);
         y += 44;
@@ -3238,8 +3257,9 @@ void AppUi::drawSettings(Canvas& c) {
     const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
                                         tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry),
-                                        tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume)};
-    constexpr int kRowW = 1200, kRowH = 50, kGap = 6;
+                                        tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume),
+                                        tr(Str::KeyboardMode)};
+    constexpr int kRowW = 1200, kRowH = 46, kGap = 6;
     Rect rows[kSettingRows];
     int y = 262;
     for (int i = 0; i < kSettingRows; ++i) {
