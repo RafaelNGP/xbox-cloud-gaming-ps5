@@ -966,6 +966,19 @@ static void testKeyboardAsGamepad() {
     in.keyboard = true;
     for (int i = 0; i < 20; ++i) xc::input::keyboardAsGamepad(in, stick, out);  // the mouse still: back to the centre
     CHECK(out.rightStickX == 0.0f && !out.btnA);
+    // A wheel notch: Y pressed for a few passes, then released.
+    in = {};
+    in.keyboard = true;
+    in.wheel = 1;
+    xc::input::keyboardAsGamepad(in, stick, out);
+    CHECK(out.btnY);
+    in.wheel = 0;
+    bool released = false;
+    for (int i = 0; i < 12; ++i) {
+        xc::input::keyboardAsGamepad(in, stick, out);
+        released |= !out.btnY;
+    }
+    CHECK(released && !out.btnY);
     xc::input::ControllerState pad, kb;
     pad.btnB = true;
     pad.leftStickX = 0.3f;

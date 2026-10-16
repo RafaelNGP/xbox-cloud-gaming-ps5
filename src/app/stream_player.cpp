@@ -685,7 +685,7 @@ void StreamPlayer::sendKbm(const input::KbmInput& in) {
         stream::MouseFrame m;
         m.dx = in.dx * 2;  // as the web client: twice the pointer's movement
         m.dy = in.dy * 2;
-        m.wheelY = in.wheel;
+        m.wheelY = in.wheel * 120;  // one notch = WHEEL_DELTA (120), as Windows (and the game) count it
         m.buttons = in.buttons;
         s->sendMouse(m);
     }

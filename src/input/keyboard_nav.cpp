@@ -43,6 +43,17 @@ void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& o
     if (std::abs(stick.y) < 0.02f) stick.y = 0;
     out.rightStickX = stick.x;
     out.rightStickY = stick.y;
+    // The wheel: a press of Y per notch, ~50 ms down and ~30 ms up so the
+    // game sees each one (a pass is ~8 ms).
+    constexpr int kDown = 6, kCycle = 10;
+    stick.wheelPresses = std::min(stick.wheelPresses + std::abs(in.wheel), 4);
+    if (stick.wheelPresses > 0) {
+        if (stick.wheelPhase < kDown) out.btnY = true;
+        if (++stick.wheelPhase >= kCycle) {
+            stick.wheelPhase = 0;
+            --stick.wheelPresses;
+        }
+    }
 }
 
 void mergePads(ControllerState& pad, const ControllerState& e) {

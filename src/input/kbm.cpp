@@ -198,6 +198,8 @@ KbmInput kbmPoll() {
     }
     out.buttons = buttons;
     out.moved = out.dx || out.dy || out.wheel || buttons != g_buttons;
+    static int wheelLogged = 0;  // which way the console counts a notch
+    if (out.wheel && wheelLogged < 5) XC_LOGI("mouse: wheel %d (%d)", out.wheel, ++wheelLogged);
     static int movesLogged = 0;
     if (out.moved && movesLogged < 10)
         XC_LOGI("mouse: %d,%d wheel %d buttons 0x%02x (%d)", out.dx, out.dy, out.wheel, buttons, ++movesLogged);
