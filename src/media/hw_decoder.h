@@ -31,9 +31,10 @@ public:
 
 private:
     void* decoder_ = nullptr;
-    void* computeQueue_ = nullptr;
-    uint8_t* frameBuffer_ = nullptr;
-    size_t frameBufferSize_ = 0;
+    // The PS5 backend's; the null one never sets them.
+    [[maybe_unused]] void* computeQueue_ = nullptr;
+    [[maybe_unused]] uint8_t* frameBuffer_ = nullptr;
+    [[maybe_unused]] size_t frameBufferSize_ = 0;
 };
 
 }  // namespace xc::media
