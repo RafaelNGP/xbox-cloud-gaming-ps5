@@ -17,6 +17,7 @@
 #include <SDL3/SDL.h>
 
 #include <atomic>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 
@@ -25,6 +26,8 @@ namespace xc::app::shell {
 namespace {
 bool g_quit = false;              // main thread
 std::atomic<bool> g_focus{true};  // the window has the keyboard
+volatile std::sig_atomic_t g_signalled = 0;
+void onSignal(int) { g_signalled = 1; }
 }  // namespace
 
 void beforeSettings() {
@@ -36,6 +39,11 @@ void beforeDisplay(const Settings&) {
     // loop is ours.
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_AUDIO | SDL_INIT_EVENTS))
         XC_LOGE("SDL: %s", SDL_GetError());
+    // Ctrl+C and SIGTERM close the app in order. SDL turns them into a quit
+    // event only when they weren't ignored (a shell's background job
+    // ignores SIGINT): ours, as psbox-headless does.
+    std::signal(SIGINT, onSignal);
+    std::signal(SIGTERM, onSignal);
 }
 
 bool afterDisplay(bool haveDisplay) {
@@ -80,6 +88,10 @@ bool pumpEvents() {
         default: break;
         }
         input::sdlInputEvent(ev);
+    }
+    if (g_signalled && !g_quit) {
+        XC_LOGI("closing on a signal");
+        g_quit = true;
     }
     return !g_quit;
 }
