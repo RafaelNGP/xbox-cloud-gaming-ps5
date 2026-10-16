@@ -1173,7 +1173,8 @@ void AppUi::setPads(const PadSlots& pads) {
     std::lock_guard<std::mutex> lock(mutex_);
     bool changed = false;
     for (size_t i = 0; i < pads.size(); ++i)
-        changed |= pads[i].connected != pads_[i].connected || pads[i].name != pads_[i].name;
+        changed |= pads[i].connected != pads_[i].connected || pads[i].name != pads_[i].name ||
+                   pads[i].keyboard != pads_[i].keyboard;  // the keyboard taking a player's slot, or leaving it
     if (!changed) return;
     pads_ = pads;
     dirty_ = true;
