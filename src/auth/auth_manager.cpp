@@ -26,14 +26,20 @@ AuthManager::AuthManager(std::string storePath, MsaConfig cfg)
 
 bool AuthManager::load() {
     std::string text;
-    if (!platform::readFile(storePath_, text)) return false;
+    if (!platform::readFile(storePath_, text)) {
+        XC_LOGI("no saved sign-in (%s)", storePath_.c_str());  // the reports tell "asked again" apart
+        return false;
+    }
     auto j = json::parse(text);
     if (!j) {
         XC_LOGW("ignoring unreadable token store %s", storePath_.c_str());
         return false;
     }
     // A refresh token issued to another client id is useless: start over.
-    if ((*j)["clientId"].str() != msa_.config().clientId) return false;
+    if ((*j)["clientId"].str() != msa_.config().clientId) {
+        XC_LOGI("saved sign-in from another client id: asking again");
+        return false;
+    }
     tokens_.refreshToken = (*j)["refreshToken"].str();
     tokens_.userId = (*j)["userId"].str();
     profile_.gamertag = (*j)["gamertag"].str();
@@ -231,6 +237,10 @@ bool AuthManager::signIn(xcloud::GssvClient& gssv, const DeviceCodeCallback& onC
         bool networkError = false;
         if (msa_.refresh(tokens_.refreshToken, t, err, {}, &networkError)) {
             tokens_ = t;
+            // Microsoft hands out a new refresh token each time: saved at
+            // once, so an app closed before the Xbox sign-in ends still
+            // starts with the newest one.
+            if (!save()) XC_LOGW("the renewed sign-in could not be saved");
         } else if (networkError) {
             // Offline or the service is down: keep the stored account.
             return false;
