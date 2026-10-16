@@ -903,7 +903,36 @@ static void testAudioDecoderEmptyPacket() {
     CHECK(!out.empty());
 }
 
+// The xCloud login: a 5xx is tried again, a refusal is not.
+static void testLoginRetry() {
+    using namespace xc;
+    int calls = 0;
+    net::setTestTransport([&](const net::Request&) {
+        net::Response r;
+        if (++calls < 3) {
+            r.status = 500;
+            return r;
+        }
+        r.status = 200;
+        r.body = R"({"gsToken":"t","market":"BR","durationInSeconds":3600,"offeringSettings":{"regions":[{"name":"WestUS2","baseUri":"https://w","isDefault":true}]}})";
+        return r;
+    });
+    xcloud::GssvClient gssv;
+    std::string err;
+    CHECK(gssv.login(auth::XblToken{}, err) && calls == 3);  // (3 s of waits)
+    calls = 0;
+    net::setTestTransport([&](const net::Request&) {
+        ++calls;
+        net::Response r;
+        r.status = 403;
+        return r;
+    });
+    CHECK(!gssv.login(auth::XblToken{}, err) && calls == 1 && gssv.loginRefused());
+    net::setTestTransport({});
+}
+
 int main() {
+    testLoginRetry();
     testReport();
     testCrashGuard();
     testBuiltinCa();

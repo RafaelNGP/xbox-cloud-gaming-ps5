@@ -9,6 +9,7 @@
 #include "util/log.h"
 #include "xcloud/catalog.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
@@ -18,6 +19,7 @@ namespace xc::xcloud {
 
 namespace {
 constexpr const char* kClientHeader = "XboxComBrowser";
+constexpr int kLoginTries = 6;  // xCloud login: tries on a 5xx / no answer
 
 // Sent like the Windows Xbox app does: "Windows" plus a 1080p display is what
 // gets a 1080p stream; an Android device with a 720p display gets 720p.
@@ -270,9 +272,21 @@ bool GssvClient::login(const auth::XblToken& gssvXsts, std::string& err) {
         req.headers.emplace_back("X-Forwarded-For", address);
         XC_LOGI("xCloud login as country %s", loginCountry_.c_str());  // not the address
     }
-    auto r = net::perform(req);
+    // The service fails now and then with a 5xx (or is slow to answer) and
+    // works a little later: up to six tries, 1, 2, 4, 8 and 8 s apart. A refusal
+    // (4xx) is an answer, not tried again.
+    net::Response r;
+    std::optional<json::Value> j;
+    for (int attempt = 1;; ++attempt) {
+        r = net::perform(req);
+        j = json::parse(r.body);
+        if (r.ok() && j && (*j)["gsToken"].isString()) break;
+        bool transient = r.status == 0 || r.status == 408 || r.status == 429 || r.status >= 500;
+        if (!transient || attempt == kLoginTries) break;
+        XC_LOGW("xCloud login: %s, trying again (%d/%d)", describe(r).c_str(), attempt + 1, kLoginTries);
+        platform::sleepMs(1000u << std::min(attempt - 1, 3));
+    }
     loginStatus_ = r.status;
-    auto j = json::parse(r.body);
     if (!r.ok() || !j || !(*j)["gsToken"].isString()) {
         err = "xCloud login failed: " + describe(r);
         if (r.status == 403) err += " (no Game Pass plan with cloud gaming, or xCloud is not available in this region)";
