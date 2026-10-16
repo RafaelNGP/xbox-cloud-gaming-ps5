@@ -44,6 +44,17 @@ inline uint8_t triggerAmplitude(uint8_t level, int strength = kTriggerMedium) {
     return static_cast<uint8_t>(std::clamp(static_cast<int>(std::lround(a)), 1, 8));
 }
 
+// The same request for a pad with trigger motors (an Xbox pad on the
+// desktop): the game's level as it is at medium strength, since it was
+// made for these motors; light halves it, strong is 1.5 times, max full.
+inline uint8_t triggerMotorLevel(uint8_t level, int strength = kTriggerMedium) {
+    if (!level || strength <= 0) return 0;
+    if (strength >= 4) return 255;
+    static constexpr float kScale[] = {0, 0.5f, 1.0f, 1.5f};
+    int v = static_cast<int>(std::lround(level * kScale[strength]));
+    return static_cast<uint8_t>(std::clamp(v, 1, 255));
+}
+
 // Resistance (the triggers' weight): off, light, medium, strong. The
 // DualSense pushes back from a point of the travel on, earlier and harder
 // the stronger it is; the Xbox's triggers have none, so it is the user's

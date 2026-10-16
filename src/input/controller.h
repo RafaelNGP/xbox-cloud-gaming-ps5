@@ -2,6 +2,8 @@
 // Copyright (C) 2026 RafaelNGP
 #pragma once
 
+#include "input/input_ext.h"
+
 #include <cstdint>
 #include <string>
 
@@ -49,12 +51,14 @@ struct ControllerState {
 
 // Up to four DualSense: pad 0 belongs to the user who started the app, the
 // others to the other signed-in users (each PS5 controller is tied to a
-// user), in the order they appear.
+// user), in the order they appear. On the desktop each gamepad plugged in
+// takes the first free slot.
 constexpr int kMaxPads = 4;
 
 bool init();
 void shutdown();
-// Pad 0 (the menus).
+// Pad 0 (the menus); on the desktop the lowest slot with a pad, so the
+// menus still answer when the first pad was unplugged.
 bool poll(ControllerState& out);
 // Any pad; false (and `out` cleared) when there is none at `index`.
 bool pollPad(int index, ControllerState& out);
@@ -69,6 +73,9 @@ uint64_t padActiveAt(int index);
 bool inUse(const ControllerState& s);
 std::string padUserName(int index);
 int32_t padUserId(int index = 0);
+// The pad's own name ("DualSense Wireless Controller"...) where the system
+// gives one (desktop); empty on the PS5, where a pad goes by its user.
+std::string padDeviceName(int index);
 // Rumble, 0..255 per motor (large = low frequency, small = high frequency),
 // for `durationMs` (0 = until changed). Any thread; polling applies it.
 void setRumble(uint8_t large, uint8_t small, uint32_t durationMs, int pad = 0);
