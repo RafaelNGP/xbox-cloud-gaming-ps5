@@ -137,5 +137,7 @@ shared code:
    ninja -C build-ps5 xcloud_app && tools/ps5/link.sh build-ps5
    bash tools/check-platform-boundaries.sh
    ```
-   A change to the PS5's UI is still checked on the console with its
-   screenshots (`AGENTS.md`).
+   A development link saves its symbols in `symbols/vX.Y.Z-dev`; only
+   `tools/release.sh` writes `symbols/vX.Y.Z`, the release's, which decode
+   users' crash reports (`tools/symbolize.sh`). A change to the PS5's UI is
+   still checked on the console with its screenshots (`AGENTS.md`).

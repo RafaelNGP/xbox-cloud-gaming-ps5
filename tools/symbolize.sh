@@ -3,11 +3,16 @@
 # Copyright (C) 2026 RafaelNGP
 # Translates crash report offsets (pc=eboot+0x...) into function and file:line.
 #
-#   tools/symbolize.sh [vX.Y.Z] <offset-or-crash-line...>
+#   tools/symbolize.sh [vX.Y.Z[-dev]] <offset-or-crash-line...>
+#
+# A release's symbols are in symbols/vX.Y.Z (tools/release.sh); a development
+# link's in symbols/vX.Y.Z-dev (tools/ps5/link.sh). A development build
+# reports the same version as the release, so name -dev for its crashes.
 #
 # Examples:
 #   tools/symbolize.sh v0.9.8 0x1a2b3c
 #   tools/symbolize.sh v0.9.8 "crash: SIGSEGV pc=eboot+0x1a2b3c addr=0x0"
+#   tools/symbolize.sh v1.0.0-dev 0x1a2b3c
 #   tools/symbolize.sh 0x1a2b3c
 set -euo pipefail
 
@@ -24,12 +29,12 @@ fi
 [[ -n $addr2line ]] || { echo "symbolize: llvm-addr2line not found" >&2; exit 1; }
 
 if (( $# == 0 )); then
-    echo "usage: tools/symbolize.sh [vX.Y.Z] <offset-or-crash-line...>" >&2
+    echo "usage: tools/symbolize.sh [vX.Y.Z[-dev]] <offset-or-crash-line...>" >&2
     exit 1
 fi
 
 ver=""
-if [[ $1 =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ $1 =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
     ver=$1
     shift
 fi
