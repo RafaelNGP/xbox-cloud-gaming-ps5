@@ -110,6 +110,10 @@ add_library(xcloud_appcore OBJECT
     src/app/stream_player.cpp
 )
 target_link_libraries(xcloud_appcore PUBLIC xcloud_stream xcloud_media xcloud_ui)
+if(NOT MSVC)
+    # Code every platform shares: its warnings show on every build and in CI.
+    target_compile_options(xcloud_appcore PRIVATE -Wall -Wextra -Wno-unused-parameter)
+endif()
 
 if(XCLOUD_PS5)
     target_sources(xcloud_core PRIVATE src/platform/ps5/platform_ps5.cpp src/platform/ps5/libc_compat.c src/platform/ps5/net_probe.cpp src/platform/ps5/keyboard_ps5.cpp)
@@ -127,6 +131,8 @@ if(XCLOUD_PS5)
         src/input/kbm_ps5.cpp
     )
     target_include_directories(xcloud_app PRIVATE "${PS5_RADV}/include")
+    # The USB keyboard / mouse backend kept the warnings it had in xcloud_core.
+    set_source_files_properties(src/input/kbm_ps5.cpp PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Wno-unused-parameter")
     target_link_libraries(xcloud_app PUBLIC xcloud_stream xcloud_media xcloud_ui)
 else()
     target_link_libraries(xcloud_core PUBLIC Threads::Threads)

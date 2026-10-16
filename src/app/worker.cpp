@@ -109,7 +109,7 @@ std::string stream(xcloud::GssvClient& gssv) {
     // Not the frame rate: games send fewer frames in some scenes.
     uint64_t degradedUntil = 0, lastTickAt = 0;
     bool degradedLogged = false;
-    int reconnectsSeen = 0;
+    uint32_t reconnectsSeen = 0;
     struct {
         uint64_t seconds = 0, badSeconds = 0, kbps = 0, rttSum = 0, rttCount = 0;
     } session;
