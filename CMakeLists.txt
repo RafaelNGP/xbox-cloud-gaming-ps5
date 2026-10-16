@@ -183,26 +183,51 @@ else()
     add_test(NAME unit COMMAND xcloud-tests)
 endif()
 
-# --- Desktop input and sound on SDL3 (controllers, keyboard / mouse, audio) ---
-# The SDL backends of controller.h, kbm.h, input_ext.h, audio_out.h and
-# audio_in.h, for the desktop app in place of the null ones (controller_null,
-# kbm_null, audio_*_null: not both). Only where SDL3 is found and the desktop
-# app is wanted: xcloud-cli, xcloud-tests and psbox-headless stay SDL-free.
-if(NOT XCLOUD_PS5 AND (NOT DEFINED XCLOUD_DESKTOP_APP OR XCLOUD_DESKTOP_APP))
-    if(NOT TARGET SDL3::SDL3)
-        find_package(SDL3 CONFIG QUIET)
+# --- The desktop app on SDL3 (psbox) ----------------------------------------
+# cmake/deps/sdl3.cmake decides (XCLOUD_DESKTOP_APP); xcloud-cli, xcloud-tests
+# and psbox-headless stay SDL-free either way.
+if(NOT XCLOUD_PS5)
+    include(cmake/deps/sdl3.cmake)
+endif()
+if(XC_DESKTOP_APP)
+    # The SDL backends of controller.h, kbm.h, input_ext.h, audio_out.h and
+    # audio_in.h, in place of the null ones (controller_null, kbm_null,
+    # audio_*_null: not both).
+    add_library(xcloud_backends_sdl_io OBJECT
+        src/input/sdl_input.cpp
+        src/input/controller_sdl.cpp
+        src/input/kbm_sdl.cpp
+        src/media/audio_out_sdl.cpp
+        src/media/audio_in_sdl.cpp
+    )
+    target_link_libraries(xcloud_backends_sdl_io PUBLIC xcloud_core xcloud_media SDL3::SDL3)
+
+    # The window, its renderer and events, the self-test; no hardware
+    # decoder yet (FFmpeg decodes).
+    add_library(xcloud_backends_desktop OBJECT
+        src/display/display_sdl.cpp
+        src/app/shell_desktop.cpp
+        src/app/desktop_selftest.cpp
+        src/media/hw_decoder_null.cpp
+    )
+    target_link_libraries(xcloud_backends_desktop PUBLIC xcloud_core xcloud_media xcloud_ui SDL3::SDL3)
+    if(NOT MSVC)
+        target_compile_options(xcloud_backends_sdl_io PRIVATE -Wall -Wextra -Wno-unused-parameter)
+        target_compile_options(xcloud_backends_desktop PRIVATE -Wall -Wextra -Wno-unused-parameter)
     endif()
-    if(TARGET SDL3::SDL3)
-        add_library(xcloud_backends_sdl_io OBJECT
-            src/input/sdl_input.cpp
-            src/input/controller_sdl.cpp
-            src/input/kbm_sdl.cpp
-            src/media/audio_out_sdl.cpp
-            src/media/audio_in_sdl.cpp
-        )
-        target_link_libraries(xcloud_backends_sdl_io PUBLIC xcloud_core xcloud_media SDL3::SDL3)
-        if(NOT MSVC)
-            target_compile_options(xcloud_backends_sdl_io PRIVATE -Wall -Wextra -Wno-unused-parameter)
-        endif()
+
+    # WIN32: a GUI app on Windows (SDL_main.h gives it its entry point).
+    add_executable(psbox WIN32
+        $<TARGET_OBJECTS:xcloud_appcore>
+        src/app/desktop_main.cpp
+    )
+    target_link_libraries(psbox PRIVATE xcloud_backends_desktop xcloud_backends_sdl_io xcloud_stream xcloud_media
+                                        xcloud_ui xc_ffmpeg datachannel-static SDL3::SDL3)
+    if(NOT MSVC)
+        target_compile_options(psbox PRIVATE -Wall -Wextra -Wno-unused-parameter)
     endif()
+    # The fonts and certificates beside the executable (platform::assetDir()).
+    add_custom_command(TARGET psbox POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:psbox>/assets"
+        COMMENT "Copying assets/ beside psbox")
 endif()

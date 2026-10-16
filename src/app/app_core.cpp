@@ -117,30 +117,6 @@ bool saveSettings(const ui::SettingsChoice& choice) {
     return languageChanged;
 }
 
-// What the screens offer (ui::UiCaps): the pads' features (input_ext.h),
-// the display's and the platform's. The PS5 offers every option as it
-// always has: its pads are DualSense, and what its display can't honour at
-// the moment does nothing there, as before (an upscaler on the CPU
-// fallback; 120 Hz then decided at start-up).
-ui::UiCaps uiCaps() {
-    const shell::Caps sc = shell::caps();
-    const display::DisplayCaps dc = display::caps();
-    const input::PadCaps pc = input::anyPadCaps();
-    ui::UiCaps c;
-    c.lightBar = pc.lightBar;
-    c.triggerRumble = pc.triggerRumble;
-    c.adaptiveTriggers = pc.adaptiveTriggers;
-    c.gyro = pc.gyro;
-    c.touchpad = pc.touchpad;
-    c.upscalers = sc.console || dc.upscalers;
-    c.sharpen = sc.console || dc.sharpen;
-    c.deband = sc.console || dc.deband;
-    c.highRefresh = sc.console || dc.highRefreshSwitch;
-    c.console = sc.console;
-    c.openUrl = sc.openUrl;
-    c.selfUpdate = sc.selfUpdate;
-    return c;
-}
 
 // --- Input ---------------------------------------------------------------------
 
@@ -220,6 +196,31 @@ struct Core {
 std::unique_ptr<Core> g_core;
 
 }  // namespace
+
+// What the screens offer (ui::UiCaps): the pads' features (input_ext.h),
+// the display's and the platform's. The PS5 offers every option as it
+// always has: its pads are DualSense, and what its display can't honour at
+// the moment does nothing there, as before (an upscaler on the CPU
+// fallback; 120 Hz then decided at start-up).
+ui::UiCaps uiCaps() {
+    const shell::Caps sc = shell::caps();
+    const display::DisplayCaps dc = display::caps();
+    const input::PadCaps pc = input::anyPadCaps();
+    ui::UiCaps c;
+    c.lightBar = pc.lightBar;
+    c.triggerRumble = pc.triggerRumble;
+    c.adaptiveTriggers = pc.adaptiveTriggers;
+    c.gyro = pc.gyro;
+    c.touchpad = pc.touchpad;
+    c.upscalers = sc.console || dc.upscalers;
+    c.sharpen = sc.console || dc.sharpen;
+    c.deband = sc.console || dc.deband;
+    c.highRefresh = sc.console || dc.highRefreshSwitch;
+    c.console = sc.console;
+    c.openUrl = sc.openUrl;
+    c.selfUpdate = sc.selfUpdate;
+    return c;
+}
 
 bool coreStartup() {
     platform::init();

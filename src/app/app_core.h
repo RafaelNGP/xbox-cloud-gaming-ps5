@@ -6,6 +6,8 @@
 // backends it links (docs/multiplatform.md).
 #pragma once
 
+#include "ui/app_ui.h"
+
 namespace xc::app {
 
 // Everything up to the main loop, the worker thread started; false when the
@@ -18,5 +20,8 @@ bool coreFrame();
 void coreShutdown();
 // The three in turn; the process's exit code.
 int runApp();
+// What the screens offer here (the pads', display's and shell's
+// capabilities): every option on the PS5.
+ui::UiCaps uiCaps();
 
 }  // namespace xc::app
