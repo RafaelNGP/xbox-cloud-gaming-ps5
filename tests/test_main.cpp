@@ -1060,25 +1060,37 @@ static void testGyro() {
     GyroState s;
     float x = 1, y = 1;
     const float still[3] = {0.01f, -0.01f, 0.0f};
-    gyroToStick(still, 5, s, x, y);
+    gyroToStick(still, nullptr, 5, s, x, y);
     CHECK(x == 0 && y == 0);
     const float left[3] = {0.0f, 0.5f, 0.0f};  // yaw +: turning left
-    for (int i = 0; i < 8; ++i) gyroToStick(left, 5, s, x, y);
+    for (int i = 0; i < 8; ++i) gyroToStick(left, nullptr, 5, s, x, y);
     CHECK(x < -0.3f && x > -0.6f && std::abs(y) < 1e-6f);
     GyroState s2;
     float x2 = 0, y2 = 0;
-    for (int i = 0; i < 8; ++i) gyroToStick(left, 10, s2, x2, y2);
+    for (int i = 0; i < 8; ++i) gyroToStick(left, nullptr, 10, s2, x2, y2);
     CHECK(x2 < x);
     const float up[3] = {0.3f, 0.0f, 0.0f};  // pitch +: the top tilted up
     GyroState s3;
-    for (int i = 0; i < 8; ++i) gyroToStick(up, 5, s3, x, y);
+    for (int i = 0; i < 8; ++i) gyroToStick(up, nullptr, 5, s3, x, y);
     CHECK(y < -0.12f && x == 0);
     const float tiny[3] = {0.0f, 0.03f, 0.0f};  // a slow turn: still past the dead zone
     GyroState s4;
-    for (int i = 0; i < 8; ++i) gyroToStick(tiny, 5, s4, x, y);
+    for (int i = 0; i < 8; ++i) gyroToStick(tiny, nullptr, 5, s4, x, y);
     CHECK(x <= -0.12f);
-    for (int i = 0; i < 20; ++i) gyroToStick(still, 5, s4, x, y);
+    for (int i = 0; i < 20; ++i) gyroToStick(still, nullptr, 5, s4, x, y);
     CHECK(x == 0);
+    // Held tilted 45 degrees towards the player: a turn about the room's
+    // vertical shows on the pad's yaw and roll; it aims as far as held flat.
+    const float c = 0.7071f, tilted[3] = {0.0f, 0.5f * c, 0.5f * c}, gravity[3] = {0.0f, c, c};
+    GyroState s5;
+    float x5 = 0, y5 = 0;
+    for (int i = 0; i < 60; ++i) gyroToStick(tilted, gravity, 5, s5, x5, y5);
+    CHECK(x5 < -0.3f);
+    GyroState flat;
+    float xf = 0, yf = 0;
+    const float level[3] = {0.0f, 1.0f, 0.0f};
+    for (int i = 0; i < 60; ++i) gyroToStick(left, level, 5, flat, xf, yf);
+    CHECK(std::abs(x5 - xf) < 0.01f);
 }
 
 int main() {

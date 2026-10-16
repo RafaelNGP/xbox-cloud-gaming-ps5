@@ -174,7 +174,7 @@ std::atomic<bool> g_triggerPulses{false}, g_triggerLogging{false}, g_resistanceA
 bool g_rumbleLogged = false;
 std::atomic<int> g_gyroMode{kGyroOff}, g_gyroLevel{5};
 std::atomic<bool> g_gyroActive{false};
-int g_gyroLogged = 0;  // the first turns, to check the axes' signs
+int g_gyroLogged = 0, g_gyroLoggedX = 0;  // the first turns up / down and sideways, to check the axes
 
 inline float normStick(uint8_t val) {
     // 0..255 -> -1.0 .. 1.0
@@ -458,14 +458,18 @@ bool pollPad(int index, ControllerState& out) {
     bool gyroOn = g_gyroActive && (gyroMode == kGyroAlways || (gyroMode == kGyroAiming && out.triggerL2 > 0.3f));
     if (gyroOn) {
         float gx, gy;
-        gyroToStick(pad.angularVelocity, g_gyroLevel.load(std::memory_order_relaxed), slot.gyro, gx, gy);
+        gyroToStick(pad.angularVelocity, pad.acceleration, g_gyroLevel.load(std::memory_order_relaxed), slot.gyro, gx, gy);
         float x = out.rightStickX + gx, y = out.rightStickY + gy, m = std::hypot(x, y);
         if (m > 1.0f) x /= m, y /= m;
         out.rightStickX = x;
         out.rightStickY = y;
-        if (g_gyroLogged < 6 && std::abs(pad.angularVelocity[1]) + std::abs(pad.angularVelocity[0]) > 1.0f)
-            XC_LOGI("gyro: pitch %.2f yaw %.2f roll %.2f rad/s -> stick %.2f,%.2f (%d)", pad.angularVelocity[0],
-                    pad.angularVelocity[1], pad.angularVelocity[2], gx, gy, ++g_gyroLogged);
+        // The first few turns each way, to check the axes.
+        bool sideways = std::abs(gx) > 0.5f && std::abs(gx) > std::abs(gy);
+        int& logged = sideways ? g_gyroLoggedX : g_gyroLogged;
+        if (logged < 4 && std::max(std::abs(gx), std::abs(gy)) > 0.5f)
+            XC_LOGI("gyro: pitch %.2f yaw %.2f roll %.2f rad/s, gravity %.2f,%.2f,%.2f -> stick %.2f,%.2f",
+                    pad.angularVelocity[0], pad.angularVelocity[1], pad.angularVelocity[2], pad.acceleration[0],
+                    pad.acceleration[1], pad.acceleration[2], gx, gy), ++logged;
     } else {
         slot.gyro = {};
     }
