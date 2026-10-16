@@ -112,6 +112,14 @@ shared code:
   `kbm_sdl` with relative mouse; SDL audio, with a portable AudioQueue
   splitting `audio_out.cpp` / `audio_in.cpp`; the XDG data folder; toasts for
   `platform::notify`; the UI hiding what the capabilities rule out.
+  The core gains three things with it: a `display::pump()` step in
+  `coreFrame()`, on the menu and the streaming branch, so the video mailbox
+  is drawn on the main thread (a no-op on the PS5 and null); a wait that
+  wakes on a new frame or an input event in place of the fixed 8 ms sleep
+  (the PS5 keeps the sleep); and an orderly quit: before `coreShutdown()`
+  closes the backends, the worker leaves its loop (a quit command), the
+  stream and the price loop stop and the xCloud session is closed, so no
+  thread draws, rumbles or plays into a closed backend.
 - **M2, Windows**: cross build with llvm-mingw and the SDL3 mingw package,
   tests under wine; a Winsock socket layer; atomic writes with
   `MoveFileExW`; a crash guard on SEH (splitting `crash_guard.cpp`).

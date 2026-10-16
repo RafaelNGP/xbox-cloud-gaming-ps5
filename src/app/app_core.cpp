@@ -644,7 +644,8 @@ bool coreFrame() { return g_core->frame(); }
 
 void coreShutdown() {
     // Not on the PS5, whose loop never ends. The worker isn't stopped (it
-    // may be waiting on the network): the caller leaves with _exit().
+    // may be waiting on the network): the caller leaves with _exit(). The
+    // desktop app stops it and the stream first (docs/multiplatform.md, M1).
     XC_LOGI("=== PSBox Cloud Gaming closing ===");
     input::shutdown();
     display::shutdown();
