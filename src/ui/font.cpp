@@ -2,6 +2,8 @@
 // Copyright (C) 2026 RafaelNGP
 #include "ui/font.h"
 
+#include <cstdio>
+
 #include "platform/platform.h"
 #include "util/log.h"
 
@@ -169,8 +171,12 @@ bool Fonts::load(const std::string& dir) {
 }
 
 bool Fonts::loadIcons(const std::vector<std::string>& paths) {
-    for (const auto& p : paths)
+    for (const auto& p : paths) {
+        FILE* f = std::fopen(p.c_str(), "rb");  // a path the system doesn't have here: tried quietly
+        if (!f) continue;
+        std::fclose(f);
         if (icons.load(p)) return hasIcons = true;
+    }
     return false;
 }
 
