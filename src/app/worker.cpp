@@ -533,6 +533,10 @@ void loadConsoles(auth::AuthManager& am, xcloud::GssvClient& home) {
     g_ui->setConsoles(std::move(tiles), true);
 }
 
+namespace {
+std::string g_subscription;
+}  // namespace
+
 void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
     std::string err;
@@ -594,7 +598,8 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     if (!am.saved())  // the next start would ask for a code again: said now, not then
         platform::notify(ui::tr(ui::Str::SignInNotSaved), "the sign-in couldn't be saved (notification)");
     g_ui->setProfile(am.profile().gamertag, am.profile().gamerpicUrl, am.profile().gamerscore);
-    if (!am.profile().subscription.empty()) g_ui->setSubscription(am.profile().subscription);
+    g_subscription = am.profile().subscription;
+    if (!g_subscription.empty()) g_ui->setSubscription(g_subscription);
     {
         std::lock_guard<std::mutex> lock(g_argMutex);
         g_xblAuth = am.profile().xblAuthorization;
@@ -618,6 +623,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     stopHydration();
     auto library = std::make_shared<app::Library>();
     library->setCachePath(platform::dataDir() + "/library.json");
+    library->setSubscription(g_subscription);
     setPriceMarket(gssv.session().market.empty() ? "US" : gssv.session().market, ui::catalogLanguage());
     setQueueClient(&gssv);
     bool shown = false;

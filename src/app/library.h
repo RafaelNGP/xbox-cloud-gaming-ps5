@@ -43,6 +43,8 @@ public:
 
     // Where the cache lives (read by load(), written by the later phases).
     void setCachePath(std::string path) { cachePath_ = std::move(path); }
+    // The account's Game Pass plan ("Ultimate", "Premium", "Essential", ...).
+    void setSubscription(std::string sub) { subscription_ = std::move(sub); }
 
     // Calls `changed` after each row arrives; false only when nothing loaded.
     bool load(xcloud::GssvClient& gssv, const std::string& language, const Changed& changed, std::string& err);
@@ -105,6 +107,7 @@ private:
     void saveCache() const;
 
     std::string cachePath_;
+    std::string subscription_;
     std::string market_, language_;
     std::vector<RowIds> layout_;
     std::map<std::string, xcloud::Product> products_;

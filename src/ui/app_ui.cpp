@@ -374,6 +374,7 @@ void AppUi::setProfile(const std::string& gamertag, const std::string& gamerpicU
 void AppUi::setSubscription(const std::string& plan) {
     std::lock_guard<std::mutex> lock(mutex_);
     subscription_ = plan;
+    if (searching_) runSearch();
     dirty_ = true;
 }
 
@@ -766,6 +767,7 @@ void AppUi::showFilteredSearch(Tab tab, bool cheapest, int mode, const std::stri
     filterFree_ = false;
     filterMouseKeyboard_ = false;
     filterCheapest_ = cheapest;
+    filterPlan_ = 0;
     filterConsole_ = 0;
     filterMode_ = mode;
     filterGenre_ = genre;
@@ -872,6 +874,19 @@ void AppUi::runSearch() {
     std::vector<Hit> hits;
     for (const auto& t : tab_ == Tab::GamePass ? gamePassPool_ : libraryPool_) {
         if (hidden_.count(t.productId)) continue;
+        if (tab_ == Tab::GamePass && filterPlan_ != 4) {
+            if (filterPlan_ == 0) {
+                uint8_t myPlan = xcloud::planTier(subscription_);
+                if (!t.freeInStore && (!t.playable || (myPlan > 0 && !xcloud::planIncludes(myPlan, t.plan, false))))
+                    continue;
+            } else {
+                uint8_t want = filterPlan_ == 1 ? xcloud::kPlanUltimate
+                             : filterPlan_ == 2 ? xcloud::kPlanPremium
+                                                : xcloud::kPlanEssential;
+                if (!t.freeInStore && (want < xcloud::kPlanUltimate && t.plan == 0)) continue;
+                if (!xcloud::planIncludes(want, t.plan, t.freeInStore)) continue;
+            }
+        }
         if (filterConsole_ && t.platform != kConsoleCodes[filterConsole_]) continue;
         if (filterMouseKeyboard_ && !t.mouseKeyboard) continue;
         // Play mode and language need the full details: a game without them
@@ -1934,16 +1949,19 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
 }
 
 bool AppUi::anyFilter() const {
-    // Caller holds mutex_. Free and Lowest price only count in "Your games".
+    // Caller holds mutex_. Free and Lowest price only count in "Your games";
+    // Plan only in Game Pass.
     bool library = tab_ == Tab::Library && (filterFree_ || filterCheapest_);
-    return library || filterConsole_ || filterMode_ || !filterGenre_.empty() || filterPublisher_ || filterLanguage_;
+    bool gamePass = tab_ == Tab::GamePass && filterPlan_ > 0;
+    return library || gamePass || filterConsole_ || filterMouseKeyboard_ || filterMode_ || !filterGenre_.empty() ||
+           filterPublisher_ || filterLanguage_;
 }
 
 std::vector<AppUi::Filter> AppUi::filterRow(int row) const {
     // Caller holds mutex_. Prices only matter in "Your games" (Game Pass
     // games aren't bought).
     if (row == 1) return {Filter::Mode, Filter::Genre, Filter::Publisher, Filter::Language};
-    if (tab_ == Tab::GamePass) return {Filter::Console, Filter::MouseKeyboard};
+    if (tab_ == Tab::GamePass) return {Filter::Plan, Filter::Console, Filter::MouseKeyboard};
     return {Filter::Free, Filter::Cheapest, Filter::Console, Filter::MouseKeyboard};
 }
 
@@ -1963,6 +1981,7 @@ std::vector<std::string> AppUi::poolGenres() const {
 std::vector<std::string> AppUi::filterOptions(Filter f) const {
     // Caller holds mutex_. The first choice is always "all".
     switch (f) {
+    case Filter::Plan: return {tr(Str::PlanMine), "Ultimate", "Premium", "Essential", tr(Str::PlanAll)};
     case Filter::Console: return {tr(Str::FilterAllConsoles), "SERIES X|S", "XBOX ONE", "XBOX 360"};
     case Filter::Mode:
         return {tr(Str::ModeAll), tr(Str::ModeSingle), tr(Str::ModeOnlineMulti), tr(Str::ModeOnlineCoop), tr(Str::ModeLocal)};
@@ -1998,6 +2017,7 @@ std::vector<std::string> AppUi::filterOptions(Filter f) const {
 
 int AppUi::filterSelected(Filter f) const {
     // Caller holds mutex_.
+    if (f == Filter::Plan) return filterPlan_;
     if (f == Filter::Console) return filterConsole_;
     if (f == Filter::Mode) return filterMode_;
     if (f == Filter::Publisher) return filterPublisher_;
@@ -2017,6 +2037,7 @@ void AppUi::chooseFilter(Filter f, int index) {
 
 void AppUi::chooseFilterLocked(Filter f, int index) {
     // Caller holds mutex_.
+    if (f == Filter::Plan) filterPlan_ = index;
     if (f == Filter::Console) filterConsole_ = index;
     if (f == Filter::Mode) filterMode_ = index;
     if (f == Filter::Publisher) filterPublisher_ = index;
@@ -2040,7 +2061,11 @@ std::string AppUi::filterText(Filter f) const {
         auto options = filterOptions(f);
         if (sel < static_cast<int>(options.size())) return options[static_cast<size_t>(sel)];
     }
-    return tr(f == Filter::Mode ? Str::FilterMode : f == Filter::Genre ? Str::FilterGenre : f == Filter::Publisher ? Str::FilterPublisher : Str::FilterLanguage);
+    return tr(f == Filter::Plan      ? Str::FilterPlan
+              : f == Filter::Mode      ? Str::FilterMode
+              : f == Filter::Genre     ? Str::FilterGenre
+              : f == Filter::Publisher ? Str::FilterPublisher
+                                       : Str::FilterLanguage);
 }
 
 bool AppUi::filterOn(Filter f) const {
@@ -2921,6 +2946,20 @@ const char* platformLabel(const std::string& code) {
     return nullptr;
 }
 
+const char* planBadgeLabel(uint8_t plan) {
+    if (plan == xcloud::kPlanEssential) return "ESSENTIAL";
+    if (plan == xcloud::kPlanPremium) return "PREMIUM";
+    if (plan == xcloud::kPlanUltimate) return "ULTIMATE";
+    return nullptr;
+}
+
+const char* planDisplayName(uint8_t plan) {
+    if (plan == xcloud::kPlanEssential) return "Essential";
+    if (plan == xcloud::kPlanPremium) return "Premium";
+    if (plan == xcloud::kPlanUltimate) return "Ultimate";
+    return nullptr;
+}
+
 // A shopping bag centred on (cx, cy), about 22x24 px: a game to buy.
 // A shopping bag (body + handle) centred on (cx, cy); `size` scales it
 // (1 = 22 x 23 px).
@@ -2944,8 +2983,13 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
         for (size_t k = 0; k < lines.size(); ++k)
             fonts_.semibold.draw(c, lines[k], x + 16, y + 16 + static_cast<int>(k) * 30, 22, kGray);
     }
-    // Bottom-left: GAME PASS, or BUY with a bag; a padlock (top right) when
-    // it can't be played or bought.
+    // Bottom-left: BUY with a bag, a Game Pass plan badge when the game is
+    // in another plan (or while filtering by plan), or friends playing; a
+    // padlock (top right) when it can't be played or bought.
+    const char* planBadge = planBadgeLabel(t.plan);
+    uint8_t myPlan = xcloud::planTier(subscription_);
+    bool otherPlan = planBadge && (!t.playable || (myPlan > 0 && !xcloud::planIncludes(myPlan, t.plan, t.freeInStore)));
+    bool showPlan = otherPlan || (planBadge && searching_ && tab_ == Tab::GamePass && filterPlan_ > 0 && t.friends.empty());
     if (t.purchasable) {
         c.fillRect({x, y, kCard, kCard}, rgba(0, 0, 0, 70), 10);
         auto price = prices_.find(t.productId);
@@ -2960,6 +3004,19 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
     } else if (!t.playable) {
         c.fillRect({x, y, kCard, kCard}, rgba(0, 0, 0, 150), 10);
         drawLock(c, x + kCard - 34, y + 30);
+        if (planBadge) {
+            int w = std::min(78, fonts_.bold.measure(planBadge, 11) + 12);
+            Rect badge{x + 10, y + kCard - 34, w, 24};
+            c.fillRect(badge, rgba(0, 0, 0, 220), 4);
+            fonts_.bold.draw(c, planBadge, badge.x + (badge.w - fonts_.bold.measure(planBadge, 11)) / 2,
+                             fonts_.bold.centeredY(badge.y, badge.h, 11), 11, kWhite);
+        }
+    } else if (showPlan) {
+        int w = std::min(78, fonts_.bold.measure(planBadge, 11) + 12);
+        Rect badge{x + 10, y + kCard - 34, w, 24};
+        c.fillRect(badge, rgba(0, 0, 0, 220), 4);
+        fonts_.bold.draw(c, planBadge, badge.x + (badge.w - fonts_.bold.measure(planBadge, 11)) / 2,
+                         fonts_.bold.centeredY(badge.y, badge.h, 11), 11, kWhite);
     } else if (!t.friends.empty()) {
         int numAvatars = std::min<int>(static_cast<int>(t.friends.size()), 2);
         int extraCount = static_cast<int>(t.friends.size()) - numAvatars;
@@ -3500,8 +3557,13 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         y += 82;
     }
     y += 6;
-    if (!g->publisher.empty()) {
-        fonts_.semibold.draw(c, trf(Str::PublisherBy, g->publisher), kMargin, y, 26, kGray);
+    const char* planName = planDisplayName(g->plan);
+    std::string byLine;
+    if (!g->publisher.empty()) byLine = trf(Str::PublisherBy, g->publisher);
+    if (planName && g->playable)
+        byLine += (byLine.empty() ? "" : "  \xE2\x80\xA2  ") + trf(Str::IncludedWithPlan, planName);
+    if (!byLine.empty()) {
+        fonts_.semibold.draw(c, byLine, kMargin, y, 26, kGray);
         y += 40;
     }
     std::string cats;
@@ -3585,10 +3647,12 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     }
     if (!g->playable) {
         // Bought separately or outside the subscription: no Play button.
-        Rect note{kMargin, std::max(y + 48, 620), 560, 76};
+        std::string msg = planName ? trf(Str::IncludedWithPlan, planName) : std::string(tr(Str::NotPlayable));
+        int w = std::max(560, fonts_.semibold.measure(msg, 28) + 124);
+        Rect note{kMargin, std::max(y + 48, 620), w, 76};
         c.fillRect(note, rgba(255, 255, 255, 40), 38);
         drawLock(c, note.x + 52, note.y + note.h / 2);
-        fonts_.semibold.draw(c, tr(Str::NotPlayable), note.x + 90, note.y + 22, 28, kGray);
+        fonts_.semibold.draw(c, msg, note.x + 90, note.y + 22, 28, kGray);
         drawHints(c, {{kIconOptions, tr(Str::GameSettings)},
                       {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
                       {kIconCircle, tr(Str::Back)}});

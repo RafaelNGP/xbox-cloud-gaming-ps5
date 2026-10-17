@@ -21,7 +21,32 @@ std::string describe(const net::Response& r) {
     return r.status == 0 ? r.error : "HTTP " + std::to_string(r.status);
 }
 
+uint8_t parsePassPlan(const json::Value& passes) {
+    if (passes.has("CFQ7TTC0K5DJ")) return kPlanEssential;
+    if (passes.has("CFQ7TTC0P85B")) return kPlanPremium;
+    return kPlanUltimate;
+}
+
 }  // namespace
+
+uint8_t productPlanFromJson(const std::string& passMetadataJson) {
+    auto j = json::parse(passMetadataJson);
+    return j ? parsePassPlan(*j) : kPlanUltimate;
+}
+
+uint8_t planTier(const std::string& subscription) {
+    if (subscription == "Essential") return kPlanEssential;
+    if (subscription == "Premium") return kPlanPremium;
+    if (subscription == "Ultimate") return kPlanUltimate;
+    return kPlanNone;
+}
+
+bool planIncludes(uint8_t plan, uint8_t gamePlan, bool freeInStore) {
+    if (freeInStore) return true;
+    if (plan == kPlanNone) return false;
+    if (gamePlan == kPlanNone) return true;
+    return gamePlan <= plan;
+}
 
 bool fetchList(const std::string& siglId, const std::string& market, const std::string& language, ProductList& out,
                std::string& err) {
@@ -86,9 +111,11 @@ bool fetchProducts(const std::vector<std::string>& ids, const std::string& marke
             if (prod.heroUrl.empty()) prod.heroUrl = imageUrl(p["Image_TitledHero"]);
             for (const auto& c : p["LocalizedCategories"].items()) prod.categories.push_back(categoryName(c.str()));
             if (full) {
-                // How it can be played, from the store's attributes.
+                // How it can be played, from the store's attributes, and the
+                // lowest Game Pass plan that includes it.
                 prod.detailed = true;
                 prod.detailedAt = static_cast<int64_t>(std::time(nullptr));
+                prod.plan = parsePassPlan(p["PassMetadataByPassProductId"]);
                 for (const auto& a : p["Attributes"].items()) {
                     std::string n = a["Name"].str();
                     if (n == "SinglePlayer") prod.modes |= kModeSingle;
