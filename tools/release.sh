@@ -3,7 +3,7 @@
 # Copyright (C) 2026 RafaelNGP
 # Builds and checks a release, the same way every time; publishes nothing.
 #
-#   tools/release.sh <X.Y.Z> [out-dir] [--console]
+#   tools/release.sh <X.Y.Z> [out-dir] [--console] [--linux]
 #
 # Stops at the first problem. Before building: a clean tree, the version in
 # CMakeLists.txt and ps5/sce_sys/param.json (contentVersion 0X.YZZ.000, above
@@ -12,8 +12,16 @@
 # the account -> zip + sha256 + signature, and checks inside the zip (no private files,
 # README.txt and param.json at this version, no token in eboot.bin, the
 # version compiled in, the licenses). With --console (PS5_HOST set), a cloud
-# and an own-Xbox stream on the console. Last, it prints the commands that
-# publish the release and the catalog record.
+# and an own-Xbox stream on the console. With --linux, also the desktop
+# app's Linux tarball (tools/desktop/package-linux.sh in build-linux-release,
+# SDL3 from CMAKE_PREFIX_PATH or the system, bundled):
+# PSBox-vX.Y.Z-linux-x86_64.tar.gz + .sha256 + .sig, signed the same way,
+# psbox checked for tokens and the version, its symbols in
+# symbols/vX.Y.Z/psbox.debug. Its glibc baseline is this machine's: CI's
+# linux-app job builds on ubuntu-24.04. The PS5 assets are always made and
+# always required; the Linux ones are optional (the desktop app only points
+# to the release page). Last, it prints the commands that publish the
+# release and the catalog record.
 #
 # The in-app updater installs only a zip signed by the project's key:
 # PSBOX_SIGNING_KEY (default ~/.config/psbox-release/signing-key.pem, kept
@@ -23,13 +31,15 @@ set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
 
-version=${1:?usage: tools/release.sh <X.Y.Z> [out-dir] [--console]}
+version=${1:?usage: tools/release.sh <X.Y.Z> [out-dir] [--console] [--linux]}
 shift
 out=""
 console=0
+linux=0
 for a in "$@"; do
     case $a in
         --console) console=1 ;;
+        --linux) linux=1 ;;
         *) out=$a ;;
     esac
 done
@@ -38,6 +48,12 @@ key=${PSBOX_SIGNING_KEY:-$HOME/.config/psbox-release/signing-key.pem}
 tag=v$version
 fail() { echo "release: $*" >&2; exit 1; }
 ok() { echo "  ok  $*"; }
+# Every asset is signed the same way: what src/app/updater.cpp verifies.
+sign() {
+    openssl dgst -sha256 -sign "$key" -out "$1.sig" "$1"
+    openssl dgst -sha256 -verify <(echo "$pub") -signature "$1.sig" "$1" >/dev/null ||
+        fail "the signature of $(basename "$1") doesn't verify"
+}
 
 [[ $version =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || fail "version must be X.Y.Z"
 major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} patch=${BASH_REMATCH[3]}
@@ -86,9 +102,7 @@ chmod -R 0777 "$out/PPSA99810"
 (cd "$out" && zip -qr PPSA99810.zip PPSA99810 && sha256sum PPSA99810.zip > PPSA99810.zip.sha256)
 sha=$(cut -d' ' -f1 "$out/PPSA99810.zip.sha256")
 ok "$out/PPSA99810.zip ($(du -h "$out/PPSA99810.zip" | cut -f1)), sha256 $sha"
-openssl dgst -sha256 -sign "$key" -out "$out/PPSA99810.zip.sig" "$out/PPSA99810.zip"
-openssl dgst -sha256 -verify <(echo "$pub") -signature "$out/PPSA99810.zip.sig" "$out/PPSA99810.zip" >/dev/null ||
-    fail "the signature doesn't verify"
+sign "$out/PPSA99810.zip"
 ok "signed: $out/PPSA99810.zip.sig"
 
 echo "== checks in the package"
@@ -109,6 +123,32 @@ for f in assets/cacert.pem licenses/THIRD_PARTY_NOTICES.md licenses/FFmpeg-LGPL-
 done
 ok "certificates and licenses in place"
 
+linux_assets=""
+if [[ $linux == 1 ]]; then
+    echo "== Linux package"
+    name=PSBox-$tag-linux-x86_64.tar.gz
+    tarball=$out/$name
+    buildlog=$(mktemp)
+    XC_VERSION="$tag" tools/desktop/package-linux.sh "$root/build-linux-release" "$out" >"$buildlog" 2>&1 ||
+        { tail -30 "$buildlog"; fail "the Linux package failed"; }
+    rm -f "$buildlog"
+    [[ -s $tarball ]] || fail "no $tarball"
+    [[ -s "$root/symbols/$tag/psbox.debug" ]] || fail "symbols/$tag/psbox.debug was not saved"
+    ok "$name ($(du -h "$tarball" | cut -f1)) built, checked and self-tested by package-linux.sh"
+    if tar tzf "$tarball" | grep -nE "$private|\.elf$|\.debug$"; then fail "a private or symbol file in the Linux package"; fi
+    exe=$(mktemp)
+    tar xzf "$tarball" -O PSBox/psbox >"$exe"
+    if grep -aqE "$tokens" "$exe"; then rm -f "$exe"; fail "psbox holds something like a token"; fi
+    grep -aq "$version" "$exe" || { rm -f "$exe"; fail "psbox doesn't carry version $version (stale build?)"; }
+    glibc=$(objdump -T "$exe" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
+    rm -f "$exe"
+    ok "psbox: no token, version $version compiled in, needs ${glibc:-?} (this machine's baseline)"
+    (cd "$out" && sha256sum "$name" > "$name.sha256")
+    sign "$tarball"
+    ok "signed: $tarball.sig"
+    linux_assets=" \"$tarball\" \"$tarball.sha256\" \"$tarball.sig\""
+fi
+
 if [[ $console == 1 ]]; then
     echo "== console (${PS5_HOST:?set PS5_HOST for --console})"
     for run in "FORTNITE 25" "XHOME 25"; do
@@ -122,7 +162,7 @@ if [[ $console == 1 ]]; then
 fi
 
 echo "== all checks passed; to publish (with release notes in notes.md):"
-echo "  gh release create $tag \"$zip\" \"$out/PPSA99810.zip.sha256\" \"$out/PPSA99810.zip.sig\" --target $(git rev-parse HEAD) --title \"PSBox Cloud Gaming $tag\" --notes-file notes.md"
+echo "  gh release create $tag \"$zip\" \"$out/PPSA99810.zip.sha256\" \"$out/PPSA99810.zip.sig\"$linux_assets --target $(git rev-parse HEAD) --title \"PSBox Cloud Gaming $tag\" --notes-file notes.md"
 echo "== catalog record (apps/PPSA99810.json):"
 echo "  \"version\": \"$version\","
 echo "  \"artifact_url\": \"https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/releases/download/$tag/PPSA99810.zip\","
