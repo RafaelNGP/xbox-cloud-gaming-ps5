@@ -112,6 +112,8 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.gameVolume = choice.gameVolume;
         g_settings.keyMap = choice.keyMap;
         if (input::padMapValid(choice.padMap)) g_settings.padMap = choice.padMap;  // the screen only lets a complete one out
+        g_settings.gyroMode = choice.gyroMode;
+        g_settings.gyroLevel = choice.gyroLevel;
         fullscreenChanged = g_settings.desktopFullscreen != choice.fullscreen;
         g_settings.desktopFullscreen = choice.fullscreen;
         g_settings.save(settingsPath());  // warns itself
@@ -119,6 +121,7 @@ bool saveSettings(const ui::SettingsChoice& choice) {
                 g_settings.region.empty() ? "auto" : g_settings.region.c_str());
     }
     applyControllerSettings();
+    if (g_ui) g_ui->setGyroDefaults(choice.gyroMode, choice.gyroLevel);
     if (fullscreenChanged) shell::setFullscreen(choice.fullscreen);  // a desktop's window (main thread)
     return languageChanged;
 }
@@ -310,6 +313,8 @@ bool coreStartup() {
         choice.gameVolume = g_settings.gameVolume;
         choice.keyMap = g_settings.keyMap;
         choice.padMap = g_settings.padMap;
+        choice.gyroMode = g_settings.gyroMode;
+        choice.gyroLevel = g_settings.gyroLevel;
         choice.fullscreen = g_settings.desktopFullscreen;
         g_ui->setAllow1440(allow1440Locked());
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check

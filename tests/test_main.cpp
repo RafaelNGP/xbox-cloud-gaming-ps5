@@ -1286,8 +1286,8 @@ static void testVisibleSettingsRows() {
     };
     const ui::UiCaps ps5;
     auto all = ui::visibleSettingsRows(ps5);
-    CHECK((ids(all) == std::vector<int>{0, 8, 1, 9, 10, 2, 11, 3, 4, 5, 6, 14, 12, 7}));
-    CHECK((groups(all) == std::vector<bool>{false, false, true, false, false, false, true, true, false, false, false, false, false, true}));
+    CHECK((ids(all) == std::vector<int>{0, 8, 1, 9, 10, 2, 11, 3, 4, 5, 6, 15, 14, 12, 7}));
+    CHECK((groups(all) == std::vector<bool>{false, false, true, false, false, false, true, true, false, false, false, false, false, false, true}));
     ui::UiCaps pc;
     pc.lightBar = pc.triggerRumble = pc.adaptiveTriggers = pc.gyro = pc.touchpad = false;
     pc.upscalers = pc.sharpen = pc.deband = pc.highRefresh = pc.console = pc.selfUpdate = false;
@@ -1306,10 +1306,10 @@ static void testVisibleSettingsRows() {
     auto x = ids(ui::visibleSettingsRows(xbox));
     CHECK(std::find(x.begin(), x.end(), 4) != x.end() && std::find(x.begin(), x.end(), 6) == x.end());
     // A game's settings.
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, true)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 11, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
     CHECK((groups(ui::visibleGameSettingsRows(ps5, true)) ==
-           std::vector<bool>{false, true, false, true, false, false, true, false, false, false, false, true}));
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 11, 9}));
+           std::vector<bool>{false, true, false, true, false, false, true, false, false, false, false, false, true}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 9}));
     auto game = ui::visibleGameSettingsRows(pc, false);
     CHECK((ids(game) == std::vector<int>{0, 4, 5, 7, 11, 9}));
     CHECK((groups(game) == std::vector<bool>{false, true, true, false, false, false}));

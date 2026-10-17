@@ -200,7 +200,8 @@ int desktopSelftest(const std::string& dir) {
     auto rows = ui::visibleSettingsRows(caps);
     bool hidden = std::none_of(rows.begin(), rows.end(), [&](const ui::SettingsRowPos& r) {
         return (r.row == 6 && !caps.lightBar) || (r.row == 9 && !caps.highRefresh) ||
-               (r.row == 4 && !caps.triggerRumble && !caps.adaptiveTriggers);
+               (r.row == 4 && !caps.triggerRumble && !caps.adaptiveTriggers) ||
+               (r.row == 15 && !caps.gyro);
     });
     std::printf("selftest: Settings shows %zu of %d rows\n", rows.size(), ui::kSettingRows);
     check(hidden && rows.size() < static_cast<size_t>(ui::kSettingRows), "Settings hides light bar / 120 Hz rows");
