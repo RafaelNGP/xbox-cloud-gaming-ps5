@@ -5,6 +5,22 @@
 // PS5's keyboard does (SDL's scancodes are the same USB HID usages); the
 // mouse's movement counts only while the window holds it (kbmSetCaptured:
 // in a game), its buttons and wheel while the window has the focus.
+//
+// A DualSense's (or DS4's) touchpad is not the mouse. Linux's driver gives
+// it a pointer device of its own, so the desktop moves the pointer with it
+// and SDL hands that on as mouse events, which in a game moved the right
+// stick (keyboard as a controller) or the game's cursor. The pad's touchpad
+// is read through the pad (SDL_GetGamepadTouchpadFinger), so those events
+// are dropped, two ways:
+// - by device, where SDL names the mouse a motion came from (X11: each
+//   pointer device): isPadPointerName();
+// - by time, where it can't: Wayland merges every pointer into the seat's
+//   ("Virtual core pointer (seat0)"), so while a finger is on a pad's
+//   touchpad, and kTouchGraceNs after (a tap turns into a click a moment
+//   after the finger leaves), the mouse is ignored. The pad's touch events
+//   come after the pointer's from the same SDL_PumpEvents, so a touch also
+//   drops what the mouse gathered since the last poll. This needs the pad
+//   opened through HIDAPI (controller_sdl.cpp), which reports its touchpad.
 #include "input/input_ext.h"
 #include "input/kbm.h"
 #include "input/sdl_backend.h"
@@ -14,7 +30,9 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <map>
 #include <mutex>
+#include <set>
 #include <vector>
 
 namespace xc::input {
@@ -36,6 +54,30 @@ uint32_t g_sdlClicked = 0;             // went down since the last poll (a click
 // What the last poll reported.
 std::vector<uint8_t> g_held;
 uint8_t g_buttons = 0;
+// The pads' touchpads: fingers on them (pad, touchpad, finger) and when
+// the last one left (SDL ns), for kTouchGraceNs.
+constexpr uint64_t kTouchGraceNs = 400'000'000;
+std::set<uint64_t> g_fingers;
+uint64_t g_liftNs = 0;
+// Main thread (SDL is called for the names): which mice are a pad's.
+std::map<SDL_MouseID, bool> g_padPointer;
+
+// Whether events of mouse `id` are a controller's touchpad (by its name;
+// main thread, without g_mutex).
+bool padPointer(SDL_MouseID id) {
+    if (id == 0 || id == SDL_TOUCH_MOUSEID || id == SDL_PEN_MOUSEID) return false;
+    auto it = g_padPointer.find(id);
+    if (it != g_padPointer.end()) return it->second;
+    const char* name = SDL_GetMouseNameForID(id);
+    bool pad = isPadPointerName(name);
+    g_padPointer[id] = pad;
+    if (pad) XC_LOGI("mouse: '%s' is a controller's touchpad: its events are ignored", name);
+    return pad;
+}
+
+// Whether the mouse's events now are a pad's touchpad going by time
+// (Wayland). Caller holds g_mutex.
+bool padTouching(uint64_t nowNs) { return !g_fingers.empty() || (g_liftNs && nowNs - g_liftNs < kTouchGraceNs); }
 
 // Holds or lets go of the mouse: held while a game wants it and the window
 // has the focus.
@@ -93,8 +135,41 @@ void kbmSdlEvent(const SDL_Event& e) {
         }
         break;
     }
-    case SDL_EVENT_MOUSE_MOTION: {
+    case SDL_EVENT_MOUSE_ADDED:
+    case SDL_EVENT_MOUSE_REMOVED:
+        g_padPointer.erase(e.mdevice.which);
+        break;
+    case SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN:
+    case SDL_EVENT_GAMEPAD_TOUCHPAD_MOTION:
+    case SDL_EVENT_GAMEPAD_TOUCHPAD_UP: {
+        uint64_t key = static_cast<uint64_t>(e.gtouchpad.which) << 16 | static_cast<uint64_t>(e.gtouchpad.touchpad & 0xFF) << 8 |
+                       static_cast<uint64_t>(e.gtouchpad.finger & 0xFF);
         std::lock_guard<std::mutex> lock(g_mutex);
+        static bool logged = false;
+        if (!logged) XC_LOGI("mouse: ignored while a finger is on a pad's touchpad"), logged = true;
+        if (e.type == SDL_EVENT_GAMEPAD_TOUCHPAD_UP) {
+            g_fingers.erase(key);
+            g_liftNs = e.common.timestamp ? e.common.timestamp : SDL_GetTicksNS();
+        } else {
+            g_fingers.insert(key);
+            // The pointer's events from this pump came first: the touchpad's too.
+            g_dx = g_dy = 0;
+            g_wheel = 0;
+            g_sdlClicked = 0;
+        }
+        break;
+    }
+    case SDL_EVENT_GAMEPAD_REMOVED: {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        uint64_t pad = static_cast<uint64_t>(e.gdevice.which);
+        for (auto it = g_fingers.begin(); it != g_fingers.end();)
+            it = (*it >> 16) == pad ? g_fingers.erase(it) : std::next(it);
+        break;
+    }
+    case SDL_EVENT_MOUSE_MOTION: {
+        if (padPointer(e.motion.which)) break;
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (padTouching(e.common.timestamp)) break;
         if (g_captured) {
             g_dx += e.motion.xrel;
             g_dy += e.motion.yrel;
@@ -104,8 +179,10 @@ void kbmSdlEvent(const SDL_Event& e) {
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP: {
         if (e.button.button < SDL_BUTTON_LEFT || e.button.button > SDL_BUTTON_X2) break;
+        if (padPointer(e.button.which)) break;
         uint32_t bit = SDL_BUTTON_MASK(e.button.button);
         std::lock_guard<std::mutex> lock(g_mutex);
+        if (e.button.down && padTouching(e.common.timestamp)) break;  // a release always counts
         if (e.button.down) {
             g_sdlButtons |= bit;
             g_sdlClicked |= bit;
@@ -115,9 +192,11 @@ void kbmSdlEvent(const SDL_Event& e) {
         break;
     }
     case SDL_EVENT_MOUSE_WHEEL: {
+        if (padPointer(e.wheel.which)) break;
         int32_t notches = e.wheel.integer_y;
         if (e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED) notches = -notches;
         std::lock_guard<std::mutex> lock(g_mutex);
+        if (padTouching(e.common.timestamp)) break;
         g_wheel += notches;
         break;
     }

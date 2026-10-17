@@ -30,6 +30,14 @@ uint8_t scancodeToVk(int scancode);
 // app's and the wire's (kbm.h: 1 left, 2 right, 4 middle, 8 back, 16 forward).
 uint8_t sdlMouseButtons(uint32_t sdlMask);
 
+// Whether a pointer device of this name is a game controller's: Linux
+// (hid-playstation) gives the DualSense's and DS4's touchpads a pointer
+// device of their own ("Sony Interactive Entertainment DualSense Wireless
+// Controller Touchpad", "Wireless Controller Touchpad"); its movement isn't
+// the mouse's (the pad's touchpad is read through the pad). A laptop's
+// touchpad or a mouse isn't one. Case doesn't matter; null is none.
+bool isPadPointerName(const char* name);
+
 // The light bar of player `slot` (0..3) while the app sets none: the
 // player's colour (ui::playerColor: blue, red, green, pink).
 void playerLightColour(int slot, uint8_t rgb[3]);

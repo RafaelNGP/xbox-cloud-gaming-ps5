@@ -18,8 +18,18 @@ void sdlInputInit(SDL_Window* window) {
 void sdlInputEvent(const SDL_Event& event) {
     switch (event.type) {
     case SDL_EVENT_GAMEPAD_ADDED:
+        padSdlEvent(event);
+        break;
     case SDL_EVENT_GAMEPAD_REMOVED:
         padSdlEvent(event);
+        kbmSdlEvent(event);  // its fingers off the touchpad
+        break;
+    case SDL_EVENT_GAMEPAD_TOUCHPAD_DOWN:
+    case SDL_EVENT_GAMEPAD_TOUCHPAD_MOTION:
+    case SDL_EVENT_GAMEPAD_TOUCHPAD_UP:
+    case SDL_EVENT_MOUSE_ADDED:
+    case SDL_EVENT_MOUSE_REMOVED:
+        kbmSdlEvent(event);  // a pad's touchpad isn't the mouse
         break;
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP:

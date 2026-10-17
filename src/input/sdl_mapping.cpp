@@ -5,7 +5,9 @@
 #include "input/kbm.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
+#include <string>
 
 namespace xc::input {
 
@@ -24,6 +26,14 @@ uint8_t scancodeToVk(int scancode) {
 
 uint8_t sdlMouseButtons(uint32_t m) {
     return static_cast<uint8_t>((m & 1u ? 1 : 0) | (m & 4u ? 2 : 0) | (m & 2u ? 4 : 0) | (m & 8u ? 8 : 0) | (m & 16u ? 16 : 0));
+}
+
+bool isPadPointerName(const char* name) {
+    if (!name) return false;
+    std::string n(name);
+    std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    auto has = [&](const char* word) { return n.find(word) != std::string::npos; };
+    return has("wireless controller") || has("dualsense") || has("dualshock") || (has("controller") && has("touchpad"));
 }
 
 void playerLightColour(int slot, uint8_t rgb[3]) {

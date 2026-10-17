@@ -20,7 +20,9 @@ void padSdlShutdown();
 
 // The window whose events come in and which holds the mouse.
 void kbmSdlInit(SDL_Window* window);
-// Keys, mouse movement / buttons / wheel, the window's focus.
+// Keys, mouse movement / buttons / wheel, the window's focus; the pads'
+// touchpad events and removal, the mice coming and going (a pad's touchpad
+// moving the pointer isn't the mouse).
 void kbmSdlEvent(const SDL_Event& event);
 // Lets the mouse go.
 void kbmSdlShutdown();

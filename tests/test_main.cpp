@@ -1383,6 +1383,16 @@ static void testSdlMouseButtons() {
     CHECK(sdlMouseButtons(8) == 8);    // X1: back
     CHECK(sdlMouseButtons(16) == 16);  // X2: forward
     CHECK(sdlMouseButtons(1 | 4) == 3 && sdlMouseButtons(31) == 31 && sdlMouseButtons(0xFFFFFFE0u) == 0);
+    // A controller's touchpad as a pointer device (Linux) isn't the mouse.
+    using xc::input::isPadPointerName;
+    CHECK(isPadPointerName("Sony Interactive Entertainment DualSense Wireless Controller Touchpad"));
+    CHECK(isPadPointerName("DualSense Wireless Controller Touchpad"));  // Bluetooth
+    CHECK(isPadPointerName("Wireless Controller Touchpad"));            // DS4, Bluetooth
+    CHECK(isPadPointerName("Sony Computer Entertainment DUALSHOCK 4 Wireless Controller Touchpad"));
+    CHECK(isPadPointerName("Generic Controller Touchpad"));
+    CHECK(!isPadPointerName("ELAN1200:00 04F3:30F7 Touchpad") && !isPadPointerName("SynPS/2 Synaptics TouchPad"));
+    CHECK(!isPadPointerName("Logitech G502 HERO Gaming Mouse") && !isPadPointerName("Virtual core pointer (seat0)"));
+    CHECK(!isPadPointerName("") && !isPadPointerName(nullptr));
 }
 
 // SDL's scancodes are HID usages: the same keys as the PS5's keyboard.
