@@ -22,6 +22,7 @@
 #include "input/kbm.h"
 #include "input/keyboard_nav.h"
 #include "ui/input_mode.h"
+#include "ui/pad_glyphs.h"
 #include "input/tuning.h"
 #include "net/http.h"
 #include "platform/platform.h"
@@ -405,6 +406,16 @@ bool Core::frame() {
         else if (padUsed) keyboard = false;
         if (keyboard != ui::g_keyboardHints) {
             ui::g_keyboardHints = keyboard;
+            g_ui->invalidate();
+            streamScreen->redrawMenu();
+        }
+        // The controller's glyphs: those of the pad driving the menus (the
+        // first connected one, which input::poll() reads), kept while none
+        // is connected. The PS5's pads are DualSense: always PlayStation.
+        const input::PadKind kind = input::anyPadCaps().kind;
+        const ui::GlyphStyle style = ui::glyphStyleFor(kind);
+        if (kind != input::PadKind::None && style != ui::g_glyphStyle) {
+            ui::g_glyphStyle = style;
             g_ui->invalidate();
             streamScreen->redrawMenu();
         }

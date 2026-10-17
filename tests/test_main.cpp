@@ -25,6 +25,7 @@
 #include "stream/stream_session.h"
 #include "ui/app_ui.h"
 #include "ui/accent_color.h"
+#include "ui/pad_glyphs.h"
 #include "ui/stream_menu.h"
 #include "ui/strings.h"
 #include "util/json.h"
@@ -1209,6 +1210,38 @@ static void testVisibleSettingsRows() {
     CHECK((groups(game) == std::vector<bool>{false, true, true, false, false}));
 }
 
+// The controller's glyphs by pad kind (ui/pad_glyphs.h).
+static void testPadGlyphs() {
+    using input::PadKind;
+    using ui::GlyphStyle;
+    using ui::PadButton;
+    CHECK(ui::glyphStyleFor(PadKind::DualSense) == GlyphStyle::PlayStation);
+    CHECK(ui::glyphStyleFor(PadKind::DualShock4) == GlyphStyle::PlayStation);
+    CHECK(ui::glyphStyleFor(PadKind::None) == GlyphStyle::PlayStation);
+    CHECK(ui::glyphStyleFor(PadKind::Xbox) == GlyphStyle::Xbox);
+    CHECK(ui::glyphStyleFor(PadKind::Switch) == GlyphStyle::Xbox);
+    CHECK(ui::glyphStyleFor(PadKind::Generic) == GlyphStyle::Xbox);
+    // The PS5's pads, whatever the desktop shows.
+    CHECK(ui::glyphStyleFor(input::anyPadCaps().kind) == GlyphStyle::PlayStation);  // null backend: no pad
+    const PadButton all[] = {PadButton::Cross, PadButton::Circle, PadButton::Square, PadButton::Triangle,
+                             PadButton::Options, PadButton::Touchpad, PadButton::L1, PadButton::R1,
+                             PadButton::L2, PadButton::R2, PadButton::L3, PadButton::R3};
+    std::string ps, xb;
+    for (PadButton b : all) {
+        ps += std::string(ui::buttonName(GlyphStyle::PlayStation, b)) + ",";
+        xb += std::string(ui::buttonName(GlyphStyle::Xbox, b)) + ",";
+    }
+    CHECK(ps == "Cross,Circle,Square,Triangle,Options,Touchpad,L1,R1,L2,R2,L3,R3,");
+    CHECK(xb == "A,B,X,Y,Menu,View,LB,RB,LT,RT,LS,RS,");
+    // Xbox letters: A green, B red, X blue, Y yellow; no colour off the face.
+    ui::Color a = ui::faceColor(GlyphStyle::Xbox, PadButton::Cross), b = ui::faceColor(GlyphStyle::Xbox, PadButton::Circle);
+    CHECK(a != b && a != 0 && b != 0);
+    CHECK(ui::faceColor(GlyphStyle::Xbox, PadButton::L1) == 0);
+    CHECK(ui::faceColor(GlyphStyle::PlayStation, PadButton::Cross) == ui::rgba(124, 178, 232));
+    CHECK(ui::faceColor(GlyphStyle::Xbox, PadButton::Cross) == ui::rgba(84, 178, 58));
+    CHECK(ui::faceColor(GlyphStyle::Xbox, PadButton::Triangle) == ui::rgba(236, 184, 30));
+}
+
 // The desktop app's in-app notices (platform/toasts.h).
 static void testToasts() {
     using platform::ToastQueue;
@@ -1477,6 +1510,7 @@ static void testNullBackendsM1() {
 
 int main() {
     testNullBackends();
+    testPadGlyphs();
     testToasts();
     testVisibleSettingsRows();
     testMissingFont();

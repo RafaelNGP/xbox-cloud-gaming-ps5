@@ -19,6 +19,7 @@
 #include "ui/canvas.h"
 #include "ui/font.h"
 #include "ui/image_cache.h"
+#include "ui/pad_glyphs.h"
 #include "ui/stream_menu.h"
 #include "util/log.h"
 
@@ -204,6 +205,26 @@ int desktopSelftest(const std::string& dir) {
     ui.render(canvas, platform::nowMs());
     drawCanvas(canvas);
     check(screenshot(dir, "2-settings.png", shot) && varied(shot), "Settings screen (2-settings.png)");
+    // The same with an Xbox pad's glyphs (A / B, Menu, View...).
+    {
+        const std::vector<uint8_t> ps = shot.rgb;
+        ui::g_glyphStyle = ui::glyphStyleFor(input::PadKind::Xbox);
+        ui.invalidate();
+        ui.render(canvas, platform::nowMs());
+        drawCanvas(canvas);
+        check(screenshot(dir, "2b-settings-xbox.png", shot) && varied(shot) && shot.rgb != ps,
+              "Settings with Xbox glyphs (2b-settings-xbox.png)");
+        ui::NavInput back;
+        back.back = true;
+        back.nowMs = platform::nowMs();
+        ui.handle(back);  // the home screen: LB / RB, Y, Menu, View
+        ui.render(canvas, platform::nowMs());
+        drawCanvas(canvas);
+        check(ui.screen() == ui::Screen::Home && screenshot(dir, "2c-home-xbox.png", shot) && varied(shot),
+              "home screen with Xbox glyphs (2c-home-xbox.png)");
+        ui::g_glyphStyle = ui::GlyphStyle::PlayStation;
+        ui.invalidate();
+    }
 
     // A video frame through the mailbox, then under the game menu.
     Yuv bars = colourBars();

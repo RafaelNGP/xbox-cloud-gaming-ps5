@@ -4,6 +4,7 @@
 
 #include "ui/strings.h"
 #include "ui/input_mode.h"
+#include "ui/pad_glyphs.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -351,6 +352,11 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         }
     }
     auto icon = [&](bool cross) {
+        if (g_glyphStyle == GlyphStyle::Xbox) {  // A / B
+            drawFaceButton(c, fonts_.bold, GlyphStyle::Xbox, cross ? PadButton::Cross : PadButton::Circle, x + 13.0f,
+                           hy + 12.0f, 13);
+            return;
+        }
         c.fillCircle(x + 13, hy + 12, 13, rgba(255, 255, 255, 40));
         if (cross) {
             c.line(x + 7, hy + 6, x + 19, hy + 18, 2.5f, rgba(124, 178, 232));

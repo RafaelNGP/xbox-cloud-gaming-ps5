@@ -88,6 +88,7 @@ add_library(xcloud_ui STATIC
     src/ui/stream_menu.cpp
     src/ui/toast_view.cpp
     src/ui/pad_icons.cpp
+    src/ui/pad_glyphs.cpp
     src/ui/accent_color.cpp
     src/ui/brand.cpp
     src/app/library.cpp

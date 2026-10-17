@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RafaelNGP
 #include "ui/app_ui.h"
 #include "ui/input_mode.h"
+#include "ui/pad_glyphs.h"
 
 #include "input/tuning.h"
 #include "xcloud/catalog.h"
@@ -2544,25 +2545,17 @@ void AppUi::drawTopBar(Canvas& c) {
     }
 }
 
-// A face button as on the pad: its symbol in its colour on a round key,
-// `r` its radius (14 in the button hints).
-static void drawFaceButton(Canvas& c, int icon, float cx, float cy, float r) {
-    const float k = r / 14.0f, t = 2.5f * k;
-    c.fillCircle(cx, cy, r, rgba(255, 255, 255, 40));
-    if (icon == kIconCross) {
-        c.line(cx - 6 * k, cy - 6 * k, cx + 6 * k, cy + 6 * k, t, rgba(124, 178, 232));
-        c.line(cx + 6 * k, cy - 6 * k, cx - 6 * k, cy + 6 * k, t, rgba(124, 178, 232));
-    } else if (icon == kIconCircle) {
-        c.strokeArc(cx, cy, 6.5f * k, t, 0, 6.2832f, rgba(255, 102, 102));
-    } else if (icon == kIconSquare) {
-        int h = static_cast<int>(6 * k);
-        c.strokeRect({static_cast<int>(cx) - h, static_cast<int>(cy) - h, 2 * h, 2 * h}, rgba(240, 130, 200),
-                     std::max(2, static_cast<int>(2 * k)));
-    } else {
-        c.line(cx, cy - 7 * k, cx - 7 * k, cy + 5 * k, t, rgba(64, 226, 160));
-        c.line(cx, cy - 7 * k, cx + 7 * k, cy + 5 * k, t, rgba(64, 226, 160));
-        c.line(cx - 7 * k, cy + 5 * k, cx + 7 * k, cy + 5 * k, t, rgba(64, 226, 160));
-    }
+// A face button (an Icon: Cross, Circle, Square, Triangle) as on the pad,
+// in the glyphs of the pad in use (pad_glyphs.h), `r` its radius (14 in the
+// button hints).
+static PadButton faceOf(int icon) {
+    return icon == kIconCross ? PadButton::Cross
+           : icon == kIconCircle ? PadButton::Circle
+           : icon == kIconSquare ? PadButton::Square
+                                 : PadButton::Triangle;
+}
+static void drawFaceButton(Canvas& c, const Font& letters, int icon, float cx, float cy, float r) {
+    ui::drawFaceButton(c, letters, g_glyphStyle, faceOf(icon), cx, cy, r);
 }
 
 void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>& hints) {
@@ -2591,17 +2584,25 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
             icon = icon == kIconCross ? kIconCircle : kIconCross;
         x -= 10 + 2 * kR;
         float cx = x + kR, cy = y + 13;
+        const GlyphStyle style = g_glyphStyle;
+        const bool xbox = style == GlyphStyle::Xbox;
         if (icon == kIconL2R2) {
+            const std::string both = std::string(buttonName(style, PadButton::L2)) + " " + buttonName(style, PadButton::R2);
             Rect pill{x - 40, static_cast<int>(cy) - 12, 2 * kR + 46, 24};
             c.fillRect(pill, rgba(255, 255, 255, 40), 8);
-            fonts_.bold.draw(c, "L2 R2", pill.x + (pill.w - fonts_.bold.measure("L2 R2", 14)) / 2,
+            fonts_.bold.draw(c, both, pill.x + (pill.w - fonts_.bold.measure(both, 14)) / 2,
                              fonts_.bold.centeredY(pill.y, pill.h, 14), 14, kGray);
             x -= 34;
         } else if (icon == kIconR3) {
+            const char* r3 = buttonName(style, PadButton::R3);
             Rect pill{x - 6, static_cast<int>(cy) - 12, 2 * kR + 12, 24};
             c.fillRect(pill, rgba(255, 255, 255, 40), 8);
-            fonts_.bold.draw(c, "R3", pill.x + (pill.w - fonts_.bold.measure("R3", 14)) / 2,
+            fonts_.bold.draw(c, r3, pill.x + (pill.w - fonts_.bold.measure(r3, 14)) / 2,
                              fonts_.bold.centeredY(pill.y, pill.h, 14), 14, kGray);
+        } else if (xbox && icon == kIconTouchpad) {  // View
+            drawXboxViewButton(c, cx, cy, kR, kGray);
+        } else if (xbox && icon == kIconOptions) {  // Menu
+            drawXboxMenuButton(c, cx, cy, kR, kGray);
         } else if (icon == kIconTouchpad) {
             Rect pad{x - 18, static_cast<int>(cy) - 10, 2 * kR + 12, 20};
             c.fillRect(pad, rgba(255, 255, 255, 40), 6);
@@ -2611,7 +2612,7 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
             c.fillRect({x - 4, static_cast<int>(cy) - 11, 2 * kR + 8, 22}, rgba(255, 255, 255, 40), 11);
             for (int k = -1; k <= 1; ++k) c.line(cx - 8, cy + k * 5, cx + 8, cy + k * 5, 2, kGray);
         } else {
-            drawFaceButton(c, icon, cx, cy, kR);
+            drawFaceButton(c, fonts_.bold, icon, cx, cy, kR);
         }
         x -= kGap;
     }
@@ -2745,7 +2746,7 @@ void AppUi::drawTabs(Canvas& c) {
         c.fillRect(r, rgba(255, 255, 255, 40), 8);
         fonts_.bold.draw(c, name, cx - fonts_.bold.measure(name, 16) / 2, fonts_.bold.centeredY(r.y, r.h, 16), 16, kGray);
     };
-    shoulder(g_keyboardHints ? "Q" : "L1", x - 40);
+    shoulder(g_keyboardHints ? "Q" : buttonName(g_glyphStyle, PadButton::L1), x - 40);
     for (int i = 0; i < 3; ++i) {
         bool on = static_cast<int>(tab_) == i;
         Rect r{x, kY, widths[i], kH};
@@ -2753,7 +2754,7 @@ void AppUi::drawTabs(Canvas& c) {
         fonts_.semibold.draw(c, labels[i], x + kPad, fonts_.semibold.centeredY(kY, kH, kPx), kPx, on ? kBg : kGray);
         x += widths[i] + kGap;
     }
-    shoulder(g_keyboardHints ? "E" : "R1", x - kGap + 40);
+    shoulder(g_keyboardHints ? "E" : buttonName(g_glyphStyle, PadButton::R1), x - kGap + 40);
 }
 
 namespace {
@@ -2989,7 +2990,7 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
         std::string label = trf(Str::SortLabel, tr(sortName));
         int w = fonts_.semibold.measure(label, 22);
         int right = left + kGridW;
-        const char* sortKey = g_keyboardHints ? "R" : "R3";
+        const char* sortKey = g_keyboardHints ? "R" : buttonName(g_glyphStyle, PadButton::R3);
         Rect pill{right - 44, 112, 44, 28};
         c.fillRect(pill, rgba(255, 255, 255, 40), 8);
         if (g_keyboardHints) c.strokeRect(pill, kGray, 2, 8);
@@ -3562,7 +3563,7 @@ void AppUi::drawSettings(Canvas& c) {
         int vx = r.x + r.w - 76;
         if (i == 5) {
             // The confirm button, as the button itself.
-            drawFaceButton(c, settings_.circleConfirms ? kIconCircle : kIconCross, vx - 20.0f, cy, 20);
+            drawFaceButton(c, fonts_.bold, settings_.circleConfirms ? kIconCircle : kIconCross, vx - 20.0f, cy, 20);
         } else {
             int w = fonts_.regular.measure(value, 28);
             fonts_.regular.draw(c, value, vx - w, fonts_.regular.centeredY(r.y, r.h, 28), 28, focused ? kWhite : kGray);
@@ -3608,7 +3609,7 @@ void AppUi::drawSettings(Canvas& c) {
             if (on) c.fillRect(item, kWhite, 12);
             Color text = on ? kBg : (i == sel ? kWhite : kGray);
             if (settingsRow_ == 5)
-                drawFaceButton(c, i == 1 ? kIconCircle : kIconCross, item.x + 44.0f, item.y + item.h / 2.0f, 20);
+                drawFaceButton(c, fonts_.bold, i == 1 ? kIconCircle : kIconCross, item.x + 44.0f, item.y + item.h / 2.0f, 20);
             else
                 fonts_.semibold.draw(c, options[static_cast<size_t>(i)], item.x + 24,
                                      fonts_.semibold.centeredY(item.y, item.h, 26), 26, text);
@@ -3836,7 +3837,7 @@ void AppUi::drawTriggerTester(Canvas& c) {
         int fill = static_cast<int>(kBarH * std::clamp(pressed[t], 0.0f, 1.0f));
         int level = input::triggerAmplitude(static_cast<uint8_t>(std::lround(pressed[t] * 255)), settings_.triggerStrength);
         if (fill > 0) c.fillRect({bx, by + kBarH - fill, kBarW, fill}, level ? rgba(90, 220, 110) : rgba(120, 120, 120), 16);
-        std::string name = t ? "R2" : "L2";
+        std::string name = buttonName(g_glyphStyle, t ? PadButton::R2 : PadButton::L2);
         fonts_.bold.draw(c, name, bx + (kBarW - fonts_.bold.measure(name, 26)) / 2, by + kBarH + 14, 26, kWhite);
         std::string lv = trf(Str::TriggerLevel, std::to_string(level) + " / 8");
         fonts_.regular.draw(c, lv, bx + (kBarW - fonts_.regular.measure(lv, 22)) / 2, by + kBarH + 48, 22, kGray);
@@ -3856,6 +3857,15 @@ void AppUi::drawKeysTester(Canvas& c) {
         stick + kUp, stick + kDown, stick + kLeft, stick + kRight, dpad + kUp, dpad + kDown, dpad + kLeft, dpad + kRight,
         "A", "B", "X", "Y", "L1  (LB)", "R1  (RB)", "L2  (LT)", "R2  (RT)", "L3", "R3", "View", "Menu"};
     const int faceIcon[4] = {kIconCross, kIconCircle, kIconSquare, kIconTriangle};  // A B X Y
+    // An Xbox pad: its own names alone.
+    const bool xbox = g_glyphStyle == GlyphStyle::Xbox;
+    std::string xboxNames[input::kKeyActions];
+    if (xbox) {
+        static constexpr PadButton kShoulders[6] = {PadButton::L1, PadButton::R1, PadButton::L2,
+                                                    PadButton::R2, PadButton::L3, PadButton::R3};
+        for (int i = 0; i < 6; ++i)
+            xboxNames[static_cast<int>(input::KeyAction::LB) + i] = buttonName(GlyphStyle::Xbox, kShoulders[i]);
+    }
     constexpr int kRowH = 52, kGap = 8, kChipW = 170, kColGap = 40;
     const int colW = (panel.w - 112 - kColGap) / 2;
     const bool capturing = captureSince_ != 0;
@@ -3867,10 +3877,10 @@ void AppUi::drawKeysTester(Canvas& c) {
         int ty = fonts_.semibold.centeredY(r.y, r.h, 24);
         if (a >= static_cast<int>(input::KeyAction::A) && a <= static_cast<int>(input::KeyAction::Y)) {
             int k = a - static_cast<int>(input::KeyAction::A);
-            drawFaceButton(c, faceIcon[k], r.x + 38.0f, r.y + r.h / 2.0f, 16);
-            fonts_.semibold.draw(c, "(" + names[a] + ")", r.x + 66, ty, 24, kGray);
+            drawFaceButton(c, fonts_.bold, faceIcon[k], r.x + 38.0f, r.y + r.h / 2.0f, 16);
+            if (!xbox) fonts_.semibold.draw(c, "(" + names[a] + ")", r.x + 66, ty, 24, kGray);
         } else {
-            fonts_.semibold.draw(c, names[a], r.x + 22, ty, 24, kWhite);
+            fonts_.semibold.draw(c, xbox && !xboxNames[a].empty() ? xboxNames[a] : names[a], r.x + 22, ty, 24, kWhite);
         }
         for (int slot = 0; slot < 2; ++slot) {
             Rect chip{r.x + r.w - 10 - (2 - slot) * kChipW - (1 - slot) * 10, r.y + 7, kChipW, r.h - 14};
@@ -4148,7 +4158,7 @@ void AppUi::drawGameSettings(Canvas& c) {
                 fonts_.regular.draw(c, "\xE2\x80\xB9", static_cast<int>(cx) - 40, fonts_.regular.centeredY(r.y, r.h, 26), 26, kWhite);
                 fonts_.regular.draw(c, "\xE2\x80\xBA", static_cast<int>(cx) + 28, fonts_.regular.centeredY(r.y, r.h, 26), 26, kWhite);
             }
-            drawFaceButton(c, activeGameProfile_.circleConfirms ? kIconCircle : kIconCross, cx, cy, 16);
+            drawFaceButton(c, fonts_.bold, activeGameProfile_.circleConfirms ? kIconCircle : kIconCross, cx, cy, 16);
         } else {
             std::string disp = focused ? ("\xE2\x80\xB9  " + value + "  \xE2\x80\xBA") : value;
             int vw = fonts_.regular.measure(disp, 26);
