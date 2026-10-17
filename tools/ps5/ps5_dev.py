@@ -179,12 +179,19 @@ def cmd_test(args):
 
     print(f"\n{BOLD}{CYAN}=== Autonomous PS5 Test: {target} ({duration}s) ==={RESET}\n")
 
-    # Format autoplay command
-    # If target doesn't already have AUTOTEST or BENCH or game name:
+    KNOWN_UI_TESTS = {
+        "gamesettingstest", "settingstest", "librarytest", "keystest",
+        "padmaptest", "detailtest", "gridtest", "crashtest", "searchtest",
+        "tunetest", "confirmtest", "pickertest", "menutest", "regiontest",
+        "friendstest", "publishertest", "scrolltest", "quicktest", "tlscheck",
+    }
     if target.startswith("AUTOTEST") or target.startswith("BENCH"):
         autoplay_cmd = target
-    else:
+    elif target in KNOWN_UI_TESTS:
         autoplay_cmd = f"AUTOTEST {duration} {target}"
+    else:
+        # Real game streaming test (e.g. FORTNITE, BALATRO)
+        autoplay_cmd = f"{target} {duration} idle"
 
     print("  1. Stopping app on console...")
     console_ctl("kill", TITLE_ID, host)
@@ -226,7 +233,7 @@ def cmd_test(args):
 
     # Wait loop
     print(f"  5. Waiting {duration}s for autonomous test to complete...")
-    deadline = time.time() + duration + 15
+    deadline = time.time() + duration + 45
     finished = False
     while time.time() < deadline:
         time.sleep(3)
@@ -237,7 +244,7 @@ def cmd_test(args):
             f.retrbinary("RETR xcloud.log", bio.write)
             f.quit()
             log_content = bio.getvalue().decode("utf-8", errors="replace")
-            if "AUTOPLAY END" in log_content:
+            if "session summary:" in log_content or "AUTOPLAY END" in log_content:
                 finished = True
                 break
         except Exception:
