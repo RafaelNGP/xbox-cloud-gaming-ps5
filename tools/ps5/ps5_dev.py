@@ -218,7 +218,7 @@ def cmd_test(args):
 
     # Delete old artifacts on PS5
     for name in ("xcloud.log", "frame.ppm", "frame2.ppm", "screen.ppm", "ui.ppm", "launch.ppm", "detail.ppm",
-                 "settings.ppm", "game_settings.ppm", "game_settings_custom.ppm", "library.ppm"):
+                 "detail_after.ppm", "settings.ppm", "game_settings.ppm", "game_settings_custom.ppm", "library.ppm"):
         try:
             ftp.sendcmd(f"DELE {name}")
         except (error_perm, error_reply):
@@ -252,8 +252,9 @@ def cmd_test(args):
 
     print(f"  6. Test finished: {'SUCCESS' if finished else 'TIMEOUT'}. Downloading results...")
     # Fetch all PPMs and log
-    ppm_names = ["ui.ppm", "launch.ppm", "frame.ppm", "frame2.ppm", "screen.ppm", "detail.ppm", "settings.ppm",
-                 "game_settings.ppm", "game_settings_custom.ppm", "library.ppm", "error.ppm"]
+    ppm_names = ["ui.ppm", "launch.ppm", "frame.ppm", "frame2.ppm", "screen.ppm", "detail.ppm",
+                 "detail_after.ppm", "settings.ppm", "game_settings.ppm", "game_settings_custom.ppm",
+                 "library.ppm", "error.ppm"]
     ftp = get_ftp(host, port)
     ftp.cwd("/data/psbox")
     for name in ppm_names + ["xcloud.log"]:

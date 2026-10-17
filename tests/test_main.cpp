@@ -1048,6 +1048,84 @@ static void testAudioDecoderEmptyPacket() {
     CHECK(!out.empty());
 }
 
+static void testAudioDecoderPlc() {
+    xc::media::AudioEncoder enc;
+    xc::media::AudioDecoder dec;
+    CHECK(enc.init(24000));
+    CHECK(dec.init());
+
+    // 1. Concealment without history produces silence (zeros)
+    std::vector<float> pcm;
+    dec.conceal(pcm, 960);
+    CHECK(pcm.size() == 960 * 2);
+    for (float sample : pcm) {
+        CHECK(sample == 0.0f);
+    }
+
+    // 2. Decode a known tone
+    std::vector<int16_t> tone(960);
+    for (size_t i = 0; i < tone.size(); ++i) tone[i] = static_cast<int16_t>(10000.0 * std::sin(i * 0.1));
+    std::vector<uint8_t> opus;
+    CHECK(enc.encode(tone.data(), tone.size(), opus));
+    pcm.clear();
+    CHECK(dec.decode(opus.data(), opus.size(), pcm));
+    CHECK(pcm.size() == 960 * 2);
+
+    // 3. Concealment after valid frame extrapolates non-zero samples
+    std::vector<float> concealed1;
+    dec.conceal(concealed1, 960);
+    CHECK(concealed1.size() == 960 * 2);
+    bool nonZero = false;
+    for (float sample : concealed1) {
+        if (std::abs(sample) > 0.001f) nonZero = true;
+    }
+    CHECK(nonZero);
+
+    // 4. Consecutive concealments decay amplitude
+    std::vector<float> concealed2;
+    dec.conceal(concealed2, 960);
+    CHECK(concealed2.size() == 960 * 2);
+    float max1 = 0.0f, max2 = 0.0f;
+    for (float s : concealed1) max1 = std::max(max1, std::abs(s));
+    for (float s : concealed2) max2 = std::max(max2, std::abs(s));
+    CHECK(max2 < max1);
+
+    // 5. Subsequent decode applies smooth ramp-in
+    pcm.clear();
+    CHECK(dec.decode(opus.data(), opus.size(), pcm));
+    CHECK(pcm.size() == 960 * 2);
+    CHECK(pcm[0] == 0.0f && pcm[1] == 0.0f);  // Ramped from 0 at sample 0
+
+    // 6. Reset PLC clears history
+    dec.resetPlc();
+    pcm.clear();
+    dec.conceal(pcm, 960);
+    CHECK(pcm.size() == 960 * 2);
+    for (float sample : pcm) {
+        CHECK(sample == 0.0f);
+    }
+}
+
+static void testAudioGapLossConcealment() {
+    constexpr uint32_t kOpusFrameSamples = 960;
+    auto detectLoss = [](uint32_t lastTs, uint32_t newTs) -> int {
+        int32_t diff = static_cast<int32_t>(newTs - lastTs);
+        if (diff <= 0) return -1; // duplicate or late out-of-order
+        if (diff > static_cast<int32_t>(kOpusFrameSamples) && diff <= static_cast<int32_t>(kOpusFrameSamples * 6)) {
+            return static_cast<int>((static_cast<uint32_t>(diff) + kOpusFrameSamples / 2) / kOpusFrameSamples - 1);
+        }
+        return 0; // normal step or huge stall
+    };
+
+    CHECK(detectLoss(1000, 1960) == 0);   // in-order 20ms step
+    CHECK(detectLoss(1960, 1960) == -1);  // duplicate packet
+    CHECK(detectLoss(2920, 1960) == -1);  // late packet from past
+    CHECK(detectLoss(1000, 2920) == 1);   // 1 lost packet
+    CHECK(detectLoss(1000, 3880) == 2);   // 2 lost packets
+    CHECK(detectLoss(1000, 6760) == 5);   // 5 lost packets
+    CHECK(detectLoss(1000, 100000) == 0); // huge stall: resync without concealing 100 frames
+}
+
 // Native mouse and keyboard reports: header, counts and fields.
 static void testMouseKeyboardReports() {
     using namespace xc::stream;
@@ -1815,6 +1893,8 @@ int main() {
     testAudioEncoder();
     testH264Resync();
     testAudioDecoderEmptyPacket();
+    testAudioDecoderPlc();
+    testAudioGapLossConcealment();
     testAutoDeband();
     testControllerTuning();
     testUpdater();

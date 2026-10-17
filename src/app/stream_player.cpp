@@ -179,6 +179,7 @@ struct StreamPlayer::Impl {
     }
 
     void audioLoop() {
+        audioDecoder.resetPlc();
         QueuedAudioPacket packet;
         bool first = true;
         uint32_t lastRtpTimestamp = 0;
@@ -193,10 +194,14 @@ struct StreamPlayer::Impl {
                 audioPackets_.pop_front();
             }
             if (lastRtpTimestamp != 0) {
-                uint32_t diff = packet.rtpTimestamp - lastRtpTimestamp;
+                int32_t diff = static_cast<int32_t>(packet.rtpTimestamp - lastRtpTimestamp);
+                if (diff <= 0) {
+                    // Late or duplicate packet: skip to preserve timeline and prevent timestamp drift
+                    continue;
+                }
                 // Detect packet loss from RTP timestamp gap (conceal up to 5 lost frames)
-                if (diff > kOpusFrameSamples && diff <= kOpusFrameSamples * 6) {
-                    uint32_t lostCount = (diff + kOpusFrameSamples / 2) / kOpusFrameSamples - 1;
+                if (diff > static_cast<int32_t>(kOpusFrameSamples) && diff <= static_cast<int32_t>(kOpusFrameSamples * 6)) {
+                    uint32_t lostCount = (static_cast<uint32_t>(diff) + kOpusFrameSamples / 2) / kOpusFrameSamples - 1;
                     for (uint32_t i = 0; i < lostCount; ++i) {
                         pcm.clear();
                         audioDecoder.conceal(pcm, kOpusFrameSamples);
