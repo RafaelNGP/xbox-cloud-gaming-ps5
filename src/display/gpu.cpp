@@ -169,7 +169,7 @@ std::atomic<int> g_deband{1};
 std::atomic<int> g_upscaler{0};  // 0 FSR (EASU), 1 Anime4K
 std::atomic<bool> g_restore{false};  // Anime4K Restore before the upscale
 uint32_t g_frame = 0;
-uint32_t g_swapImages = 2;
+uint32_t g_swapImages = 3;
 bool g_noPresentWait = true;
 PFN_vkWaitForPresentKHR vkWaitForPresentKHR = nullptr;
 // The last frame known on the screen: its present id and when (us).

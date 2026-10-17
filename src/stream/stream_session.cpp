@@ -106,6 +106,7 @@ struct StreamSession::Impl {
     std::atomic<uint32_t> inputSequence{1};
     uint64_t lastKeepaliveMs = 0;
     std::atomic<bool> keepaliveInFlight{false};
+    std::thread keepaliveThread;
     uint64_t lastKeyframeMs = 0;
     VideoReceiveStats videoStats;
     std::shared_ptr<RtcpReporter> videoReporter;
@@ -649,12 +650,15 @@ struct StreamSession::Impl {
         uint64_t now = platform::nowMs();
         if (now - lastKeepaliveMs >= 30000) {
             lastKeepaliveMs = now;
+            if (keepaliveThread.joinable() && !keepaliveInFlight.load()) {
+                keepaliveThread.join();
+            }
             if (!keepaliveInFlight.exchange(true)) {
-                std::thread([this] {
+                keepaliveThread = std::thread([this] {
                     std::string err;
                     if (!gssv.keepalive(err)) XC_LOGW("%s", err.c_str());
                     keepaliveInFlight = false;
-                }).detach();
+                });
             }
         }
         if (opt.keyframeIntervalSec > 0 && now - lastKeyframeMs >= static_cast<uint64_t>(opt.keyframeIntervalSec) * 1000u) {
@@ -666,6 +670,9 @@ struct StreamSession::Impl {
     // Before the session goes: no callback of libdatachannel's (they hold
     // `this`) may run any more. Each reset waits for a call in progress.
     void detach() {
+        if (keepaliveThread.joinable()) {
+            keepaliveThread.join();
+        }
         {
             std::lock_guard<std::mutex> lock(guard->mutex);
             guard->self = nullptr;
@@ -692,6 +699,12 @@ struct StreamSession::Impl {
             } catch (const std::exception& e) {
                 XC_LOGW("closing peer connection: %s", e.what());
             }
+        }
+    }
+
+    ~Impl() {
+        if (keepaliveThread.joinable()) {
+            keepaliveThread.join();
         }
     }
 };

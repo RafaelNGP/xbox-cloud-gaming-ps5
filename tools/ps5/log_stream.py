@@ -102,7 +102,11 @@ def stream_logs(
     use_color: bool = True,
     poll_interval: float = 0.5,
 ):
-    filter_re = re.compile(filter_pattern, re.IGNORECASE) if filter_pattern else None
+    try:
+        filter_re = re.compile(filter_pattern, re.IGNORECASE) if filter_pattern else None
+    except re.error as e:
+        print(f"{B_RED}Invalid filter regex pattern '{filter_pattern}': {e}{RESET}", file=sys.stderr)
+        return 1
 
     try:
         ftp = connect_ftp(host, port)

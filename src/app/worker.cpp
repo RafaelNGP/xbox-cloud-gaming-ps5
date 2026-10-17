@@ -216,7 +216,7 @@ std::string stream(xcloud::GssvClient& gssv) {
                         degradedLogged = false;
                     }
                     info.degraded = now < degradedUntil;
-                    lastTickAt = now;
+                    lastTickAt = tickNow;
                     ++session.seconds;
                     session.kbps += st.rtpKbps;
                     if (st.rttMs > 0) session.rttSum += static_cast<uint64_t>(st.rttMs), ++session.rttCount;
