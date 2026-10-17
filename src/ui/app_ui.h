@@ -125,6 +125,8 @@ struct SettingsChoice {
     int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
     input::KeyMap keyMap = input::defaultKeyMap();  // the keyboard as a player's controller
     input::PadMap padMap = input::defaultPadMap();  // the controller's buttons toward the game (always complete)
+    int gyroMode = 0;   // gyro aiming (input/gyro.h): 0 off, 1 always, 2 while L2 is held
+    int gyroLevel = 5;  // intensity, 1..10
     bool fullscreen = true;    // a desktop's window fullscreen (UiCaps::desktopWindow; F11 switches it too)
 };
 
@@ -167,9 +169,9 @@ std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool cus
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 15;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+constexpr int kSettingRows = 16;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
                                   // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys,
-                                  // display mode (a desktop's window), controller buttons
+                                  // display mode (a desktop's window), controller buttons, gyro aiming
 
 // The countries "Sign in as another country" offers (xcloud::loginCountryAddress).
 constexpr const char* kLoginCountries[] = {"br", "jp", "kr", "pl", "us"};

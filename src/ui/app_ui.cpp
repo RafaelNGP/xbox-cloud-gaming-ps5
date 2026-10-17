@@ -60,15 +60,15 @@ constexpr int kResolutionOrder[3] = {1, 0, 2};
 // stream (resolution, a desktop's display mode, 120 Hz, bitrate, region);
 // sound; the controller and keyboard; updates last. A group starts at each
 // kSettingsGroupStart.
-constexpr int kSettingsOrder[kSettingRows] = {0, 8, 1, 13, 9, 10, 2, 11, 3, 4, 5, 6, 14, 12, 7};
+constexpr int kSettingsOrder[kSettingRows] = {0, 8, 1, 13, 9, 10, 2, 11, 3, 4, 5, 6, 15, 14, 12, 7};
 constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, true, false, false, false, false, true,
-                                                    true, false, false, false, false, false, true};
+                                                    true, false, false, false, false, false, false, true};
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
 // sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7
 // confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default, 11 controller
-// buttons).
-constexpr int kGameRowOrder[12] = {0, 4, 8, 1, 2, 3, 5, 6, 7, 11, 9, 10};
-constexpr bool kGameGroupStart[12] = {false, true, false, true, false, false, true, false, false, false, false, true};
+// buttons, 12 gyro aiming).
+constexpr int kGameRowOrder[13] = {0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10};
+constexpr bool kGameGroupStart[13] = {false, true, false, true, false, false, true, false, false, false, false, false, true};
 // The keyboard keys' screen: two columns of inputs, then "Reset to default".
 constexpr int kKeysPerColumn = input::kKeyActions / 2;
 // Updates on a desktop: the newest release's page (the app doesn't install it there).
@@ -244,6 +244,7 @@ std::vector<SettingsRowPos> visibleSettingsRows(const UiCaps& caps) {
         case 6: return caps.lightBar;
         case 9: return caps.highRefresh;
         case 13: return caps.desktopWindow;
+        case 15: return caps.gyro;
         default: return true;
         }
     });
@@ -258,6 +259,7 @@ std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool cus
         case 6: return caps.triggerRumble || caps.adaptiveTriggers;
         case 8: return caps.highRefresh;
         case 10: return custom;
+        case 12: return caps.gyro;
         default: return true;
         }
     });
@@ -1318,6 +1320,8 @@ void AppUi::setUpdateStatus(const std::string& status, float fraction) {
 void AppUi::setSettings(const SettingsChoice& choice) {
     std::lock_guard<std::mutex> lock(mutex_);
     settings_ = choice;
+    gyroMode_ = choice.gyroMode;
+    gyroLevel_ = choice.gyroLevel;
     dirty_ = true;
 }
 
@@ -1337,6 +1341,9 @@ void AppUi::setGyroDefaults(int mode, int level) {
     std::lock_guard<std::mutex> lock(mutex_);
     gyroMode_ = mode;
     gyroLevel_ = level;
+    settings_.gyroMode = mode;
+    settings_.gyroLevel = level;
+    dirty_ = true;
 }
 
 void AppUi::setPerGameSettings(const std::map<std::string, app::GameProfile>& perGame) {
@@ -1488,6 +1495,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
     } else if (row == 14) {
         // So do the controller buttons'.
         out = {tr(settings_.padMap == input::defaultPadMap() ? Str::ProfileDefault : Str::ProfileCustom)};
+    } else if (row == 15) {
+        out = {tr(Str::Off), tr(Str::GyroAlways), tr(Str::GyroAiming)};
 
     } else if (row == 8) {
         out.push_back(loginCountryOffText());
@@ -1515,6 +1524,7 @@ int AppUi::settingSelected(int row) const {
     if (row == 7) return 0;
     if (row == 9) return settings_.highRefresh ? 1 : 0;
     if (row == 13) return settings_.fullscreen ? 1 : 0;
+    if (row == 15) return std::clamp(settings_.gyroMode, 0, 2);
     if (row == 10) {
         for (size_t i = 0; i < std::size(kBitrateCaps); ++i)
             if (kBitrateCaps[i] == settings_.maxBitrateMbps) return static_cast<int>(i) + 1;
@@ -1558,6 +1568,9 @@ void AppUi::applySetting(int row, int index) {
         // In force at once (handle() sends the settings): the window follows.
         if (settings_.fullscreen != (index == 1)) displayModeChanged_ = true;
         settings_.fullscreen = index == 1;
+    } else if (row == 15) {
+        settings_.gyroMode = index;
+        gyroMode_ = index;
     } else if (row == 10) {
         settings_.maxBitrateMbps = index == 0 ? 0 : kBitrateCaps[index - 1];
     } else if (row == 11) {
@@ -2240,6 +2253,11 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             activeGameHasCustom_ = true;
             dirty_ = true;
             break;
+        case 12: // Gyro aiming (0 off, 1 always, 2 while aiming)
+            activeGameProfile_.gyroMode = (activeGameProfile_.gyroMode + 3 + dir) % 3;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
         default: break;
         }
     }
@@ -2304,6 +2322,11 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             break;
         case 8:
             activeGameProfile_.highRefresh = !activeGameProfile_.highRefresh;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        case 12:
+            activeGameProfile_.gyroMode = (activeGameProfile_.gyroMode + 1) % 3;
             activeGameHasCustom_ = true;
             dirty_ = true;
             break;
@@ -3641,7 +3664,8 @@ void AppUi::drawSettings(Canvas& c) {
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
                                         tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry),
                                         tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume),
-                                        tr(Str::KeyboardKeys),  tr(Str::DisplayMode),   tr(Str::ControllerButtons)};
+                                        tr(Str::KeyboardKeys),  tr(Str::DisplayMode),   tr(Str::ControllerButtons),
+                                        tr(Str::Gyro)};
     constexpr int kRowW = 1200, kRowH = 46, kGap = 4, kGroupGap = 12;
     Rect rows[kSettingRows];  // by row id
     int y = 236;
@@ -4271,7 +4295,7 @@ void AppUi::drawGameSettings(Canvas& c) {
             title = title + "  \xE2\x80\xA2  " + cut + "...";
         }
     }
-    constexpr int kModalW = 1140, kModalH = 880;
+    constexpr int kModalW = 1140, kModalH = 930;
     constexpr int kRowH = 50, kGap = 6, kGroupGap = 12;
     // The rows caps_ allows; the panel loses the height of those it hides
     // (the same as ever with all of them, "Reset to default" or not).
@@ -4360,6 +4384,12 @@ void AppUi::drawGameSettings(Canvas& c) {
         case 11:
             label = tr(Str::ControllerButtons);
             value = tr(activeGameProfile_.padMap == input::defaultPadMap() ? Str::ProfileDefault : Str::ProfileCustom);
+            break;
+        case 12:
+            label = tr(Str::Gyro);
+            value = tr(activeGameProfile_.gyroMode == 1 ? Str::GyroAlways
+                     : activeGameProfile_.gyroMode == 2 ? Str::GyroAiming
+                     : Str::Off);
             break;
         default: break;
         }
