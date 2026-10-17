@@ -141,7 +141,10 @@ shared code:
 - **M2, Windows**: cross build with llvm-mingw and the SDL3 mingw package,
   tests under wine; a Winsock socket layer; atomic writes with
   `MoveFileExW`; a crash guard on SEH (splitting `crash_guard.cpp`).
-- **M3**: CI jobs per platform, packaging, notices for the new libraries.
+- **M3, Linux** (done, below): the `linux-app` CI job (SDL3 built from its
+  release, the app's self-test), the Linux tarball and its optional signed
+  release assets, the notices of what the desktop package carries. The
+  Windows half comes with M2.
 - **Later**: a Vulkan desktop display reusing `gpu.cpp` (FSR, Anime4K),
   FFmpeg hardware decoding, a desktop updater.
 
@@ -202,6 +205,57 @@ SDL_VIDEO_DRIVER=offscreen SDL_AUDIO_DRIVER=dummy build-desktop/psbox --selftest
   opened and closed; PNGs in `<dir>`, exit 1 on any failure. No account or
   network.
 
+## M3: CI and the Linux package
+
+CI (`.github/workflows/ci.yml`), on every push and pull request:
+
+| Job            | What                                                                                 |
+|----------------|--------------------------------------------------------------------------------------|
+| `triage-rules` | the issue triage rules' tests                                                        |
+| `build`        | `tools/check-platform-boundaries.sh`; the SDL-free build (`-DXCLOUD_DESKTOP_APP=OFF`: `psbox-headless`, `xcloud-cli`, `xcloud-tests`) and the unit tests |
+| `linux-app`    | on ubuntu-24.04 (the package's glibc baseline, 2.39): SDL3 3.4.18 built from its release tarball with every backend loaded at run time (X11, Wayland, PulseAudio, PipeWire, ALSA, JACK...), cached in `~/.cache/xcloud-ps5/sdl3-<ver>`; `-DXCLOUD_DESKTOP_APP=ON`, the unit tests, `psbox --selftest` (offscreen video, dummy audio), `tools/desktop/package-linux.sh`; the tarball (`psbox-linux-x86_64`) and the self-test's screenshots uploaded as artifacts |
+| `account-data` | pull requests: no token or private file in the changes                               |
+
+The PS5 build needs the PS5_Vulkan toolchain, so it isn't in CI:
+`tools/release.sh` builds it.
+
+The package: `cmake/desktop_package.cmake` (install rules and CPack, Linux
+desktop builds only) and `tools/desktop/package-linux.sh`:
+
+```bash
+tools/desktop/package-linux.sh build-desktop                 # -> build-desktop/pkg/PSBox-v<ver>-dev-linux-x86_64.tar.gz
+CMAKE_PREFIX_PATH=~/sdl3 tools/desktop/package-linux.sh build-linux /tmp/out   # an SDL3 of your own
+```
+
+It configures (`XCLOUD_DESKTOP_APP=ON`; a new build folder gets Ninja,
+RelWithDebInfo and clang), builds, packs with CPack and checks the tarball:
+nothing private (`account.json`, `autoplay.txt`, logs, captures, keys,
+settings/library caches), every file below present, `psbox`'s RUNPATH
+`$ORIGIN/lib` and `NEEDED libSDL3.so.0` resolved to the bundled copy, no
+debug sections, and `psbox --selftest` run from the unpacked folder with
+`LD_LIBRARY_PATH` unset (and nothing written into it). `XC_VERSION` names
+it (default `v<version>-dev`; `tools/release.sh --linux` passes `vX.Y.Z`).
+
+```
+PSBox/psbox                  stripped (--strip-debug); its debug info in symbols/<version>/psbox.debug
+PSBox/lib/libSDL3.so.0       the SDL3 it was built with
+PSBox/assets/                fonts and certificates (the repository's assets/, nothing from a data folder)
+PSBox/psbox.desktop          menu entry (Exec= to point at the folder: README-linux.txt)
+PSBox/psbox.png              256 px icon, drawn by xcloud-cli render-icon
+PSBox/README-linux.txt       running it, the data folder, hidraw / udev for DualSense features
+PSBox/licenses/              LICENSE, THIRD_PARTY_NOTICES.md, Mbed TLS, libdatachannel, usrsctp,
+                             libSRTP, plog, FFmpeg (LGPL-2.1 + FFmpeg-NOTE.txt: the configure
+                             flags), stb, Inter (OFL), SDL3 (zlib)
+```
+
+The release: `tools/release.sh <X.Y.Z> --linux` adds
+`PSBox-vX.Y.Z-linux-x86_64.tar.gz` with its `.sha256` and a `.sig` from the
+same key as `PPSA99810.zip`. They are optional; the three PS5 assets are
+not (`AGENTS.md`, section 6). A tarball built locally needs the glibc of
+the machine that built it (the script prints it). The desktop app never
+installs an update: with `shell::canSelfUpdate()` false, `checkForUpdate()`
+keeps no release to install and Settings > Updates opens the release page.
+
 ## Rules for contributors
 
 1. No `sce*` call, PS5 SDK header (`<ps5platform/...>`), `XCLOUD_PS5` /
@@ -227,3 +281,14 @@ SDL_VIDEO_DRIVER=offscreen SDL_AUDIO_DRIVER=dummy build-desktop/psbox --selftest
    `tools/release.sh` writes `symbols/vX.Y.Z`, the release's, which decode
    users' crash reports (`tools/symbolize.sh`). A change to the PS5's UI is
    still checked on the console with its screenshots (`AGENTS.md`).
+
+### Linux release assets (automatic)
+
+Publishing a GitHub release runs `.github/workflows/release-linux.yml`: the
+same build as CI's `linux-app` job on ubuntu-24.04 (glibc 2.39), the
+self-test, then `PSBox-vX.Y.Z-linux-x86_64.tar.gz` and its `.sha256`
+attached to the release; `psbox.debug` is kept as a 90-day artifact. The
+signature comes from the release machine, so the key never goes to GitHub:
+`tools/desktop/sign-linux-release.sh vX.Y.Z` downloads the tarball, checks
+the checksum, signs it like the PS5 zip and uploads the `.sig`. The workflow
+can also be run by hand (Actions → "Release (Linux)", with the tag).

@@ -91,11 +91,18 @@ Para evitar degradação de desempenho, latência alta e manter a interação á
   1. `PPSA99810.zip` (pacote limpo sem contas/tokens, empacotado sem `XC_INCLUDE_ACCOUNT`).
   2. `PPSA99810.zip.sig` (assinatura ECDSA gerada com `~/.config/psbox-release/signing-key.pem`).
   3. `PPSA99810.zip.sha256` (checksum para integridade).
+- **Assets do Linux (app desktop `psbox`) — caminho recomendado, automático:** ao publicar a release no GitHub, o workflow `.github/workflows/release-linux.yml` compila no ubuntu-24.04 e anexa `PSBox-vX.Y.Z-linux-x86_64.tar.gz` + `.sha256` (a tag precisa bater com a versão do `CMakeLists.txt`). Depois, na máquina de release, rodar `tools/desktop/sign-linux-release.sh vX.Y.Z`: baixa o tarball, confere o checksum, assina com a chave local (que nunca vai para o GitHub) e envia o `.sig`. Pode ser disparado à mão em Actions → "Release (Linux)" → Run workflow com a tag.
+- **Assets Opcionais do Linux gerados localmente** (alternativa; herdam a glibc desta máquina), com `tools/release.sh <X.Y.Z> --linux`:
+  1. `PSBox-vX.Y.Z-linux-x86_64.tar.gz` (pasta `PSBox/` com `psbox` sem debug info, `lib/libSDL3.so.0`, `assets/`, `licenses/`; nunca dados de conta).
+  2. `PSBox-vX.Y.Z-linux-x86_64.tar.gz.sig` (assinado com a **mesma** chave e o mesmo método do `PPSA99810.zip`).
+  3. `PSBox-vX.Y.Z-linux-x86_64.tar.gz.sha256`.
+  - Eles nunca substituem os 3 assets do PS5, que continuam obrigatórios. O app desktop não se atualiza sozinho: só avisa da versão nova e abre a página da release, e nunca oferece o `PPSA99810.zip`.
+  - O tarball gerado localmente herda a glibc da máquina que compilou (o `release.sh` mostra qual). O job `linux-app` do CI compila no ubuntu-24.04 (glibc 2.39), a base mais ampla; os símbolos ficam em `symbols/vX.Y.Z/psbox.debug` (não versionado).
 - **Fluxo Mandatório de Publicação**:
   1. Delegar o empacotamento e assinatura para subagente (preservando o contexto).
   2. Gerar o pacote através de `tools/release.sh <X.Y.Z>` ou do pipeline de empacotamento oficial.
-  3. Publicar ou anexar com `gh release create vX.Y.Z PPSA99810.zip PPSA99810.zip.sig PPSA99810.zip.sha256 ...` (ou `gh release upload --clobber`).
-  4. **Verificação Obrigatória**: Sempre executar `gh release view vX.Y.Z` e confirmar que todos os 3 assets estão listados e públicos antes de considerar o release finalizado.
+  3. Publicar ou anexar com `gh release create vX.Y.Z PPSA99810.zip PPSA99810.zip.sig PPSA99810.zip.sha256 ...` (ou `gh release upload --clobber`), mais os 3 assets do Linux quando gerados com `--linux`.
+  4. **Verificação Obrigatória**: Sempre executar `gh release view vX.Y.Z` e confirmar que todos os 3 assets do PS5 (e os 3 do Linux, se publicados) estão listados e públicos antes de considerar o release finalizado.
 
 ---
 

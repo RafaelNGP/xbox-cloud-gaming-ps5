@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Every push and pull request: the desktop build (psbox-headless included)
-# with its unit tests, PS5 calls kept in the PS5 backends, and a scan of the
-# changes for account data. The PS5 build needs the PS5_Vulkan toolchain,
+# Every push and pull request: the SDL-free desktop build (psbox-headless
+# included) with its unit tests, PS5 calls kept in the PS5 backends, the
+# SDL3 app with its self-test and Linux tarball (linux-app), and a scan of
+# the changes for account data. The PS5 build needs the PS5_Vulkan toolchain,
 # which isn't here: tools/release.sh checks it before a release.
 name: CI
 
@@ -51,13 +52,101 @@ jobs:
         env:
           CC: clang
           CXX: clang++
-        run: cmake -S . -B build-host -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        # The SDL-free targets only: psbox-headless, xcloud-cli, xcloud-tests
+        # (the SDL3 app has its own job, linux-app).
+        run: cmake -S . -B build-host -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DXCLOUD_DESKTOP_APP=OFF
 
       - name: Build
         run: ninja -C build-host
 
       - name: Unit tests
         run: ctest --test-dir build-host --output-on-failure
+
+  # The SDL3 desktop app (psbox) and its Linux tarball. Built on the oldest
+  # supported runner: its glibc is the package's baseline. SDL3 is built
+  # from its release (every backend loaded at run time, so one libSDL3.so.0
+  # serves X11 and Wayland, PulseAudio, PipeWire and ALSA) and bundled.
+  linux-app:
+    runs-on: ubuntu-24.04
+    env:
+      SDL3_VERSION: 3.4.18
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Tools and SDL3's backend libraries
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q cmake ninja-build clang llvm nasm pkg-config \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxkbcommon-dev libwayland-dev libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev \
+            libdrm-dev libgbm-dev libasound2-dev libpulse-dev libpipewire-0.3-dev libjack-jackd2-dev \
+            libdbus-1-dev libibus-1.0-dev libudev-dev libusb-1.0-0-dev
+
+      - name: SDL3 cache
+        id: sdl3-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xcloud-ps5/sdl3-${{ env.SDL3_VERSION }}
+          key: linux-app-sdl3-${{ env.SDL3_VERSION }}-ubuntu-24.04-r1
+
+      - name: SDL3 ${{ env.SDL3_VERSION }}
+        if: steps.sdl3-cache.outputs.cache-hit != 'true'
+        run: |
+          prefix=~/.cache/xcloud-ps5/sdl3-$SDL3_VERSION
+          work=$(mktemp -d)
+          curl -sSLf -o "$work/sdl.tar.gz" "https://github.com/libsdl-org/SDL/releases/download/release-$SDL3_VERSION/SDL3-$SDL3_VERSION.tar.gz"
+          tar xzf "$work/sdl.tar.gz" -C "$work"
+          cmake -S "$work/SDL3-$SDL3_VERSION" -B "$work/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_INSTALL_LIBDIR=lib \
+            -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+          cmake --build "$work/build"
+          cmake --install "$work/build"
+          mkdir -p "$prefix/share/licenses/SDL3"
+          cp "$work/SDL3-$SDL3_VERSION/LICENSE.txt" "$prefix/share/licenses/SDL3/LICENSE.txt"
+
+      - name: FFmpeg cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/xcloud-ps5/ffmpeg-host
+          key: linux-app-ffmpeg-host-${{ hashFiles('.git/modules/deps/ffmpeg/HEAD', 'tools/build-ffmpeg.sh') }}
+
+      - name: Configure
+        run: |
+          cmake -S . -B build-app -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DXCLOUD_DESKTOP_APP=ON \
+            -DCMAKE_PREFIX_PATH="$HOME/.cache/xcloud-ps5/sdl3-$SDL3_VERSION"
+
+      - name: Build
+        run: ninja -C build-app
+
+      - name: Unit tests
+        run: ctest --test-dir build-app --output-on-failure
+
+      - name: Self-test (window, screens, input, sound; no account)
+        env:
+          SDL_VIDEO_DRIVER: offscreen
+          SDL_AUDIO_DRIVER: dummy
+          XCLOUD_DATA_DIR: ${{ runner.temp }}/psbox-data
+        run: build-app/psbox --selftest "$RUNNER_TEMP/psbox-selftest"
+
+      - name: Package
+        run: bash tools/desktop/package-linux.sh build-app build-app/pkg
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: psbox-linux-x86_64
+          path: build-app/pkg/PSBox-*-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: psbox-selftest
+          path: ${{ runner.temp }}/psbox-selftest
+          if-no-files-found: ignore
 
   account-data:
     if: github.event_name == 'pull_request'
