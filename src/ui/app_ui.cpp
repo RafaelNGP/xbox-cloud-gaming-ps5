@@ -1977,6 +1977,39 @@ void AppUi::pressFilter(Filter f) {
     dirty_ = true;
 }
 
+bool AppUi::wantsTextInput() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return screen_ == Screen::Home && searching_ && searchOnKeys_ && filterList_ < 0 && keyRow_ <= kKeyRows;
+}
+
+void AppUi::typeText(std::string_view utf8) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!(screen_ == Screen::Home && searching_ && searchOnKeys_)) return;
+    bool edited = false;
+    for (char ch : utf8) {
+        if (ch == '\b') {
+            // The last character, all of its UTF-8 bytes.
+            while (!query_.empty() && (static_cast<unsigned char>(query_.back()) & 0xC0) == 0x80) query_.pop_back();
+            if (!query_.empty()) query_.pop_back(), edited = true;
+        } else if (ch == '\n') {
+            if (edited) runSearch(), edited = false;
+            if (!results_.empty()) {
+                searchOnKeys_ = false;
+                resultFocus_ = 0;
+                dirty_ = true;
+            }
+        } else if (static_cast<unsigned char>(ch) >= 0x20 && (query_.size() < 64 || (ch & 0xC0) == 0x80)) {
+            if (ch == ' ' && (query_.empty() || query_.back() == ' ')) continue;  // as the Space key
+            query_ += ch;
+            edited = true;
+        }
+    }
+    if (edited) {
+        runSearch();
+        dirty_ = true;
+    }
+}
+
 std::pair<int, int> AppUi::searchKeyFocus() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return {keyRow_, keyCol_};

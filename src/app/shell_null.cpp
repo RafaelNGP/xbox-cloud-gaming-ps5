@@ -40,6 +40,8 @@ Caps caps() { return {false, false, false}; }
 void setFullscreen(bool) {}
 bool fullscreenSwitched(bool&) { return false; }
 bool openUrl(const std::string&) { return false; }
+bool setTextInput(bool) { return false; }
+std::string takeTextInput() { return {}; }
 
 void restartOrExit() {
     // Never asked (no update is installed here); closed as the PS5 does.

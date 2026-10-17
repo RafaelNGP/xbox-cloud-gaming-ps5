@@ -225,6 +225,35 @@ int desktopSelftest(const std::string& dir) {
         ui::g_glyphStyle = ui::GlyphStyle::PlayStation;
         ui.invalidate();
     }
+    // The search typed on the keyboard: the shell's text input, the text
+    // through AppUi::typeText().
+    {
+        std::vector<ui::GameTile> pool(3);
+        pool[0].productId = "1", pool[0].name = "Halo Infinite";
+        pool[1].productId = "2", pool[1].name = "Forza Horizon 5";
+        pool[2].productId = "3", pool[2].name = "Halo: The Master Chief Collection";
+        ui.setSearchPools(pool, {});
+        ui::NavInput tri;
+        tri.triangle = true;
+        tri.nowMs = platform::nowMs();
+        ui.handle(tri);
+        bool wants = ui.wantsTextInput();
+        bool on = shell::setTextInput(wants);
+        ui.typeText("halox\b");  // a typo, then Backspace
+        ui.render(canvas, platform::nowMs());
+        drawCanvas(canvas);
+        auto hits = ui.searchResults(8);
+        check(wants && on && hits.size() == 2 && screenshot(dir, "2d-search-typed.png", shot) && varied(shot),
+              "search typed with the keyboard (2d-search-typed.png)");
+        ui.typeText("\n");  // Enter: on to the results
+        check(!ui.wantsTextInput(), "Enter moves to the results");
+        shell::setTextInput(false);
+        ui::NavInput back;
+        back.back = true;
+        back.nowMs = platform::nowMs();
+        ui.handle(back);
+        ui.handle(back);
+    }
 
     // A video frame through the mailbox, then under the game menu.
     Yuv bars = colourBars();

@@ -19,6 +19,7 @@
 #include <set>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace xc::ui {
@@ -360,6 +361,12 @@ public:
     // moving through the screens with it.
     bool capturingKey() const;
     void captureKey(uint8_t code);
+    // The home search's keys have the focus: a physical keyboard types into
+    // the query (the desktop), its letters then don't move through the screens.
+    bool wantsTextInput() const;
+    // Text typed on that keyboard (UTF-8): added to the query; "\b" deletes
+    // the last character, "\n" goes to the results (as Right past the keys).
+    void typeText(std::string_view utf8);
     bool needsRedraw(uint64_t nowMs) const;
     void render(Canvas& c, uint64_t nowMs);
 

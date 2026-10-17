@@ -64,5 +64,13 @@ void setFullscreen(bool on);
 bool fullscreenSwitched(bool& on);
 // Opens `url` in the system's browser; false where there is none (PS5).
 bool openUrl(const std::string& url);
+// The keyboard typing text into a field (the home search): on while the UI
+// wants it (main thread, each pass). True where typed text comes through
+// takeTextInput() (the desktop); false where there is none (PS5, null),
+// whose keys keep moving through the screens as before.
+bool setTextInput(bool on);
+// The text typed since the last call, UTF-8, with "\b" for each Backspace
+// and "\n" for Enter pressed while text input is on. Empty elsewhere.
+std::string takeTextInput();
 
 }  // namespace xc::app::shell

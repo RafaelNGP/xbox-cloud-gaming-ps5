@@ -5,7 +5,8 @@
 // empties SDL's event queue: closing the window (or Ctrl+C, which SDL turns
 // into a quit event) ends the app in order, F11 / Alt+Enter switch
 // fullscreen (the setting follows), every event goes on to the input backend (pads, keyboard,
-// mouse). Notices are toasts in the window; links open in the browser; no
+// mouse); while a field wants text (setTextInput()) what is typed is kept
+// for it. Notices are toasts in the window; links open in the browser; no
 // update is installed (Settings opens the release page).
 #include "app/shell.h"
 
@@ -27,6 +28,8 @@ namespace {
 bool g_quit = false;              // main thread
 int g_switchedTo = -1;            // F11 / Alt+Enter: the fullscreen state asked (main thread), -1 none
 std::atomic<bool> g_focus{true};  // the window has the keyboard
+bool g_textOn = false;            // SDL text input started (main thread)
+std::string g_typed;              // typed since takeTextInput() (main thread)
 volatile std::sig_atomic_t g_signalled = 0;
 void onSignal(int) { g_signalled = 1; }
 }  // namespace
@@ -90,6 +93,11 @@ bool pumpEvents() {
                 }
                 continue;
             }
+            if (g_textOn && ev.key.key == SDLK_BACKSPACE) g_typed += '\b';  // repeats too
+            if (g_textOn && !ev.key.repeat && (ev.key.key == SDLK_RETURN || ev.key.key == SDLK_KP_ENTER)) g_typed += '\n';
+            break;
+        case SDL_EVENT_TEXT_INPUT:
+            if (g_textOn && ev.text.text) g_typed += ev.text.text;
             break;
         default: break;
         }
@@ -126,6 +134,27 @@ bool openUrl(const std::string& url) {
     if (SDL_OpenURL(url.c_str())) return true;
     XC_LOGW("browser: %s", SDL_GetError());
     return false;
+}
+
+bool setTextInput(bool on) {
+    if (on == g_textOn) return g_textOn;
+    SDL_Window* w = display::sdlWindow();
+    if (on) {
+        g_textOn = w && SDL_StartTextInput(w);
+        static bool told = false;
+        if (!g_textOn && !told) told = true, XC_LOGW("text input: %s", SDL_GetError());
+    } else {
+        if (w) SDL_StopTextInput(w);
+        g_textOn = false;
+        g_typed.clear();
+    }
+    return g_textOn;
+}
+
+std::string takeTextInput() {
+    std::string s;
+    s.swap(g_typed);
+    return s;
 }
 
 void restartOrExit() {

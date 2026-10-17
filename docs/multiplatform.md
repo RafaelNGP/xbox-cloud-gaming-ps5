@@ -86,7 +86,10 @@ the 120 Hz video-out setup), `afterDisplay(haveDisplay)` (the desktop: its
 window to the input backend), `iconFontPaths()`, `pumpEvents()` each pass
 (false once the user closes the app; never on the PS5), `hasFocus()`,
 `canSelfUpdate()`, `isInstalledCopy(dir)` and `restartOrExit()` around an
-update, `beforeShutdown()` (desktop only). `caps()` (console / openUrl /
+update, `setTextInput(on)` / `takeTextInput()` each pass (the desktop's
+keyboard typing into the home search, `AppUi::wantsTextInput()` /
+`typeText()`; nothing on the PS5, whose keyboard moves as before),
+`beforeShutdown()` (desktop only). `caps()` (console / openUrl /
 selfUpdate) words the screens; `openUrl(url)` opens the browser (false on the
 PS5).
 

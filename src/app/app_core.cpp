@@ -459,6 +459,20 @@ bool Core::frame() {
     bool appMenuKey = std::binary_search(kbm.held.begin(), kbm.held.end(), input::kVkAppMenu);
     bool appMenuPressed = appMenuKey && !appMenuKeyBefore;
     appMenuKeyBefore = appMenuKey;
+    // The home search's keys focused: a desktop's keyboard types into the
+    // query (the shell's text input); what it types (letters, Space, Enter,
+    // Backspace...) then doesn't move through the screens, until let go.
+    // Arrows, Esc, Tab and Page Up / Down still do. The PS5 has no text
+    // input: its keyboard moves through the screens as before.
+    const bool typing = shell::setTextInput(!inGame && !capturing && g_ui->wantsTextInput());
+    if (std::string typed = shell::takeTextInput(); !typed.empty()) g_ui->typeText(typed);
+    if (typing) {
+        static constexpr uint8_t kStillNavigate[] = {0x09, 0x1B, 0x21, 0x22, 0x25, 0x26, 0x27, 0x28};
+        for (uint8_t vk : kbm.held)
+            if (std::find(std::begin(kStillNavigate), std::end(kStillNavigate), vk) == std::end(kStillNavigate) &&
+                std::find(swallowedKeys.begin(), swallowedKeys.end(), vk) == swallowedKeys.end())
+                swallowedKeys.push_back(vk);
+    }
     if ((!inGame || streamScreen->menuOpen()) && !capturing) {
         std::vector<uint8_t> navKeys;
         for (uint8_t vk : kbm.held)
