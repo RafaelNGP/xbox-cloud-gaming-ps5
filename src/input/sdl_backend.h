@@ -26,5 +26,8 @@ void kbmSdlInit(SDL_Window* window);
 void kbmSdlEvent(const SDL_Event& event);
 // Lets the mouse go.
 void kbmSdlShutdown();
+// The pads were all closed at once (SDL's gamepads started again): no
+// finger stays on a touchpad.
+void kbmSdlForgetTouches();
 
 }  // namespace xc::input

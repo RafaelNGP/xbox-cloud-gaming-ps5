@@ -177,7 +177,11 @@ SDL_VIDEO_DRIVER=offscreen SDL_AUDIO_DRIVER=dummy build-desktop/psbox --selftest
   app never updates itself.
 - **Input / sound** (`controller_sdl.cpp`, `kbm_sdl.cpp`, `audio_*_sdl.cpp`):
   gamepads hot-plugged into the first free slot, DualSense trigger effects,
-  light bar, gyro and touchpad where SDL reaches them; the mouse is held
+  light bar, gyro and touchpad where SDL reaches them (a PlayStation pad
+  opened on SDL's evdev driver, as can happen when it is plugged in after
+  the start, is moved to its HIDAPI instance on `/dev/hidrawN`, SDL's
+  gamepads started again once if needed; one pad never takes two slots);
+  a pad's touchpad moving the desktop's pointer is not the mouse; the mouse is held
   (relative mode) only while a game has the keyboard and mouse and its menu
   is closed; Ctrl + 1-4 picks the keyboard's player (plain digits on the PS5).
 - **Files**: the data folder (sign-in, settings, caches, `xcloud.log`) is

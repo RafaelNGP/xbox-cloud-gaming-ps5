@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace xc::input {
 
@@ -37,6 +38,18 @@ uint8_t sdlMouseButtons(uint32_t sdlMask);
 // the mouse's (the pad's touchpad is read through the pad). A laptop's
 // touchpad or a mouse isn't one. Case doesn't matter; null is none.
 bool isPadPointerName(const char* name);
+
+// Linux: a gamepad's path as SDL gives it (SDL_GetGamepadPath) -> the sysfs
+// link to the HID device behind it, the same for every node of one pad:
+// "/dev/input/eventN" (SDL's evdev driver) -> "/sys/class/input/eventN/device/device",
+// "/dev/hidrawN" (its HIDAPI driver) -> "/sys/class/hidraw/hidrawN/device";
+// empty for any other path.
+std::string padSysfsLink(const char* path);
+bool padPathIsHidraw(const char* path);
+// A PlayStation pad (kind 1 DualSense, 2 DualShock 4: PadKind) opened
+// without its light bar is on a driver without its effects (Linux's evdev,
+// not SDL's HIDAPI driver on its hidraw node): one with them is looked for.
+bool padLacksHidapi(int kind, bool lightBar, const char* path);
 
 // The light bar of player `slot` (0..3) while the app sets none: the
 // player's colour (ui::playerColor: blue, red, green, pink).

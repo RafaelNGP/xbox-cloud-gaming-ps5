@@ -36,6 +36,26 @@ bool isPadPointerName(const char* name) {
     return has("wireless controller") || has("dualsense") || has("dualshock") || (has("controller") && has("touchpad"));
 }
 
+std::string padSysfsLink(const char* path) {
+    if (!path) return {};
+    std::string p(path);
+    auto node = [&](const char* prefix) {
+        size_t n = std::char_traits<char>::length(prefix);
+        if (p.compare(0, n, prefix) != 0 || p.size() == n) return std::string();
+        std::string rest = p.substr(n);
+        return std::all_of(rest.begin(), rest.end(), [](unsigned char c) { return std::isdigit(c) != 0; }) ? rest : std::string();
+    };
+    if (std::string n = node("/dev/input/event"); !n.empty()) return "/sys/class/input/event" + n + "/device/device";
+    if (std::string n = node("/dev/hidraw"); !n.empty()) return "/sys/class/hidraw/hidraw" + n + "/device";
+    return {};
+}
+
+bool padPathIsHidraw(const char* path) { return path && std::strncmp(path, "/dev/hidraw", 11) == 0; }
+
+bool padLacksHidapi(int kind, bool lightBar, const char* path) {
+    return (kind == 1 || kind == 2) && !lightBar && !padPathIsHidraw(path);
+}
+
 void playerLightColour(int slot, uint8_t rgb[3]) {
     static constexpr uint8_t kColours[4][3] = {{0, 112, 220}, {220, 50, 50}, {40, 170, 80}, {225, 90, 175}};
     const uint8_t* c = kColours[std::clamp(slot, 0, 3)];

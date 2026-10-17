@@ -220,6 +220,11 @@ void kbmSdlEvent(const SDL_Event& e) {
     }
 }
 
+void kbmSdlForgetTouches() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_fingers.clear();
+}
+
 void kbmSdlShutdown() {
     kbmSetCaptured(false);
     std::lock_guard<std::mutex> lock(g_mutex);

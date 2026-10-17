@@ -1393,6 +1393,18 @@ static void testSdlMouseButtons() {
     CHECK(!isPadPointerName("ELAN1200:00 04F3:30F7 Touchpad") && !isPadPointerName("SynPS/2 Synaptics TouchPad"));
     CHECK(!isPadPointerName("Logitech G502 HERO Gaming Mouse") && !isPadPointerName("Virtual core pointer (seat0)"));
     CHECK(!isPadPointerName("") && !isPadPointerName(nullptr));
+    // One pad's evdev and hidraw nodes lead to its HID device.
+    using xc::input::padSysfsLink;
+    CHECK(padSysfsLink("/dev/input/event12") == "/sys/class/input/event12/device/device");
+    CHECK(padSysfsLink("/dev/hidraw1") == "/sys/class/hidraw/hidraw1/device");
+    CHECK(padSysfsLink("/dev/input/js0").empty() && padSysfsLink("/dev/hidraw").empty() &&
+          padSysfsLink("/dev/hidraw1/../x").empty() && padSysfsLink(nullptr).empty() && padSysfsLink("").empty());
+    using xc::input::padLacksHidapi;
+    CHECK(padLacksHidapi(1, false, "/dev/input/event12"));   // a DualSense on evdev
+    CHECK(padLacksHidapi(2, false, nullptr));                // a DS4, path unknown
+    CHECK(!padLacksHidapi(1, true, "/dev/input/event12"));   // has its light bar
+    CHECK(!padLacksHidapi(1, false, "/dev/hidraw1"));        // HIDAPI already
+    CHECK(!padLacksHidapi(3, false, "/dev/input/event5"));   // an Xbox pad: nothing to look for
 }
 
 // SDL's scancodes are HID usages: the same keys as the PS5's keyboard.

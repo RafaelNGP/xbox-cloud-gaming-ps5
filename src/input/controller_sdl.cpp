@@ -6,6 +6,29 @@
 // trigger motors, or the DualSense's effects through SDL_SendGamepadEffect),
 // the light bar. Gyro aiming and the touchpad where the pad has them.
 // The gamepads come and go with the shell's events (sdl_input.cpp).
+//
+// A DualSense or DS4 plugged in while the app runs (Linux): SDL can open it
+// through its evdev driver ("PS5 Controller", /dev/input/eventN), which has
+// no light bar, trigger effects, gyro or touchpad, instead of its HIDAPI
+// driver (/dev/hidrawN), which has them all and is what SDL picks for a pad
+// already there at start. SDL's evdev driver only defers to HIDAPI when
+// HIDAPI already knows the pad as its node appears; the hidraw node can come
+// a moment later, and a user's log showed SDL never adding the HIDAPI
+// instance afterwards (18 minutes) although the user could open the node.
+// So a PlayStation pad opened without its light bar (padLacksHidapi):
+// - the log names its path and the hidraw node of the same HID device
+//   (sysfs) and whether this user can open it (else: a udev rule is missing);
+// - SDL's gamepads are looked at again over the next ~3 s (refreshPads(),
+//   each second from the main loop): an instance of the same HID device on
+//   its hidraw node takes the slot over;
+// - if none came and the node can be opened, SDL's gamepad subsystem is
+//   started again once for that pad (as at start, when HIDAPI gets it) and
+//   the pads are opened again in their slots.
+// No SDL hint helps: SDL_HINT_JOYSTICK_HIDAPI is on by default (and an
+// environment variable would win over it anyway), and turning the evdev
+// driver off would lose every pad without hidraw access.
+// One pad seen twice (two instance ids for one HID device) never takes two
+// slots, and a pad SDL removes and adds again takes its slot back.
 #include "input/controller.h"
 #include "input/controller_backend.h"
 #include "input/input_ext.h"
@@ -16,8 +39,15 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <filesystem>
 #include <mutex>
+#include <set>
 #include <string>
+#include <system_error>
+#include <vector>
+#if defined(__linux__)
+#include <unistd.h>
+#endif
 
 namespace xc::input {
 
@@ -34,7 +64,10 @@ struct Slot {
     PadCaps caps;
     bool triggerMotors = false;  // SDL can drive its triggers' motors (an Xbox pad)
     bool accel = false;          // its accelerometer is on (gyro aiming's "up")
+    bool lacksHidapi = false;    // a PlayStation pad without its effects' driver (padLacksHidapi)
     std::string name;
+    std::string path;            // SDL_GetGamepadPath
+    std::string hidDev;          // the HID device behind it (Linux sysfs), "" unknown
 };
 // The pads are opened, closed and read on the main thread (the shell's
 // events and coreFrame); g_mutex keeps the caps and names whole for the
@@ -42,6 +75,39 @@ struct Slot {
 Slot g_slots[kMaxPads];
 std::mutex g_mutex;
 bool g_initedGamepads = false;  // SDL's gamepad subsystem started here (not by the shell)
+// Main thread. Until when SDL's gamepads are looked at again for a pad's
+// HIDAPI instance (SDL ms; 0 none), and the HID devices SDL was restarted
+// for (once each).
+uint64_t g_lookUntilMs = 0;
+std::set<std::string> g_restartedFor;
+constexpr uint64_t kLookForHidapiMs = 3000;
+
+// The HID device behind a pad's node (Linux sysfs), "" where unknown.
+std::string hidDeviceOf(const char* path) {
+    std::string link = padSysfsLink(path);
+    if (link.empty()) return {};
+    std::error_code ec;
+    auto real = std::filesystem::canonical(link, ec);
+    return ec ? std::string() : real.string();
+}
+
+// That device's hidraw node ("/dev/hidrawN"), "" if none.
+std::string hidrawOf(const std::string& hidDev) {
+    if (hidDev.empty()) return {};
+    std::error_code ec;
+    for (const auto& e : std::filesystem::directory_iterator(hidDev + "/hidraw", ec))
+        return "/dev/" + e.path().filename().string();
+    return {};
+}
+
+bool canOpen(const std::string& node) {
+#if defined(__linux__)
+    return !node.empty() && access(node.c_str(), R_OK | W_OK) == 0;
+#else
+    (void)node;
+    return false;
+#endif
+}
 
 uint32_t sdlDuration(uint32_t ms) { return ms ? std::min(ms, kRumbleForever) : kRumbleForever; }
 
@@ -70,10 +136,29 @@ const char* kindName(PadKind kind) {
     }
 }
 
-void openPad(SDL_JoystickID id) {
+void closePad(int slot);
+
+// Opens gamepad `id` in the first free slot (`preferred` first when free).
+void openPad(SDL_JoystickID id, int preferred = -1) {
     for (const Slot& s : g_slots)
         if (s.pad && s.id == id) return;  // the first scan and its ADDED event
-    int slot = -1;
+    // The same pad through another driver (another instance id, one HID
+    // device): its HIDAPI instance takes over the slot of one without its
+    // effects; otherwise the slot keeps the one it has.
+    const char* newPath = SDL_GetGamepadPathForID(id);
+    std::string hidDev = hidDeviceOf(newPath);
+    if (!hidDev.empty()) {
+        for (int i = 0; i < kMaxPads; ++i) {
+            const Slot& s = g_slots[i];
+            if (!s.pad || s.hidDev != hidDev) continue;
+            if (!(s.lacksHidapi && padPathIsHidraw(newPath))) return;  // seen already: one slot per pad
+            XC_LOGI("pad %d: the same pad on SDL's HIDAPI driver (%s): it takes the slot over", i, newPath);
+            closePad(i);
+            preferred = i;
+            break;
+        }
+    }
+    int slot = preferred >= 0 && preferred < kMaxPads && !g_slots[preferred].pad ? preferred : -1;
     for (int i = 0; i < kMaxPads && slot < 0; ++i)
         if (!g_slots[i].pad) slot = i;
     if (slot < 0) {
@@ -105,6 +190,10 @@ void openPad(SDL_JoystickID id) {
     s.caps.touchpad = SDL_GetNumGamepadTouchpads(gp) > 0;
     const char* name = SDL_GetGamepadName(gp);
     s.name = name ? name : "";
+    const char* path = SDL_GetGamepadPath(gp);
+    s.path = path ? path : "";
+    s.hidDev = hidDeviceOf(path);
+    s.lacksHidapi = padLacksHidapi(static_cast<int>(s.caps.kind), s.caps.lightBar, path);
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         g_slots[slot] = s;
@@ -115,10 +204,59 @@ void openPad(SDL_JoystickID id) {
         playerLightColour(slot, c);
         SDL_SetGamepadLED(gp, c[0], c[1], c[2]);
     }
-    XC_LOGI("pad %d opened: %s (%s; rumble %d, trigger rumble %d, adaptive triggers %d, light bar %d, gyro %d, accel %d, "
-            "touchpad %d)",
-            slot, s.name.c_str(), kindName(s.caps.kind), s.caps.rumble, s.caps.triggerRumble, s.caps.adaptiveTriggers,
-            s.caps.lightBar, s.caps.gyro, s.accel, s.caps.touchpad);
+    const char* type = SDL_GetGamepadStringForType(SDL_GetGamepadType(gp));
+    XC_LOGI("pad %d opened: %s (%s, SDL type %s, path %s; rumble %d, trigger rumble %d, adaptive triggers %d, light bar %d, "
+            "gyro %d, accel %d, touchpad %d)",
+            slot, s.name.c_str(), kindName(s.caps.kind), type ? type : "?", s.path.empty() ? "?" : s.path.c_str(),
+            s.caps.rumble, s.caps.triggerRumble, s.caps.adaptiveTriggers, s.caps.lightBar, s.caps.gyro, s.accel,
+            s.caps.touchpad);
+    if (s.lacksHidapi) {
+        std::string node = hidrawOf(s.hidDev);
+        XC_LOGW("pad %d: not on SDL's HIDAPI driver (no light bar, trigger effects, gyro or touchpad); its hidraw node %s%s",
+                slot, node.empty() ? "not found" : node.c_str(),
+                node.empty()        ? ""
+                : canOpen(node)     ? " can be opened: looking for it again"
+                                    : " can't be opened by this user (a udev rule for the controller gives access)");
+        g_lookUntilMs = SDL_GetTicks() + kLookForHidapiMs;
+    }
+}
+
+// The gamepads SDL has that no slot holds: opened (a pad's other instance
+// only where it is the better one).
+void openUnopened(int preferred = -1) {
+    int count = 0;
+    SDL_JoystickID* ids = SDL_GetGamepads(&count);
+    for (int i = 0; ids && i < count; ++i) openPad(ids[i], preferred);
+    SDL_free(ids);
+}
+
+// SDL's gamepads started again (as at the app's start, when its HIDAPI
+// driver gets a PlayStation pad), each pad back in its slot.
+void restartGamepads() {
+    std::string had[kMaxPads];
+    for (int i = 0; i < kMaxPads; ++i) {
+        had[i] = g_slots[i].pad ? g_slots[i].hidDev : std::string();
+        closePad(i);
+    }
+    kbmSdlForgetTouches();
+    SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+    bool joystickUp = SDL_WasInit(SDL_INIT_JOYSTICK) != 0;
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+        XC_LOGE("SDL gamepads (again): %s", SDL_GetError());
+        return;
+    }
+    int count = 0;
+    SDL_JoystickID* ids = SDL_GetGamepads(&count);
+    XC_LOGI("controllers: SDL's gamepads started again (%d found%s)", count, joystickUp ? "; joysticks were still up" : "");
+    for (int pass = 0; pass < 2; ++pass)  // those back in their slots first
+        for (int i = 0; ids && i < count; ++i) {
+            std::string dev = hidDeviceOf(SDL_GetGamepadPathForID(ids[i]));
+            int was = -1;
+            for (int k = 0; k < kMaxPads && !dev.empty(); ++k)
+                if (had[k] == dev) was = k;
+            if ((pass == 0) == (was >= 0)) openPad(ids[i], was);
+        }
+    SDL_free(ids);
 }
 
 void closePad(int slot) {
@@ -280,7 +418,12 @@ void padSdlEvent(const SDL_Event& event) {
         openPad(event.gdevice.which);
     } else if (event.type == SDL_EVENT_GAMEPAD_REMOVED) {
         for (int i = 0; i < kMaxPads; ++i)
-            if (g_slots[i].pad && g_slots[i].id == event.gdevice.which) closePad(i);
+            if (g_slots[i].pad && g_slots[i].id == event.gdevice.which) {
+                closePad(i);
+                // SDL replacing a device: its other instance (added first,
+                // and left alone while this one held the slot) takes it.
+                openUnopened(i);
+            }
     }
 }
 
@@ -303,7 +446,23 @@ bool poll(ControllerState& out) {
     return false;
 }
 
-void refreshPads() {}  // pads plugged in or out arrive as events
+void refreshPads() {
+    // Pads plugged in or out arrive as events; this (each second, main
+    // thread) only looks for a PlayStation pad's HIDAPI instance.
+    if (!g_lookUntilMs) return;
+    openUnopened();
+    if (SDL_GetTicks() < g_lookUntilMs) return;
+    g_lookUntilMs = 0;
+    for (int i = 0; i < kMaxPads; ++i) {
+        const Slot& s = g_slots[i];
+        if (!s.pad || !s.lacksHidapi || s.hidDev.empty() || g_restartedFor.count(s.hidDev)) continue;
+        if (!canOpen(hidrawOf(s.hidDev))) continue;
+        XC_LOGI("pad %d: no HIDAPI instance came; SDL's gamepads are started again", i);
+        g_restartedFor.insert(s.hidDev);
+        restartGamepads();
+        return;
+    }
+}
 
 std::string padUserName(int) { return {}; }
 
