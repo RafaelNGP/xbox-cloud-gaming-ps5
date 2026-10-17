@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=PSBox Cloud Gaming
+GenericName=Cloud gaming client
+Comment=Stream Xbox Cloud Gaming titles with a controller, keyboard or mouse
+Exec=psbox
+Icon=psbox
+Terminal=false
+Categories=Game;
+Keywords=xcloud;xbox;game pass;cloud gaming;
+StartupWMClass=psbox
