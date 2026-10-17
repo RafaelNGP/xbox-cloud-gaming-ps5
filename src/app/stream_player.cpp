@@ -31,8 +31,7 @@ namespace {
 // Beyond this, start over from a key frame. Generous: the jitter buffer
 // hands over several frames at once after waiting for a retransmission, and
 // decoding without drawing catches up with those in a few milliseconds.
-constexpr size_t kMaxQueuedFrames = 30;
-constexpr int kMaxFullStreak = 30;  // frames shown one refresh late before dropping one
+constexpr size_t kMaxQueuedFrames = 90;
 }
 
 struct StreamPlayer::Impl {
@@ -210,7 +209,6 @@ struct StreamPlayer::Impl {
         bool hwOk = hwProbe && hw.init(1920, 1088);
         if (hwProbe) XC_LOGI("hwdec: probe %s", hwOk ? "running" : "failed to start");
         uint64_t hwUs = 0, hwMaxUs = 0, hwPictures = 0, hwCalls = 0, hwLogAt = platform::nowMs() + 1000;
-        int fullStreak = 0;
         int skippedInRow = 0;
         constexpr uint64_t kShownRing = 8;
         std::pair<uint64_t, uint64_t> inScreenQueue[kShownRing] = {};  // present id, arrival us
@@ -294,33 +292,26 @@ struct StreamPlayer::Impl {
                 ++qpCount;
             }
             pictureSize = (static_cast<uint32_t>(pic.width) << 16) | static_cast<uint32_t>(pic.height);
-            bool screenshot = saveSnapshotIfAsked(pic);
-            // A newer frame already waits: decode this one (the next needs it)
-            // but show the newer one, a frame sooner. At most two in a row, so
-            // the picture keeps moving when decoding runs behind.
-            if (backlog > 0 && skippedInRow < 2) {
+            // When a burst of packets arrives after network jitter/retransmission,
+            // fast-forward decode without drawing to drain the stale backlog in a few
+            // milliseconds and present the newest live frame immediately.
+            // Under normal playback (backlog <= 1), every frame is drawn smoothly.
+            if (backlog >= 2 && skippedInRow < 15) {
                 ++skippedInRow;
                 ++droppedFrames;
                 continue;
             }
             skippedInRow = 0;
+            bool screenshot = saveSnapshotIfAsked(pic);
             std::lock_guard<std::mutex> lock(display::frameMutex());
             if (decodedFrames == 1) XC_LOGI("first draw %dx%d", pic.width, pic.height);
             uint64_t t2 = platform::nowUs();
-            // Both flips queued means the picture shows a frame later than
-            // it could. Arrival jitter does that now and then; it is waited
-            // out (the queue then stays full: stream and display both run at
-            // 60 Hz). After half a second of that, a frame is dropped to get
-            // the latency back.
+            // Try acquire with zero wait first; if not ready, wait for swapchain image.
             bool drawn = display::drawYuv420(pic.y, pic.u, pic.v, pic.strideY, pic.strideU, pic.strideV,
                                              pic.width, pic.height, false);
-            if (drawn) {
-                fullStreak = 0;
-            } else if (++fullStreak < kMaxFullStreak) {
+            if (!drawn) {
                 drawn = display::drawYuv420(pic.y, pic.u, pic.v, pic.strideY, pic.strideU, pic.strideV,
                                             pic.width, pic.height, true);
-            } else {
-                fullStreak = 0;
             }
             if (!drawn) {
                 ++lateFrames;
@@ -565,10 +556,12 @@ struct StreamPlayer::Impl {
                 o[1] = clamp((c - 218 * d - 546 * e + 512) >> 10);
                 o[2] = clamp((c + 2163 * d + 512) >> 10);
             }
-        std::string data = "P6\n" + std::to_string(w) + " " + std::to_string(h) + "\n255\n";
-        data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
-        bool ok = platform::writeFileAtomic(path, data);
-        XC_LOGI("snapshot %dx%d -> %s: %s", w, h, path.c_str(), ok ? "ok" : "failed");
+        std::thread([path, rgb = std::move(rgb), w, h]() mutable {
+            std::string data = "P6\n" + std::to_string(w) + " " + std::to_string(h) + "\n255\n";
+            data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
+            bool ok = platform::writeFileAtomic(path, data);
+            XC_LOGI("snapshot %dx%d -> %s: %s", w, h, path.c_str(), ok ? "ok" : "failed");
+        }).detach();
         return true;
     }
 
@@ -577,10 +570,13 @@ struct StreamPlayer::Impl {
         std::vector<uint8_t> rgb;
         int w = 0, h = 0;
         if (!display::readBackRgb(rgb, w, h)) return;
-        std::string data = "P6\n" + std::to_string(w) + " " + std::to_string(h) + "\n255\n";
-        data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
-        bool ok = platform::writeFileAtomic(screenPath, data);
-        XC_LOGI("screen -> %s: %s", screenPath.c_str(), ok ? "ok" : "failed");
+        std::string path = screenPath;
+        std::thread([path, rgb = std::move(rgb), w, h]() mutable {
+            std::string data = "P6\n" + std::to_string(w) + " " + std::to_string(h) + "\n255\n";
+            data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
+            bool ok = platform::writeFileAtomic(path, data);
+            XC_LOGI("screen -> %s: %s", path.c_str(), ok ? "ok" : "failed");
+        }).detach();
     }
 
     // Video thread only (data channel sends are thread-safe).

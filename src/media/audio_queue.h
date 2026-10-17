@@ -21,9 +21,9 @@ class AudioQueue {
 public:
     static constexpr int kRate = 48000;
     // Bounded to keep the sound close to the picture while absorbing normal
-    // network jitter (20-40 ms bursts). Stereo frames.
-    static constexpr size_t kMaxQueued = kRate * 100 / 1000;  // 100 ms
-    static constexpr size_t kTrimTo = kRate * 60 / 1000;      // 60 ms
+    // network jitter (20-40 ms bursts, up to 150 ms NACK recovery). Stereo frames.
+    static constexpr size_t kMaxQueued = kRate * 200 / 1000;  // 200 ms
+    static constexpr size_t kTrimTo = kRate * 100 / 1000;     // 100 ms
 
     // Since the last log (reset by it).
     struct Stats {
