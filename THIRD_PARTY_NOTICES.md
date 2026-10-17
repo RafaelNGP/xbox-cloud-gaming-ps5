@@ -49,12 +49,12 @@ the end.
 ## The Linux package (`PSBox-*-linux-x86_64.tar.gz`)
 
 `psbox` statically links the same Mbed TLS, libdatachannel (libjuice,
-usrsctp, libSRTP, plog), FFmpeg slice, stb and QR Code generator listed
-above; the PS5 runtime, the payload SDK, Mesa, FSR 1 and Anime4K are not in
-it. Their texts, with this file and `LICENSE`, are in `PSBox/licenses/`;
-`FFmpeg-NOTE.txt` there gives FFmpeg's version and configure flags. It
-links the system's C and C++ libraries (glibc, libstdc++, libgcc_s)
-dynamically, and carries:
+usrsctp, libSRTP, plog), FFmpeg slice, stb, QR Code generator, FSR 1 and
+Anime4K shaders listed above; the PS5 runtime, the payload SDK and PS5_Mesa
+are not in it. Their texts, with this file and `LICENSE`, are in
+`PSBox/licenses/`; `FFmpeg-NOTE.txt` there gives FFmpeg's version and
+configure flags. It links the system's C and C++ libraries (glibc,
+libstdc++, libgcc_s) dynamically, and carries:
 
 | File | Component | License |
 | --- | --- | --- |

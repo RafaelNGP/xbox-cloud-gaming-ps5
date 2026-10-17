@@ -29,14 +29,20 @@ void main() {
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     ivec2 size = imageSize(target);
     if (p.x >= size.x || p.y >= size.y) return;
+    ivec2 box = imageSize(upscaled);
+    ivec2 q = p - (size - box) / 2;
+    if (q.x < 0 || q.y < 0 || q.x >= box.x || q.y >= box.y) {
+        imageStore(target, p, vec4(0.0, 0.0, 0.0, 1.0));
+        return;
+    }
     vec3 color;
     if (pc.sharpen != 0u) {
-        FsrRcasF(color.r, color.g, color.b, uvec2(p), pc.con);
+        FsrRcasF(color.r, color.g, color.b, uvec2(q), pc.con);
     } else {
-        color = imageLoad(upscaled, p).rgb;
+        color = imageLoad(upscaled, q).rgb;
     }
     if (pc.overlayOpacity > 0.0) {
-        vec4 o = texture(overlayTex, (vec2(p) + 0.5) / vec2(size));
+        vec4 o = texture(overlayTex, (vec2(q) + 0.5) / vec2(box));
         color = mix(color, o.rgb, o.a * pc.overlayOpacity);
     }
     imageStore(target, p, vec4(color, 1.0));

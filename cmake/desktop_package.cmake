@@ -66,8 +66,8 @@ configure_file("${_src}/linux/README-linux.txt" "${CMAKE_CURRENT_BINARY_DIR}/REA
 install(FILES "${_src}/linux/psbox.desktop" "${_icon}" "${CMAKE_CURRENT_BINARY_DIR}/README-linux.txt"
         DESTINATION ${_pkg})
 
-# The licenses of what psbox links or the package carries (the PS5 runtime,
-# Mesa, FSR and Anime4K are not in it).
+# The licenses of what psbox links or the package carries (the PS5 runtime
+# and PS5_Mesa are not in it).
 install(FILES "${_src}/LICENSE" "${_src}/THIRD_PARTY_NOTICES.md" DESTINATION ${_pkg}/licenses)
 install(FILES "${_src}/linux/FFmpeg-NOTE.txt" DESTINATION ${_pkg}/licenses)
 set(_lic
@@ -78,7 +78,9 @@ set(_lic
     "deps/libdatachannel/deps/libsrtp/LICENSE=libsrtp-LICENSE.txt"
     "deps/libdatachannel/deps/plog/LICENSE=plog-LICENSE.txt"
     "deps/ffmpeg/COPYING.LGPLv2.1=FFmpeg-LGPL-2.1.txt"
-    "extern/stb/LICENSE=stb-LICENSE.txt")
+    "extern/stb/LICENSE=stb-LICENSE.txt"
+    "extern/fsr1/LICENSE.txt=FSR1-MIT.txt"
+    "extern/anime4k/LICENSE=Anime4K-MIT.txt")
 foreach(_pair IN LISTS _lic)
     string(REPLACE "=" ";" _pair "${_pair}")
     list(GET _pair 0 _from)

@@ -44,7 +44,8 @@ jobs:
           sudo apt-get install -y -q cmake ninja-build clang llvm nasm pkg-config \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
             libxkbcommon-dev libwayland-dev libdecor-0-dev libegl1-mesa-dev libgl1-mesa-dev libgles2-mesa-dev \
-            libdrm-dev libgbm-dev libasound2-dev libpulse-dev libpipewire-0.3-dev libjack-jackd2-dev \
+            libdrm-dev libgbm-dev libvulkan-dev mesa-vulkan-drivers \
+            libasound2-dev libpulse-dev libpipewire-0.3-dev libjack-jackd2-dev \
             libdbus-1-dev libibus-1.0-dev libudev-dev libusb-1.0-0-dev
 
       - name: SDL3 cache

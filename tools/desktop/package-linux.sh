@@ -61,7 +61,8 @@ ok "no private file, everything under PSBox/ ($(grep -vc '/$' <<<"$list") files)
 for f in psbox lib/libSDL3.so.0 psbox.desktop psbox.png README-linux.txt assets/cacert.pem assets/fonts/Inter-Regular.ttf \
          licenses/LICENSE licenses/THIRD_PARTY_NOTICES.md licenses/FFmpeg-LGPL-2.1.txt licenses/FFmpeg-NOTE.txt \
          licenses/SDL3-LICENSE.txt licenses/Inter-OFL.txt licenses/mbedtls-LICENSE.txt licenses/libdatachannel-MPL-2.0.txt \
-         licenses/usrsctp-LICENSE.md licenses/libsrtp-LICENSE.txt licenses/plog-LICENSE.txt licenses/stb-LICENSE.txt; do
+         licenses/usrsctp-LICENSE.md licenses/libsrtp-LICENSE.txt licenses/plog-LICENSE.txt licenses/stb-LICENSE.txt \
+         licenses/FSR1-MIT.txt licenses/Anime4K-MIT.txt; do
     grep -qx "PSBox/$f" <<<"$list" || fail "missing PSBox/$f"
 done
 ok "app, SDL3, assets, desktop entry, icon, README and licenses in place"

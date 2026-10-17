@@ -1,26 +1,29 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
-// display.h on SDL3's renderer (the desktop app): a resizable window showing
-// the app's 1920x1080 picture letterboxed. SDL's render calls are only made
-// on the main thread, so the threads that draw (the menu on the main thread,
-// the video thread while streaming) hand their picture over instead: draw
-// into a back frame under frameMutex(), present() swaps it into a one-slot
-// mailbox (the newest wins, nobody waits for the screen), and pump(), each
-// pass of the main loop, uploads the mailbox's frame (YUV straight into an
-// IYUV texture, the GPU converts it) with the overlay and presents it,
-// paced by vsync. No upscalers, sharpening or block smoothing here: caps()
-// says so and their setters do nothing.
+// display.h on SDL3 (the desktop app): a resizable window showing the app's
+// 1920x1080 picture letterboxed. When Vulkan 1.3 comes up on the window,
+// display/gpu.cpp runs the same compute pipeline as the PS5 (BT.709 YUV +
+// deband, Anime4K Restore, FSR 1 EASU or Anime4K x2 upscale, RCAS sharpening
+// and overlay blend); otherwise an SDL_Renderer is used as a fallback.
+//
+// Either way, window and GPU/renderer calls stay on the main thread: drawing
+// threads fill a back frame under frameMutex(), present() swaps it into a
+// one-slot mailbox (the newest wins, nobody waits for the screen), and
+// pump(), each pass of the main loop, presents it.
 #include "display/display.h"
 #include "display/display_sdl.h"
+#include "display/gpu.h"
 
 #include "platform/platform.h"
 #include "util/log.h"
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
 
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <cstring>
 #include <utility>
 
@@ -163,6 +166,33 @@ void renderScene() {
     }
 }
 
+bool drawGpuFront() {
+    if (g_front.kind == Kind::Menu) {
+        gpu::drawRgba(g_front.rgba.data());
+    } else if (g_front.kind == Kind::Video) {
+        int cw = (g_front.width + 1) / 2;
+        if (!gpu::drawYuv420(g_front.y.data(), g_front.u.data(), g_front.v.data(), g_front.width, cw, cw,
+                             g_front.width, g_front.height, true))
+            return false;
+    } else {
+        return false;
+    }
+    g_frontPending = false;
+    g_overlayPending = false;
+    if (!g_shown) {
+        SDL_ShowWindow(g_window);
+        g_shown = true;
+    }
+    gpu::present();
+    if (g_front.kind == Kind::Video) {
+        std::lock_guard<std::mutex> lock(g_shownMutex);
+        g_shownId = g_front.id;
+        uint64_t gpuId = 0, gpuAtUs = 0;
+        g_shownAtUs = gpu::lastShown(gpuId, gpuAtUs) ? gpuAtUs : platform::nowUs();
+    }
+    return true;
+}
+
 }  // namespace
 
 void sdlStartFullscreen(bool on) { g_startFullscreen = on, g_startForced = true; }
@@ -170,7 +200,10 @@ void sdlStartFullscreenSetting(bool on) {
     if (!g_startForced) g_startFullscreen = on;
 }
 SDL_Window* sdlWindow() { return g_window; }
-const char* sdlRendererName() { return g_renderer ? SDL_GetRendererName(g_renderer) : ""; }
+const char* sdlRendererName() {
+    if (gpu::ready()) return "vulkan";
+    return g_renderer ? SDL_GetRendererName(g_renderer) : "";
+}
 void sdlRepaint() { g_repaint = true; }
 
 bool sdlIsFullscreen() { return g_window && (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) != 0; }
@@ -187,7 +220,7 @@ void sdlToggleFullscreen() { sdlSetFullscreen(!sdlIsFullscreen()); }
 
 std::mutex& frameMutex() { return g_frameMutex; }
 
-bool init(bool) {
+bool init(bool preferGpu) {
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {
         XC_LOGE("display: SDL video: %s", SDL_GetError());
         return false;
@@ -195,6 +228,45 @@ bool init(bool) {
     g_mainThread = SDL_GetCurrentThreadID();
     SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_HIDDEN;
     if (g_startFullscreen) flags |= SDL_WINDOW_FULLSCREEN;
+
+    const char* forceSdl = std::getenv("XC_SDL_RENDERER");
+    if (preferGpu && !(forceSdl && forceSdl[0] && forceSdl[0] != '0')) {
+        g_window = SDL_CreateWindow("PSBox Cloud Gaming", 1600, 900, flags | SDL_WINDOW_VULKAN);
+        if (g_window) {
+            SDL_SetWindowMinimumSize(g_window, 640, 360);
+            Uint32 extCount = 0;
+            const char* const* exts = SDL_Vulkan_GetInstanceExtensions(&extCount);
+            gpu::Wsi wsi;
+            wsi.getInstanceProcAddr = reinterpret_cast<void*>(SDL_Vulkan_GetVkGetInstanceProcAddr());
+            wsi.extensions = exts;
+            wsi.extensionCount = extCount;
+            wsi.user = g_window;
+            wsi.createSurface = [](void* u, void* inst, void* surfOut) -> bool {
+                return SDL_Vulkan_CreateSurface(static_cast<SDL_Window*>(u), static_cast<VkInstance>(inst), nullptr,
+                                                static_cast<VkSurfaceKHR*>(surfOut));
+            };
+            wsi.getExtent = [](void* u, uint32_t& w, uint32_t& h) {
+                int pw = 0, ph = 0;
+                SDL_GetWindowSizeInPixels(static_cast<SDL_Window*>(u), &pw, &ph);
+                w = pw > 0 ? static_cast<uint32_t>(pw) : 0u;
+                h = ph > 0 ? static_cast<uint32_t>(ph) : 0u;
+            };
+            // Poll present completion without blocking the main thread's event loop.
+            gpu::setPresentWait(false);
+            if (wsi.getInstanceProcAddr && exts && gpu::init(wsi)) {
+                XC_LOGI("display: SDL %d.%d.%d, video driver %s, renderer vulkan%s",
+                        SDL_VERSIONNUM_MAJOR(SDL_GetVersion()), SDL_VERSIONNUM_MINOR(SDL_GetVersion()),
+                        SDL_VERSIONNUM_MICRO(SDL_GetVersion()), SDL_GetCurrentVideoDriver(),
+                        g_startFullscreen ? ", fullscreen" : "");
+                return true;
+            }
+            gpu::shutdown();
+            SDL_DestroyWindow(g_window);
+            g_window = nullptr;
+        }
+        XC_LOGW("display: Vulkan GPU path unavailable; falling back to SDL_Renderer");
+    }
+
     g_window = SDL_CreateWindow("PSBox Cloud Gaming", 1600, 900, flags);
     if (!g_window) {
         XC_LOGE("display: window: %s", SDL_GetError());
@@ -225,11 +297,18 @@ bool init(bool) {
 
 void shutdown() {
     if (!g_window) return;
+    gpu::shutdown();
     for (SDL_Texture** t : {&g_uiTex, &g_videoTex, &g_overlayTex, &g_readTex})
         if (*t) SDL_DestroyTexture(*t), *t = nullptr;
     if (g_renderer) SDL_DestroyRenderer(g_renderer), g_renderer = nullptr;
     SDL_DestroyWindow(g_window);
     g_window = nullptr;
+    g_shown = false;
+    g_front = Frame{};
+    g_back = Frame{};
+    g_mailbox = Frame{};
+    g_mailboxFull = false;
+    g_frontPending = g_overlayPending = false;
     g_videoW = g_videoH = g_overlayW = g_overlayH = 0;
     SDL_QuitSubSystem(SDL_INIT_VIDEO);
 }
@@ -289,7 +368,7 @@ void serveReadBack() {
 }  // namespace
 
 void pump() {
-    if (!g_renderer || !onMainThread()) return;
+    if ((!g_renderer && !gpu::ready()) || !onMainThread()) return;
     {
         std::lock_guard<std::mutex> lock(g_mailboxMutex);
         if (g_mailboxFull) {
@@ -313,6 +392,10 @@ void pump() {
     bool repaint = g_repaint.exchange(false);
     if (!g_frontPending && !g_overlayPending && !repaint) return;
     if (g_front.kind == Kind::None) return;
+    if (gpu::ready()) {
+        drawGpuFront();
+        return;
+    }
     upload();
     renderScene();
     if (!g_shown) {
@@ -333,6 +416,7 @@ void idleWait(uint32_t ms) {
 }
 
 void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opacity) {
+    gpu::setOverlay(pixels, x, y, w, h, opacity);
     Overlay next;
     if (pixels && w > 0 && h > 0) {
         next.pixels.assign(pixels, pixels + static_cast<size_t>(w) * h);
@@ -346,17 +430,30 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
     g_mailboxCv.notify_all();
 }
 
-void setSharpness(int) {}
-void setDeband(int) {}
-void setUpscaler(int) {}
-void setRestore(bool) {}
+void setSharpness(int amount) {
+    gpu::setSharpness(amount);
+    g_repaint = true;
+}
+void setDeband(int level) {
+    gpu::setDeband(level);
+    g_repaint = true;
+}
+void setUpscaler(int mode) {
+    gpu::setUpscaler(mode);
+    g_repaint = true;
+}
+void setRestore(bool on) {
+    gpu::setRestore(on);
+    g_repaint = true;
+}
 DisplayCaps caps() {
     DisplayCaps c;
+    c.upscalers = c.deband = c.sharpen = gpu::ready();
     c.presentTiming = true;  // the frame handed over, and when pump() presented it
     return c;
 }
-void setSwapImages(int) {}
-void setPresentWait(bool) {}
+void setSwapImages(int count) { gpu::setSwapImages(count); }
+void setPresentWait(bool on) { gpu::setPresentWait(on); }
 bool setHighRefresh(bool) { return false; }
 bool canSwitchRefresh() { return false; }
 bool bringUpTest(int) {
@@ -378,6 +475,10 @@ namespace {
 // The picture on screen read back (main thread).
 bool readBackMain(std::vector<uint8_t>& rgb, int& width, int& height) {
     if (g_front.kind == Kind::None) return false;
+    if (gpu::ready()) {
+        if (g_frontPending || g_overlayPending || g_repaint.exchange(false)) drawGpuFront();
+        return gpu::readBack(rgb, width, height);
+    }
     upload();
     if (!g_readTex)
         g_readTex = SDL_CreateTexture(g_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, kWidth, kHeight);
@@ -408,7 +509,7 @@ bool readBackMain(std::vector<uint8_t>& rgb, int& width, int& height) {
 }  // namespace
 
 bool readBackRgb(std::vector<uint8_t>& rgb, int& width, int& height) {
-    if (!g_renderer) return false;
+    if (!g_renderer && !gpu::ready()) return false;
     if (onMainThread()) return readBackMain(rgb, width, height);
     // The renderer is the main thread's: asked of its next pump(), waited
     // for a while (the main loop pumps each pass; not while it is closing).

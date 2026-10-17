@@ -22,7 +22,6 @@ cd "$root"
 allowed=(
     'src/platform/ps5/*'   # the PS5's platform layer
     'src/*_ps5.cpp'        # PS5 backends: display, controller, kbm, hw_decoder, shell...
-    'src/display/gpu.cpp'  # RADV on the PS5 (the GPU path only the PS5 builds)
     'ps5/*'                # link stubs and compat headers for the PS5 SDK
     # Legacy: these still pick their PS5 code with #if. Each comes off the
     # list once it is split into a PS5 backend and a portable part.
