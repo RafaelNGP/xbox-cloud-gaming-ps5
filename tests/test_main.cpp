@@ -962,7 +962,7 @@ static void testAudioEncoder() {
 static void testH264Resync() {
     xc::stream::VideoReceiveStats stats;
     int keyframeAsks = 0;
-    xc::stream::H264Receiver rx([&] { ++keyframeAsks; }, stats);
+    xc::stream::H264Receiver rx([&] { ++keyframeAsks; }, stats, 150);
     auto packet = [](uint16_t seq, uint32_t ts, bool marker, uint8_t nal) {
         std::vector<uint8_t> b = {0x80, static_cast<uint8_t>((marker ? 0x80 : 0) | 102),
                                   static_cast<uint8_t>(seq >> 8), static_cast<uint8_t>(seq),
