@@ -2281,8 +2281,9 @@ UiEvent AppUi::handle(const NavInput& in) {
     }
     switch (screen_) {
         case Screen::Home:
-            if (quitPrompt_) {  // Cross closes the app, Circle stays
-                if (in.accept) ev.action = Action::Quit;
+            if (quitPrompt_) {  // two buttons, Close / Cancel: left / right picks, Cross presses, Circle cancels
+                if (in.left || in.right) promptFocus_ = in.left ? 0 : 1, dirty_ = true;
+                if (in.accept && promptFocus_ == 0) ev.action = Action::Quit;
                 if (in.accept || in.back) quitPrompt_ = false, dirty_ = true;
                 break;
             }
@@ -2291,6 +2292,7 @@ UiEvent AppUi::handle(const NavInput& in) {
             // asks. On the PS5 the system closes the app; Circle does nothing here.
             if (caps_.desktopWindow && in.back && !searching_) {
                 quitPrompt_ = true;
+                promptFocus_ = 1;  // Cancel first: a second Circle / Esc never closes by accident
                 dirty_ = true;
                 break;
             }
@@ -3702,9 +3704,20 @@ void AppUi::drawCountryPicker(Canvas& c) {
 }
 
 void AppUi::drawQuitPrompt(Canvas& c) {
-    drawModal(c, 760, 170, tr(Str::QuitTitle));
+    // As the update pop-up: the question, then Close and Cancel as buttons.
+    constexpr int kButtonW = 300, kButtonH = 72, kPanelW = 2 * kButtonW + 24 + 112, kPanelH = 250;
+    Rect panel = drawModal(c, kPanelW, kPanelH, tr(Str::QuitTitle));
+    const char* labels[2] = {tr(Str::QuitConfirm), tr(Str::Cancel)};
+    for (int i = 0; i < 2; ++i) {
+        Rect b{panel.x + 56 + i * (kButtonW + 24), panel.y + panel.h - kButtonH - 44, kButtonW, kButtonH};
+        bool on = i == promptFocus_;
+        c.fillRect(b, on ? kWhite : rgba(255, 255, 255, 30), 14);
+        int tw = fonts_.semibold.measure(labels[i], 28);
+        fonts_.semibold.draw(c, labels[i], b.x + (b.w - tw) / 2, fonts_.semibold.centeredY(b.y, b.h, 28), 28,
+                             on ? kBg : kWhite);
+    }
     c.fillRect({0, kH - 80, kW, 80}, kBg);  // its own hints over drawModal's
-    drawHints(c, {{kIconCross, tr(Str::QuitConfirm)}, {kIconCircle, tr(Str::Cancel)}});
+    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Cancel)}});
 }
 
 void AppUi::drawUpdatePrompt(Canvas& c) {

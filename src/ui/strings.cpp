@@ -295,8 +295,8 @@ constexpr Column kEnglish = {
     "Display mode", // DisplayMode
     "Window", // DisplayWindow
     "Fullscreen", // DisplayFullscreen
-    "Close PSBox?", // QuitTitle
-    "Close", // QuitConfirm
+    "Quit PSBox?", // QuitTitle
+    "Quit", // QuitConfirm
 };
 
 constexpr Column kPortugueseBR = {
@@ -562,8 +562,8 @@ constexpr Column kPortugueseBR = {
     "Modo de exibição", // DisplayMode
     "Janela", // DisplayWindow
     "Tela cheia", // DisplayFullscreen
-    "Fechar o PSBox?", // QuitTitle
-    "Fechar", // QuitConfirm
+    "Sair do PSBox?", // QuitTitle
+    "Sair", // QuitConfirm
 };
 
 constexpr Column kSpanish = {
@@ -829,8 +829,8 @@ constexpr Column kSpanish = {
     "Modo de pantalla", // DisplayMode
     "Ventana", // DisplayWindow
     "Pantalla completa", // DisplayFullscreen
-    "¿Cerrar PSBox?", // QuitTitle
-    "Cerrar", // QuitConfirm
+    "¿Salir de PSBox?", // QuitTitle
+    "Salir", // QuitConfirm
 };
 
 constexpr Column kFrench = {
@@ -1096,8 +1096,8 @@ constexpr Column kFrench = {
     "Mode d'affichage", // DisplayMode
     "Fenêtre", // DisplayWindow
     "Plein écran", // DisplayFullscreen
-    "Fermer PSBox ?", // QuitTitle
-    "Fermer", // QuitConfirm
+    "Quitter PSBox ?", // QuitTitle
+    "Quitter", // QuitConfirm
 };
 
 constexpr Column kGerman = {
@@ -1363,8 +1363,8 @@ constexpr Column kGerman = {
     "Anzeigemodus", // DisplayMode
     "Fenster", // DisplayWindow
     "Vollbild", // DisplayFullscreen
-    "PSBox schließen?", // QuitTitle
-    "Schließen", // QuitConfirm
+    "PSBox beenden?", // QuitTitle
+    "Beenden", // QuitConfirm
 };
 
 constexpr Column kItalian = {
@@ -1630,8 +1630,8 @@ constexpr Column kItalian = {
     "Modalità schermo", // DisplayMode
     "Finestra", // DisplayWindow
     "Schermo intero", // DisplayFullscreen
-    "Chiudere PSBox?", // QuitTitle
-    "Chiudi", // QuitConfirm
+    "Uscire da PSBox?", // QuitTitle
+    "Esci", // QuitConfirm
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,
