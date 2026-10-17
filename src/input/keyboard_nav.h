@@ -47,4 +47,21 @@ void mergePads(ControllerState& pad, const ControllerState& extra);
 // controller's own input stays.
 void keyboardToPad(const std::vector<uint8_t>& held, ControllerState& pad);
 
+// The DualSense's touchpad as a mouse in games that take native mouse and
+// keyboard: one finger moves the cursor and a light tap clicks left; two
+// fingers scroll vertically and a light tap clicks right; clicking the pad
+// after moving the cursor holds left (or right on the right third / with two
+// fingers) for dragging while keeping a plain click as the controller's View.
+struct TouchpadMouse {
+    bool touching = false, second = false, hadSecond = false, moved = false, dragging = false;
+    float x = 0, y = 0, startX = 0, startY = 0;
+    float remX = 0, remY = 0, remWheel = 0;
+    uint64_t downMs = 0, tapUntilMs = 0;
+    uint8_t tapButton = 0, dragButton = 0, prevButtons = 0;
+};
+// Adds what the touchpad does to `io` (dx, dy, wheel, buttons, moved); returns
+// true while a physical touchpad click is held as a mouse button (so the
+// controller doesn't also press View).
+bool touchpadAsMouse(const ControllerState& pad, uint64_t nowMs, TouchpadMouse& state, KbmInput& io);
+
 }  // namespace xc::input

@@ -328,10 +328,11 @@ bool readPad(int slot, RawPad& out) {
     }
 
     if (s.caps.touchpad) {
-        bool down = false;
-        float x = 0, y = 0, pressure = 0;
+        bool down = false, down2 = false;
+        float x = 0, y = 0, pressure = 0, x2 = 0, y2 = 0, p2 = 0;
         if (SDL_GetGamepadTouchpadFinger(gp, 0, 0, &down, &x, &y, &pressure) && down) {
             out.touching = true;  // SDL gives 0..1 from the top left already
+            out.touchSecond = SDL_GetGamepadTouchpadFinger(gp, 0, 1, &down2, &x2, &y2, &p2) && down2;
             out.touchX = std::clamp(x, 0.0f, 1.0f);
             out.touchY = std::clamp(y, 0.0f, 1.0f);
         }

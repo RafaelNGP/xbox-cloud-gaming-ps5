@@ -44,8 +44,9 @@ struct ControllerState {
     float triggerL2 = 0.0f;
     float triggerR2 = 0.0f;
 
-    // A finger on the touchpad, at (touchX, touchY) in [0, 1] from the top left.
-    bool touching = false;
+    // A finger on the touchpad, at (touchX, touchY) in [0, 1] from the top left;
+    // `touchSecond` when a second finger is down too.
+    bool touching = false, touchSecond = false;
     float touchX = 0.0f, touchY = 0.0f;
 };
 
