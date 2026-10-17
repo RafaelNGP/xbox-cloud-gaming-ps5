@@ -279,6 +279,10 @@ enum class Str {
     PadMissing,         // controller buttons: can't leave yet (%s: the Xbox buttons without one, "A, LB")
     DiscardChanges,     // controller buttons: leave without keeping the changes
     PadHelp,            // controller buttons: only the game sees the map; a button already used swaps
+    FilterPlan,         // search filter: Game Pass plan
+    PlanMine,           // ... what the account's plan plays
+    PlanAll,            // ... every Game Pass plan
+    IncludedWithPlan,   // game page: "%s" = "Ultimate" / "Premium" / "Essential"
     Count
 };
 

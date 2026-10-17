@@ -43,6 +43,7 @@ json::Value productToJson(const xcloud::Product& p) {
         v.set("d", true);
         v.set("at", p.detailedAt);
         v.set("modes", static_cast<int64_t>(p.modes));
+        if (p.plan) v.set("plan", static_cast<int64_t>(p.plan));
         json::Value langs = json::Value::object();
         for (const auto& [lang, bits] : p.languages) langs.set(lang, static_cast<int64_t>(bits));
         v.set("langs", langs);
@@ -66,6 +67,7 @@ xcloud::Product productFromJson(const std::string& id, const json::Value& v) {
     // Details from before their date was kept count from now (not all due at once).
     p.detailedAt = v["at"].asInt(static_cast<int64_t>(std::time(nullptr)));
     p.modes = static_cast<uint32_t>(v["modes"].asInt(0));
+    p.plan = static_cast<uint8_t>(v["plan"].asInt(0));
     for (const auto& [lang, bits] : v["langs"].members()) p.languages[lang] = static_cast<uint8_t>(bits.asInt(0));
     return p;
 }
@@ -141,12 +143,20 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
     if (auto lang = p.languages.find(language_.substr(0, language_.find('-'))); lang != p.languages.end())
         t.languages = lang->second;  // in the app's language
     if (ownershipKnown_) t.playable = ownedTitles_.count(t.titleId) || ownedProducts_.count(t.productId);
-    // Added to Game Pass since the last start: the account's list from then
-    // doesn't have it yet. Not locked until this start's list arrives.
-    if (!t.playable && !ownershipFresh_ && !knownGamePass_.empty() && gamePass_.count(productId) &&
-        !knownGamePass_.count(productId))
-        t.playable = true;
     t.freeInStore = freeInStore_.count(productId) > 0;
+    // Free-to-play games are open to every plan and to no plan, even those
+    // also tagged with a Pass product id in the catalog.
+    t.plan = (!t.freeInStore && gamePass_.count(productId)) ? p.plan : 0;
+    uint8_t myPlan = xcloud::planTier(subscription_);
+    // Added to Game Pass since the last start: the account's list from then
+    // doesn't have it yet. Not locked until this start's list arrives, if the
+    // account's plan includes it.
+    if (!t.playable && !ownershipFresh_ && !knownGamePass_.empty() && gamePass_.count(productId) &&
+        !knownGamePass_.count(productId) && (myPlan == 0 || xcloud::planIncludes(myPlan, t.plan, t.freeInStore)))
+        t.playable = true;
+    if (t.playable && !ownershipKnown_) {
+        if (myPlan > 0 && !xcloud::planIncludes(myPlan, t.plan, t.freeInStore)) t.playable = false;
+    }
     t.mouseKeyboard = mouseKeyboard_.count(productId) > 0;
     // A free-to-play game not on the account yet is got like one bought
     // (the store page's QR code), only free.
@@ -198,6 +208,7 @@ std::vector<ui::GameTile> Library::tiles(const std::vector<Item>& items) const {
 
 std::vector<ui::GameRow> Library::rows() const {
     std::vector<ui::GameRow> rows;
+    uint8_t myPlan = xcloud::planTier(subscription_);
     for (const auto& r : layout_) {
         ui::GameRow row;
         row.title = r.title;
@@ -209,6 +220,11 @@ std::vector<ui::GameRow> Library::rows() const {
             // "Jump back in": Game Pass games and the account's own (bought,
             // free-to-play); not one it can't start any more.
             if (r.recent && !gamePass_.empty() && !gamePass_.count(pid) && !t.playable) continue;
+            // Rows show only what the account's plan plays (free-to-play is
+            // open to every plan).
+            if (!t.playable && !t.freeInStore &&
+                (ownershipKnown_ || (myPlan > 0 && !xcloud::planIncludes(myPlan, t.plan, t.freeInStore))))
+                continue;
             row.tiles.push_back(std::move(t));
         }
         if (!row.tiles.empty()) rows.push_back(std::move(row));
@@ -288,6 +304,7 @@ bool Library::loadCache() {
     for (const auto& id : (*j)["mouseKeyboard"].items()) mouseKeyboard_.insert(id.str());
     for (const auto& t : (*j)["ownedTitles"].items()) ownedTitles_.insert(t.str());
     gamePassMember_ = (*j)["gamePassMember"].asBool();
+    if (subscription_.empty()) subscription_ = (*j)["subscription"].str();
     for (const auto& p : (*j)["ownedProducts"].items()) ownedProducts_.insert(p.str());
     for (const auto& p : (*j)["gamePass"].items()) knownGamePass_.insert(p.str());
     owned_.clear();
@@ -319,6 +336,7 @@ void Library::saveCache() const {
     for (const auto& p : ownedProducts_) prods.push(p);
     root.set("ownedTitles", titles);
     root.set("gamePassMember", gamePassMember_);
+    if (!subscription_.empty()) root.set("subscription", subscription_);
     root.set("ownedProducts", prods);
     root.set("owned", itemsToJson(owned_));
     json::Value gamePass = json::Value::array();
@@ -430,6 +448,7 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
                               {xcloud::sigl::kFreeToPlay, 40},
                               {xcloud::sigl::kLeavingSoon, 40},
                               {xcloud::sigl::kAllGames, 0}};
+    uint8_t myPlan = xcloud::planTier(subscription_);
     for (const auto& spec : lists) {
         xcloud::ProductList list;
         bool isAllGames = std::string_view(spec.sigl) == xcloud::sigl::kAllGames;
@@ -453,10 +472,20 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
         if (!gamePass_.empty() && !freeToPlay) {
             size_t before = list.productIds.size();
             list.productIds.erase(std::remove_if(list.productIds.begin(), list.productIds.end(),
-                                                 [&](const std::string& id) { return !gamePass_.count(id); }),
+                                                 [&](const std::string& id) {
+                                                     if (!gamePass_.count(id)) return true;
+                                                     if (myPlan > 0 && myPlan < xcloud::kPlanUltimate && !ownedProducts_.count(id) &&
+                                                         !freeInStore_.count(id)) {
+                                                         auto it = products_.find(id);
+                                                         if (it != products_.end() &&
+                                                             !xcloud::planIncludes(myPlan, it->second.plan, false))
+                                                             return true;
+                                                     }
+                                                     return false;
+                                                 }),
                                   list.productIds.end());
             if (list.productIds.size() != before)
-                XC_LOGI("library: %s: %zu of %zu not in Game Pass, left out", list.title.c_str(),
+                XC_LOGI("library: %s: %zu of %zu not in Game Pass/plan, left out", list.title.c_str(),
                         before - list.productIds.size(), before);
         }
         if (spec.limit > 0 && list.productIds.size() > spec.limit) list.productIds.resize(spec.limit);
@@ -575,10 +604,11 @@ void Library::loadCatalogNames(const Changed& changed, const std::atomic<bool>* 
             if (old != products_.end()) {
                 if (p.heroUrl.empty()) p.heroUrl = old->second.heroUrl;
                 if (p.description.empty() && !otherLanguage_.count(id)) p.description = old->second.description;
-                if (!p.detailed && old->second.detailed) {  // modes and languages don't change with the language
+                if (!p.detailed && old->second.detailed) {  // modes, languages and plan don't change with the language
                     p.detailed = true;
                     p.detailedAt = old->second.detailedAt;
                     p.modes = old->second.modes;
+                    p.plan = old->second.plan;
                     p.languages = old->second.languages;
                 }
             }
@@ -604,7 +634,7 @@ bool Library::fetchFull(const std::vector<std::string>& ids, const Changed& chan
     for (const auto& id : ids) {
         auto it = products_.find(id);
         if ((it == products_.end() || it->second.heroUrl.empty() || it->second.description.empty() ||
-             !it->second.detailed) &&
+             !it->second.detailed || !it->second.plan) &&
             queued.insert(id).second)
             order.push_back(id);
     }

@@ -843,6 +843,11 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             ++step;
         } else if (step == 2 && now - since > 6000) {
             saveCanvas("publisher_results.ppm");
+            // Filtra também por plano Ultimate (índice 1) para exibir badges de plano nos cards
+            g_ui->chooseFilter(ui::AppUi::Filter::Plan, 1);
+            ++step;
+        } else if (step == 3 && now - since > 8000) {
+            saveCanvas("plan_results.ppm");
             g_autoplay.publisherTest = false;
             XC_LOGI("AUTOPLAY END: publisher test");
         }

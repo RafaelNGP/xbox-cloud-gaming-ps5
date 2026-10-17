@@ -38,6 +38,7 @@
 #include "platform/platform.h"
 #include "auth/msa.h"
 #include "ui/image_cache.h"
+#include "xcloud/catalog.h"
 #include "xcloud/gssv.h"
 #include "xcloud/titlehub.h"
 #include "xcloud/prices.h"
@@ -853,6 +854,45 @@ static void testSubscriptionPlan() {
     std::string ends = "{\"entitlements\":{\"CFQ7TTC0KHS0\":{\"status\":\"Active\",\"autoRenew\":false,\"endDate\":\"2026-10-20T00:00:00.0000000Z\"}}}";
     CHECK(auth::subscriptionRenewal(ends, 1792108800) == "no auto-renew, ends in 4 day(s)");  // from 2026-10-16
     CHECK(auth::subscriptionRenewal("{\"entitlements\":{}}", 0).empty());
+
+    // Catalog plan tiers from PassMetadataByPassProductId, and search Plan filter.
+    using namespace xcloud;
+    auto pass = [](const char* text) { return productPlanFromJson(text); };
+    CHECK(pass(R"({"CFQ7TTC0K5DJ":{},"CFQ7TTC0P85B":{},"CFQ7TTC0KHS0":{}})") == kPlanEssential);
+    CHECK(pass(R"({"CFQ7TTC0P85B":{},"CFQ7TTC0KHS0":{}})") == kPlanPremium);
+    CHECK(pass(R"({"CFQ7TTC0KHS0":{},"CFQ7TTC0K5DH":{}})") == kPlanUltimate);
+    CHECK(pass(R"({})") == kPlanUltimate);
+    CHECK(planTier("Essential") == kPlanEssential && planTier("Premium") == kPlanPremium &&
+          planTier("Ultimate") == kPlanUltimate && planTier("PC") == kPlanNone && planTier("") == kPlanNone);
+    CHECK(planIncludes(kPlanEssential, kPlanEssential, false) && !planIncludes(kPlanEssential, kPlanPremium, false) &&
+          !planIncludes(kPlanEssential, kPlanUltimate, false) && planIncludes(kPlanEssential, kPlanUltimate, true));
+    CHECK(planIncludes(kPlanPremium, kPlanEssential, false) && planIncludes(kPlanPremium, kPlanPremium, false) &&
+          !planIncludes(kPlanPremium, kPlanUltimate, false));
+    CHECK(planIncludes(kPlanUltimate, kPlanEssential, false) && planIncludes(kPlanUltimate, kPlanPremium, false) &&
+          planIncludes(kPlanUltimate, kPlanUltimate, false));
+
+    ui::Fonts fonts;
+    ui::ImageCache images([] {});
+    ui::AppUi app(fonts, images);
+    ui::GameTile ess, prem, ult, f2p;
+    ess.productId = "ESS", ess.name = "Alpha", ess.plan = kPlanEssential, ess.playable = true;
+    prem.productId = "PREM", prem.name = "Beta", prem.plan = kPlanPremium, prem.playable = true;
+    ult.productId = "ULT", ult.name = "Gamma", ult.plan = kPlanUltimate, ult.playable = false;
+    f2p.productId = "F2P", f2p.name = "Delta", f2p.plan = kPlanNone, f2p.freeInStore = true, f2p.playable = false;
+    app.setSubscription("Premium");
+    app.setSearchPools({ess, prem, ult, f2p}, {});
+    app.showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+    app.chooseFilter(ui::AppUi::Filter::Plan, 3);  // Essential: Alpha + Delta (free-to-play)
+    CHECK(app.searchResults(10).size() == 2);
+    app.chooseFilter(ui::AppUi::Filter::Plan, 2);  // Premium: Alpha + Beta + Delta
+    CHECK(app.searchResults(10).size() == 3);
+    app.chooseFilter(ui::AppUi::Filter::Plan, 1);  // Ultimate: all 4
+    CHECK(app.searchResults(10).size() == 4);
+    app.chooseFilter(ui::AppUi::Filter::Plan, 4);  // All plans: all 4
+    CHECK(app.searchResults(10).size() == 4);
+    app.chooseFilter(ui::AppUi::Filter::Plan, 0);  // My plan (Premium), with query "a": Alpha, Beta, Delta (not Gamma)
+    app.typeText("a");
+    CHECK(app.searchResults(10).size() == 3);
 }
 
 static void testHostPacer() {

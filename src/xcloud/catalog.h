@@ -30,13 +30,30 @@ struct Product {
     bool detailed = false;
     int64_t detailedAt = 0;  // when the full details were fetched (unix s)
     uint32_t modes = 0;
+    uint8_t plan = 0;  // kPlanEssential..kPlanUltimate from PassMetadataByPassProductId
     std::map<std::string, uint8_t> languages;
 };
 
 constexpr uint32_t kModeSingle = 1, kModeOnlineMulti = 2, kModeOnlineCoop = 4, kModeLocal = 8;
 constexpr uint8_t kLangInterface = 1, kLangSubtitles = 2, kLangAudio = 4;
+// The lowest Game Pass plan that includes a Game Pass game
+// (PassMetadataByPassProductId in the full product details): Essential plays
+// on Essential, Premium and Ultimate; Premium on Premium and Ultimate;
+// Ultimate on Ultimate only. 0 = not known yet (or free-to-play / not Game Pass).
+constexpr uint8_t kPlanNone = 0, kPlanEssential = 1, kPlanPremium = 2, kPlanUltimate = 3;
 // The languages kept from a product's list: the app's own.
 constexpr const char* kKeptLanguages[] = {"en", "pt", "es", "fr", "de", "it"};
+
+// The lowest plan in a product's PassMetadataByPassProductId JSON object
+// (Essential CFQ7TTC0K5DJ, Premium CFQ7TTC0P85B, else Ultimate).
+uint8_t productPlanFromJson(const std::string& passMetadataJson);
+// The tier 1..3 of an account's subscription ("Essential", "Premium",
+// "Ultimate"); 0 when none or not one of the cloud plans ("PC", "").
+uint8_t planTier(const std::string& subscription);
+// Whether a plan of tier `plan` (1..3) includes a Game Pass game of
+// `gamePlan` (0 unknown, 1..3); free-to-play games (`freeInStore`) are open
+// to every plan and to no plan.
+bool planIncludes(uint8_t plan, uint8_t gamePlan, bool freeInStore = false);
 
 // Lists shown on xbox.com/play.
 namespace sigl {

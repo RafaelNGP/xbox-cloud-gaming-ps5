@@ -58,6 +58,7 @@ struct GameTile {
     bool detailed = false;
     uint32_t modes = 0;
     uint8_t languages = 0;
+    uint8_t plan = 0;  // xcloud::kPlanEssential..kPlanUltimate (0 for free-to-play or unknown)
     // Active friends playing this game now
     std::vector<FriendPlaying> friends;
 };
@@ -351,7 +352,7 @@ public:
     // The search keyboard's focus (row, column), for the tests.
     std::pair<int, int> searchKeyFocus() const;
     std::vector<std::pair<std::string, PriceInfo>> searchResults(size_t max) const;
-    enum class Filter { Free, Cheapest, Console, Mode, Genre, Publisher, Language, MouseKeyboard };
+    enum class Filter { Plan, Free, Cheapest, Console, Mode, Genre, Publisher, Language, MouseKeyboard };
     void chooseFilter(Filter f, int index);
     // Autoplay tests: where the focus is ("Game Pass row 2 card 6", ...).
     std::string focusDescription() const;
@@ -522,6 +523,7 @@ private:
     LibrarySort librarySort_ = LibrarySort::Recent;
     // Search filters (the row of buttons under the keys).
     bool filterFree_ = false, filterCheapest_ = false, filterMouseKeyboard_ = false;
+    int filterPlan_ = 0;      // 0 My plan, 1 Ultimate, 2 Premium, 3 Essential, 4 All plans
     int filterConsole_ = 0;   // 0 all, 1 Series X|S, 2 Xbox One, 3 Xbox 360
     int filterMode_ = 0;      // 0 all, single, online multiplayer, online co-op, local
     std::string filterGenre_;  // empty: all

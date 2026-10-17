@@ -302,6 +302,10 @@ constexpr Column kEnglish = {
     "Missing a button: %s. Give each one a button, or reset or discard the changes.", // PadMissing
     "Discard changes", // DiscardChanges
     "Only the game sees this: the app's menus keep the buttons as they are. Picking a button used by another swaps the two.", // PadHelp
+    "Plan", // FilterPlan
+    "My plan", // PlanMine
+    "All plans", // PlanAll
+    "Included with Game Pass %s", // IncludedWithPlan
 };
 
 constexpr Column kPortugueseBR = {
@@ -574,6 +578,10 @@ constexpr Column kPortugueseBR = {
     "Falta botão para: %s. Dê um botão a cada um, ou restaure o padrão ou descarte as alterações.", // PadMissing
     "Descartar alterações", // DiscardChanges
     "Só o jogo vê isto: os menus do app usam os botões como são. Escolher um botão já usado troca os dois.", // PadHelp
+    "Plano", // FilterPlan
+    "Meu plano", // PlanMine
+    "Todos os planos", // PlanAll
+    "Incluído no Game Pass %s", // IncludedWithPlan
 };
 
 constexpr Column kSpanish = {
@@ -846,6 +854,10 @@ constexpr Column kSpanish = {
     "Falta botón para: %s. Asigna uno a cada función, o restablece o descarta los cambios.", // PadMissing
     "Descartar cambios", // DiscardChanges
     "Solo el juego lo ve: los menús de la app usan los botones tal cual. Elegir un botón ya usado intercambia los dos.", // PadHelp
+    "Plan", // FilterPlan
+    "Mi plan", // PlanMine
+    "Todos los planes", // PlanAll
+    "Incluido con Game Pass %s", // IncludedWithPlan
 };
 
 constexpr Column kFrench = {
@@ -1118,6 +1130,10 @@ constexpr Column kFrench = {
     "Bouton manquant pour : %s. Attribuez-en un à chaque fonction, ou réinitialisez ou annulez les modifications.", // PadMissing
     "Annuler les modifications", // DiscardChanges
     "Seul le jeu est concerné : les menus de l'app gardent les boutons tels quels. Choisir un bouton déjà utilisé échange les deux.", // PadHelp
+    "Forfait", // FilterPlan
+    "Mon forfait", // PlanMine
+    "Tous les forfaits", // PlanAll
+    "Inclus avec Game Pass %s", // IncludedWithPlan
 };
 
 constexpr Column kGerman = {
@@ -1390,6 +1406,10 @@ constexpr Column kGerman = {
     "Ohne Taste: %s. Weise jeder Funktion eine zu, oder setze zurück bzw. verwirf die Änderungen.", // PadMissing
     "Änderungen verwerfen", // DiscardChanges
     "Gilt nur im Spiel: Die Menüs der App nutzen die Tasten, wie sie sind. Eine schon belegte Taste zu wählen tauscht die beiden.", // PadHelp
+    "Abo", // FilterPlan
+    "Mein Abo", // PlanMine
+    "Alle Abos", // PlanAll
+    "In Game Pass %s enthalten", // IncludedWithPlan
 };
 
 constexpr Column kItalian = {
@@ -1662,6 +1682,10 @@ constexpr Column kItalian = {
     "Manca un pulsante per: %s. Assegnane uno a ogni funzione, oppure ripristina o annulla le modifiche.", // PadMissing
     "Annulla modifiche", // DiscardChanges
     "Vale solo nel gioco: i menu dell'app usano i pulsanti così come sono. Scegliere un pulsante già usato scambia i due.", // PadHelp
+    "Piano", // FilterPlan
+    "Il mio piano", // PlanMine
+    "Tutti i piani", // PlanAll
+    "Incluso con Game Pass %s", // IncludedWithPlan
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,
