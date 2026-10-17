@@ -5,13 +5,17 @@
 
 #include "app/app_state.h"
 #include "app/autoplay.h"
+#include "app/shell.h"
 #include "app/stream_player.h"
 #include "display/display.h"
+#include "input/input_ext.h"
 #include "input/kbm.h"
 #include "input/keyboard_nav.h"
 #include "media/audio_out.h"
 #include "platform/platform.h"
+#include "platform/toasts.h"
 #include "ui/strings.h"
+#include "ui/toast_view.h"
 #include "util/log.h"
 
 #include <algorithm>
@@ -77,6 +81,18 @@ void updateTextInput(app::StreamPlayer* player) {
 void StreamScreen::setPads(const ui::PadSlots& slots) {
     menu_.setPads(slots);
     if (menu_.isOpen()) overlaySeq_ = 0;
+}
+
+void StreamScreen::setCaps(const ui::UiCaps& caps) {
+    if (caps == menu_.capabilities()) return;
+    menu_.setCapabilities(caps);
+    if (menu_.isOpen()) overlaySeq_ = 0;
+}
+
+void StreamScreen::setMouseCaptured_(bool captured) {
+    if (captured == mouseCaptured_) return;
+    mouseCaptured_ = captured;
+    input::kbmSetCaptured(captured);
 }
 
 void StreamScreen::applyDeband_() { display::setDeband(deband_ == 3 ? autoDeband_.level() : deband_); }
@@ -428,6 +444,15 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             }
             if (on) g_player->sendInput(other, i);
         }
+        // The window holds the mouse while the keyboard and mouse go to the
+        // game (natively, or as a player's controller): not with the app's
+        // menu (or a system keyboard) up, nor while another window has the
+        // focus (the desktop shell lets go of it at once then). A no-op on
+        // the PS5.
+        setMouseCaptured_((kbm_.keyboard || kbm_.mouse) && !menu_.isOpen() && g_keyboardFor.empty() &&
+                          shell::hasFocus());
+    } else {
+        setMouseCaptured_(false);
     }
     // The overlay: the menu, else the statistics line, redrawn when
     // the numbers or the menu change.
@@ -450,8 +475,12 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
     }
     uint64_t nowMs = platform::nowMs();
     bool menuRedraw = menu_.isOpen() && (nowMs - lastMenuRedrawMs_ >= 40);
-    if (overlaySeq_ != seq + 1 || menuRedraw) {
+    // A desktop's toasts take the overlay while they last (the menu still
+    // comes first); the PS5's notifications are the system's.
+    uint64_t toasts = platform::toastsEnabled() ? platform::toasts().version(nowMs) : 0;
+    if (overlaySeq_ != seq + 1 || menuRedraw || toasts != toastsShown_) {
         overlaySeq_ = seq + 1;
+        toastsShown_ = toasts;
         if (menuRedraw) lastMenuRedrawMs_ = nowMs;
         ui::StreamInfo info;
         {
@@ -465,6 +494,9 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             menu_.setMicMuted(micMuted);
             ui::Canvas c = menu_.renderMenu(info);
             display::setOverlay(c.data(), ui::StreamMenu::kMenuX, ui::StreamMenu::kMenuY, c.width(), c.height(), 235);
+        } else if (auto shown = toasts ? platform::toasts().visible(nowMs) : std::vector<std::string>(); !shown.empty()) {
+            ui::Canvas c = ui::renderToastPanel(fonts_, shown);
+            display::setOverlay(c.data(), (static_cast<int>(display::kWidth) - c.width()) / 2, 28, c.width(), c.height(), 235);
         } else if (showStats_ && seq) {
             ui::Canvas c = menu_.renderStats(info);
             display::setOverlay(c.data(), ui::StreamMenu::kStatsX, ui::StreamMenu::kStatsY, c.width(), c.height(), 200);
@@ -492,6 +524,7 @@ int keyboardPadSlot(bool keyboardConnected) {
 }
 
 void StreamScreen::idle() {
+    setMouseCaptured_(false);  // the stream ended: the mouse is the menus' again
     keysInGame_.clear();
     kbSlotAttached_ = -1;
     mouseStick_ = {};

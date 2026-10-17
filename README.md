@@ -91,9 +91,29 @@ build-host/xcloud-tests                       # unit tests
 build-host/xcloud-cli login                   # sign in
 build-host/xcloud-cli stream BALATRO 30       # stream a title for 30 s (--720p, --region=EASTUS)
 build-host/xcloud-cli ui-preview /tmp/ui      # render every screen to PNG
-build-host/psbox-headless                     # the app itself, no window yet (Ctrl+C closes it)
+build-host/psbox-headless                     # the app with no window or devices (Ctrl+C closes it)
 bash tools/check-platform-boundaries.sh       # PS5 calls only in the PS5 backends
 ```
+
+### Linux (preview)
+
+`psbox` is the app in a window, on SDL3 (3.2 or newer, with its development
+files: `SDL3-devel` on Fedora, `libsdl3-dev` on Debian / Ubuntu). It is
+built with the desktop build above whenever CMake finds SDL3
+(`-DXCLOUD_DESKTOP_APP=ON` to require it, `OFF` to skip it).
+
+```bash
+build-host/psbox                  # F11 or Alt+Enter: fullscreen; --fullscreen, --data-dir <dir>
+SDL_VIDEO_DRIVER=offscreen SDL_AUDIO_DRIVER=dummy build-host/psbox --selftest /tmp/psbox-selftest
+```
+
+Sign-in, settings and the log live in `~/.local/share/psbox` (or
+`$XCLOUD_DATA_DIR`); the fonts and certificates are copied to `assets/`
+beside the executable. Controllers (DualSense, DualShock 4, Xbox, Switch...),
+keyboard and mouse are supported (a preview: not checked on every pad yet); options the PC can't honour (light bar without a
+DualSense, 120 Hz, the PS5's upscalers) are hidden. It doesn't update
+itself: Settings > Updates opens the release page. See
+`docs/multiplatform.md` (M1).
 
 ### PS5 build
 

@@ -119,12 +119,51 @@ struct SettingsChoice {
     int maxBitrateMbps = 0;    // 0 automatic, else 20 / 15 / 10 / 5
     int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
     input::KeyMap keyMap = input::defaultKeyMap();  // the keyboard as a player's controller
+    bool fullscreen = true;    // a desktop's window fullscreen (UiCaps::desktopWindow; F11 switches it too)
 };
+
+// What this system and its pads can do, filled in by the app from the pads'
+// capabilities (input/input_ext.h), display::caps() and shell::caps(): the
+// screens hide the options that can't work here and word the rest for the
+// platform. The defaults are the PS5's, where every option shows.
+struct UiCaps {
+    bool lightBar = true;          // a pad with a light bar
+    bool triggerRumble = true;     // vibration in the triggers (DualSense, Xbox impulse triggers)
+    bool adaptiveTriggers = true;  // the DualSense's resistance and pulses
+    bool gyro = true;              // gyro aiming
+    bool touchpad = true;          // the touchpad's gestures (else the buttons and keys that do the same)
+    bool upscalers = true;         // FSR / Anime4K
+    bool sharpen = true;
+    bool deband = true;            // block smoothing
+    bool highRefresh = true;       // a 120 Hz output setting
+    bool console = true;           // "this console" and the PS5 menus' paths (else "this computer")
+    bool openUrl = false;          // a link on screen opens in the browser (Cross / Enter)
+    bool selfUpdate = true;        // Updates installs the new version (else Cross opens its page)
+    // The app is a window on a desktop: the "Display mode" row (window or
+    // fullscreen). The one row only a desktop has, so false by default: the
+    // PS5's Settings stay as they are.
+    bool desktopWindow = false;
+    bool operator==(const UiCaps&) const = default;
+};
+
+// A row of Settings (or of a game's settings) as shown: its id, and whether
+// a group of alike rows starts there (a gap above it).
+struct SettingsRowPos {
+    int row = 0;
+    bool groupStart = false;
+};
+// Settings' rows on screen with `caps`, in order: those it rules out are
+// hidden (their setting stays as it is in settings.json).
+std::vector<SettingsRowPos> visibleSettingsRows(const UiCaps& caps);
+// The same for a game's settings (row ids as AppUi draws them); "Reset to
+// default" only with a profile of its own (`custom`).
+std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool custom);
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 13;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
-                                  // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys
+constexpr int kSettingRows = 14;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+                                  // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys,
+                                  // display mode (a desktop's window)
 
 // The countries "Sign in as another country" offers (xcloud::loginCountryAddress).
 constexpr const char* kLoginCountries[] = {"br", "jp", "kr", "pl", "us"};
@@ -138,7 +177,8 @@ enum class Action {
     None, Play, SignOut, Retry, CancelLaunch, SettingsChanged, PrefsChanged, ConsolesShown, UpdateNow, UpdateLater,
     GameSettingsChanged,
     Report,  // "Report a problem" (Triangle on an error or in Settings): reportWhat is the error shown
-    LoginCountry  // the sign-in country changed (settings): save them and sign in again
+    LoginCountry,  // the sign-in country changed (settings): save them and sign in again
+    OpenUrl  // a link on screen to open in the browser (UiCaps::openUrl): `url`
 };
 
 // How "Your games" is sorted (R3).
@@ -160,6 +200,7 @@ struct UiEvent {
     std::vector<std::string> hidden;
     LibrarySort librarySort = LibrarySort::Recent;
     std::string reportWhat;  // Report: the error on screen (empty from Settings)
+    std::string url;         // OpenUrl
 };
 
 // "SOUTHCENTRALUS" -> "South Central US".
@@ -245,6 +286,9 @@ public:
     // another country (Square), and Settings (Options).
     void showRegionRefused(const std::string& message);
     void setSettings(const SettingsChoice& choice);
+    // A desktop's window went fullscreen or back another way (F11 / Alt+Enter):
+    // the Display mode row shows it.
+    void setFullscreen(bool on);
     SettingsChoice settings() const;  // what Settings holds now (the autoplay tests put it back)
     // Per-game settings
     void setPerGameSettings(const std::map<std::string, app::GameProfile>& perGame);
@@ -303,6 +347,10 @@ public:
     // Autoplay tests: where the focus is ("Game Pass row 2 card 6", ...).
     std::string focusDescription() const;
     void invalidate();
+    // The capabilities in force (UiCaps); the focus leaves a row that goes
+    // away. Any thread.
+    void setCaps(const UiCaps& caps);
+    UiCaps caps() const;
 
     // --- UI thread -----------------------------------------------------------
     UiEvent handle(const NavInput& in);
@@ -415,11 +463,18 @@ private:
     int settingSelected(int row) const;
     void applySetting(int row, int index);
     void drawCentered(Canvas& c, const Font& f, const std::string& text, int y, int px, Color color);
+    // The sign-in country's "off" choice, worded for the platform (caller holds mutex_).
+    const char* loginCountryOffText() const;
+    // The trigger tester's rows: intensity and frequency, then resistance
+    // and style with adaptive triggers.
+    int triggerTesterRows() const { return caps_.adaptiveTriggers ? 4 : 2; }
 
     const Fonts& fonts_;
     ImageCache& images_;
 
     mutable std::mutex mutex_;
+    UiCaps caps_;
+    uint64_t toastsDrawn_ = 0;  // platform::toasts()'s version last drawn
     Screen screen_ = Screen::Splash;
     bool dirty_ = true;
     std::string status_;
@@ -468,6 +523,7 @@ private:
     std::string error_;
     GameTile errorGame_;  // showPlayError()'s game; empty for other errors
     SettingsChoice settings_;
+    bool displayModeChanged_ = false;  // the Display mode row changed: handle() sends the settings
     bool circleConfirms_ = false;
     PadSlots pads_{};
     std::map<std::string, Color> accents_;  // tile art url -> its colour

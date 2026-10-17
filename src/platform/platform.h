@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
-// Thin platform layer: everything that differs between the Linux host build
-// and the PS5 build lives behind these functions (see src/platform/host and
+// Thin platform layer: everything that differs between the desktop builds
+// and the PS5 build lives behind these functions (see src/platform/linux and
 // src/platform/ps5).
 #pragma once
 
@@ -18,7 +18,8 @@ void shutdown();
 
 // Writable directory for tokens, caches and logs (no trailing slash). On the
 // PS5 outside the app's folder, so uninstalling, reinstalling or a store
-// update keeps them.
+// update keeps them; on Linux $XCLOUD_DATA_DIR, else $XDG_DATA_HOME/psbox
+// (~/.local/share/psbox).
 std::string dataDir();
 // What start-up did about the data folder (moved from the app's folder,
 // fell back...), for the log once it is open; empty when nothing.
@@ -52,7 +53,8 @@ struct Thread {
 };
 bool startThread(Thread& t, std::function<void()> fn, size_t stackBytes = 8u << 20);
 
-// Short on-screen message (PS5 system notification / host stdout).
+// Short on-screen message: the PS5's system notification; in the desktop
+// app a toast in the window (platform/toasts.h); stdout for the tools.
 void notify(const std::string& text);
 // The same, with `forLog` written to the log instead of `text` (which may
 // name the user: the log gets attached to public bug reports).
@@ -78,5 +80,8 @@ std::string firmwareVersion();
 
 bool readFile(const std::string& path, std::string& out);
 bool writeFileAtomic(const std::string& path, const std::string& data);
+// A file holding the sign-in, once written: readable by this user only on a
+// desktop (mode 0600); nothing on the PS5, which has no other users.
+void makePrivate(const std::string& path);
 
 }  // namespace xc::platform

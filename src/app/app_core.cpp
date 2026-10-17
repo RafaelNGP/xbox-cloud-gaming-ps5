@@ -18,6 +18,7 @@
 #include "app/stream_screen.h"
 #include "display/display.h"
 #include "input/controller.h"
+#include "input/input_ext.h"
 #include "input/kbm.h"
 #include "input/keyboard_nav.h"
 #include "ui/input_mode.h"
@@ -83,7 +84,7 @@ void applyControllerSettings() {
 // Saves what Settings edits (and applies the controller's part); true when
 // the language changed.
 bool saveSettings(const ui::SettingsChoice& choice) {
-    bool languageChanged;
+    bool languageChanged, fullscreenChanged;
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         std::string code = ui::languageCode(static_cast<ui::Language>(choice.language));
@@ -108,13 +109,17 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.maxBitrateMbps = choice.maxBitrateMbps;
         g_settings.gameVolume = choice.gameVolume;
         g_settings.keyMap = choice.keyMap;
+        fullscreenChanged = g_settings.desktopFullscreen != choice.fullscreen;
+        g_settings.desktopFullscreen = choice.fullscreen;
         g_settings.save(settingsPath());  // warns itself
         XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
                 g_settings.region.empty() ? "auto" : g_settings.region.c_str());
     }
     applyControllerSettings();
+    if (fullscreenChanged) shell::setFullscreen(choice.fullscreen);  // a desktop's window (main thread)
     return languageChanged;
 }
+
 
 // --- Input ---------------------------------------------------------------------
 
@@ -195,6 +200,34 @@ std::unique_ptr<Core> g_core;
 
 }  // namespace
 
+bool saveSettingsChoice(const ui::SettingsChoice& choice) { return saveSettings(choice); }
+
+// What the screens offer (ui::UiCaps): the pads' features (input_ext.h),
+// the display's and the platform's. The PS5 offers every option as it
+// always has: its pads are DualSense, and what its display can't honour at
+// the moment does nothing there, as before (an upscaler on the CPU
+// fallback; 120 Hz then decided at start-up).
+ui::UiCaps uiCaps() {
+    const shell::Caps sc = shell::caps();
+    const display::DisplayCaps dc = display::caps();
+    const input::PadCaps pc = input::anyPadCaps();
+    ui::UiCaps c;
+    c.lightBar = pc.lightBar;
+    c.triggerRumble = pc.triggerRumble;
+    c.adaptiveTriggers = pc.adaptiveTriggers;
+    c.gyro = pc.gyro;
+    c.touchpad = pc.touchpad;
+    c.upscalers = sc.console || dc.upscalers;
+    c.sharpen = sc.console || dc.sharpen;
+    c.deband = sc.console || dc.deband;
+    c.highRefresh = sc.console || dc.highRefreshSwitch;
+    c.console = sc.console;
+    c.openUrl = sc.openUrl;
+    c.selfUpdate = sc.selfUpdate;
+    c.desktopWindow = sc.window;
+    return c;
+}
+
 bool coreStartup() {
     platform::init();
     log::setFile((platform::dataDir() + "/xcloud.log").c_str());
@@ -230,6 +263,7 @@ bool coreStartup() {
         return false;
     }
     bool haveDisplay = display::init(!g_autoplay.cpuDisplay);
+    if (!shell::afterDisplay(haveDisplay)) return false;  // the desktop: its window to the input backend
     if (!input::init()) XC_LOGE("controller init failed");
     input::kbmInit(input::padUserId(0));  // USB keyboards and mice (logs what it found)
 
@@ -271,6 +305,7 @@ bool coreStartup() {
         choice.maxBitrateMbps = g_settings.maxBitrateMbps;
         choice.gameVolume = g_settings.gameVolume;
         choice.keyMap = g_settings.keyMap;
+        choice.fullscreen = g_settings.desktopFullscreen;
         g_ui->setAllow1440(allow1440Locked());
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
         g_ui->setSettings(choice);
@@ -282,6 +317,7 @@ bool coreStartup() {
                                           : g_settings.librarySort == "console" ? ui::LibrarySort::Console
                                                                                 : ui::LibrarySort::Recent);
     }
+    g_ui->setCaps(uiCaps());
     g_core->canvas.emplace(display::kWidth, display::kHeight);
 
     if (!net::initTls(g_autoplay.badCa ? platform::assetDir() + "/missing.pem" : platform::caBundlePath())) {
@@ -293,15 +329,25 @@ bool coreStartup() {
     } else {
         if (g_autoplay.badCa) XC_LOGI("AUTOPLAY END: missing CA bundle, built-in copy %s", net::usingBuiltinCa() ? "used" : "NOT used");
         if (g_autoplay.testCa) net::addTrustedCa(platform::dataDir() + "/test-ca.pem");
-        std::thread(worker).detach();
+        startWorker();
     }
     g_core->streamScreen.emplace(fonts);
+    g_core->streamScreen->setCaps(uiCaps());
     crash::startWatchdog(15000);  // a main loop stuck for 15 s leaves a marker
     return true;
 }
 
 bool Core::frame() {
     if (!shell::pumpEvents()) return false;
+    if (bool on; shell::fullscreenSwitched(on)) {
+        // F11 / Alt+Enter on a desktop: the Display mode setting follows.
+        {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            g_settings.desktopFullscreen = on;
+            g_settings.save(settingsPath());  // warns itself
+        }
+        g_ui->setFullscreen(on);
+    }
     crash::heartbeat();
     if (ui::Screen sc = g_ui->screen(); sc != stageScreen) {
         // What the app is doing, for a crash marker (the worker names
@@ -330,7 +376,9 @@ bool Core::frame() {
         ui::Screen now = g_ui->screen();
         if (now == ui::Screen::Home || now == ui::Screen::Details || now == ui::Screen::Settings) {
             clockTold = true;
-            platform::notify(ui::trf(ui::Str::ClockWrongNotice, net::todayText()), "the console's clock looks wrong (notification)");
+            platform::notify(ui::trf(shell::caps().console ? ui::Str::ClockWrongNotice : ui::Str::ClockWrongNoticePc,
+                                     net::todayText()),
+                             "the console's clock looks wrong (notification)");
         }
     }
     // After an update: the new version, started in place of this one.
@@ -375,7 +423,10 @@ bool Core::frame() {
     }
     mouseButtonsBefore = kbm.buttons;
     std::erase_if(swallowedKeys, [&](uint8_t vk) { return !std::binary_search(kbm.held.begin(), kbm.held.end(), vk); });
-    if ((!inGame || streamScreen->menuOpen()) && !capturing) {
+    // On a desktop the digits are typed for other things too: Ctrl + 1-4 there.
+    static const bool playerKeysNeedCtrl = !shell::caps().console;
+    bool ctrlHeld = std::binary_search(kbm.held.begin(), kbm.held.end(), uint8_t{0x11});
+    if ((!inGame || streamScreen->menuOpen()) && !capturing && (!playerKeysNeedCtrl || ctrlHeld)) {
         for (const auto& k : kbm.keys) {
             if (!k.pressed || k.vk < '1' || k.vk > '4') continue;
             int player = k.vk - '1';
@@ -452,6 +503,10 @@ bool Core::frame() {
         }
         g_ui->setPads(slots);
         streamScreen->setPads(slots);
+        // The pads that came or went may change what the screens offer.
+        ui::UiCaps caps = uiCaps();
+        g_ui->setCaps(caps);
+        streamScreen->setCaps(caps);
     }
 
     ui::NavInput nav;
@@ -525,7 +580,8 @@ bool Core::frame() {
     autoplayNav(nav, menuCombo, now);
     if (g_ui->screen() == ui::Screen::Streaming) {
         streamScreen->update(pad, nav, menuCombo);
-        platform::sleepMs(8);  // ~120 Hz input
+        display::idleWait(8);  // ~120 Hz input (the PS5 sleeps 8 ms; the desktop wakes for a frame)
+        display::pump();       // the desktop shows the newest video frame here
         return true;
     }
     streamScreen->idle();
@@ -615,6 +671,12 @@ bool Core::frame() {
             g_command = kSignIn;
             break;
         case ui::Action::Report: openReport(ev.reportWhat, false, ui::tr(ui::Str::ReportProblem)); break;
+        case ui::Action::OpenUrl: {
+            // A desktop: the sign-in page, the report form, the release page.
+            bool ok = shell::openUrl(ev.url);
+            XC_LOGI("browser: %s (a link of %zu characters)", ok ? "opened" : "could not be opened", ev.url.size());
+            break;
+        }
         case ui::Action::None: break;
     }
 
@@ -637,19 +699,35 @@ bool Core::frame() {
     } else {
         platform::sleepMs(8);
     }
+    display::pump();  // the desktop shows the menu here (paced by its vsync); nothing on the PS5
     return true;
 }
 
 bool coreFrame() { return g_core->frame(); }
 
 void coreShutdown() {
-    // Not on the PS5, whose loop never ends. The worker isn't stopped (it
-    // may be waiting on the network): the caller leaves with _exit(). The
-    // desktop app stops it and the stream first (docs/multiplatform.md, M1).
+    // Not on the PS5, whose loop never ends. Before the backends close, the
+    // threads that use them stop: the worker leaves its loop (a stream
+    // stopped and its xCloud session closed, so the account's slot is free;
+    // the library's loading ended), then the price loop. Each wait is
+    // bounded (a request may hang on the network); the caller leaves with
+    // _exit() afterwards, so no static destructor races a thread still
+    // running.
     XC_LOGI("=== PSBox Cloud Gaming closing ===");
+    const uint64_t start = platform::nowMs();
+    requestQuit();
+    bool workerDone = waitForWorker(5000);
+    uint64_t spent = platform::nowMs() - start;
+    bool pricesDone = stopPriceLoop(spent < 5000 ? static_cast<uint32_t>(5000 - spent) : 200);
+    if (!workerDone || !pricesDone)
+        XC_LOGW("closing: %s%s%s still busy, left to the exit", workerDone ? "" : "the worker",
+                !workerDone && !pricesDone ? " and " : "", pricesDone ? "" : "the price loop");
+    shell::beforeShutdown();
     input::shutdown();
     display::shutdown();
     platform::shutdown();
+    XC_LOGI("closed in %llu ms", static_cast<unsigned long long>(platform::nowMs() - start));
+    log::setFile(nullptr);  // the log closed (every line was already flushed)
 }
 
 int runApp() {

@@ -4,6 +4,7 @@
 #include "app/autoplay.h"
 #include "ui/input_mode.h"
 
+#include "app/app_core.h"
 #include "app/app_state.h"
 #include "display/display.h"
 #include "media/audio_in.h"
@@ -171,8 +172,19 @@ void autoplayPad(input::ControllerState& pad) {
                 if (in(from + 300u * static_cast<unsigned>(i), 120)) return true;
             return false;
         };
+        // The user's dead zones and trigger feel come back at the end (the
+        // test saves its own).
+        static std::optional<ui::SettingsChoice> before;
+        if (!before) before = g_ui->settings();
+        // Settings' rows on screen: the dead zone is the 8th (7 down), the
+        // trigger vibration right under it.
+        auto quick = [&](uint64_t from, int n) {
+            for (int i = 0; i < n; ++i)
+                if (in(from + 130u * static_cast<unsigned>(i), 60)) return true;
+            return false;
+        };
         pad.btnOptions = in(500, 150);
-        pad.dpadDown = pulses(1000, 3) || in(8000, 120) || in(9400, 120) || in(10200, 120) || in(11600, 120);
+        pad.dpadDown = quick(1000, 7) || in(8000, 120) || in(9400, 120) || in(10200, 120) || in(11600, 120);
         pad.btnA = in(2000, 150) || in(8500, 150);
         pad.btnB = in(7500, 150) || in(16500, 150);
         pad.btnR1 = in(4600, 150);
@@ -184,8 +196,10 @@ void autoplayPad(input::ControllerState& pad) {
         if (in(6500, 20)) tuneShot = "sticks.ppm";
         if (in(15500, 20)) tuneShot = "triggers.ppm";
         if (in(17500, 20)) {
+            g_ui->setSettings(*before);
+            saveSettingsChoice(*before);
             g_autoplay.tuneTest = false;
-            XC_LOGI("AUTOPLAY END: tune test");
+            XC_LOGI("AUTOPLAY END: tune test (dead zones and triggers put back as they were)");
         }
     }
     if (g_autoplay.gameSettingsTest && uiSaved) {

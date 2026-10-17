@@ -524,6 +524,10 @@ bool bringUpTest(int frames) {
     return ok;
 }
 
+// present() shows each frame itself; the streaming loop sleeps as it always has.
+void pump() {}
+void idleWait(uint32_t ms) { platform::sleepMs(ms); }
+
 uint64_t lastPresentId() { return gpu::ready() ? gpu::lastPresentId() : 0; }
 bool lastShown(uint64_t& id, uint64_t& atUs) { return gpu::ready() && gpu::lastShown(id, atUs); }
 

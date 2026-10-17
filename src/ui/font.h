@@ -22,7 +22,12 @@ public:
     Font(const Font&) = delete;
     Font& operator=(const Font&) = delete;
 
+    // False (logged) when the file can't be read or isn't a font. A font
+    // that never loaded measures and draws as nothing (said once in the log)
+    // instead of reading an empty font: the app still runs without its
+    // assets folder.
     bool load(const std::string& path);
+    bool loaded() const { return loaded_; }
 
     int lineHeight(int px) const;
     // The `y` to draw at so that capital letters sit centred in a box of
@@ -44,10 +49,13 @@ private:
     };
     const Glyph& glyph(uint32_t codepoint, int px) const;
     float scale(int px) const;
+    // loaded_, else false and a line in the log (the first time).
+    bool usable() const;
 
     struct Impl;
     std::unique_ptr<Impl> impl_;
     std::vector<unsigned char> data_;
+    bool loaded_ = false;
     mutable std::mutex mutex_;
     mutable std::map<std::pair<uint32_t, int>, Glyph> cache_;
 };

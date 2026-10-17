@@ -39,8 +39,10 @@ add_library(xcloud_core STATIC
     src/input/kbm_map.cpp
     src/input/key_map.cpp
     src/input/keyboard_nav.cpp
+    src/input/sdl_mapping.cpp
     src/xcloud/social.cpp
     src/platform/posix_common.cpp
+    src/platform/toasts.cpp
     src/input/gyro.cpp
 )
 target_include_directories(xcloud_core PUBLIC src)
@@ -70,7 +72,10 @@ endif()
 
 # --- Media: H.264 / Opus decoding -------------------------------------------
 include(cmake/deps/ffmpeg.cmake)
-add_library(xcloud_media STATIC src/media/decoder.cpp src/media/audio_out.cpp src/media/audio_in.cpp src/media/audio_encoder.cpp)
+# The audio queue and the microphone's framing are shared; the sound
+# devices are backends (audio_*_ps5.cpp, audio_*_sdl.cpp, audio_*_null.cpp).
+add_library(xcloud_media STATIC src/media/decoder.cpp src/media/audio_queue.cpp src/media/audio_in_common.cpp
+                                src/media/audio_encoder.cpp)
 target_link_libraries(xcloud_media PUBLIC xcloud_core PRIVATE xc_ffmpeg)
 
 # --- Menus: software-rendered UI, Game Pass library ---------------------------
@@ -81,6 +86,7 @@ add_library(xcloud_ui STATIC
     src/ui/image_cache.cpp
     src/ui/app_ui.cpp
     src/ui/stream_menu.cpp
+    src/ui/toast_view.cpp
     src/ui/pad_icons.cpp
     src/ui/accent_color.cpp
     src/ui/brand.cpp
@@ -129,6 +135,8 @@ if(XCLOUD_PS5)
         src/media/hw_decoder_ps5.cpp
         src/input/controller_ps5.cpp
         src/input/kbm_ps5.cpp
+        src/media/audio_out_ps5.cpp
+        src/media/audio_in_ps5.cpp
     )
     target_include_directories(xcloud_app PRIVATE "${PS5_RADV}/include")
     # The USB keyboard / mouse backend kept the warnings it had in xcloud_core.
@@ -136,7 +144,7 @@ if(XCLOUD_PS5)
     target_link_libraries(xcloud_app PUBLIC xcloud_stream xcloud_media xcloud_ui)
 else()
     target_link_libraries(xcloud_core PUBLIC Threads::Threads)
-    target_sources(xcloud_core PRIVATE src/platform/host/platform_host.cpp)
+    target_sources(xcloud_core PRIVATE src/platform/linux/platform_linux.cpp)
 
     # No screen, pads, USB keyboard or hardware decoder: what a desktop
     # build links in place of the PS5's backends (docs/multiplatform.md).
@@ -145,6 +153,8 @@ else()
         src/input/controller_null.cpp
         src/input/kbm_null.cpp
         src/media/hw_decoder_null.cpp
+        src/media/audio_out_null.cpp
+        src/media/audio_in_null.cpp
     )
     target_link_libraries(xcloud_backends_null PUBLIC xcloud_core)
     if(NOT MSVC)
@@ -171,4 +181,53 @@ else()
     add_executable(xcloud-tests tests/test_main.cpp)
     target_link_libraries(xcloud-tests PRIVATE xcloud_stream xcloud_media xcloud_ui xcloud_backends_null xc_ffmpeg datachannel-static)
     add_test(NAME unit COMMAND xcloud-tests)
+endif()
+
+# --- The desktop app on SDL3 (psbox) ----------------------------------------
+# cmake/deps/sdl3.cmake decides (XCLOUD_DESKTOP_APP); xcloud-cli, xcloud-tests
+# and psbox-headless stay SDL-free either way.
+if(NOT XCLOUD_PS5)
+    include(cmake/deps/sdl3.cmake)
+endif()
+if(XC_DESKTOP_APP)
+    # The SDL backends of controller.h, kbm.h, input_ext.h, audio_out.h and
+    # audio_in.h, in place of the null ones (controller_null, kbm_null,
+    # audio_*_null: not both).
+    add_library(xcloud_backends_sdl_io OBJECT
+        src/input/sdl_input.cpp
+        src/input/controller_sdl.cpp
+        src/input/kbm_sdl.cpp
+        src/media/audio_out_sdl.cpp
+        src/media/audio_in_sdl.cpp
+    )
+    target_link_libraries(xcloud_backends_sdl_io PUBLIC xcloud_core xcloud_media SDL3::SDL3)
+
+    # The window, its renderer and events, the self-test; no hardware
+    # decoder yet (FFmpeg decodes).
+    add_library(xcloud_backends_desktop OBJECT
+        src/display/display_sdl.cpp
+        src/app/shell_desktop.cpp
+        src/app/desktop_selftest.cpp
+        src/media/hw_decoder_null.cpp
+    )
+    target_link_libraries(xcloud_backends_desktop PUBLIC xcloud_core xcloud_media xcloud_ui SDL3::SDL3)
+    if(NOT MSVC)
+        target_compile_options(xcloud_backends_sdl_io PRIVATE -Wall -Wextra -Wno-unused-parameter)
+        target_compile_options(xcloud_backends_desktop PRIVATE -Wall -Wextra -Wno-unused-parameter)
+    endif()
+
+    # WIN32: a GUI app on Windows (SDL_main.h gives it its entry point).
+    add_executable(psbox WIN32
+        $<TARGET_OBJECTS:xcloud_appcore>
+        src/app/desktop_main.cpp
+    )
+    target_link_libraries(psbox PRIVATE xcloud_backends_desktop xcloud_backends_sdl_io xcloud_stream xcloud_media
+                                        xcloud_ui xc_ffmpeg datachannel-static SDL3::SDL3)
+    if(NOT MSVC)
+        target_compile_options(psbox PRIVATE -Wall -Wextra -Wno-unused-parameter)
+    endif()
+    # The fonts and certificates beside the executable (platform::assetDir()).
+    add_custom_command(TARGET psbox POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:psbox>/assets"
+        COMMENT "Copying assets/ beside psbox")
 endif()

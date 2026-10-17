@@ -14,7 +14,8 @@ constexpr unsigned kHeight = 1080;
 
 // The GPU (display/gpu.h: FSR upscaling to the 4K display) when `preferGpu`
 // and it comes up, else the CPU path below. The backend is picked at link
-// time: display_ps5.cpp on the console, display_null.cpp (no screen) elsewhere.
+// time: display_ps5.cpp on the console, display_sdl.cpp in the desktop app,
+// display_null.cpp (no screen) for psbox-headless and the tests.
 bool init(bool preferGpu = true);
 void shutdown();
 // Held by whoever draws a frame (UI thread or video thread).
@@ -24,6 +25,17 @@ void present();
 // Copies a linear 1920x1080 RGBA (0xAABBGGRR) image to the back buffer
 // (multi-threaded). Call present() afterwards.
 void drawRgba(const uint32_t* pixels);
+
+// Each pass of the main loop, on the menus and while streaming (main
+// thread). Where the frames are drawn by the main thread alone (the
+// desktop's SDL_Renderer), the newest one present() handed over (the video
+// thread's, with its overlay, or the menu) is uploaded and shown here. A
+// no-op where present() shows the frame itself (PS5, null).
+void pump();
+// The streaming loop's pause between passes (~120 Hz input): `ms`, as the
+// PS5 sleeps; the desktop wakes early for a new video frame or an input
+// event.
+void idleWait(uint32_t ms);
 
 // Converts a BT.709 limited-range YUV 4:2:0 picture to the back buffer,
 // scaled to the full screen (multi-threaded). Call present() afterwards.
