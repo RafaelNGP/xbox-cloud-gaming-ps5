@@ -131,8 +131,15 @@ static void testInputPacket() {
     CHECK(p[18] == 0xff && p[19] == 0x7f);  // left X = 32767
     CHECK(p[20] == 0x01 && p[21] == 0x80);  // left Y = -32767
     CHECK(p[28] == 0xff && p[29] == 0xff);  // right trigger
-    CHECK(p[30] == 1 && p[33] == 0);        // physicality LE
-    CHECK(p[34] == 0 && p[37] == 1);        // virtual physicality BE
+    CHECK(gamepadPhysicality(f) == 0x000e1001);
+    CHECK(p[30] == 0x01 && p[31] == 0x10 && p[32] == 0x0e && p[33] == 0x00);  // physicality LE
+    CHECK(p[34] == 0 && p[35] == 0 && p[36] == 0 && p[37] == 0);              // virtual physicality LE = 0
+
+    GamepadFrame idle;
+    CHECK(gamepadPhysicality(idle) == 0);
+    auto pIdle = gamepadReport(8, 2.0, idle);
+    CHECK(pIdle[30] == 0 && pIdle[31] == 0 && pIdle[32] == 0 && pIdle[33] == 0);
+    CHECK(pIdle[34] == 0 && pIdle[35] == 0 && pIdle[36] == 0 && pIdle[37] == 0);
 
     FrameMetadata fm;
     fm.serverDataKey = 0x01020304;

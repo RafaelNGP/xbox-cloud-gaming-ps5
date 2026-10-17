@@ -126,6 +126,8 @@ struct StreamSession::Impl {
     // keep receiving the pad and ignore it: the pads are announced again.
     std::atomic<uint64_t> lastVideoMs{0};
     std::atomic<bool> padsStale{false};
+    bool loggedFirstView = false;
+    bool loggedFirstMenu = false;
 
     Impl(xcloud::GssvClient& g, StreamCallbacks c, StreamOptions o) : gssv(g), cb(std::move(c)), opt(o) {}
 
@@ -735,6 +737,14 @@ void StreamSession::sendGamepad(const GamepadFrame& frame) {
         if (lastMs && frame == d.lastPad[frame.index] && now - lastMs < Impl::kPadRepeatMs) return;
         d.lastPad[frame.index] = frame;
         lastMs = now;
+    }
+    if (!d.loggedFirstView && (frame.buttons & stream::kView)) {
+        d.loggedFirstView = true;
+        XC_LOGI("input: first kView sent (pad %u)", frame.index);
+    }
+    if (!d.loggedFirstMenu && (frame.buttons & stream::kMenu)) {
+        d.loggedFirstMenu = true;
+        XC_LOGI("input: first kMenu sent (pad %u)", frame.index);
     }
     Impl::sendBinary(d.input, gamepadReport(d.inputSequence++, d.nowMs(), frame));
 }

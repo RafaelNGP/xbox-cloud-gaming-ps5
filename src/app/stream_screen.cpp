@@ -375,7 +375,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         if (!padReleased_ || menuCombo) sent = input::ControllerState{};
         // Swiping up or right on the touchpad is the Xbox button (once
         // per swipe; the games never see the touchpad's touches).
-        if (pad.touching && g_keyboardFor.empty()) {
+        if (pad.touching && !pad.btnTouchpad && g_keyboardFor.empty()) {
             if (!swipe_.active) swipe_ = {true, false, pad.touchX, pad.touchY};
             float dx = pad.touchX - swipe_.x, dy = swipe_.y - pad.touchY;  // dy > 0: up
             bool right = dx > 0.30f && std::abs(dy) < 0.30f, up = dy > 0.40f && std::abs(dx) < 0.30f;
@@ -383,14 +383,16 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             if (!swipe_.fired && (right || up) && !menu_.isOpen()) {
                 swipe_.fired = true;
                 g_xboxButtonUntil = platform::nowMs() + 250;
-                XC_LOGI("touchpad swipe_ %s: Xbox button", right ? "right" : "up");
+                XC_LOGI("touchpad swipe %s: Xbox button", right ? "right" : "up");
             } else if (!swipe_.fired && (left || down)) {
                 swipe_.fired = true;
                 swipeMenu_ = true;  // opened on the next pass, as by OPTIONS + TOUCHPAD
-                XC_LOGI("touchpad swipe_ %s: game menu_", left ? "left" : "down");
+                XC_LOGI("touchpad swipe %s: game menu", left ? "left" : "down");
             }
         } else {
             swipe_.active = false;
+            if (!pad.touching) swipe_.fired = false;
+            else if (pad.btnTouchpad) swipe_.fired = true;
         }
         if (platform::nowMs() < g_xboxButtonUntil) sent.btnNexus = true;
         g_player->sendInput(sent);
