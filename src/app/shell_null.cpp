@@ -37,6 +37,8 @@ bool canSelfUpdate() { return false; }
 bool isInstalledCopy(const std::string&) { return false; }
 void beforeShutdown() {}
 Caps caps() { return {false, false, false}; }
+void setFullscreen(bool) {}
+bool fullscreenSwitched(bool&) { return false; }
 bool openUrl(const std::string&) { return false; }
 
 void restartOrExit() {

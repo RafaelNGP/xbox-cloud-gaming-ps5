@@ -92,7 +92,10 @@ struct Settings {
     // The tallest picture each kind of stream delivered when asked for its
     // top tier, and when (unix s): 1440p is only offered once one did.
     int maxHeightCloud = 0, maxHeightHome = 0;
-    int64_t probedCloud = 0, probedHome = 0;  // streams that showed the touchpad gestures' hint (three do)
+    int64_t probedCloud = 0, probedHome = 0;
+    // A desktop app: its window fullscreen (the desktop's own mode) or not.
+    // Unused on the PS5.
+    bool desktopFullscreen = true;  // streams that showed the touchpad gestures' hint (three do)
 
     // Per-game profiles overriding the general settings (productId or titleId -> profile).
     std::map<std::string, GameProfile> perGame;

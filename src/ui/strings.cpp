@@ -292,6 +292,9 @@ constexpr Column kEnglish = {
     "%s available: download", // UpdateReadyPc
     "Menu: START + BACK or F12 · Xbox button: Guide or Home", // GestureHintButtons
     "START + BACK or F12: this menu · Guide or Home: Xbox button", // MenuButtonHint
+    "Display mode", // DisplayMode
+    "Window", // DisplayWindow
+    "Fullscreen", // DisplayFullscreen
 };
 
 constexpr Column kPortugueseBR = {
@@ -554,6 +557,9 @@ constexpr Column kPortugueseBR = {
     "%s disponível: baixar", // UpdateReadyPc
     "Menu: START + BACK ou F12 · Botão Xbox: Guide ou Home", // GestureHintButtons
     "START + BACK ou F12: este menu · Guide ou Home: botão Xbox", // MenuButtonHint
+    "Modo de exibição", // DisplayMode
+    "Janela", // DisplayWindow
+    "Tela cheia", // DisplayFullscreen
 };
 
 constexpr Column kSpanish = {
@@ -816,6 +822,9 @@ constexpr Column kSpanish = {
     "%s disponible: descargar", // UpdateReadyPc
     "Menú: START + BACK o F12 · Botón Xbox: Guide o Inicio", // GestureHintButtons
     "START + BACK o F12: este menú · Guide o Inicio: botón Xbox", // MenuButtonHint
+    "Modo de pantalla", // DisplayMode
+    "Ventana", // DisplayWindow
+    "Pantalla completa", // DisplayFullscreen
 };
 
 constexpr Column kFrench = {
@@ -1078,6 +1087,9 @@ constexpr Column kFrench = {
     "%s disponible : télécharger", // UpdateReadyPc
     "Menu : START + BACK ou F12 · Bouton Xbox : Guide ou Origine", // GestureHintButtons
     "START + BACK ou F12 : ce menu · Guide ou Origine : bouton Xbox", // MenuButtonHint
+    "Mode d'affichage", // DisplayMode
+    "Fenêtre", // DisplayWindow
+    "Plein écran", // DisplayFullscreen
 };
 
 constexpr Column kGerman = {
@@ -1340,6 +1352,9 @@ constexpr Column kGerman = {
     "%s verfügbar: herunterladen", // UpdateReadyPc
     "Menü: START + BACK oder F12 · Xbox-Taste: Guide oder Pos1", // GestureHintButtons
     "START + BACK oder F12: dieses Menü · Guide oder Pos1: Xbox-Taste", // MenuButtonHint
+    "Anzeigemodus", // DisplayMode
+    "Fenster", // DisplayWindow
+    "Vollbild", // DisplayFullscreen
 };
 
 constexpr Column kItalian = {
@@ -1602,6 +1617,9 @@ constexpr Column kItalian = {
     "%s disponibile: scarica", // UpdateReadyPc
     "Menu: START + BACK o F12 · Pulsante Xbox: Guide o Home", // GestureHintButtons
     "START + BACK o F12: questo menu · Guide o Home: pulsante Xbox", // MenuButtonHint
+    "Modalità schermo", // DisplayMode
+    "Finestra", // DisplayWindow
+    "Schermo intero", // DisplayFullscreen
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

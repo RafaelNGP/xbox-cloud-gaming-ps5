@@ -56,11 +56,12 @@ enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad,
 constexpr int kResolutionOrder[3] = {1, 0, 2};
 // Settings' rows on screen, alike ones together (the row ids stay what
 // settingsRow_ and the helpers use): language and sign-in country; the
-// stream (resolution, 120 Hz, bitrate, region); sound; the controller and
-// keyboard; updates last. A group starts at each kSettingsGroupStart.
-constexpr int kSettingsOrder[kSettingRows] = {0, 8, 1, 9, 10, 2, 11, 3, 4, 5, 6, 12, 7};
-constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, true, false, false, false, true,
-                                                    true, false, false, false, false, true};
+// stream (resolution, a desktop's display mode, 120 Hz, bitrate, region);
+// sound; the controller and keyboard; updates last. A group starts at each
+// kSettingsGroupStart.
+constexpr int kSettingsOrder[kSettingRows] = {0, 8, 1, 13, 9, 10, 2, 11, 3, 4, 5, 6, 12, 7};
+constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, true, false, false, false, false,
+                                                    true, true, false, false, false, false, true};
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
 // sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7
 // confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default).
@@ -240,6 +241,7 @@ std::vector<SettingsRowPos> visibleSettingsRows(const UiCaps& caps) {
         case 4: return caps.triggerRumble || caps.adaptiveTriggers;  // trigger vibration and its tester
         case 6: return caps.lightBar;
         case 9: return caps.highRefresh;
+        case 13: return caps.desktopWindow;
         default: return true;
         }
     });
@@ -1248,6 +1250,13 @@ void AppUi::setSettings(const SettingsChoice& choice) {
     dirty_ = true;
 }
 
+void AppUi::setFullscreen(bool on) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (settings_.fullscreen == on) return;
+    settings_.fullscreen = on;
+    dirty_ = true;
+}
+
 SettingsChoice AppUi::settings() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return settings_;
@@ -1394,6 +1403,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         // Updates: Cross acts, no list.
     } else if (row == 9) {
         out = {tr(Str::Deactivated), tr(Str::HighRefreshOn)};
+    } else if (row == 13) {
+        out = {tr(Str::DisplayWindow), tr(Str::DisplayFullscreen)};
     } else if (row == 10) {
         out.push_back(tr(Str::BitrateAuto));
         for (int mbps : kBitrateCaps) out.push_back(std::to_string(mbps) + " Mbps");
@@ -1428,6 +1439,7 @@ int AppUi::settingSelected(int row) const {
     if (row == 6) return settings_.lightBarMode;
     if (row == 7) return 0;
     if (row == 9) return settings_.highRefresh ? 1 : 0;
+    if (row == 13) return settings_.fullscreen ? 1 : 0;
     if (row == 10) {
         for (size_t i = 0; i < std::size(kBitrateCaps); ++i)
             if (kBitrateCaps[i] == settings_.maxBitrateMbps) return static_cast<int>(i) + 1;
@@ -1467,6 +1479,10 @@ void AppUi::applySetting(int row, int index) {
     } else if (row == 7) {
     } else if (row == 9) {
         settings_.highRefresh = index == 1;
+    } else if (row == 13) {
+        // In force at once (handle() sends the settings): the window follows.
+        if (settings_.fullscreen != (index == 1)) displayModeChanged_ = true;
+        settings_.fullscreen = index == 1;
     } else if (row == 10) {
         settings_.maxBitrateMbps = index == 0 ? 0 : kBitrateCaps[index - 1];
     } else if (row == 11) {
@@ -2408,6 +2424,15 @@ UiEvent AppUi::handle(const NavInput& in) {
         if (signOutHoldStart_) dirty_ = true;
         signOutHoldStart_ = 0;
         if (!in.touchpad) signOutLatched_ = false;
+    }
+    if (displayModeChanged_) {
+        // A desktop's display mode applies (and is saved) as it is picked,
+        // not when Settings closes.
+        displayModeChanged_ = false;
+        if (ev.action == Action::None) {
+            ev.action = Action::SettingsChanged;
+            ev.settings = settings_;
+        }
     }
     return ev;
 }
@@ -3485,7 +3510,7 @@ void AppUi::drawSettings(Canvas& c) {
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
                                         tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry),
                                         tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume),
-                                        tr(Str::KeyboardKeys)};
+                                        tr(Str::KeyboardKeys),  tr(Str::DisplayMode)};
     constexpr int kRowW = 1200, kRowH = 46, kGap = 5, kGroupGap = 16;
     Rect rows[kSettingRows];  // by row id
     int y = 236;

@@ -4,7 +4,7 @@
 // the window (display_sdl.cpp) goes to the input backend, and each pass
 // empties SDL's event queue: closing the window (or Ctrl+C, which SDL turns
 // into a quit event) ends the app in order, F11 / Alt+Enter switch
-// fullscreen, every event goes on to the input backend (pads, keyboard,
+// fullscreen (the setting follows), every event goes on to the input backend (pads, keyboard,
 // mouse). Notices are toasts in the window; links open in the browser; no
 // update is installed (Settings opens the release page).
 #include "app/shell.h"
@@ -25,6 +25,7 @@ namespace xc::app::shell {
 
 namespace {
 bool g_quit = false;              // main thread
+int g_switchedTo = -1;            // F11 / Alt+Enter: the fullscreen state asked (main thread), -1 none
 std::atomic<bool> g_focus{true};  // the window has the keyboard
 volatile std::sig_atomic_t g_signalled = 0;
 void onSignal(int) { g_signalled = 1; }
@@ -34,7 +35,8 @@ void beforeSettings() {
     platform::enableToasts(true);  // platform::notify() -> a toast in the window
 }
 
-void beforeDisplay(const Settings&) {
+void beforeDisplay(const Settings& settings) {
+    display::sdlStartFullscreenSetting(settings.desktopFullscreen);  // unless --windowed / --fullscreen
     // The display, the pads and the sound start their own parts; the event
     // loop is ours.
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD | SDL_INIT_AUDIO | SDL_INIT_EVENTS))
@@ -81,7 +83,11 @@ bool pumpEvents() {
         case SDL_EVENT_KEY_DOWN:
             // F11 / Alt+Enter: fullscreen. Not passed on (Enter would accept).
             if (ev.key.key == SDLK_F11 || (ev.key.key == SDLK_RETURN && (ev.key.mod & SDL_KMOD_ALT))) {
-                if (!ev.key.repeat) display::sdlToggleFullscreen();
+                if (!ev.key.repeat) {
+                    bool on = !display::sdlIsFullscreen();
+                    display::sdlSetFullscreen(on);
+                    g_switchedTo = on;
+                }
                 continue;
             }
             break;
@@ -105,7 +111,16 @@ void beforeShutdown() {
     input::sdlInputShutdown();
 }
 
-Caps caps() { return {false, true, false}; }
+Caps caps() { return {false, true, false, true}; }
+
+void setFullscreen(bool on) { display::sdlSetFullscreen(on); }
+
+bool fullscreenSwitched(bool& on) {
+    if (g_switchedTo < 0) return false;
+    on = g_switchedTo == 1;
+    g_switchedTo = -1;
+    return true;
+}
 
 bool openUrl(const std::string& url) {
     if (SDL_OpenURL(url.c_str())) return true;

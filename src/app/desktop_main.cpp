@@ -22,8 +22,9 @@ void usage(std::FILE* to) {
                  "usage: psbox [--data-dir <dir>] [--fullscreen | --windowed] [--selftest <dir>]\n"
                  "  --data-dir <dir>   sign-in, settings and caches there (default $XCLOUD_DATA_DIR,\n"
                  "                     else $XDG_DATA_HOME/psbox)\n"
-                 "  --fullscreen       start fullscreen (F11 or Alt+Enter switches)\n"
-                 "  --windowed         start in a window (the default)\n"
+                 "  --fullscreen       start fullscreen this time (F11 or Alt+Enter switches)\n"
+                 "  --windowed         start in a window this time (default: Settings > Display mode,\n"
+                 "                     fullscreen at first)\n"
                  "  --selftest <dir>   check the window, screens, input and sound; screenshots in <dir>\n");
 }
 

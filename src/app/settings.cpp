@@ -73,6 +73,7 @@ bool Settings::load(const std::string& path) {
     gestureHints = static_cast<int>((*j)["gestureHints"].asInt(gestureHints));
     micEnabled = (*j)["micEnabled"].asBool(micEnabled);
     highRefresh = (*j)["highRefresh"].asBool(highRefresh);
+    desktopFullscreen = (*j)["desktopFullscreen"].asBool(desktopFullscreen);
     maxBitrateMbps = static_cast<int>(std::clamp<int64_t>((*j)["maxBitrateMbps"].asInt(maxBitrateMbps), 0, 40));
     gameVolume = static_cast<int>(std::clamp<int64_t>((*j)["gameVolume"].asInt(gameVolume), 0, 200));
     keyMap = readKeyMap((*j)["keyMap"], input::defaultKeyMap());
@@ -197,6 +198,7 @@ bool Settings::save(const std::string& path) const {
     v.set("gestureHints", gestureHints);
     v.set("micEnabled", micEnabled);
     v.set("highRefresh", highRefresh);
+    v.set("desktopFullscreen", desktopFullscreen);
     v.set("maxBitrateMbps", maxBitrateMbps);
     v.set("gameVolume", gameVolume);
     v.set("keyMap", keyMapJson(keyMap));

@@ -52,8 +52,16 @@ struct Caps {
     bool console = false;     // the PS5: "this console", the paths of its menus
     bool openUrl = false;     // openUrl() works: a link on screen opens in the browser
     bool selfUpdate = false;  // canSelfUpdate()
+    bool window = false;      // the app is a window: it can go fullscreen (setFullscreen())
 };
 Caps caps();
+// A desktop's window fullscreen or not (Settings > Display mode); nothing
+// where the app isn't a window.
+void setFullscreen(bool on);
+// True once after the user switched fullscreen another way (F11 /
+// Alt+Enter), with the new state in `on`: the setting follows. Never on the
+// PS5.
+bool fullscreenSwitched(bool& on);
 // Opens `url` in the system's browser; false where there is none (PS5).
 bool openUrl(const std::string& url);
 

@@ -269,6 +269,9 @@ enum class Str {
     UpdateReadyPc,      // Settings > Updates on a desktop: "%s" = the new version; Cross opens its page
     GestureHintButtons, // GestureHint for pads without a touchpad: the buttons and keys that do the same
     MenuButtonHint,     // MenuGestureHint for pads without a touchpad
+    DisplayMode,        // Settings row on a desktop: the app in a window or fullscreen (F11 / Alt+Enter switch it too)
+    DisplayWindow,      // ... in a window
+    DisplayFullscreen,  // ... fullscreen
     Count
 };
 

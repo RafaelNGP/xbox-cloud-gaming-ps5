@@ -56,7 +56,8 @@ SDL_Texture* g_overlayTex = nullptr;
 int g_overlayW = 0, g_overlayH = 0;
 SDL_Texture* g_readTex = nullptr;  // readBackRgb()'s target
 SDL_ThreadID g_mainThread = 0;
-bool g_startFullscreen = false;
+bool g_startFullscreen = true;  // the setting's default
+bool g_startForced = false;     // the command line chose
 bool g_shown = false;  // the window shows from its first picture on
 Frame g_front;         // the picture on screen
 Overlay g_overlayShown;
@@ -155,18 +156,25 @@ void renderScene() {
 
 }  // namespace
 
-void sdlStartFullscreen(bool on) { g_startFullscreen = on; }
+void sdlStartFullscreen(bool on) { g_startFullscreen = on, g_startForced = true; }
+void sdlStartFullscreenSetting(bool on) {
+    if (!g_startForced) g_startFullscreen = on;
+}
 SDL_Window* sdlWindow() { return g_window; }
 const char* sdlRendererName() { return g_renderer ? SDL_GetRendererName(g_renderer) : ""; }
 void sdlRepaint() { g_repaint = true; }
 
-void sdlToggleFullscreen() {
-    if (!g_window) return;
-    bool full = (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) != 0;
-    if (!SDL_SetWindowFullscreen(g_window, !full)) XC_LOGW("display: fullscreen: %s", SDL_GetError());
-    XC_LOGI("display: %s", full ? "windowed" : "fullscreen");
+bool sdlIsFullscreen() { return g_window && (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) != 0; }
+
+void sdlSetFullscreen(bool on) {
+    if (!g_window || sdlIsFullscreen() == on) return;
+    // No SDL_SetWindowFullscreenMode(): borderless at the desktop's own mode.
+    if (!SDL_SetWindowFullscreen(g_window, on)) XC_LOGW("display: fullscreen: %s", SDL_GetError());
+    XC_LOGI("display: %s", on ? "fullscreen" : "windowed");
     g_repaint = true;
 }
+
+void sdlToggleFullscreen() { sdlSetFullscreen(!sdlIsFullscreen()); }
 
 std::mutex& frameMutex() { return g_frameMutex; }
 

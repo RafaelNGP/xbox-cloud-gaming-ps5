@@ -378,9 +378,12 @@ static void testPerGameSettings() {
     CHECK(consoleProf.sharpness == 3 && consoleProf.circleConfirms);
 
     // Save to disk and reload.
+    CHECK(s.desktopFullscreen);  // a desktop window starts fullscreen unless chosen otherwise
+    s.desktopFullscreen = false;
     CHECK(s.save(path));
     xc::app::Settings reloaded;
     CHECK(reloaded.load(path));
+    CHECK(!reloaded.desktopFullscreen);
     CHECK(reloaded.perGame.size() == 2);
     auto loadedP1 = reloaded.profileForGame("GAME1", "", &hasCustom);
     CHECK(hasCustom);
@@ -1186,6 +1189,12 @@ static void testVisibleSettingsRows() {
     auto desk = ui::visibleSettingsRows(pc);
     CHECK((ids(desk) == std::vector<int>{0, 8, 1, 10, 2, 11, 3, 5, 12, 7}));
     CHECK((groups(desk) == std::vector<bool>{false, false, true, false, false, true, true, false, false, true}));
+    // The desktop app's window: Display mode after the resolution, in the stream's group.
+    ui::UiCaps win = pc;
+    win.desktopWindow = true;
+    auto w = ui::visibleSettingsRows(win);
+    CHECK((ids(w) == std::vector<int>{0, 8, 1, 13, 10, 2, 11, 3, 5, 12, 7}));
+    CHECK((groups(w) == std::vector<bool>{false, false, true, false, false, false, true, true, false, false, true}));
     ui::UiCaps xbox = pc;  // an Xbox pad: impulse triggers, no light bar
     xbox.triggerRumble = true;
     auto x = ids(ui::visibleSettingsRows(xbox));

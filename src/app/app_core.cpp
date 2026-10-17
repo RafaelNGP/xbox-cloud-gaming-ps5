@@ -84,7 +84,7 @@ void applyControllerSettings() {
 // Saves what Settings edits (and applies the controller's part); true when
 // the language changed.
 bool saveSettings(const ui::SettingsChoice& choice) {
-    bool languageChanged;
+    bool languageChanged, fullscreenChanged;
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         std::string code = ui::languageCode(static_cast<ui::Language>(choice.language));
@@ -109,11 +109,14 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.maxBitrateMbps = choice.maxBitrateMbps;
         g_settings.gameVolume = choice.gameVolume;
         g_settings.keyMap = choice.keyMap;
+        fullscreenChanged = g_settings.desktopFullscreen != choice.fullscreen;
+        g_settings.desktopFullscreen = choice.fullscreen;
         g_settings.save(settingsPath());  // warns itself
         XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
                 g_settings.region.empty() ? "auto" : g_settings.region.c_str());
     }
     applyControllerSettings();
+    if (fullscreenChanged) shell::setFullscreen(choice.fullscreen);  // a desktop's window (main thread)
     return languageChanged;
 }
 
@@ -221,6 +224,7 @@ ui::UiCaps uiCaps() {
     c.console = sc.console;
     c.openUrl = sc.openUrl;
     c.selfUpdate = sc.selfUpdate;
+    c.desktopWindow = sc.window;
     return c;
 }
 
@@ -301,6 +305,7 @@ bool coreStartup() {
         choice.maxBitrateMbps = g_settings.maxBitrateMbps;
         choice.gameVolume = g_settings.gameVolume;
         choice.keyMap = g_settings.keyMap;
+        choice.fullscreen = g_settings.desktopFullscreen;
         g_ui->setAllow1440(allow1440Locked());
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
         g_ui->setSettings(choice);
@@ -334,6 +339,15 @@ bool coreStartup() {
 
 bool Core::frame() {
     if (!shell::pumpEvents()) return false;
+    if (bool on; shell::fullscreenSwitched(on)) {
+        // F11 / Alt+Enter on a desktop: the Display mode setting follows.
+        {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            g_settings.desktopFullscreen = on;
+            g_settings.save(settingsPath());  // warns itself
+        }
+        g_ui->setFullscreen(on);
+    }
     crash::heartbeat();
     if (ui::Screen sc = g_ui->screen(); sc != stageScreen) {
         // What the app is doing, for a crash marker (the worker names

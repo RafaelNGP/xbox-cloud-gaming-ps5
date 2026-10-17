@@ -61,6 +61,8 @@ bool canSelfUpdate() { return true; }
 // Never called: the PS5's loop doesn't end.
 void beforeShutdown() {}
 Caps caps() { return {true, false, true}; }
+void setFullscreen(bool) {}
+bool fullscreenSwitched(bool&) { return false; }
 // No browser to send a link to: the screens show a QR code instead.
 bool openUrl(const std::string&) { return false; }
 

@@ -147,7 +147,9 @@ int desktopSelftest(const std::string& dir) {
 
     // SDL and the window, as the app brings them up.
     shell::beforeSettings();
-    shell::beforeDisplay(Settings{});
+    Settings windowed;
+    windowed.desktopFullscreen = false;  // a window of a known size (unless --fullscreen)
+    shell::beforeDisplay(windowed);
     bool display = display::init(true);
     check(display, "window and renderer");
     if (!display) return 1;
@@ -197,6 +199,8 @@ int desktopSelftest(const std::string& dir) {
     });
     std::printf("selftest: Settings shows %zu of %d rows\n", rows.size(), ui::kSettingRows);
     check(hidden && rows.size() < static_cast<size_t>(ui::kSettingRows), "Settings hides light bar / 120 Hz rows");
+    check(caps.desktopWindow && std::any_of(rows.begin(), rows.end(), [](const ui::SettingsRowPos& r) { return r.row == 13; }),
+          "Settings has the Display mode row");
     ui.render(canvas, platform::nowMs());
     drawCanvas(canvas);
     check(screenshot(dir, "2-settings.png", shot) && varied(shot), "Settings screen (2-settings.png)");

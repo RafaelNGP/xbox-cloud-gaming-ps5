@@ -152,12 +152,15 @@ shared code:
 cmake -S . -B build-desktop -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
 ninja -C build-desktop
-build-desktop/psbox                     # --fullscreen, --windowed, --data-dir <dir>
+build-desktop/psbox                     # --fullscreen, --windowed (this run), --data-dir <dir>
 SDL_VIDEO_DRIVER=offscreen SDL_AUDIO_DRIVER=dummy build-desktop/psbox --selftest /tmp/psbox-selftest
 ```
 
-- **Display** (`display_sdl.cpp`): a 1600x900 resizable window (F11 or
-  Alt+Enter: fullscreen), an `SDL_Renderer` with vsync, the 1920x1080 picture
+- **Display** (`display_sdl.cpp`): fullscreen at the desktop's own mode by
+  default, else a 1600x900 resizable window: Settings > Display mode (a row
+  only a desktop shows, `UiCaps::desktopWindow`; `desktopFullscreen` in
+  settings.json), F11 / Alt+Enter switch it and the setting follows,
+  `--fullscreen` / `--windowed` choose for one run. An `SDL_Renderer` with vsync, the 1920x1080 picture
   letterboxed. SDL renders on the main thread only: the drawing threads fill a
   back frame, `present()` puts it in a one-slot mailbox (the newest wins; the
   video thread never waits for vsync) and `display::pump()`, each pass of the

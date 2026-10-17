@@ -119,6 +119,7 @@ struct SettingsChoice {
     int maxBitrateMbps = 0;    // 0 automatic, else 20 / 15 / 10 / 5
     int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
     input::KeyMap keyMap = input::defaultKeyMap();  // the keyboard as a player's controller
+    bool fullscreen = true;    // a desktop's window fullscreen (UiCaps::desktopWindow; F11 switches it too)
 };
 
 // What this system and its pads can do, filled in by the app from the pads'
@@ -138,6 +139,10 @@ struct UiCaps {
     bool console = true;           // "this console" and the PS5 menus' paths (else "this computer")
     bool openUrl = false;          // a link on screen opens in the browser (Cross / Enter)
     bool selfUpdate = true;        // Updates installs the new version (else Cross opens its page)
+    // The app is a window on a desktop: the "Display mode" row (window or
+    // fullscreen). The one row only a desktop has, so false by default: the
+    // PS5's Settings stay as they are.
+    bool desktopWindow = false;
     bool operator==(const UiCaps&) const = default;
 };
 
@@ -156,8 +161,9 @@ std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool cus
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 13;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
-                                  // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys
+constexpr int kSettingRows = 14;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+                                  // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys,
+                                  // display mode (a desktop's window)
 
 // The countries "Sign in as another country" offers (xcloud::loginCountryAddress).
 constexpr const char* kLoginCountries[] = {"br", "jp", "kr", "pl", "us"};
@@ -280,6 +286,9 @@ public:
     // another country (Square), and Settings (Options).
     void showRegionRefused(const std::string& message);
     void setSettings(const SettingsChoice& choice);
+    // A desktop's window went fullscreen or back another way (F11 / Alt+Enter):
+    // the Display mode row shows it.
+    void setFullscreen(bool on);
     SettingsChoice settings() const;  // what Settings holds now (the autoplay tests put it back)
     // Per-game settings
     void setPerGameSettings(const std::map<std::string, app::GameProfile>& perGame);
@@ -514,6 +523,7 @@ private:
     std::string error_;
     GameTile errorGame_;  // showPlayError()'s game; empty for other errors
     SettingsChoice settings_;
+    bool displayModeChanged_ = false;  // the Display mode row changed: handle() sends the settings
     bool circleConfirms_ = false;
     PadSlots pads_{};
     std::map<std::string, Color> accents_;  // tile art url -> its colour
