@@ -121,6 +121,11 @@ bool Settings::load(const std::string& path) {
     return true;
 }
 
+float Settings::micGainFactor() const {
+    static constexpr float kFactors[] = {0.5f, 1.0f, 1.5f};
+    return kFactors[std::clamp(micGain, 0, 2)];
+}
+
 GameProfile Settings::defaultProfile() const {
     GameProfile p;
     p.sharpness = sharpness;

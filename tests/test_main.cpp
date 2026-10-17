@@ -7,8 +7,11 @@
 #include "app/updater.h"
 #include "app/crash_guard.h"
 #include "app/report.h"
+#include "display/display.h"
 #include "media/audio_encoder.h"
 #include "media/decoder.h"
+#include "media/hw_decoder.h"
+#include "input/controller.h"
 #include "input/gyro.h"
 #include "input/tuning.h"
 #include "net/http.h"
@@ -299,6 +302,18 @@ static void testSettingsMigration() {
     xc::app::Settings back;
     CHECK(back.load(path) && back.lightBarMode == 1 && back.lightBarColour == xc::ui::rgba(0x12, 0x34, 0x56));
     std::remove(path.c_str());
+}
+
+// The microphone's gain is stored as a choice (0..2), not as the factor.
+static void testMicGain() {
+    app::Settings s;
+    CHECK(s.micGain == 1 && s.micGainFactor() == 1.0f);
+    s.micGain = 0;
+    CHECK(s.micGainFactor() == 0.5f);
+    s.micGain = 2;
+    CHECK(s.micGainFactor() == 1.5f);
+    s.micGain = 7;  // out of range (a hand-edited file): the nearest choice
+    CHECK(s.micGainFactor() == 1.5f);
 }
 
 static void testPerGameSettings() {
@@ -1121,7 +1136,31 @@ static void testGyro() {
     CHECK(std::abs(x5 - xf) < 0.01f);
 }
 
+// The desktop's stand-ins for the PS5 backends: nothing connected, the
+// settings kept for their getters.
+static void testNullBackends() {
+    CHECK(input::init());
+    input::ControllerState pad;
+    pad.btnA = true;
+    CHECK(!input::poll(pad) && !pad.connected && !pad.btnA);
+    CHECK(!input::pollPad(2, pad) && !input::padConnected(0) && input::padUserName(0).empty());
+    CHECK(input::padUserId(0) == -1 && input::padActiveAt(0) == 0);
+    input::setCircleConfirms(true);
+    CHECK(input::circleConfirms());
+    input::setCircleConfirms(false);
+    CHECK(!input::circleConfirms());
+    CHECK(!input::kbmInit(-1));
+    input::KbmInput kbm = input::kbmPoll();
+    CHECK(!kbm.keyboard && !kbm.mouse && kbm.keys.empty() && !kbm.moved);
+    media::HwDecoder hw;
+    CHECK(!hw.init(1920, 1088) && !hw.ready());
+    display::DisplayCaps caps = display::caps();
+    CHECK(!caps.upscalers && !caps.deband && !caps.sharpen && !caps.highRefreshSwitch && !caps.presentTiming);
+    CHECK(!display::canSwitchRefresh() && !display::setHighRefresh(true) && !display::bringUpTest(1));
+}
+
 int main() {
+    testNullBackends();
     testLoginRetry();
     testGyro();
     testReport();
@@ -1143,6 +1182,7 @@ int main() {
     testVersions();
     testStreamMenu();
     testSettingsMigration();
+    testMicGain();
     testPerGameSettings();
     testStrings();
     testRegions();

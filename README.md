@@ -81,7 +81,8 @@ CMake runs.
 
 ### Desktop build (Linux)
 
-Used to develop and check the protocol and the UI on a PC.
+Used to develop and check the protocol and the UI on a PC. The app is
+becoming multiplatform (PS5, Linux, Windows): see `docs/multiplatform.md`.
 
 ```bash
 cmake -S . -B build-host -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -90,6 +91,8 @@ build-host/xcloud-tests                       # unit tests
 build-host/xcloud-cli login                   # sign in
 build-host/xcloud-cli stream BALATRO 30       # stream a title for 30 s (--720p, --region=EASTUS)
 build-host/xcloud-cli ui-preview /tmp/ui      # render every screen to PNG
+build-host/psbox-headless                     # the app itself, no window yet (Ctrl+C closes it)
+bash tools/check-platform-boundaries.sh       # PS5 calls only in the PS5 backends
 ```
 
 ### PS5 build

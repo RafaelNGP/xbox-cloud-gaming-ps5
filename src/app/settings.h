@@ -97,6 +97,9 @@ struct Settings {
     // Per-game profiles overriding the general settings (productId or titleId -> profile).
     std::map<std::string, GameProfile> perGame;
 
+    // micGain as the microphone's gain (StreamPlayer::setMicGain): 0.5, 1 or 1.5.
+    float micGainFactor() const;
+
     GameProfile defaultProfile() const;
     GameProfile profileForGame(const std::string& productId, const std::string& titleId, bool* hasCustom = nullptr) const;
 

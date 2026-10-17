@@ -76,9 +76,16 @@ libs=("$build/libxcloud_ui.a"
     --as-needed "$sdk"/target/lib/*.so
 
 # Keep the ELF with symbols and line tables (by version) so crash offsets
-# (pc=eboot+0x...) can be translated back to function and line.
-ver=${XC_VERSION:-v$(sed -n 's/^project(xcloud_ps5 VERSION \([0-9.]*\).*/\1/p' "$root/CMakeLists.txt")}
-[[ $ver == v* ]] || ver="v$ver"
+# (pc=eboot+0x...) can be translated back to function and line. Only a
+# release names its version (tools/release.sh sets XC_VERSION=vX.Y.Z); any
+# other link is a development build and goes to vX.Y.Z-dev, so it never
+# replaces the symbols of the release users run (tools/symbolize.sh).
+if [[ -n ${XC_VERSION:-} ]]; then
+    ver=$XC_VERSION
+    [[ $ver == v* ]] || ver="v$ver"
+else
+    ver="v$(sed -n 's/^project(xcloud_ps5 VERSION \([0-9.]*\).*/\1/p' "$root/CMakeLists.txt")-dev"
+fi
 mkdir -p "$root/symbols/$ver"
 cp -f "$work/llvm-pie.elf" "$root/symbols/$ver/eboot.elf"
 

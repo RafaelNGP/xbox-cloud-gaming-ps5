@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 // H.264 on the PS5's hardware video decoder (libSceVideodec2, the system's
-// own: RADV offers no Vulkan Video on the console). PS5 build only.
-// Setup after BlackBearReloaded's ProsperoLight (GPL-3.0-or-later).
+// own: RADV offers no Vulkan Video on the console), in hw_decoder_ps5.cpp.
+// Setup after BlackBearReloaded's ProsperoLight (GPL-3.0-or-later). Other
+// builds link hw_decoder_null.cpp, whose init() fails.
 #pragma once
 
 #include <cstddef>
@@ -30,9 +31,10 @@ public:
 
 private:
     void* decoder_ = nullptr;
-    void* computeQueue_ = nullptr;
-    uint8_t* frameBuffer_ = nullptr;
-    size_t frameBufferSize_ = 0;
+    // The PS5 backend's; the null one never sets them.
+    [[maybe_unused]] void* computeQueue_ = nullptr;
+    [[maybe_unused]] uint8_t* frameBuffer_ = nullptr;
+    [[maybe_unused]] size_t frameBufferSize_ = 0;
 };
 
 }  // namespace xc::media

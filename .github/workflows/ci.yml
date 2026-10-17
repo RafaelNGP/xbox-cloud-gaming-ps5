@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Every push and pull request: the desktop build with its unit tests, and a
-# scan of the changes for account data. The PS5 build needs the PS5_Vulkan
-# toolchain, which isn't here: tools/release.sh checks it before a release.
+# Every push and pull request: the desktop build (psbox-headless included)
+# with its unit tests, PS5 calls kept in the PS5 backends, and a scan of the
+# changes for account data. The PS5 build needs the PS5_Vulkan toolchain,
+# which isn't here: tools/release.sh checks it before a release.
 name: CI
 
 on:
@@ -28,6 +29,11 @@ jobs:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
+
+      # No sce* call or #if XCLOUD_PS5 outside the PS5 backends
+      # (docs/multiplatform.md).
+      - name: Platform boundaries
+        run: bash tools/check-platform-boundaries.sh
 
       - name: Tools
         run: sudo apt-get update -q && sudo apt-get install -y -q cmake ninja-build clang llvm nasm

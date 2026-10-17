@@ -206,7 +206,7 @@ is rolled back at the next start), then the app restarts itself
 - Cards: the console's keyboard-and-mouse icon on MKB games, its controller icon on the others; a Mouse & keyboard search filter; the players' pads drawn with the console's controller icon.
 - Settings grouped (language and sign-in country; stream; sound; controller and keyboard; updates last); the game settings likewise.
 - Sign-in: the xCloud login is tried again on a 5xx (six tries over ~25 s); the renewed refresh token is saved at once. The queue's wait from `/v1/waittime/{titleId}` while queued; the pictures' quantiser (QP) in the statistics line.
-- Crash reports: a fatal signal records the faulting instruction's offset in eboot (`pc=eboot+0x...`), the accessed address (`addr=0x...`) and the caller return addresses (`bt=...`), shown on the report panel and in the GitHub issue link; `tools/ps5/link.sh` keeps `symbols/vX.Y.Z/eboot.elf` and `tools/symbolize.sh` translates offsets back to function and `file:line`.
+- Crash reports: a fatal signal records the faulting instruction's offset in eboot (`pc=eboot+0x...`), the accessed address (`addr=0x...`) and the caller return addresses (`bt=...`), shown on the report panel and in the GitHub issue link; `tools/release.sh` keeps `symbols/vX.Y.Z/eboot.elf` (a development link with `tools/ps5/link.sh`: `symbols/vX.Y.Z-dev`) and `tools/symbolize.sh` translates offsets back to function and `file:line`.
 
 ## Next
 

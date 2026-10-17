@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
-// What the PS5 app's pieces share: ps5_main.cpp (the main thread: pad, UI,
+// What the app's pieces share: app_core.cpp (the main thread: pad, UI,
 // drawing), worker.cpp (the worker thread: all the network work),
 // stream_screen.cpp (the streaming screen) and price_loop.cpp. Defined in
-// ps5_main.cpp.
+// app_state.cpp.
 #pragma once
 
 #include "app/settings.h"

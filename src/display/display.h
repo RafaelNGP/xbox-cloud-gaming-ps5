@@ -13,7 +13,8 @@ constexpr unsigned kWidth = 1920;
 constexpr unsigned kHeight = 1080;
 
 // The GPU (display/gpu.h: FSR upscaling to the 4K display) when `preferGpu`
-// and it comes up, else the CPU path below.
+// and it comes up, else the CPU path below. The backend is picked at link
+// time: display_ps5.cpp on the console, display_null.cpp (no screen) elsewhere.
 bool init(bool preferGpu = true);
 void shutdown();
 // Held by whoever draws a frame (UI thread or video thread).
@@ -44,6 +45,31 @@ void setDeband(int level);
 void setUpscaler(int mode);
 // Anime4K Restore before the upscale (GPU only).
 void setRestore(bool on);
+
+// What this display can do, as of now (the GPU's part once init() has run):
+// an option it can't honour is hidden or has no effect.
+struct DisplayCaps {
+    bool upscalers = false;          // setUpscaler / setRestore
+    bool deband = false;             // setDeband
+    bool sharpen = false;            // setSharpness
+    bool highRefreshSwitch = false;  // setHighRefresh
+    bool presentTiming = false;      // lastPresentId / lastShown
+};
+DisplayCaps caps();
+
+// Before init(): swapchain images (GPU only; 2 = lowest latency, the default).
+void setSwapImages(int count);
+// Before init(): wait for each frame to reach the screen before the next
+// (GPU only, on by default).
+void setPresentWait(bool on);
+// 119.88 Hz output on, or back to 59.94 Hz, while running (a game's stream
+// only); false when the display can't switch or was refused.
+bool setHighRefresh(bool on);
+// Whether setHighRefresh() can work at all; known before init().
+bool canSwitchRefresh();
+// Bring-up check instead of init(): the GPU alone, then `frames` test frames
+// against the refresh (autoplay "vktest"). False when it didn't come up.
+bool bringUpTest(int frames);
 
 // GPU only: the id of the last present(), and the last frame known to be on
 // the screen (its id, and platform::nowUs() then). False on the CPU path.

@@ -4,9 +4,8 @@
 #include "app/autoplay.h"
 #include "ui/input_mode.h"
 
-#include "app/ps5_app.h"
+#include "app/app_state.h"
 #include "display/display.h"
-#include "display/gpu.h"
 #include "media/audio_in.h"
 #include "media/decoder.h"
 #include "platform/platform.h"
@@ -19,6 +18,7 @@
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <optional>
 
 namespace xc::app {
 
@@ -37,6 +37,9 @@ bool confirmShot = false, confirmHome = false;
 const char* tuneShot = nullptr;  // "tunetest": save this screen next  // "confirmtest": save confirm2.ppm / check the home screen  // "pickertest": save this screen next, once drawn
 const char* gridShot = nullptr;  // "gridtest": save grid screenshot
 const char* gameSettingsShot = nullptr; // "gamesettingstest": save screenshot
+std::string gameSettingsKey;                 // the game whose profile the test changes
+std::optional<GameProfile> gameSettingsBefore;  // its profile before (none: it had none)
+std::optional<input::KeyMap> keysBefore;        // "keystest": the keys before, put back at the end
 const char* regionShot = nullptr;  // "regiontest": save this screen next
 bool acceptUpdate = false;  // "updatetest": Cross on the pop-up, next pass ("updateskip": Circle)
 }  // namespace
@@ -69,8 +72,8 @@ void loadAutoplay() {
         if (opt.rfind("loss=", 0) == 0) g_autoplay.videoLoss = std::atoi(opt.c_str() + 5);
         if (opt == "ai") g_autoplay.upscaler = 1;
         if (opt == "restore") g_autoplay.restore = true;
-        if (opt.rfind("swap=", 0) == 0) display::gpu::setSwapImages(std::atoi(opt.c_str() + 5));
-        if (opt == "nopace") display::gpu::setPresentWait(false);
+        if (opt.rfind("swap=", 0) == 0) display::setSwapImages(std::atoi(opt.c_str() + 5));
+        if (opt == "nopace") display::setPresentWait(false);
         if (opt == "detailtest") g_autoplay.detailTest = true;
         if (opt == "pad") g_autoplay.pad = true;
         if (opt == "consoles") g_autoplay.consoles = true;
@@ -200,6 +203,12 @@ void autoplayPad(input::ControllerState& pad) {
             if (found) {
                 g_ui->showDetails(tile);
                 step = 1;
+                // The test changes and saves this game's profile: what it was
+                // is put back at the end (it is the user's real settings).
+                std::lock_guard<std::mutex> lock(g_settingsMutex);
+                gameSettingsKey = app::gameProfileKey(tile.productId, tile.titleId);
+                auto it = g_settings.perGame.find(gameSettingsKey);
+                gameSettingsBefore = it != g_settings.perGame.end() ? std::optional<GameProfile>(it->second) : std::nullopt;
             }
         }
         // Step 1: Wait for details to draw, then take screenshot
@@ -257,6 +266,16 @@ void autoplayPad(input::ControllerState& pad) {
         }
         // Step 8: Finish
         if (step == 8 && t >= 13000) {
+            {
+                std::lock_guard<std::mutex> lock(g_settingsMutex);
+                if (gameSettingsBefore)
+                    g_settings.perGame[gameSettingsKey] = *gameSettingsBefore;
+                else
+                    g_settings.perGame.erase(gameSettingsKey);
+                g_settings.save(settingsPath());
+                g_ui->setPerGameSettings(g_settings.perGame);
+            }
+            XC_LOGI("autoplay: the game's profile put back as it was");
             g_autoplay.gameSettingsTest = false;
             XC_LOGI("AUTOPLAY END: game settings test");
             step = 9;
@@ -476,6 +495,10 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         static const char* shots[] = {"keys_settings.ppm", "keys.ppm", "keys_capture.ppm", "keys_after.ppm",
                                       "keys_settings_after.ppm"};
         static int shot = 0;
+        if (!keysBefore) {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            keysBefore = g_settings.keyMap;
+        }
         if (step < static_cast<int>(std::size(steps)) && now - since >= steps[step].at) {
             switch (steps[step].what) {
             case Options: nav.options = true; break;
@@ -486,10 +509,21 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
             case Shot: keysShot = shots[shot++]; break;
             case Reserved: g_ui->captureKey(0x7B); break;
             case KeyG: g_ui->captureKey('G'); break;
-            case End:
+            case End: {
+                // The user's own keys back (the test ends on the defaults,
+                // which Settings saved on the way out).
+                ui::SettingsChoice choice = g_ui->settings();
+                choice.keyMap = *keysBefore;
+                g_ui->setSettings(choice);
+                {
+                    std::lock_guard<std::mutex> lock(g_settingsMutex);
+                    g_settings.keyMap = *keysBefore;
+                    g_settings.save(settingsPath());
+                }
                 g_autoplay.keysTest = false;
-                XC_LOGI("AUTOPLAY END: keys test");
+                XC_LOGI("AUTOPLAY END: keys test (the keys put back as they were)");
                 break;
+            }
             }
             ++step;
         }

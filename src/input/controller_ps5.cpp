@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
+// The DualSense through libScePad, one per signed-in user (controller.h).
+// controller_null.cpp stands in elsewhere.
 #include "input/controller.h"
 #include "input/gyro.h"
 #include "input/tuning.h"
@@ -12,17 +14,6 @@
 #include <cstring>
 
 #include "platform/platform.h"
-
-namespace xc::input {
-bool inUse(const ControllerState& s) {
-    return s.btnA || s.btnB || s.btnX || s.btnY || s.dpadUp || s.dpadDown || s.dpadLeft || s.dpadRight || s.btnL1 ||
-           s.btnR1 || s.btnL3 || s.btnR3 || s.btnOptions || s.btnTouchpad || s.triggerL2 > 0.5f || s.triggerR2 > 0.5f ||
-           std::abs(s.leftStickX) > 0.5f || std::abs(s.leftStickY) > 0.5f || std::abs(s.rightStickX) > 0.5f ||
-           std::abs(s.rightStickY) > 0.5f;
-}
-}  // namespace xc::input
-
-#if defined(XCLOUD_PS5)
 
 extern "C" {
 // Layout of OpenOrbis's OrbisPadData, as the console fills it (connected
@@ -507,37 +498,3 @@ void setEmbeddedMicActive(bool active, int pad) {
 }
 
 } // namespace xc::input
-
-#else
-
-// Host PC fallback implementation
-namespace xc::input {
-bool init() { return true; }
-void shutdown() {}
-bool poll(ControllerState& out) { return pollPad(0, out); }
-bool pollPad(int index, ControllerState& out) {
-    out = {};
-    out.connected = index == 0;
-    return out.connected;
-}
-void refreshPads() {}
-void setRumble(uint8_t, uint8_t, uint32_t, int) {}
-void setTriggerRumble(uint8_t, uint8_t, uint32_t, int) {}
-void setDeadzone(float, float) {}
-void setCircleConfirms(bool) {}
-bool circleConfirms() { return false; }
-void setLightBar(uint8_t, uint8_t, uint8_t, int) {}
-void resetLightBar(int) {}
-bool padConnected(int index) { return index == 0; }
-uint64_t padActiveAt(int) { return 0; }
-std::string padUserName(int index) { return index == 0 ? "Player" : ""; }
-int32_t padUserId(int) { return 0; }
-void setTriggerFeel(int, int, int, bool) {}
-void setTriggerLogging(bool) {}
-void setTriggerResistanceActive(bool) {}
-void setEmbeddedMicActive(bool, int) {}
-void setGyro(int, int) {}
-void setGyroActive(bool) {}
-} // namespace xc::input
-
-#endif
