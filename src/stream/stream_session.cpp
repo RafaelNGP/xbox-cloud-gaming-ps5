@@ -398,9 +398,13 @@ struct StreamSession::Impl {
 
     // --- set-up ---------------------------------------------------------------
 
-    std::shared_ptr<rtc::DataChannel> makeChannel(const char* label, const char* protocol) {
+    std::shared_ptr<rtc::DataChannel> makeChannel(const char* label, const char* protocol,
+                                                  bool unordered = false,
+                                                  std::optional<unsigned int> maxRetransmits = std::nullopt) {
         rtc::DataChannelInit init;
         init.protocol = protocol;
+        init.reliability.unordered = unordered;
+        init.reliability.maxRetransmits = maxRetransmits;
         auto ch = pc->createDataChannel(label, init);
         ch->onOpen([label] { XC_LOGI("data channel %s open", label); });
         ch->onClosed([this, label] {
@@ -436,10 +440,12 @@ struct StreamSession::Impl {
         });
 
         // Same channels, in the same order, as the web client.
+        // Input channel is configured unordered and unreliable (0 retransmissions)
+        // to eliminate Head-of-Line Blocking input latency under network jitter/loss.
         chat = makeChannel("chat", "chatV1");
         chat->onMessage([](rtc::message_variant m) { XC_LOGI("chat channel: %s", asText(m).c_str()); });
         control = makeChannel("control", "controlV1");
-        input = makeChannel("input", "1.0");
+        input = makeChannel("input", "1.0", /*unordered=*/true, /*maxRetransmits=*/0);
         message = makeChannel("message", "messageV1");
 
         message->onOpen([this] {

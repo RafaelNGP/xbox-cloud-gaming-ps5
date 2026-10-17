@@ -37,6 +37,8 @@ struct GameProfile {
     int gyroLevel = 5;
     // Touchpad as mouse in games with native MKB support (OFF by default)
     bool touchpadMouse = false;
+    // Per-game audio/subtitle language: "" = system default, else e.g. "en-US", "pt-BR"
+    std::string locale;
 };
 
 // Key to identify a game profile: productId first, else titleId.
@@ -55,6 +57,7 @@ struct Settings {
     // Games hidden with Square (product ids), and the "Your games" order
     // ("recent", "az", "console").
     std::vector<std::string> hidden;
+    std::vector<std::string> favorites;  // Games marked as favourite (product ids)
     std::string librarySort = "recent";
     // The statistics line over the game (in-game menu).
     bool streamStats = false;

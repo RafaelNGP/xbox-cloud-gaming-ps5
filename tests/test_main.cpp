@@ -370,6 +370,8 @@ static void testPerGameSettings() {
     p1.circleConfirms = true;
     p1.highRefresh = true;
     p1.touchpadMouse = true;
+    p1.locale = "pt-BR";
+    s.favorites = {"GAME1", "GAME3"};
     s.perGame["GAME1"] = p1;
 
     // Now GAME1 returns custom profile, while GAME2 still returns defaults.
@@ -377,17 +379,18 @@ static void testPerGameSettings() {
     CHECK(hasCustom);
     CHECK(prof1Custom.sharpness == 3 && prof1Custom.upscaler == 3 && prof1Custom.circleConfirms);
     CHECK(prof1Custom.deadzoneLeft == 5 && prof1Custom.triggerStrength == 1 && prof1Custom.touchpadMouse);
+    CHECK(prof1Custom.locale == "pt-BR");
 
     hasCustom = true;
     auto prof2 = s.profileForGame("GAME2", "", &hasCustom);
     CHECK(!hasCustom);
-    CHECK(prof2.sharpness == 1 && !prof2.circleConfirms && !prof2.touchpadMouse);
+    CHECK(prof2.sharpness == 1 && !prof2.circleConfirms && !prof2.touchpadMouse && prof2.locale.empty());
 
     // Title ID fallback when productId is empty.
     s.perGame["CONSOLE_SERVER_1"] = p1;
     auto consoleProf = s.profileForGame("", "CONSOLE_SERVER_1", &hasCustom);
     CHECK(hasCustom);
-    CHECK(consoleProf.sharpness == 3 && consoleProf.circleConfirms);
+    CHECK(consoleProf.sharpness == 3 && consoleProf.circleConfirms && consoleProf.locale == "pt-BR");
 
     // Save to disk and reload.
     CHECK(s.desktopFullscreen);  // a desktop window starts fullscreen unless chosen otherwise
@@ -396,20 +399,49 @@ static void testPerGameSettings() {
     xc::app::Settings reloaded;
     CHECK(reloaded.load(path));
     CHECK(!reloaded.desktopFullscreen);
+    CHECK(reloaded.favorites.size() == 2 && reloaded.favorites[0] == "GAME1" && reloaded.favorites[1] == "GAME3");
     CHECK(reloaded.perGame.size() == 2);
     auto loadedP1 = reloaded.profileForGame("GAME1", "", &hasCustom);
     CHECK(hasCustom);
     CHECK(loadedP1.sharpness == 3 && loadedP1.upscaler == 3 && loadedP1.circleConfirms);
-    CHECK(loadedP1.highRefresh && loadedP1.touchpadMouse);
+    CHECK(loadedP1.highRefresh && loadedP1.touchpadMouse && loadedP1.locale == "pt-BR");
     CHECK(loadedP1.deadzoneLeft == 5 && loadedP1.deadzoneRight == 8 && loadedP1.triggerStrength == 1);
 
     // Remove game profile restores default.
     reloaded.perGame.erase("GAME1");
     auto afterErase = reloaded.profileForGame("GAME1", "", &hasCustom);
     CHECK(!hasCustom);
-    CHECK(afterErase.sharpness == reloaded.sharpness);
+    CHECK(afterErase.sharpness == reloaded.sharpness && afterErase.locale.empty());
 
     std::remove(path.c_str());
+}
+
+static void testPlaytimeLimit() {
+    int64_t rem = -1, max = -1;
+
+    // 1. Valid JSON format
+    std::string jsonStr = R"({"remainingGameplayTimeInSeconds": 36000, "maxGameplayTimeInSeconds": 54000})";
+    CHECK(auth::parsePlaytimeLimit(jsonStr, rem, max));
+    CHECK(rem == 36000 && max == 54000);
+
+    // 2. Nested JSON format
+    std::string nestedJson = R"({"user": {"limits": {"remainingGameplayTimeInSeconds": 7200, "maxGameplayTimeInSeconds": 18000}}})";
+    CHECK(auth::parsePlaytimeLimit(nestedJson, rem, max));
+    CHECK(rem == 7200 && max == 18000);
+
+    // 3. String-encoded numbers in JSON
+    std::string strJson = R"({"remainingGameplayTimeInSeconds": "18000", "maxGameplayTimeInSeconds": "36000"})";
+    CHECK(auth::parsePlaytimeLimit(strJson, rem, max));
+    CHECK(rem == 18000 && max == 36000);
+
+    // 4. Protobuf wire format (tag 1 varint 18000, tag 2 varint 54000)
+    std::string proto = std::string("\x08\xD0\x8C\x01\x10\xF0\xA5\x03", 8);
+    CHECK(auth::parsePlaytimeLimit(proto, rem, max));
+    CHECK(rem == 18000 && max == 54000);
+
+    // 5. Empty and invalid inputs
+    CHECK(!auth::parsePlaytimeLimit("", rem, max));
+    CHECK(!auth::parsePlaytimeLimit("not a valid payload", rem, max));
 }
 
 static void testStreamMenu() {
@@ -1442,20 +1474,20 @@ static void testVisibleSettingsRows() {
     auto x = ids(ui::visibleSettingsRows(xbox));
     CHECK(std::find(x.begin(), x.end(), 4) != x.end() && std::find(x.begin(), x.end(), 6) == x.end());
     // A game's settings.
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, false)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, true)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 13, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, false)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, true)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 13, 9, 10}));
     CHECK((groups(ui::visibleGameSettingsRows(ps5, true, true)) ==
-           std::vector<bool>{false, true, false, true, false, false, true, false, false, false, false, false, false, true}));
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, true)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
+           std::vector<bool>{false, true, false, false, true, false, false, true, false, false, false, false, false, false, true}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
     CHECK((groups(ui::visibleGameSettingsRows(ps5, true)) ==
-           std::vector<bool>{false, true, false, true, false, false, true, false, false, false, false, false, true}));
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 9}));
+           std::vector<bool>{false, true, false, false, true, false, false, true, false, false, false, false, false, true}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9}));
     ui::UiCaps noTouch = ps5;
     noTouch.touchpad = false;
-    CHECK((ids(ui::visibleGameSettingsRows(noTouch, true, true)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(noTouch, true, true)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
     auto game = ui::visibleGameSettingsRows(pc, false);
-    CHECK((ids(game) == std::vector<int>{0, 4, 5, 7, 11, 9}));
-    CHECK((groups(game) == std::vector<bool>{false, true, true, false, false, false}));
+    CHECK((ids(game) == std::vector<int>{0, 4, 14, 5, 7, 11, 9}));
+    CHECK((groups(game) == std::vector<bool>{false, true, false, true, false, false, false}));
 }
 
 // The controller's glyphs by pad kind (ui/pad_glyphs.h).
@@ -1792,6 +1824,7 @@ int main() {
     testSettingsMigration();
     testMicGain();
     testPerGameSettings();
+    testPlaytimeLimit();
     testStrings();
     testRegions();
     testPrices();

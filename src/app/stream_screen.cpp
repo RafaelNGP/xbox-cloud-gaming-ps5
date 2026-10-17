@@ -148,9 +148,10 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         input::setTriggerFeel(prof.triggerStrength, prof.triggerHz, prof.triggerResistance, prof.triggerPulses);
         input::setCircleConfirms(prof.circleConfirms);
         if (g_ui) g_ui->setCircleConfirms(prof.circleConfirms);
-        // 120 Hz (VRR) for this game's stream only: the menus stay at 60 Hz
-        // (OLED TVs may flicker under VRR when little is drawn).
-        highRefresh_ = prof.highRefresh && display::setHighRefresh(true);
+        // 120 Hz (VRR) for this game's stream: active when enabled in profile,
+        // or defaulted on when the display supports switching refresh (menus stay at 60 Hz).
+        bool want120 = prof.highRefresh || (!hasCustom && display::canSwitchRefresh());
+        highRefresh_ = want120 && display::setHighRefresh(true);
 
         media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
         if (g_player) {

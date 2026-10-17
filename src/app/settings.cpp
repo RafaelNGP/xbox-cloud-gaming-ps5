@@ -56,6 +56,9 @@ bool Settings::load(const std::string& path) {
     hidden.clear();
     for (const auto& id : (*j)["hidden"].items())
         if (!id.str().empty()) hidden.push_back(id.str());
+    favorites.clear();
+    for (const auto& id : (*j)["favorites"].items())
+        if (!id.str().empty()) favorites.push_back(id.str());
     librarySort = (*j)["librarySort"].str(librarySort);
     streamStats = (*j)["streamStats"].asBool(streamStats);
     sharpness = static_cast<int>(std::clamp<int64_t>((*j)["sharpness"].asInt(sharpness), 0, 3));
@@ -134,6 +137,7 @@ bool Settings::load(const std::string& path) {
         p.gyroMode = static_cast<int>(std::clamp<int64_t>(obj["gyroMode"].asInt(gyroMode), 0, 2));
         p.gyroLevel = static_cast<int>(std::clamp<int64_t>(obj["gyroLevel"].asInt(gyroLevel), 1, 10));
         p.touchpadMouse = obj["touchpadMouse"].asBool(touchpadMouse);
+        p.locale = obj["locale"].str();
         perGame[id] = p;
     }
     return true;
@@ -197,6 +201,9 @@ bool Settings::save(const std::string& path) const {
     json::Value hiddenIds = json::Value::array();
     for (const auto& id : hidden) hiddenIds.push(id);
     v.set("hidden", hiddenIds);
+    json::Value favIds = json::Value::array();
+    for (const auto& id : favorites) favIds.push(id);
+    v.set("favorites", favIds);
     v.set("librarySort", librarySort);
     v.set("streamStats", streamStats);
     v.set("sharpness", sharpness);
@@ -253,6 +260,7 @@ bool Settings::save(const std::string& path) const {
         obj.set("gyroMode", p.gyroMode);
         obj.set("gyroLevel", p.gyroLevel);
         obj.set("touchpadMouse", p.touchpadMouse);
+        if (!p.locale.empty()) obj.set("locale", p.locale);
         pg.set(id, obj);
     }
     v.set("perGame", pg);

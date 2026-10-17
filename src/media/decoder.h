@@ -81,11 +81,18 @@ public:
     bool init();
     // One Opus packet in; appends interleaved float stereo samples.
     bool decode(const uint8_t* data, size_t len, std::vector<float>& out);
+    // Packet Loss Concealment (PLC): extrapolates audio across lost network frames.
+    void conceal(std::vector<float>& out, size_t frames = 960);
+    // Reset PLC state on stream start/reconnect.
+    void resetPlc();
 
 private:
     AVCodecContext* ctx_ = nullptr;
     AVFrame* frame_ = nullptr;
     AVPacket* packet_ = nullptr;
+    std::vector<float> history_;
+    float plcDecay_ = 1.0f;
+    bool lastWasConcealed_ = false;
 };
 
 }  // namespace xc::media

@@ -208,8 +208,9 @@ struct UiEvent {
     SettingsChoice settings;  // SettingsChanged
     app::GameProfile gameProfile;  // GameSettingsChanged
     bool hasGameProfile = false;
-    // PrefsChanged: hidden games (product ids) and the "Your games" order.
+    // PrefsChanged: hidden games (product ids), favorites, and the "Your games" order.
     std::vector<std::string> hidden;
+    std::vector<std::string> favorites;
     LibrarySort librarySort = LibrarySort::Recent;
     std::string reportWhat;  // Report: the error on screen (empty from Settings)
     std::string url;         // OpenUrl
@@ -256,10 +257,12 @@ public:
     void setSearchPools(std::vector<GameTile> gamePass, std::vector<GameTile> library);
     // Measured round trip to each region, ms (shown in Settings).
     void setRegionLatency(std::map<std::string, int> ms);
+    // Cloud playtime limit telemetry (remaining and max in seconds, -1 unknown)
+    void setPlaytime(int64_t remainingSeconds, int64_t maxSeconds);
     // Store prices, formatted: productId -> {now, regular (empty unless on sale)}.
     void setPrices(const std::map<std::string, PriceInfo>& prices);
-    // Saved preferences: hidden games and the "Your games" order.
-    void setPrefs(const std::vector<std::string>& hidden, LibrarySort sort);
+    // Saved preferences: hidden games, the "Your games" order, and favorites.
+    void setPrefs(const std::vector<std::string>& hidden, LibrarySort sort, const std::vector<std::string>& favorites = {});
     // Games to buy on screen (or about to be) whose price hasn't been asked
     // for yet; with `background`, any other game to buy once those are done
     // (never while streaming). Marks them asked.
@@ -428,6 +431,8 @@ private:
     void setRowsLocked(std::vector<GameRow> rows);
     // Hides / shows a game; fills `ev` so the app saves it.
     void toggleHidden(const GameTile& tile, UiEvent& ev);
+    // Toggles favourite status of a game; fills `ev` so the app saves it.
+    void toggleFavorite(const GameTile& tile, UiEvent& ev);
     void prefsEvent(UiEvent& ev) const;
     // The filter buttons of the current tab's search.
     // The search's filters, in two rows: Free, Lowest price (in "Your games"
@@ -504,6 +509,7 @@ private:
     std::string status_;
     std::string code_, codeUrl_;
     std::string gamertag_, gamerpicUrl_, gamerscore_, subscription_;
+    int64_t playtimeRemaining_ = -1, playtimeMax_ = -1;
     std::vector<GameRow> rows_;
     int focusRow_ = 0;
     std::vector<int> focusCol_;
@@ -518,7 +524,7 @@ private:
     // As received, before hiding and sorting (rebuild() derives the above).
     std::vector<GameRow> allRows_;
     std::vector<GameTile> allOwned_, allPurchasable_;
-    std::set<std::string> hidden_;
+    std::set<std::string> hidden_, favorites_;
     bool loading_ = false;
     size_t loadingDone_ = 0, loadingTotal_ = 0;
     void drawLoadingBar(Canvas& c, int x, int y, int w, uint64_t nowMs);

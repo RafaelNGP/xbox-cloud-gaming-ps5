@@ -45,6 +45,8 @@ public:
     void setCachePath(std::string path) { cachePath_ = std::move(path); }
     // The account's Game Pass plan ("Ultimate", "Premium", "Essential", ...).
     void setSubscription(std::string sub) { subscription_ = std::move(sub); }
+    // Games marked as favourite (product IDs)
+    void setFavorites(std::vector<std::string> favs) { favorites_ = std::move(favs); }
 
     // Calls `changed` after each row arrives; false only when nothing loaded.
     bool load(xcloud::GssvClient& gssv, const std::string& language, const Changed& changed, std::string& err);
@@ -137,6 +139,7 @@ private:
     mutable std::set<std::string> sharedXbox_;  // Xbox title ids two products share (cross-gen pairs)
     mutable size_t siblingsFor_ = 0;
     std::vector<ui::GameTile> friendsTiles_;
+    std::vector<std::string> favorites_;
 };
 
 }  // namespace xc::app

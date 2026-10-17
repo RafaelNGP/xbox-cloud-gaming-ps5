@@ -68,8 +68,12 @@ struct StreamPlayer::Impl {
     std::atomic<bool> running{false};
     std::string endReason;
     platform::Thread videoThread, audioThread;
+    struct QueuedAudioPacket {
+        std::vector<uint8_t> data;
+        uint32_t rtpTimestamp = 0;
+    };
     std::mutex audioMutex_;
-    std::deque<std::vector<uint8_t>> audioPackets_;
+    std::deque<QueuedAudioPacket> audioPackets_;
     std::condition_variable audioCv;
 
     media::AudioDecoder audioDecoder;
@@ -175,8 +179,11 @@ struct StreamPlayer::Impl {
     }
 
     void audioLoop() {
-        std::vector<uint8_t> packet;
+        QueuedAudioPacket packet;
         bool first = true;
+        uint32_t lastRtpTimestamp = 0;
+        uint64_t concealedPackets = 0;
+        constexpr uint32_t kOpusFrameSamples = 960;  // 20 ms at 48 kHz
         while (running) {
             {
                 std::unique_lock<std::mutex> lock(audioMutex_);
@@ -185,8 +192,27 @@ struct StreamPlayer::Impl {
                 packet = std::move(audioPackets_.front());
                 audioPackets_.pop_front();
             }
+            if (lastRtpTimestamp != 0) {
+                uint32_t diff = packet.rtpTimestamp - lastRtpTimestamp;
+                // Detect packet loss from RTP timestamp gap (conceal up to 5 lost frames)
+                if (diff > kOpusFrameSamples && diff <= kOpusFrameSamples * 6) {
+                    uint32_t lostCount = (diff + kOpusFrameSamples / 2) / kOpusFrameSamples - 1;
+                    for (uint32_t i = 0; i < lostCount; ++i) {
+                        pcm.clear();
+                        audioDecoder.conceal(pcm, kOpusFrameSamples);
+                        if (!pcm.empty()) media::audioPush(pcm.data(), pcm.size() / 2);
+                        ++concealedPackets;
+                    }
+                    if (concealedPackets <= 5 || concealedPackets % 50 == 0) {
+                        XC_LOGI("audio plc: concealed %u lost packet(s) (%llu total concealed)",
+                                lostCount, static_cast<unsigned long long>(concealedPackets));
+                    }
+                }
+            }
+            lastRtpTimestamp = packet.rtpTimestamp;
+
             pcm.clear();
-            if (audioDecoder.decode(packet.data(), packet.size(), pcm)) media::audioPush(pcm.data(), pcm.size() / 2);
+            if (audioDecoder.decode(packet.data.data(), packet.data.size(), pcm)) media::audioPush(pcm.data(), pcm.size() / 2);
             if (first) {
                 first = false;
                 XC_LOGI("first audio packet decoded: %zu samples", pcm.size() / 2);
@@ -388,10 +414,10 @@ struct StreamPlayer::Impl {
             frames.push_back({std::vector<uint8_t>(d, d + n), rtpTimestamp, stream::clockMs(), platform::nowUs()});
             cv.notify_one();
         };
-        cb.audio = [this](const uint8_t* d, size_t n, uint32_t) {
-            if (++audioPackets == 1) XC_LOGI("first audio packet: %zu bytes", n);
+        cb.audio = [this](const uint8_t* d, size_t n, uint32_t rtpTimestamp) {
+            if (++audioPackets == 1) XC_LOGI("first audio packet: %zu bytes (timestamp %u)", n, rtpTimestamp);
             std::lock_guard<std::mutex> lock(audioMutex_);
-            if (audioPackets_.size() < 50) audioPackets_.emplace_back(d, d + n);
+            if (audioPackets_.size() < 50) audioPackets_.push_back({std::vector<uint8_t>(d, d + n), rtpTimestamp});
             audioCv.notify_one();
         };
         // xCloud's motors are 0..100 percent, like the web client's

@@ -23,6 +23,7 @@ struct StreamInfo {
     int width = 0, height = 0;  // of the decoded picture
     double qp = -1;             // the pictures' average quantiser (lower: finer); -1 unknown
     bool degraded = false;      // frames lost / video stalled / round trip far up, in the last seconds
+    int playtimeHours = -1;     // cloud playtime remaining (-1 unknown/uncapped)
 };
 
 // Close: the menu went away (Circle, OPTIONS, or the Xbox button): a fresh key frame is asked for.

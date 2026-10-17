@@ -250,6 +250,23 @@ std::vector<ui::GameRow> Library::rows() const {
         }
     }
 
+    // Insert "Favorites" row at the top of the library if any are marked
+    if (!favorites_.empty()) {
+        ui::GameRow favRow;
+        favRow.title = ui::tr(ui::Str::Favorites);
+        favRow.gamePassBadges = false;
+        favRow.isGrid = false;
+        for (const auto& pid : favorites_) {
+            ui::GameTile t = tile(pid);
+            if (!t.productId.empty() && !t.titleId.empty() && !xcloud::isNonGameAddon(t.titleId, t.name)) {
+                favRow.tiles.push_back(std::move(t));
+            }
+        }
+        if (!favRow.tiles.empty()) {
+            rows.insert(rows.begin(), std::move(favRow));
+        }
+    }
+
     return rows;
 }
 

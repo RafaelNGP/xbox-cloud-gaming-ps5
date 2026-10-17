@@ -38,6 +38,7 @@ extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(Vk
     __attribute__((weak));
 // RADV with tools/ps5/patches (weak: absent from an unpatched RADV or desktop).
 extern "C" int wsi_videoout_set_high_refresh(bool on) __attribute__((weak));
+extern "C" int wsi_videoout_set_flip_rate(int rate) __attribute__((weak));
 
 namespace xc::display::gpu {
 
@@ -1235,8 +1236,9 @@ bool lastShown(uint64_t& id, uint64_t& atUs) {
 
 bool setHighRefresh(bool on) {
     if (!wsi_videoout_set_high_refresh) return false;
+    if (on && wsi_videoout_set_flip_rate) wsi_videoout_set_flip_rate(0);
     int rc = wsi_videoout_set_high_refresh(on);
-    if (rc == 0) XC_LOGI("gpu: output at %s Hz", on ? "119.88" : "59.94");
+    if (rc == 0) XC_LOGI("gpu: output at %s Hz (VRR flip rate unpegged)", on ? "119.88" : "59.94");
     else XC_LOGW("gpu: %s Hz refused (%d)", on ? "119.88" : "59.94", rc);
     return rc == 0;
 }

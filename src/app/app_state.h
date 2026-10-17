@@ -41,6 +41,8 @@ void worker();
 void startWorker();
 // The update pop-up's "Not now": that release isn't offered again on start.
 void skipOfferedUpdate();
+// Updates the running library's favorites list and refreshes UI rows.
+void updateLibraryFavorites(const std::vector<std::string>& favorites);
 
 // The running stream, for the input thread.
 extern std::mutex g_playerMutex;

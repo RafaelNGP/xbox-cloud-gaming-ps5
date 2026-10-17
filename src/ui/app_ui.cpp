@@ -66,9 +66,9 @@ constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, true, false, f
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
 // sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7
 // confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default, 11 controller
-// buttons, 12 gyro aiming, 13 touchpad as mouse).
-constexpr int kGameRowOrder[14] = {0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 13, 9, 10};
-constexpr bool kGameGroupStart[14] = {false, true, false, true, false, false, true, false, false, false, false, false, false, true};
+// buttons, 12 gyro aiming, 13 touchpad as mouse, 14 game language).
+constexpr int kGameRowOrder[15] = {0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 13, 9, 10};
+constexpr bool kGameGroupStart[15] = {false, true, false, false, true, false, false, true, false, false, false, false, false, false, true};
 // The keyboard keys' screen: two columns of inputs, then "Reset to default".
 constexpr int kKeysPerColumn = input::kKeyActions / 2;
 // Updates on a desktop: the newest release's page (the app doesn't install it there).
@@ -580,17 +580,26 @@ void AppUi::drawLoadingBar(Canvas& c, int x, int y, int w, uint64_t nowMs) {
     animating_ = true;
 }
 
-void AppUi::setPrefs(const std::vector<std::string>& hidden, LibrarySort sort) {
+void AppUi::setPrefs(const std::vector<std::string>& hidden, LibrarySort sort, const std::vector<std::string>& favorites) {
     std::lock_guard<std::mutex> lock(mutex_);
     hidden_ = std::set<std::string>(hidden.begin(), hidden.end());
+    favorites_ = std::set<std::string>(favorites.begin(), favorites.end());
     librarySort_ = sort;
     rebuild();
+}
+
+void AppUi::setPlaytime(int64_t remainingSeconds, int64_t maxSeconds) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    playtimeRemaining_ = remainingSeconds;
+    playtimeMax_ = maxSeconds;
+    dirty_ = true;
 }
 
 void AppUi::prefsEvent(UiEvent& ev) const {
     // Caller holds mutex_.
     ev.action = Action::PrefsChanged;
     ev.hidden.assign(hidden_.begin(), hidden_.end());
+    ev.favorites.assign(favorites_.begin(), favorites_.end());
     ev.librarySort = librarySort_;
 }
 
@@ -604,6 +613,18 @@ void AppUi::toggleHidden(const GameTile& tile, UiEvent& ev) {
     toastUntil_ = 0;
     rebuild(true);  // the cursor stays put; the next game takes the place
     prefsEvent(ev);
+}
+
+void AppUi::toggleFavorite(const GameTile& tile, UiEvent& ev) {
+    // Caller holds mutex_.
+    if (tile.productId.empty()) return;
+    bool fav = !favorites_.count(tile.productId);
+    if (fav) favorites_.insert(tile.productId);
+    else favorites_.erase(tile.productId);
+    toast_ = tr(fav ? Str::AddedToFavorites : Str::RemovedFromFavorites);
+    toastUntil_ = 0;
+    prefsEvent(ev);
+    dirty_ = true;
 }
 
 void AppUi::setSearchPools(std::vector<GameTile> gamePass, std::vector<GameTile> library) {
@@ -2291,6 +2312,19 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             activeGameHasCustom_ = true;
             dirty_ = true;
             break;
+        case 14: { // Game Language
+            static const std::pair<const char*, const char*> kLocales[] = {
+                {"", ""}, {"en-US", "English (US)"}, {"pt-BR", "Português (Brasil)"},
+                {"es-ES", "Español"}, {"fr-FR", "Français"}, {"de-DE", "Deutsch"},
+                {"it-IT", "Italiano"}, {"ja-JP", "日本語"}
+            };
+            int pos = 0;
+            for (int k = 0; k < 8; ++k) if (kLocales[k].first == activeGameProfile_.locale) pos = k;
+            activeGameProfile_.locale = kLocales[(pos + 8 + dir) % 8].first;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        }
         default: break;
         }
     }
@@ -2368,6 +2402,19 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             activeGameHasCustom_ = true;
             dirty_ = true;
             break;
+        case 14: {
+            static const std::pair<const char*, const char*> kLocales[] = {
+                {"", ""}, {"en-US", "English (US)"}, {"pt-BR", "Português (Brasil)"},
+                {"es-ES", "Español"}, {"fr-FR", "Français"}, {"de-DE", "Deutsch"},
+                {"it-IT", "Italiano"}, {"ja-JP", "日本語"}
+            };
+            int pos = 0;
+            for (int k = 0; k < 8; ++k) if (kLocales[k].first == activeGameProfile_.locale) pos = k;
+            activeGameProfile_.locale = kLocales[(pos + 1) % 8].first;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
+        }
         case 9: // Keyboard keys: their own screen, on this game's
             openTester(Tester::Keys);
             settings_.keyMap = activeGameProfile_.keyMap;
@@ -2377,6 +2424,7 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             break;
         case 10: // Reset to default
             activeGameHasCustom_ = false;
+            activeGameProfile_.locale.clear();
             activeGameProfile_.keyMap = settings_.keyMap;
             activeGameProfile_.padMap = settings_.padMap;
             activeGameProfile_.sharpness = settings_.sharpness;
@@ -2561,6 +2609,7 @@ UiEvent AppUi::handle(const NavInput& in) {
                 ev.game = detail_;
             }
             if (in.square) toggleHidden(detail_, ev);  // the page stays open
+            if (in.triangle) toggleFavorite(detail_, ev);
             if (in.back) {
                 screen_ = Screen::Home;
                 dirty_ = true;
@@ -2716,6 +2765,17 @@ void AppUi::drawTopBar(Canvas& c) {
             int nx = right - nw;
             fonts_.semibold.draw(c, n, nx, fonts_.semibold.centeredY(kLineY, kLineH, kLinePx), kLinePx, kGray);
             drawGamerscoreBadge(c, nx - 13.0f, midY, 8.5f);
+            right = nx - 26;
+        }
+        if (playtimeRemaining_ >= 0) {
+            int hours = static_cast<int>((playtimeRemaining_ + 3599) / 3600);
+            std::string pt = trf(Str::HoursRemaining, std::to_string(hours));
+            int pw = fonts_.semibold.measure(pt, kLinePx);
+            int px = right - pw;
+            bool warn = playtimeRemaining_ <= 7200;
+            Color col = warn ? rgba(255, 160, 40) : kGray;
+            fonts_.semibold.draw(c, pt, px, fonts_.semibold.centeredY(kLineY, kLineH, kLinePx), kLinePx, col);
+            right = px - 16;
         }
     }
 }
@@ -3650,10 +3710,12 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         if (g->freeInStore)
             drawHints(c, {{kIconCross, tr(Str::Play)},
                           {kIconOptions, tr(Str::GameSettings)},
+                          {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
                           {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
                           {kIconCircle, tr(Str::Back)}});
         else
             drawHints(c, {{kIconOptions, tr(Str::GameSettings)},
+                          {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
                           {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
                           {kIconCircle, tr(Str::Back)}});
         drawToast(c, nowMs);
@@ -3668,6 +3730,7 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         drawLock(c, note.x + 52, note.y + note.h / 2);
         fonts_.semibold.draw(c, msg, note.x + 90, note.y + 22, 28, kGray);
         drawHints(c, {{kIconOptions, tr(Str::GameSettings)},
+                      {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
                       {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
                       {kIconCircle, tr(Str::Back)}});
         drawToast(c, nowMs);
@@ -3693,6 +3756,7 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     }
     drawHints(c, {{kIconCross, tr(Str::Play)},
                   {kIconOptions, tr(Str::GameSettings)},
+                  {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
                   {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
                   {kIconCircle, tr(Str::Back)}});
     drawToast(c, nowMs);
@@ -4373,7 +4437,7 @@ void AppUi::drawGameSettings(Canvas& c) {
             title = title + "  \xE2\x80\xA2  " + cut + "...";
         }
     }
-    constexpr int kModalW = 1140, kModalH = 920;
+    constexpr int kModalW = 1140, kModalH = 960;
     constexpr int kRowH = 46, kGap = 5, kGroupGap = 10;
     // The rows caps_ allows; the panel loses the height of those it hides
     // (the same as ever with all of them, "Reset to default" or not).
@@ -4473,6 +4537,26 @@ void AppUi::drawGameSettings(Canvas& c) {
             label = tr(Str::TouchpadMouse);
             value = tr(activeGameProfile_.touchpadMouse ? Str::Activated : Str::Deactivated);
             break;
+        case 14: {
+            static const std::pair<const char*, const char*> kLocales[] = {
+                {"", ""}, {"en-US", "English (US)"}, {"pt-BR", "Português (Brasil)"},
+                {"es-ES", "Español"}, {"fr-FR", "Français"}, {"de-DE", "Deutsch"},
+                {"it-IT", "Italiano"}, {"ja-JP", "日本語"}
+            };
+            label = tr(Str::GameLanguage);
+            if (activeGameProfile_.locale.empty()) {
+                value = tr(Str::ProfileDefault);
+            } else {
+                for (const auto& [code, name] : kLocales) {
+                    if (activeGameProfile_.locale == code) {
+                        value = name;
+                        break;
+                    }
+                }
+                if (value.empty()) value = activeGameProfile_.locale;
+            }
+            break;
+        }
         default: break;
         }
 
