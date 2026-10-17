@@ -224,14 +224,14 @@ is rolled back at the next start), then the app restarts itself
 | Free play with ads | Microsoft's ad-supported offering (`xgpuwebf2p` login and sessions, its own list): play without a subscription, with the service's limits; the ads are never skipped (as green-nx, Nubix, XStreaming) | small–medium |
 | Game Pass trial badge (later) | The store's answer says `isTrial`; a TRIAL mark next to the plan. Not now | small |
 | Unreliable input channel (protocol v9) | The official client sends input on an unordered channel, so a lost packet doesn't hold the ones after it; needs a capture of its frames | medium |
-| DualSense button remapping (done), touchpad mouse | Full DualSense button customization in Settings and each game's settings (Edge back buttons/paddles too), with its own remapping screen like keyboard keys (done); touchpad as a mouse for MKB games | medium |
+| DualSense button remapping, touchpad mouse (done) | Full DualSense button customization in Settings and each game's settings (Edge back buttons/paddles too), with its own remapping screen like keyboard keys; touchpad as a mouse for MKB games (done) | medium |
 | Gamepad report physicality & touchpad click robustness (#39, done) | In `src/stream/input_packet.cpp`: compute accurate `physicalPhysicality` bitmask (0 when idle) and send 0 for `virtualPhysicality` (LE), preventing idle secondary controllers/bridges from continuously reporting active physical input to xCloud. In `src/app/stream_screen.cpp`: suppress touchpad swipe gesture detection while `btnTouchpad` is physically pressed. Add one-time diagnostic log on first `kView` / `kMenu` sent per stream session | small |
 | Gyro in Settings (done) | Gyro aiming in Settings and the game settings too (done); an inverted / separate horizontal sensitivity if asked | small |
 | Desktop Vulkan display (done) | `display/gpu.cpp` shared with the SDL3 desktop window (`SDL_Vulkan_*`): FSR 1, Anime4K x2, Anime4K Restore, CAS sharpening and block smoothing on Linux, with `SDL_Renderer` kept as fallback | medium |
-| Favourites, game language | A favourites row; the game's language apart from the app's | small |
 | Lost audio filled | Opus concealment / in-band FEC for lost audio packets: needs libopus (FFmpeg's own Opus decoder has neither) | small–medium |
 | Home-screen tile per game | The PS5 Forwarder Format (ProsperoLight): a tile that starts one cloud game directly | small |
 | Dedicated voice chat output routing | Route voice chat audio independently to DualSense controller speaker or headset while keeping game audio on TV (if xCloud exposes separate voice track) | medium |
+| Favourites, game language (later) | A favourites row; the game's language apart from the app's | small |
 
 ## Dropped (and why)
 

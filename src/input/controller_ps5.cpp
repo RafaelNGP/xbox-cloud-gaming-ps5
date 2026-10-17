@@ -207,6 +207,7 @@ bool readPad(int slot, RawPad& out) {
     // The DualSense touchpad reports 0..1919 x 0..1079.
     if (pad.touchData.touchNum > 0) {
         out.touching = true;
+        out.touchSecond = pad.touchData.touchNum > 1;
         out.touchX = std::clamp(pad.touchData.touch[0].x / 1919.0f, 0.0f, 1.0f);
         out.touchY = std::clamp(pad.touchData.touch[0].y / 1079.0f, 0.0f, 1.0f);
     }

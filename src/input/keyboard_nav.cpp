@@ -112,4 +112,79 @@ void keyboardToPad(const std::vector<uint8_t>& held, ControllerState& pad) {
     if (down({0x22})) pad.rightStickY = 1.0f;   // page down
 }
 
+bool touchpadAsMouse(const ControllerState& pad, uint64_t nowMs, TouchpadMouse& s, KbmInput& io) {
+    // Full sweep across the touchpad = 960 x 540 counts (1920 x 1080 in the stream).
+    constexpr float kScaleX = 960.0f, kScaleY = 540.0f, kWheelScale = 8.0f, kMoveThresh = 0.025f;
+    constexpr uint64_t kTapMaxMs = 200, kTapHoldMs = 50;
+
+    if (pad.touching) {
+        if (!s.touching) {
+            s.touching = true;
+            s.second = s.hadSecond = pad.touchSecond;
+            s.moved = false;
+            s.dragging = false;
+            s.dragButton = 0;
+            s.x = s.startX = pad.touchX;
+            s.y = s.startY = pad.touchY;
+            s.remX = s.remY = s.remWheel = 0;
+            s.downMs = pad.btnTouchpad ? 0 : nowMs;
+        } else {
+            if (pad.touchSecond != s.second) {
+                s.second = pad.touchSecond;
+                if (pad.touchSecond) s.hadSecond = true;
+                // Re-anchor so a second finger coming down or lifting doesn't jump the cursor.
+                s.x = pad.touchX;
+                s.y = pad.touchY;
+                s.remX = s.remY = 0;
+            }
+            if (std::hypot(pad.touchX - s.startX, pad.touchY - s.startY) > kMoveThresh) s.moved = true;
+            if (pad.touchSecond) {
+                s.remWheel += (s.y - pad.touchY) * kWheelScale;
+                int32_t w = static_cast<int32_t>(s.remWheel);
+                s.remWheel -= static_cast<float>(w);
+                io.wheel += w;
+                if (w != 0) s.moved = true;
+            } else {
+                s.remX += (pad.touchX - s.x) * kScaleX;
+                s.remY += (pad.touchY - s.y) * kScaleY;
+                int32_t dx = static_cast<int32_t>(s.remX), dy = static_cast<int32_t>(s.remY);
+                s.remX -= static_cast<float>(dx);
+                s.remY -= static_cast<float>(dy);
+                io.dx += dx;
+                io.dy += dy;
+            }
+            s.x = pad.touchX;
+            s.y = pad.touchY;
+            if (pad.btnTouchpad && !pad.btnOptions) {
+                if (!s.dragging && s.moved) {
+                    s.dragging = true;
+                    s.dragButton = (s.hadSecond || pad.touchX >= 0.65f) ? 2 : 1;
+                } else if (!s.dragging) {
+                    s.downMs = 0;  // plain click without moving first: controller View
+                }
+            } else {
+                s.dragging = false;
+                s.dragButton = 0;
+            }
+        }
+    } else if (s.touching) {
+        if (!s.moved && s.downMs > 0 && nowMs >= s.downMs && (nowMs - s.downMs) <= kTapMaxMs && !pad.btnTouchpad) {
+            s.tapButton = s.hadSecond ? 2 : 1;
+            s.tapUntilMs = nowMs + kTapHoldMs;
+        }
+        s.touching = s.second = s.hadSecond = s.moved = s.dragging = false;
+        s.dragButton = 0;
+        s.downMs = 0;
+    }
+
+    uint8_t buttons = 0;
+    if (s.dragging) buttons |= s.dragButton;
+    if (nowMs < s.tapUntilMs) buttons |= s.tapButton;
+    else s.tapButton = 0;
+    io.buttons |= buttons;
+    if (io.dx != 0 || io.dy != 0 || io.wheel != 0 || buttons != s.prevButtons) io.moved = true;
+    s.prevButtons = buttons;
+    return s.dragging;
+}
+
 }  // namespace xc::input

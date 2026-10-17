@@ -291,6 +291,7 @@ bool pollPad(int index, ControllerState& out) {
 
     if (pad.touching) {
         out.touching = true;
+        out.touchSecond = pad.touchSecond;
         out.touchX = pad.touchX;
         out.touchY = pad.touchY;
     }

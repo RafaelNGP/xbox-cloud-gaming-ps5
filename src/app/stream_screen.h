@@ -81,9 +81,11 @@ private:
     input::PadMap padMap_ = input::defaultPadMap();  // this game's controller buttons, toward the game only
     int gyroMode_ = 0, gyroLevel_ = 5;  // gyro aiming (input/gyro.h), this game's
     bool highRefresh_ = false;  // 120 Hz turned on for this stream
+    bool mouseKeyboard_ = false;  // the game takes native mouse and keyboard (touchpad acts as a mouse)
     input::KbmInput kbm_;
     int kbSlotAttached_ = -1;  // the keyboard's slot as a controller, announced
     input::MouseStick mouseStick_;
+    input::TouchpadMouse touchMouse_;
     input::ControllerState kbPad_;  // the keyboard as a controller, this pass
     std::vector<uint8_t> keysInGame_;  // keys the game was told are down
     bool wasStreaming_ = false;

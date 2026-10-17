@@ -1058,6 +1058,100 @@ static void testKeyboardAsGamepad() {
     CHECK(pad.btnA && pad.btnB && pad.leftStickX == -1.0f && pad.triggerR2 == 1.0f);
 }
 
+// The DualSense's touchpad as a mouse in MKB games: cursor motion, taps,
+// two-finger scroll and click-to-drag after moving.
+static void testTouchpadAsMouse() {
+    using namespace xc::input;
+    TouchpadMouse tm;
+    ControllerState pad;
+    KbmInput io;
+
+    // 1. One finger down, then sliding right by 0.25 and down by 0.5 -> 240 x 270 counts.
+    pad.touching = true;
+    pad.touchX = 0.25f;
+    pad.touchY = 0.25f;
+    CHECK(!touchpadAsMouse(pad, 100, tm, io));
+    CHECK(io.dx == 0 && io.dy == 0 && io.buttons == 0 && !io.moved);
+
+    io = {};
+    pad.touchX = 0.5f;
+    pad.touchY = 0.75f;
+    CHECK(!touchpadAsMouse(pad, 116, tm, io));
+    CHECK(io.dx == 240 && io.dy == 270 && io.buttons == 0 && io.moved);
+
+    // Clicking the touchpad after moving holds the left mouse button for dragging.
+    io = {};
+    pad.btnTouchpad = true;
+    CHECK(touchpadAsMouse(pad, 124, tm, io));
+    CHECK(io.buttons == 1 && io.moved);
+
+    // Releasing the finger lets go of the button.
+    io = {};
+    pad.touching = false;
+    pad.btnTouchpad = false;
+    CHECK(!touchpadAsMouse(pad, 140, tm, io));
+    CHECK(io.buttons == 0 && io.moved);
+
+    // 2. A light one-finger tap clicks the left button for 50 ms.
+    io = {};
+    pad.touching = true;
+    pad.touchX = 0.5f;
+    pad.touchY = 0.5f;
+    CHECK(!touchpadAsMouse(pad, 200, tm, io));
+    io = {};
+    pad.touching = false;
+    CHECK(!touchpadAsMouse(pad, 260, tm, io));
+    CHECK(io.buttons == 1 && io.moved);
+    io = {};
+    CHECK(!touchpadAsMouse(pad, 290, tm, io));
+    CHECK(io.buttons == 1 && !io.moved);
+    io = {};
+    CHECK(!touchpadAsMouse(pad, 315, tm, io));
+    CHECK(io.buttons == 0 && io.moved);
+
+    // 3. A light two-finger tap clicks the right button.
+    io = {};
+    pad.touching = true;
+    pad.touchSecond = true;
+    CHECK(!touchpadAsMouse(pad, 400, tm, io));
+    io = {};
+    pad.touching = false;
+    pad.touchSecond = false;
+    CHECK(!touchpadAsMouse(pad, 450, tm, io));
+    CHECK(io.buttons == 2 && io.moved);
+    io = {};
+    CHECK(!touchpadAsMouse(pad, 510, tm, io));
+    CHECK(io.buttons == 0 && io.moved);
+
+    // 4. Two-finger vertical slide scrolls the wheel without moving the cursor.
+    io = {};
+    pad.touching = true;
+    pad.touchSecond = true;
+    pad.touchX = 0.5f;
+    pad.touchY = 0.6f;
+    CHECK(!touchpadAsMouse(pad, 600, tm, io));
+    io = {};
+    pad.touchY = 0.35f;  // up by 0.25 -> +2 wheel notches
+    CHECK(!touchpadAsMouse(pad, 620, tm, io));
+    CHECK(io.dx == 0 && io.dy == 0 && io.wheel == 2 && io.moved);
+    pad.touching = false;
+    pad.touchSecond = false;
+    io = {};
+    touchpadAsMouse(pad, 640, tm, io);
+
+    // 5. A plain physical touchpad click without moving first stays View (not a mouse click).
+    io = {};
+    pad.touching = true;
+    pad.btnTouchpad = true;
+    CHECK(!touchpadAsMouse(pad, 700, tm, io));
+    CHECK(io.buttons == 0 && !io.moved);
+    pad.touching = false;
+    pad.btnTouchpad = false;
+    io = {};
+    CHECK(!touchpadAsMouse(pad, 740, tm, io));
+    CHECK(io.buttons == 0 && !io.moved);
+}
+
 // Keys chosen in Settings: one key moves off the input it was on.
 static void testKeyMap() {
     using namespace xc::input;
@@ -1659,6 +1753,7 @@ int main() {
     testHidToVk();
     testKeyboardNav();
     testKeyboardAsGamepad();
+    testTouchpadAsMouse();
     testKeyMap();
     testPadMap();
     testTeredo();

@@ -115,6 +115,8 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             tile = g_playTile;
         }
         gameKey_ = gameProfileKey(tile.productId, tile.titleId);
+        mouseKeyboard_ = tile.mouseKeyboard && !tile.homeConsole;
+        touchMouse_ = {};
 
         std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
         bool hasCustom = false;
@@ -352,10 +354,20 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             }
             overlaySeq_ = 0;
         }
+        input::KbmInput touchKbm;
+        bool touchDrag = false;
+        if (mouseKeyboard_ && !menu_.isOpen() && g_keyboardFor.empty() && !menuCombo) {
+            touchDrag = input::touchpadAsMouse(pad, platform::nowMs(), touchMouse_, touchKbm);
+        } else {
+            if (touchMouse_.prevButtons != 0) touchKbm.moved = true;  // let go of any held touchpad mouse button
+            touchMouse_ = {};
+        }
         // The game gets the buttons through this game's map (Settings >
         // Controller buttons); everything above (the menu's combo, the
         // menu itself) read them as they are.
-        input::ControllerState sent = input::applyPadMap(pad, padMap_);
+        input::ControllerState padIn = pad;
+        if (touchDrag) padIn.btnTouchpad = false;  // held as a mouse button after moving the cursor, not View
+        input::ControllerState sent = input::applyPadMap(padIn, padMap_);
         if (g_syntheticA) sent.btnA = true;
         // While another window has the focus on the cloud console (a
         // publisher's page such as NetEase's terms in Marvel Rivals,
@@ -374,8 +386,10 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         else if (!held) padReleased_ = true;
         if (!padReleased_ || menuCombo) sent = input::ControllerState{};
         // Swiping up or right on the touchpad is the Xbox button (once
-        // per swipe; the games never see the touchpad's touches).
-        if (pad.touching && !pad.btnTouchpad && g_keyboardFor.empty()) {
+        // per swipe; the games never see the touchpad's touches). In MKB
+        // games the touchpad moves the mouse while the menu is closed.
+        bool swipeOn = !mouseKeyboard_ || menu_.isOpen();
+        if (swipeOn && pad.touching && !pad.btnTouchpad && g_keyboardFor.empty()) {
             if (!swipe_.active) swipe_ = {true, false, pad.touchX, pad.touchY};
             float dx = pad.touchX - swipe_.x, dy = swipe_.y - pad.touchY;  // dy > 0: up
             bool right = dx > 0.30f && std::abs(dy) < 0.30f, up = dy > 0.40f && std::abs(dx) < 0.30f;
@@ -414,9 +428,12 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             g_player->sendInput(kbPad_, alone);  // all released while the app's menu is open
         } else if (kbSlot >= 0) {
             // Added to that player's pad in the loop below.
+        }
+        if (kbSlot >= 0 && !menu_.isOpen()) {
+            if (touchKbm.moved) g_player->sendKbm(touchKbm);
         } else if (!menu_.isOpen()) {
-        // USB keyboard and mouse: straight to the game (those that take
-        // them) while the app's menu is closed; F12 is the app's.
+        // USB keyboard and mouse (plus the touchpad mouse in MKB games):
+        // straight to the game while the app's menu is closed; F12 is the app's.
             input::KbmInput toGame = kbm_;
             toGame.keys.erase(std::remove_if(toGame.keys.begin(), toGame.keys.end(),
                                              [](const input::KeyEvent& k) { return k.vk == input::kVkAppMenu || k.vk == 0x24; }),
@@ -426,10 +443,15 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 if (k.pressed && at == keysInGame_.end()) keysInGame_.push_back(k.vk);
                 if (!k.pressed && at != keysInGame_.end()) keysInGame_.erase(at);
             }
+            toGame.dx += touchKbm.dx;
+            toGame.dy += touchKbm.dy;
+            toGame.wheel += touchKbm.wheel;
+            toGame.buttons |= touchKbm.buttons;
+            toGame.moved |= touchKbm.moved;
             g_player->sendKbm(toGame);
-        } else if (!keysInGame_.empty()) {
-            // The menu opened with keys down: the game lets go of them.
-            input::KbmInput release;
+        } else if (!keysInGame_.empty() || touchKbm.moved) {
+            // The menu opened with keys or a touchpad mouse button down: let go of them.
+            input::KbmInput release = touchKbm;
             for (uint8_t vk : keysInGame_) release.keys.push_back({vk, false});
             keysInGame_.clear();
             g_player->sendKbm(release);
