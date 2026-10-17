@@ -311,15 +311,18 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
         xcloud::Resolution tier;
         if (!g_autoplay.resolution.empty())
             tier = res == "720p"       ? xcloud::Resolution::P720
-                   : isBest            ? xcloud::Resolution::P1440
+                   : res == "1440p"    ? xcloud::Resolution::P1440
                    : res == "1080p-hq" ? xcloud::Resolution::P1080HQ
-                                       : xcloud::Resolution::P1080;
+                   : isBest            ? (allow1440Locked() ? xcloud::Resolution::P1440 : xcloud::Resolution::P1080HQ)
+                                       : xcloud::Resolution::P1080HQ;
         else if (res == "720p")
             tier = xcloud::Resolution::P720;
-        else if (home || isBest)
+        else if (home)
+            tier = xcloud::Resolution::P1440;
+        else if (res == "1440p" || (isBest && allow1440Locked()))
             tier = xcloud::Resolution::P1440;
         else
-            tier = xcloud::Resolution::P1080;
+            tier = xcloud::Resolution::P1080HQ;
         gssv.setResolution(tier);
         const xcloud::Region* region = gssv.session().defaultRegion();
         const std::string& wanted = regionName.empty() ? g_settings.region : regionName;

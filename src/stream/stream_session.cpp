@@ -487,10 +487,13 @@ struct StreamSession::Impl {
             if (cb.audio) cb.audio(reinterpret_cast<const uint8_t*>(data.data()), data.size(), info.timestamp);
         });
 
-        // Video: H.264 only, Main before Constrained Baseline / Baseline.
+        // Video: H.264 only, High and Main before Constrained Baseline / Baseline.
         rtc::Description::Video v("1", rtc::Description::Direction::RecvOnly);
-        // Main profile at level 5.1 (0x33): the level that allows 1440p60; with
-        // 3.1 the service tops out at 1080p (it answers level 4.2).
+        // High profile (0x64): enables 8x8 integer transform and improved quantization matrices.
+        // Level 5.1 (0x33) allows 1440p60; level 4.2 (0x2a) is xCloud's standard 1080p60 ceiling.
+        v.addH264Codec(100, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640033");
+        v.addH264Codec(101, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=64002a");
+        // Main profile at level 5.1 (0x33): fallback if server doesn't negotiate High profile.
         v.addH264Codec(102, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d0033");
         v.addH264Codec(104, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f");
         v.addH264Codec(106, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f");

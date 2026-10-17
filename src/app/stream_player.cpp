@@ -295,8 +295,10 @@ struct StreamPlayer::Impl {
             // When a burst of packets arrives after network jitter/retransmission,
             // fast-forward decode without drawing to drain the stale backlog in a few
             // milliseconds and present the newest live frame immediately.
-            // Under normal playback (backlog <= 2), every frame is drawn smoothly.
-            if (backlog >= 3 && skippedInRow < 10) {
+            // backlog is measured after popping the current frame: backlog >= 2 means
+            // >= 3 frames buffered (>= 33ms stale). Fast-forwarding flushes the queue
+            // without swapchain stall, keeping display latency around ~27ms.
+            if (backlog >= 2 && skippedInRow < 5) {
                 ++skippedInRow;
                 ++droppedFrames;
                 continue;

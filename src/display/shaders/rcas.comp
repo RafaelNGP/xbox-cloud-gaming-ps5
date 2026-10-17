@@ -18,6 +18,7 @@ layout(push_constant) uniform Constants {
 #define A_GLSL 1
 #include "ffx_a.h"
 #define FSR_RCAS_F 1
+#define FSR_RCAS_DENOISE 1
 AF4 FsrRcasLoadF(ASU2 p) {
     ivec2 size = imageSize(upscaled);
     return imageLoad(upscaled, clamp(p, ivec2(0), size - 1));
