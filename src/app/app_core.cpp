@@ -114,6 +114,7 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         if (input::padMapValid(choice.padMap)) g_settings.padMap = choice.padMap;  // the screen only lets a complete one out
         g_settings.gyroMode = choice.gyroMode;
         g_settings.gyroLevel = choice.gyroLevel;
+        g_settings.touchpadMouse = choice.touchpadMouse;
         fullscreenChanged = g_settings.desktopFullscreen != choice.fullscreen;
         g_settings.desktopFullscreen = choice.fullscreen;
         g_settings.save(settingsPath());  // warns itself
@@ -316,6 +317,7 @@ bool coreStartup() {
         choice.gyroMode = g_settings.gyroMode;
         choice.gyroLevel = g_settings.gyroLevel;
         choice.fullscreen = g_settings.desktopFullscreen;
+        choice.touchpadMouse = g_settings.touchpadMouse;
         g_ui->setAllow1440(allow1440Locked());
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
         g_ui->setSettings(choice);
@@ -325,7 +327,8 @@ bool coreStartup() {
         g_ui->setRegionLatency(g_settings.regionRtt);
         g_ui->setPrefs(g_settings.hidden, g_settings.librarySort == "az"        ? ui::LibrarySort::AZ
                                           : g_settings.librarySort == "console" ? ui::LibrarySort::Console
-                                                                                : ui::LibrarySort::Recent);
+                                                                                : ui::LibrarySort::Recent,
+                       g_settings.favorites);
     }
     g_ui->setCaps(uiCaps());
     g_core->canvas.emplace(display::kWidth, display::kHeight);
@@ -667,11 +670,13 @@ bool Core::frame() {
         case ui::Action::PrefsChanged: {
             std::lock_guard<std::mutex> lock(g_settingsMutex);
             g_settings.hidden = ev.hidden;
+            g_settings.favorites = ev.favorites;
             g_settings.librarySort = ev.librarySort == ui::LibrarySort::AZ        ? "az"
                                      : ev.librarySort == ui::LibrarySort::Console ? "console"
                                                                                    : "recent";
             g_settings.save(settingsPath());  // warns itself
-            XC_LOGI("prefs saved: %zu hidden, sort %s", g_settings.hidden.size(), g_settings.librarySort.c_str());
+            XC_LOGI("prefs saved: %zu hidden, %zu favorites, sort %s", g_settings.hidden.size(), g_settings.favorites.size(), g_settings.librarySort.c_str());
+            updateLibraryFavorites(g_settings.favorites);
             break;
         }
         case ui::Action::GameSettingsChanged: {

@@ -250,6 +250,23 @@ std::vector<ui::GameRow> Library::rows() const {
         }
     }
 
+    // Insert "Favorites" row at the top of the library if any are marked
+    if (!favorites_.empty()) {
+        ui::GameRow favRow;
+        favRow.title = ui::tr(ui::Str::Favorites);
+        favRow.gamePassBadges = false;
+        favRow.isGrid = false;
+        for (const auto& pid : favorites_) {
+            ui::GameTile t = tile(pid);
+            if (!t.productId.empty() && !t.titleId.empty() && !xcloud::isNonGameAddon(t.titleId, t.name)) {
+                favRow.tiles.push_back(std::move(t));
+            }
+        }
+        if (!favRow.tiles.empty()) {
+            rows.insert(rows.begin(), std::move(favRow));
+        }
+    }
+
     return rows;
 }
 
@@ -633,9 +650,7 @@ bool Library::fetchFull(const std::vector<std::string>& ids, const Changed& chan
     std::set<std::string> queued;
     for (const auto& id : ids) {
         auto it = products_.find(id);
-        if ((it == products_.end() || it->second.heroUrl.empty() || it->second.description.empty() ||
-             !it->second.detailed || !it->second.plan) &&
-            queued.insert(id).second)
+        if ((it == products_.end() || !it->second.detailed) && queued.insert(id).second)
             order.push_back(id);
     }
     // Batches of 20 (~10 KB per product: bigger ones made the catalog time

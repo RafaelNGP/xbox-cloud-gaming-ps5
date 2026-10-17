@@ -9,8 +9,10 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 
 namespace xc::auth {
 
@@ -130,9 +132,102 @@ bool AuthManager::xboxChain(xcloud::GssvClient& gssv, std::string& err) {
         XC_LOGW("profile XSTS: %s", perr.c_str());
     }
 
-    fetchSubscription(user);
     if (!xstsToken(user, rp::kGssv, gssvXsts_, err)) return false;
-    return gssv.login(gssvXsts_, err);
+    if (!gssv.login(gssvXsts_, err)) return false;
+    fetchSubscription(user, gssv.session().market);
+    return true;
+}
+
+namespace {
+
+static uint64_t readVarint(const uint8_t*& ptr, const uint8_t* end, bool& ok) {
+    uint64_t val = 0;
+    int shift = 0;
+    while (ptr < end && shift < 64) {
+        uint8_t b = *ptr++;
+        val |= static_cast<uint64_t>(b & 0x7F) << shift;
+        if ((b & 0x80) == 0) {
+            ok = true;
+            return val;
+        }
+        shift += 7;
+    }
+    ok = false;
+    return 0;
+}
+
+static void parseProtobufPlaytime(const uint8_t* ptr, const uint8_t* end, int depth, int64_t& remaining, int64_t& max) {
+    if (depth > 6) return;
+    while (ptr < end) {
+        bool ok = false;
+        uint64_t tag = readVarint(ptr, end, ok);
+        if (!ok) break;
+        uint32_t fieldNum = static_cast<uint32_t>(tag >> 3);
+        uint32_t wireType = static_cast<uint32_t>(tag & 0x7);
+        if (wireType == 0) { // Varint
+            uint64_t v = readVarint(ptr, end, ok);
+            if (!ok) break;
+            if (fieldNum == 1 && remaining < 0) remaining = static_cast<int64_t>(v);
+            else if (fieldNum == 2 && max < 0) max = static_cast<int64_t>(v);
+        } else if (wireType == 1) { // 64-bit
+            if (ptr + 8 > end) break;
+            ptr += 8;
+        } else if (wireType == 2) { // Length-delimited
+            uint64_t len = readVarint(ptr, end, ok);
+            if (!ok || ptr + len > end) break;
+            parseProtobufPlaytime(ptr, ptr + len, depth + 1, remaining, max);
+            ptr += len;
+        } else if (wireType == 5) { // 32-bit
+            if (ptr + 4 > end) break;
+            ptr += 4;
+        } else {
+            break;
+        }
+    }
+}
+
+}  // namespace
+
+bool parsePlaytimeLimit(const std::string& body, int64_t& remaining, int64_t& max) {
+    remaining = -1;
+    max = -1;
+    if (body.empty()) return false;
+
+    // 1. Try JSON
+    auto j = json::parse(body);
+    if (j) {
+        std::function<void(const json::Value&)> walk = [&](const json::Value& val) {
+            if (val.isObject()) {
+                for (const auto& [k, v] : val.members()) {
+                    if (k == "remainingGameplayTimeInSeconds" || k == "remainingGameplayTime") {
+                        if (v.isNumber()) remaining = v.asInt();
+                        else if (v.isString()) remaining = std::strtoll(v.str().c_str(), nullptr, 10);
+                    } else if (k == "maxGameplayTimeInSeconds" || k == "maxGameplayTime") {
+                        if (v.isNumber()) max = v.asInt();
+                        else if (v.isString()) max = std::strtoll(v.str().c_str(), nullptr, 10);
+                    }
+                    walk(v);
+                }
+            } else if (val.isArray()) {
+                for (const auto& elem : val.items()) walk(elem);
+            }
+        };
+        walk(*j);
+        if (remaining >= 0) {
+            if (max > 0 && max < remaining) std::swap(remaining, max);
+            return true;
+        }
+    }
+
+    // 2. Minimal Protobuf reader
+    const uint8_t* ubody = reinterpret_cast<const uint8_t*>(body.data());
+    parseProtobufPlaytime(ubody, ubody + body.size(), 0, remaining, max);
+    if (remaining >= 0) {
+        if (max > 0 && max < remaining) std::swap(remaining, max);
+        return true;
+    }
+
+    return false;
 }
 
 std::string subscriptionPlan(const std::string& body) {
@@ -177,7 +272,7 @@ std::string subscriptionRenewal(const std::string& body, int64_t nowUnix) {
     return {};
 }
 
-void AuthManager::fetchSubscription(const XblToken& userToken) {
+void AuthManager::fetchSubscription(const XblToken& userToken, const std::string& market) {
     // What xbox.com shows on the profile: the store service's entitlements
     // for the Game Pass products. Optional: a failure only leaves the plan
     // unknown (the UI then shows "Game Pass" from the titles).
@@ -198,13 +293,39 @@ void AuthManager::fetchSubscription(const XblToken& userToken) {
     auto r = net::perform(req);
     if (!r.ok()) {
         XC_LOGW("subscription: entitlements: %s", r.status ? ("HTTP " + std::to_string(r.status)).c_str() : r.error.c_str());
+    } else {
+        if (std::getenv("XC_DUMP_SUBSCRIPTION")) std::printf("%s\n", r.body.c_str());  // diagnostics (CLI)
+        profile_.subscription = subscriptionPlan(r.body);
+        std::string renewal = subscriptionRenewal(r.body, unixNow());
+        XC_LOGI("subscription: %s%s%s%s", profile_.subscription.empty() ? "none" : profile_.subscription.c_str(),
+                renewal.empty() ? "" : " (", renewal.c_str(), renewal.empty() ? "" : ")");
+    }
+
+    fetchPlaytimeLimit(mp, market);
+}
+
+void AuthManager::fetchPlaytimeLimit(const XblToken& mp, const std::string& market) {
+    net::Request req;
+    req.method = "GET";
+    std::string m = market.empty() ? "US" : market;
+    req.url = "https://contentaccess.exp.xboxservices.com/all/v1?market=" + m + "&offering=xgpuweb";
+    req.headers = {
+        {"Authorization", mp.authorizationHeader()},
+        {"Accept", "application/json, application/x-protobuf"},
+        {"X-MS-API-Version", "1.0"},
+        {"MS-CV", "PSBoxPlaytime.1"}
+    };
+    auto r = net::perform(req);
+    if (!r.ok()) {
+        XC_LOGW("playtime limit: %s", r.status ? ("HTTP " + std::to_string(r.status)).c_str() : r.error.c_str());
         return;
     }
-    if (std::getenv("XC_DUMP_SUBSCRIPTION")) std::printf("%s\n", r.body.c_str());  // diagnostics (CLI)
-    profile_.subscription = subscriptionPlan(r.body);
-    std::string renewal = subscriptionRenewal(r.body, unixNow());
-    XC_LOGI("subscription: %s%s%s%s", profile_.subscription.empty() ? "none" : profile_.subscription.c_str(),
-            renewal.empty() ? "" : " (", renewal.c_str(), renewal.empty() ? "" : ")");
+    parsePlaytimeLimit(r.body, profile_.playtimeRemainingSeconds, profile_.playtimeMaxSeconds);
+    if (profile_.playtimeRemainingSeconds >= 0) {
+        XC_LOGI("playtime limit: %lld h remaining of %lld h",
+                static_cast<long long>(profile_.playtimeRemainingSeconds / 3600),
+                static_cast<long long>(profile_.playtimeMaxSeconds / 3600));
+    }
 }
 
 bool AuthManager::loginOffering(xcloud::GssvClient& other, std::string& err) const {

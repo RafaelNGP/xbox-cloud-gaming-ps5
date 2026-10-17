@@ -15,7 +15,7 @@ namespace xc::app {
 
 struct GameProfile {
     // Picture
-    int sharpness = 0;           // 0 off, 1..3 low, medium, high
+    int sharpness = 2;           // 0 off, 1..3 low, medium (FSR RCAS), high
     int deband = 3;              // 0 off, 1 low, 2 high, 3 auto
     int upscaler = 2;            // 0 FSR 1, 1 Anime4K, 2 FSR + clean, 3 Anime4K + clean
     int resolution = 0;          // 0 1080p, 1 720p, 2 1440p
@@ -35,6 +35,10 @@ struct GameProfile {
     // Gyro aiming: 0 off, 1 always, 2 while L2 is held; intensity 1..10
     int gyroMode = 0;
     int gyroLevel = 5;
+    // Touchpad as mouse in games with native MKB support (OFF by default)
+    bool touchpadMouse = false;
+    // Per-game audio/subtitle language: "" = system default, else e.g. "en-US", "pt-BR"
+    std::string locale;
 };
 
 // Key to identify a game profile: productId first, else titleId.
@@ -53,11 +57,12 @@ struct Settings {
     // Games hidden with Square (product ids), and the "Your games" order
     // ("recent", "az", "console").
     std::vector<std::string> hidden;
+    std::vector<std::string> favorites;  // Games marked as favourite (product ids)
     std::string librarySort = "recent";
     // The statistics line over the game (in-game menu).
     bool streamStats = false;
-    // Sharpening of the game picture: 0 off, 1..3 low, medium, high.
-    int sharpness = 0;
+    // Sharpening of the game picture: 0 off, 1..3 low, medium (FSR RCAS), high.
+    int sharpness = 2;
     // Smoothing of compression blocks (GPU display): 0 off, 1 low, 2 high,
     // 3 auto (stronger as the bitrate falls).
     int deband = 3;
@@ -91,6 +96,7 @@ struct Settings {
     int keyboardPlayer = 0;    // the player a USB keyboard and mouse play as (0..3; keys 1-4): 0 native with player 1, else that player's controller
     int gyroMode = 0;          // gyro aiming (input/gyro.h): 0 off, 1 always, 2 while L2 is held
     int gyroLevel = 5;         // its intensity, 1..10
+    bool touchpadMouse = false; // touchpad as mouse in games with native MKB support
     int micGain = 1;        // 0: 50%, 1: 100%, 2: 150%
     int audioRoute = 0;     // 0: TV/HDMI (Main), 1: DualSense Speaker / Headset (Pad)
     // The release the user said "Not now" to: not offered again on start.

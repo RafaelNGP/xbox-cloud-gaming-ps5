@@ -306,6 +306,17 @@ constexpr Column kEnglish = {
     "My plan", // PlanMine
     "All plans", // PlanAll
     "Included with Game Pass %s", // IncludedWithPlan
+    "Touchpad as mouse", // TouchpadMouse
+    "Favourites", // Favorites
+    "Add to favourites", // AddFavorite
+    "Remove from favourites", // RemoveFavorite
+    "Added to favourites", // AddedToFavorites
+    "Removed from favourites", // RemovedFromFavorites
+    "Game language", // GameLanguage
+    "Monthly cloud gaming limit reached", // MonthlyLimitExceeded
+    "Playtime remaining", // PlaytimeRemaining
+    "%s h remaining", // HoursRemaining
+    "Less than 2 h remaining", // PlaytimeWarning
 };
 
 constexpr Column kPortugueseBR = {
@@ -582,6 +593,17 @@ constexpr Column kPortugueseBR = {
     "Meu plano", // PlanMine
     "Todos os planos", // PlanAll
     "Incluído no Game Pass %s", // IncludedWithPlan
+    "Touchpad como mouse", // TouchpadMouse
+    "Favoritos", // Favorites
+    "Adicionar aos favoritos", // AddFavorite
+    "Remover dos favoritos", // RemoveFavorite
+    "Adicionado aos favoritos", // AddedToFavorites
+    "Removido dos favoritos", // RemovedFromFavorites
+    "Idioma do jogo", // GameLanguage
+    "Limite mensal de jogo em nuvem atingido", // MonthlyLimitExceeded
+    "Tempo de jogo restante", // PlaytimeRemaining
+    "%s h restantes", // HoursRemaining
+    "Menos de 2 h restantes", // PlaytimeWarning
 };
 
 constexpr Column kSpanish = {
@@ -858,6 +880,17 @@ constexpr Column kSpanish = {
     "Mi plan", // PlanMine
     "Todos los planes", // PlanAll
     "Incluido con Game Pass %s", // IncludedWithPlan
+    "Panel táctil como ratón", // TouchpadMouse
+    "Favoritos", // Favorites
+    "Añadir a favoritos", // AddFavorite
+    "Quitar de favoritos", // RemoveFavorite
+    "Añadido a favoritos", // AddedToFavorites
+    "Eliminado de favoritos", // RemovedFromFavorites
+    "Idioma del juego", // GameLanguage
+    "Límite mensual de juego en la nube alcanzado", // MonthlyLimitExceeded
+    "Tiempo de juego restante", // PlaytimeRemaining
+    "%s h restantes", // HoursRemaining
+    "Menos de 2 h restantes", // PlaytimeWarning
 };
 
 constexpr Column kFrench = {
@@ -1134,6 +1167,17 @@ constexpr Column kFrench = {
     "Mon forfait", // PlanMine
     "Tous les forfaits", // PlanAll
     "Inclus avec Game Pass %s", // IncludedWithPlan
+    "Pavé tactile comme souris", // TouchpadMouse
+    "Favoris", // Favorites
+    "Ajouter aux favoris", // AddFavorite
+    "Retirer des favoris", // RemoveFavorite
+    "Ajouté aux favoris", // AddedToFavorites
+    "Retiré des favoris", // RemovedFromFavorites
+    "Langue du jeu", // GameLanguage
+    "Limite mensuelle de jeu dans le cloud atteinte", // MonthlyLimitExceeded
+    "Temps de jeu restant", // PlaytimeRemaining
+    "%s h restantes", // HoursRemaining
+    "Moins de 2 h restantes", // PlaytimeWarning
 };
 
 constexpr Column kGerman = {
@@ -1410,6 +1454,17 @@ constexpr Column kGerman = {
     "Mein Abo", // PlanMine
     "Alle Abos", // PlanAll
     "In Game Pass %s enthalten", // IncludedWithPlan
+    "Touchpad als Maus", // TouchpadMouse
+    "Favoriten", // Favorites
+    "Zu Favoriten hinzufügen", // AddFavorite
+    "Aus Favoriten entfernen", // RemoveFavorite
+    "Zu Favoriten hinzugefügt", // AddedToFavorites
+    "Aus Favoriten entfernt", // RemovedFromFavorites
+    "Spiel-Sprache", // GameLanguage
+    "Monatliches Cloud-Gaming-Limit erreicht", // MonthlyLimitExceeded
+    "Verbleibende Spielzeit", // PlaytimeRemaining
+    "%s Std. verbleibend", // HoursRemaining
+    "Weniger als 2 Std. verbleibend", // PlaytimeWarning
 };
 
 constexpr Column kItalian = {
@@ -1686,6 +1741,17 @@ constexpr Column kItalian = {
     "Il mio piano", // PlanMine
     "Tutti i piani", // PlanAll
     "Incluso con Game Pass %s", // IncludedWithPlan
+    "Touchpad come mouse", // TouchpadMouse
+    "Preferiti", // Favorites
+    "Aggiungi ai preferiti", // AddFavorite
+    "Rimuovi dai preferiti", // RemoveFavorite
+    "Aggiunto ai preferiti", // AddedToFavorites
+    "Rimosso dai preferiti", // RemovedFromFavorites
+    "Lingua del gioco", // GameLanguage
+    "Limite mensile di gioco su cloud raggiunto", // MonthlyLimitExceeded
+    "Tempo di gioco rimanente", // PlaytimeRemaining
+    "%s ore rimanenti", // HoursRemaining
+    "Meno di 2 ore rimanenti", // PlaytimeWarning
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

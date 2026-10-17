@@ -27,7 +27,7 @@ namespace xc::stream {
 class H264Receiver final : public rtc::MediaHandler {
 public:
     // `onKeyframeNeeded` runs on libdatachannel's thread.
-    H264Receiver(std::function<void()> onKeyframeNeeded, VideoReceiveStats& stats);
+    H264Receiver(std::function<void()> onKeyframeNeeded, VideoReceiveStats& stats, uint64_t waitMs = 300);
 
     void incoming(rtc::message_vector& messages, const rtc::message_callback& send) override;
 
@@ -62,6 +62,7 @@ private:
 
     std::function<void()> onKeyframeNeeded_;
     VideoReceiveStats& stats_;
+    uint64_t waitMs_ = 300;
     std::map<int64_t, Packet> packets_;
     std::map<int64_t, Missing> missing_;
     int64_t highest_ = -1;    // highest extended sequence number seen

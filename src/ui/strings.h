@@ -283,6 +283,17 @@ enum class Str {
     PlanMine,           // ... what the account's plan plays
     PlanAll,            // ... every Game Pass plan
     IncludedWithPlan,   // game page: "%s" = "Ultimate" / "Premium" / "Essential"
+    TouchpadMouse,      // per-game setting: use touchpad as mouse in games with mouse support
+    Favorites,          // home screen row: Favourites
+    AddFavorite,        // details action hint: Add to favourites
+    RemoveFavorite,     // details action hint: Remove from favourites
+    AddedToFavorites,   // toast: Added to favourites
+    RemovedFromFavorites, // toast: Removed from favourites
+    GameLanguage,       // per-game setting row: Game language
+    MonthlyLimitExceeded, // session error: Monthly cloud gaming limit reached
+    PlaytimeRemaining,  // telemetry / top bar: playtime remaining
+    HoursRemaining,     // "%s h remaining" / "%s h restantes"
+    PlaytimeWarning,    // warning when < 2 hours remaining
     Count
 };
 
