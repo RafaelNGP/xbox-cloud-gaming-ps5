@@ -295,8 +295,8 @@ struct StreamPlayer::Impl {
             // When a burst of packets arrives after network jitter/retransmission,
             // fast-forward decode without drawing to drain the stale backlog in a few
             // milliseconds and present the newest live frame immediately.
-            // Under normal playback (backlog <= 3), every frame is drawn smoothly.
-            if (backlog >= 4 && skippedInRow < 15) {
+            // Under normal playback (backlog <= 7), every frame is drawn smoothly.
+            if (backlog >= 8 && skippedInRow < 15) {
                 ++skippedInRow;
                 ++droppedFrames;
                 continue;

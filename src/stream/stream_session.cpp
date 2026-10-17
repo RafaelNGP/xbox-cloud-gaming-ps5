@@ -20,6 +20,7 @@
 #include <condition_variable>
 #include <cstdio>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 namespace xc::stream {
@@ -104,6 +105,7 @@ struct StreamSession::Impl {
     std::atomic<bool> closedNotified{false};
     std::atomic<uint32_t> inputSequence{1};
     uint64_t lastKeepaliveMs = 0;
+    std::atomic<bool> keepaliveInFlight{false};
     uint64_t lastKeyframeMs = 0;
     VideoReceiveStats videoStats;
     std::shared_ptr<RtcpReporter> videoReporter;
@@ -647,8 +649,13 @@ struct StreamSession::Impl {
         uint64_t now = platform::nowMs();
         if (now - lastKeepaliveMs >= 30000) {
             lastKeepaliveMs = now;
-            std::string err;
-            if (!gssv.keepalive(err)) XC_LOGW("%s", err.c_str());
+            if (!keepaliveInFlight.exchange(true)) {
+                std::thread([this] {
+                    std::string err;
+                    if (!gssv.keepalive(err)) XC_LOGW("%s", err.c_str());
+                    keepaliveInFlight = false;
+                }).detach();
+            }
         }
         if (opt.keyframeIntervalSec > 0 && now - lastKeyframeMs >= static_cast<uint64_t>(opt.keyframeIntervalSec) * 1000u) {
             lastKeyframeMs = now;

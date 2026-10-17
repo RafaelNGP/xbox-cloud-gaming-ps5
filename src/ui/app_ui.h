@@ -129,6 +129,7 @@ struct SettingsChoice {
     int gyroMode = 0;   // gyro aiming (input/gyro.h): 0 off, 1 always, 2 while L2 is held
     int gyroLevel = 5;  // intensity, 1..10
     bool fullscreen = true;    // a desktop's window fullscreen (UiCaps::desktopWindow; F11 switches it too)
+    bool touchpadMouse = false;
 };
 
 // What this system and its pads can do, filled in by the app from the pads'
@@ -165,8 +166,9 @@ struct SettingsRowPos {
 // hidden (their setting stays as it is in settings.json).
 std::vector<SettingsRowPos> visibleSettingsRows(const UiCaps& caps);
 // The same for a game's settings (row ids as AppUi draws them); "Reset to
-// default" only with a profile of its own (`custom`).
-std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool custom);
+// default" only with a profile of its own (`custom`); `mouseSupported` shows
+// the touchpad mouse option on pads with a touchpad.
+std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool custom, bool mouseSupported = false);
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
@@ -548,6 +550,7 @@ private:
     SettingsChoice settings_;
     bool displayModeChanged_ = false;  // the Display mode row changed: handle() sends the settings
     bool circleConfirms_ = false;
+    bool activeGameMouseSupported_ = false;
     PadSlots pads_{};
     std::map<std::string, Color> accents_;  // tile art url -> its colour
     std::vector<std::string> regions_;

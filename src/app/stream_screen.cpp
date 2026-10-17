@@ -122,6 +122,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         bool hasCustom = false;
         GameProfile prof = g_settings.profileForGame(tile.productId, tile.titleId, &hasCustom);
         hasCustomProfile_ = hasCustom;
+        touchpadMouse_ = prof.touchpadMouse;
 
         streamResolution_ = prof.resolution;
         showStats_ = g_settings.streamStats;
@@ -356,7 +357,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         }
         input::KbmInput touchKbm;
         bool touchDrag = false;
-        if (mouseKeyboard_ && !menu_.isOpen() && g_keyboardFor.empty() && !menuCombo) {
+        if (mouseKeyboard_ && touchpadMouse_ && !menu_.isOpen() && g_keyboardFor.empty() && !menuCombo) {
             touchDrag = input::touchpadAsMouse(pad, platform::nowMs(), touchMouse_, touchKbm);
         } else {
             if (touchMouse_.prevButtons != 0) touchKbm.moved = true;  // let go of any held touchpad mouse button
@@ -388,7 +389,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         // Swiping up or right on the touchpad is the Xbox button (once
         // per swipe; the games never see the touchpad's touches). In MKB
         // games the touchpad moves the mouse while the menu is closed.
-        bool swipeOn = !mouseKeyboard_ || menu_.isOpen();
+        bool swipeOn = (!mouseKeyboard_ || !touchpadMouse_) || menu_.isOpen();
         if (swipeOn && pad.touching && !pad.btnTouchpad && g_keyboardFor.empty()) {
             if (!swipe_.active) swipe_ = {true, false, pad.touchX, pad.touchY};
             float dx = pad.touchX - swipe_.x, dy = swipe_.y - pad.touchY;  // dy > 0: up

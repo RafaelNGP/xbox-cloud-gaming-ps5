@@ -157,13 +157,15 @@ def cmd_deploy(args):
 
 
 def convert_ppm_to_png(ppm_path: Path):
+    if not ppm_path.exists() or ppm_path.stat().st_size == 0:
+        return None
     try:
         from PIL import Image
         png_path = ppm_path.with_suffix(".png")
         with Image.open(ppm_path) as img:
             img.save(png_path, "PNG")
         return png_path
-    except ImportError:
+    except Exception:
         return None
 
 
@@ -248,12 +250,15 @@ def cmd_test(args):
     ftp = get_ftp(host, port)
     ftp.cwd("/data/psbox")
     for name in ppm_names + ["xcloud.log"]:
+        target_path = out_dir / name
         try:
-            target_path = out_dir / name
             with open(target_path, "wb") as f_out:
                 ftp.retrbinary(f"RETR {name}", f_out.write)
+            if target_path.exists() and target_path.stat().st_size == 0:
+                target_path.unlink()
         except (error_perm, error_reply):
-            pass
+            if target_path.exists() and target_path.stat().st_size == 0:
+                target_path.unlink()
     ftp.quit()
 
     # 7. Convert PPM to PNG
@@ -306,18 +311,19 @@ def cmd_test(args):
 
 
 def cmd_log(args):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from log_stream import stream_logs
     host = args.host or DEFAULT_HOST
     port = args.port or DEFAULT_PORT
-    ftp = get_ftp(host, port)
-    ftp.cwd("/data/psbox")
-    bio = io.BytesIO()
-    ftp.retrbinary("RETR xcloud.log", bio.write)
-    ftp.quit()
-    lines = bio.getvalue().decode("utf-8", errors="replace").splitlines()
-    n = args.lines or 50
-    for line in lines[-n:]:
-        print(line)
-    return 0
+    use_color = sys.stdout.isatty() and not getattr(args, "no_color", False)
+    return stream_logs(
+        host=host,
+        port=port,
+        lines=args.lines,
+        follow=args.follow,
+        filter_pattern=args.filter_pattern,
+        use_color=use_color,
+    )
 
 
 def main():
@@ -341,8 +347,11 @@ def main():
     test_p.add_argument("--no-interactive", dest="interactive", action="store_false", help="Leave app closed after test")
 
     # log
-    log_p = subparsers.add_parser("log", help="Fetch and print tail of console log")
+    log_p = subparsers.add_parser("log", help="Fetch and stream console log in real time")
     log_p.add_argument("--lines", "-n", type=int, default=60, help="Number of lines to display")
+    log_p.add_argument("-f", "--follow", "--tail", action="store_true", dest="follow", help="Follow new log lines in real time")
+    log_p.add_argument("--filter", dest="filter_pattern", default=None, help="Regex/substring filter for log lines")
+    log_p.add_argument("--no-color", action="store_true", help="Disable colored output")
 
     args = parser.parse_args()
 

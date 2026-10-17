@@ -283,6 +283,7 @@ enum class Str {
     PlanMine,           // ... what the account's plan plays
     PlanAll,            // ... every Game Pass plan
     IncludedWithPlan,   // game page: "%s" = "Ultimate" / "Premium" / "Essential"
+    TouchpadMouse,      // per-game setting: use touchpad as mouse in games with mouse support
     Count
 };
 

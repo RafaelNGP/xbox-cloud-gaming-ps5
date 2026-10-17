@@ -35,6 +35,8 @@ struct GameProfile {
     // Gyro aiming: 0 off, 1 always, 2 while L2 is held; intensity 1..10
     int gyroMode = 0;
     int gyroLevel = 5;
+    // Touchpad as mouse in games with native MKB support (OFF by default)
+    bool touchpadMouse = false;
 };
 
 // Key to identify a game profile: productId first, else titleId.
@@ -91,6 +93,7 @@ struct Settings {
     int keyboardPlayer = 0;    // the player a USB keyboard and mouse play as (0..3; keys 1-4): 0 native with player 1, else that player's controller
     int gyroMode = 0;          // gyro aiming (input/gyro.h): 0 off, 1 always, 2 while L2 is held
     int gyroLevel = 5;         // its intensity, 1..10
+    bool touchpadMouse = false; // touchpad as mouse in games with native MKB support
     int micGain = 1;        // 0: 50%, 1: 100%, 2: 150%
     int audioRoute = 0;     // 0: TV/HDMI (Main), 1: DualSense Speaker / Headset (Pad)
     // The release the user said "Not now" to: not offered again on start.

@@ -306,6 +306,7 @@ constexpr Column kEnglish = {
     "My plan", // PlanMine
     "All plans", // PlanAll
     "Included with Game Pass %s", // IncludedWithPlan
+    "Touchpad as mouse", // TouchpadMouse
 };
 
 constexpr Column kPortugueseBR = {
@@ -582,6 +583,7 @@ constexpr Column kPortugueseBR = {
     "Meu plano", // PlanMine
     "Todos os planos", // PlanAll
     "Incluído no Game Pass %s", // IncludedWithPlan
+    "Touchpad como mouse", // TouchpadMouse
 };
 
 constexpr Column kSpanish = {
@@ -858,6 +860,7 @@ constexpr Column kSpanish = {
     "Mi plan", // PlanMine
     "Todos los planes", // PlanAll
     "Incluido con Game Pass %s", // IncludedWithPlan
+    "Panel táctil como ratón", // TouchpadMouse
 };
 
 constexpr Column kFrench = {
@@ -1134,6 +1137,7 @@ constexpr Column kFrench = {
     "Mon forfait", // PlanMine
     "Tous les forfaits", // PlanAll
     "Inclus avec Game Pass %s", // IncludedWithPlan
+    "Pavé tactile comme souris", // TouchpadMouse
 };
 
 constexpr Column kGerman = {
@@ -1410,6 +1414,7 @@ constexpr Column kGerman = {
     "Mein Abo", // PlanMine
     "Alle Abos", // PlanAll
     "In Game Pass %s enthalten", // IncludedWithPlan
+    "Touchpad als Maus", // TouchpadMouse
 };
 
 constexpr Column kItalian = {
@@ -1686,6 +1691,7 @@ constexpr Column kItalian = {
     "Il mio piano", // PlanMine
     "Tutti i piani", // PlanAll
     "Incluso con Game Pass %s", // IncludedWithPlan
+    "Touchpad come mouse", // TouchpadMouse
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

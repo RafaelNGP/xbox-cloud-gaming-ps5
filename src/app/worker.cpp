@@ -152,7 +152,9 @@ std::string stream(xcloud::GssvClient& gssv) {
             }
         }
         if (platform::nowMs() >= nextTick) {
-            nextTick += 1000;
+            uint64_t tickNow = platform::nowMs();
+            double dt = lastTickAt ? (tickNow - lastTickAt) / 1000.0 : 1.0;
+            nextTick = tickNow + 1000;
             player.tick();
             auto st = player.stats();
             XC_LOGI("stream: %llu frames, %llu decoded, %llu skipped, %llu failed, %llu resets, %llu kf req, "
@@ -180,7 +182,11 @@ std::string stream(xcloud::GssvClient& gssv) {
                 ui::StreamInfo info;
                 info.region = ui::prettyRegion(gssv.region().name);
                 info.rttMs = st.rttMs;
-                info.fps = static_cast<double>(st.decodedFrames - last.decodedFrames - (st.droppedFrames - last.droppedFrames));
+                info.fps = dt > 0.05
+                               ? std::max(0.0, static_cast<double>(st.decodedFrames - last.decodedFrames -
+                                                                   (st.droppedFrames - last.droppedFrames)) /
+                                                   dt)
+                               : 60.0;
                 info.mbps = st.rtpKbps / 1000.0;
                 uint64_t lost = st.rtpLost - last.rtpLost, got = st.rtpPackets - last.rtpPackets;
                 info.lossPct = got + lost ? 100.0 * lost / (got + lost) : 0;

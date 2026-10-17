@@ -351,6 +351,7 @@ static void testPerGameSettings() {
     CHECK(def.deadzoneLeft == 12 && def.deadzoneRight == 18 && def.triggerStrength == 3);
     CHECK(!def.circleConfirms);
     CHECK(!def.highRefresh);  // off unless chosen
+    CHECK(!def.touchpadMouse);
 
     // Unknown games return default profile with hasCustom = false.
     bool hasCustom = true;
@@ -368,18 +369,19 @@ static void testPerGameSettings() {
     p1.triggerStrength = 1;
     p1.circleConfirms = true;
     p1.highRefresh = true;
+    p1.touchpadMouse = true;
     s.perGame["GAME1"] = p1;
 
     // Now GAME1 returns custom profile, while GAME2 still returns defaults.
     auto prof1Custom = s.profileForGame("GAME1", "", &hasCustom);
     CHECK(hasCustom);
     CHECK(prof1Custom.sharpness == 3 && prof1Custom.upscaler == 3 && prof1Custom.circleConfirms);
-    CHECK(prof1Custom.deadzoneLeft == 5 && prof1Custom.triggerStrength == 1);
+    CHECK(prof1Custom.deadzoneLeft == 5 && prof1Custom.triggerStrength == 1 && prof1Custom.touchpadMouse);
 
     hasCustom = true;
     auto prof2 = s.profileForGame("GAME2", "", &hasCustom);
     CHECK(!hasCustom);
-    CHECK(prof2.sharpness == 1 && !prof2.circleConfirms);
+    CHECK(prof2.sharpness == 1 && !prof2.circleConfirms && !prof2.touchpadMouse);
 
     // Title ID fallback when productId is empty.
     s.perGame["CONSOLE_SERVER_1"] = p1;
@@ -398,7 +400,7 @@ static void testPerGameSettings() {
     auto loadedP1 = reloaded.profileForGame("GAME1", "", &hasCustom);
     CHECK(hasCustom);
     CHECK(loadedP1.sharpness == 3 && loadedP1.upscaler == 3 && loadedP1.circleConfirms);
-    CHECK(loadedP1.highRefresh);
+    CHECK(loadedP1.highRefresh && loadedP1.touchpadMouse);
     CHECK(loadedP1.deadzoneLeft == 5 && loadedP1.deadzoneRight == 8 && loadedP1.triggerStrength == 1);
 
     // Remove game profile restores default.
@@ -1440,10 +1442,17 @@ static void testVisibleSettingsRows() {
     auto x = ids(ui::visibleSettingsRows(xbox));
     CHECK(std::find(x.begin(), x.end(), 4) != x.end() && std::find(x.begin(), x.end(), 6) == x.end());
     // A game's settings.
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, false)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, true)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 13, 9, 10}));
+    CHECK((groups(ui::visibleGameSettingsRows(ps5, true, true)) ==
+           std::vector<bool>{false, true, false, true, false, false, true, false, false, false, false, false, false, true}));
     CHECK((ids(ui::visibleGameSettingsRows(ps5, true)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
     CHECK((groups(ui::visibleGameSettingsRows(ps5, true)) ==
            std::vector<bool>{false, true, false, true, false, false, true, false, false, false, false, false, true}));
     CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 9}));
+    ui::UiCaps noTouch = ps5;
+    noTouch.touchpad = false;
+    CHECK((ids(ui::visibleGameSettingsRows(noTouch, true, true)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
     auto game = ui::visibleGameSettingsRows(pc, false);
     CHECK((ids(game) == std::vector<int>{0, 4, 5, 7, 11, 9}));
     CHECK((groups(game) == std::vector<bool>{false, true, true, false, false, false}));
