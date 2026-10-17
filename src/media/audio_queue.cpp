@@ -19,6 +19,14 @@ void AudioQueue::push(const float* interleaved, size_t frames) {
         size_t cut = queue_.size() - kTrimTo * 2;
         stats_.trimmed += cut / 2;
         queue_.erase(queue_.begin(), queue_.begin() + static_cast<long>(cut));
+        // Soft ramp-in on the trimmed front (1 ms = 48 stereo frames) to eliminate DC step pops
+        constexpr size_t kRamp = 48;
+        size_t rampN = std::min(kRamp * 2, queue_.size());
+        for (size_t i = 0; i < rampN; i += 2) {
+            float f = static_cast<float>(i / 2) / static_cast<float>(kRamp);
+            queue_[i] *= f;
+            queue_[i + 1] *= f;
+        }
     }
 }
 
@@ -28,7 +36,6 @@ void AudioQueue::pull(float* out, size_t frames) {
         size_t depth = queue_.size() / 2;
         stats_.depthSum += depth;
         stats_.depthMax = std::max<uint64_t>(stats_.depthMax, depth);
-        if (depth == 0) ++stats_.empty;
         ++stats_.pulls;
         stats_.frames += frames;
         if (stats_.frames >= static_cast<uint64_t>(kRate) * 10) {  // ~10 s (the PS5's 1875 grains of 256)
@@ -37,10 +44,27 @@ void AudioQueue::pull(float* out, size_t frames) {
                     static_cast<unsigned long long>(stats_.empty), stats_.trimmed * 1000.0 / kRate);
             stats_ = {};
         }
+        if (queue_.empty()) {
+            ++stats_.empty;
+            std::fill(out, out + frames * 2, 0.0f);
+            return;
+        }
         size_t n = std::min(frames * 2, queue_.size());
         std::copy(queue_.begin(), queue_.begin() + static_cast<long>(n), out);
         queue_.erase(queue_.begin(), queue_.begin() + static_cast<long>(n));
-        std::fill(out + n, out + frames * 2, 0.0f);
+        if (n < frames * 2) {
+            // Soft ramp-out on the tail of partial buffer to eliminate underrun pops
+            constexpr size_t kFade = 48;
+            if (n >= kFade * 2) {
+                for (size_t i = 0; i < kFade * 2; i += 2) {
+                    float f = 1.0f - static_cast<float>(i / 2) / static_cast<float>(kFade);
+                    out[n - kFade * 2 + i] *= f;
+                    out[n - kFade * 2 + i + 1] *= f;
+                }
+            }
+            std::fill(out + n, out + frames * 2, 0.0f);
+            ++stats_.empty;
+        }
     }
     if (float v = volume_.load(); v != 1.0f)
         for (size_t i = 0; i < frames * 2; ++i) out[i] = std::clamp(out[i] * v, -1.0f, 1.0f);

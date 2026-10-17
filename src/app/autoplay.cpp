@@ -40,6 +40,7 @@ const char* gridShot = nullptr;  // "gridtest": save grid screenshot
 const char* gameSettingsShot = nullptr; // "gamesettingstest": save screenshot
 std::string gameSettingsKey;                 // the game whose profile the test changes
 std::optional<GameProfile> gameSettingsBefore;  // its profile before (none: it had none)
+std::optional<Settings> globalSettingsBefore;   // global settings before
 std::optional<input::KeyMap> keysBefore;        // "keystest": the keys before, put back at the end
 std::optional<input::PadMap> padMapBefore;      // "padmaptest": the controller buttons before, put back at the end
 const char* regionShot = nullptr;  // "regiontest": save this screen next
@@ -225,6 +226,7 @@ void autoplayPad(input::ControllerState& pad) {
                 gameSettingsKey = app::gameProfileKey(tile.productId, tile.titleId);
                 auto it = g_settings.perGame.find(gameSettingsKey);
                 gameSettingsBefore = it != g_settings.perGame.end() ? std::optional<GameProfile>(it->second) : std::nullopt;
+                globalSettingsBefore = g_settings;
             }
         }
         // Step 1: Wait for details to draw, then take screenshot
@@ -288,6 +290,9 @@ void autoplayPad(input::ControllerState& pad) {
                     g_settings.perGame[gameSettingsKey] = *gameSettingsBefore;
                 else
                     g_settings.perGame.erase(gameSettingsKey);
+                if (globalSettingsBefore) {
+                    g_settings.resolution = globalSettingsBefore->resolution;
+                }
                 g_settings.save(settingsPath());
                 g_ui->setPerGameSettings(g_settings.perGame);
             }
@@ -611,15 +616,27 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         // Settings, down to the resolution, open its list; saved 2 s later.
         static uint64_t since = 0;
         static int step = 0;
-        if (!since) since = now;
-        const uint64_t at[] = {500, 1500, 2500, 4500};
-        if (step < 4 && now - since >= at[step]) {
+        static std::optional<ui::SettingsChoice> settingsBefore;
+        if (!since) {
+            since = now;
+            settingsBefore = g_ui->settings();
+        }
+        const uint64_t at[] = {500, 1500, 2500, 4500, 5200};
+        if (step < 5 && now - since >= at[step]) {
             if (step == 0) nav.options = true;
             if (step == 1) nav.down = true;
             if (step == 2) nav.accept = true;
             if (step == 3) {
                 settingsShot = true;  // saved below, once drawn
+            }
+            if (step == 4) {
+                if (settingsBefore) {
+                    g_ui->setSettings(*settingsBefore);
+                    saveSettingsChoice(*settingsBefore);
+                }
+                g_ui->showHome();
                 g_autoplay.settingsTest = false;
+                XC_LOGI("AUTOPLAY END: settings test (settings put back as they were)");
             }
             ++step;
         }

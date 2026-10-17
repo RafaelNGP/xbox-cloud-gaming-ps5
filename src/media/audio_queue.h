@@ -20,10 +20,10 @@ namespace xc::media {
 class AudioQueue {
 public:
     static constexpr int kRate = 48000;
-    // It used to hold up to 120 ms: that much delay behind the picture
-    // (Moonlight keeps 40-50 ms). Stereo frames.
-    static constexpr size_t kMaxQueued = kRate * 60 / 1000;
-    static constexpr size_t kTrimTo = kRate * 40 / 1000;
+    // Bounded to keep the sound close to the picture while absorbing normal
+    // network jitter (20-40 ms bursts). Stereo frames.
+    static constexpr size_t kMaxQueued = kRate * 100 / 1000;  // 100 ms
+    static constexpr size_t kTrimTo = kRate * 60 / 1000;      // 60 ms
 
     // Since the last log (reset by it).
     struct Stats {

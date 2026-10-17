@@ -69,6 +69,7 @@ struct StreamPlayer::Impl {
     std::atomic<bool> running{false};
     std::string endReason;
     platform::Thread videoThread, audioThread;
+    std::mutex audioMutex_;
     std::deque<std::vector<uint8_t>> audioPackets_;
     std::condition_variable audioCv;
 
@@ -168,6 +169,9 @@ struct StreamPlayer::Impl {
         }
         running = false;
         cv.notify_all();
+        {
+            std::lock_guard<std::mutex> lock(audioMutex_);
+        }
         audioCv.notify_all();
     }
 
@@ -176,7 +180,7 @@ struct StreamPlayer::Impl {
         bool first = true;
         while (running) {
             {
-                std::unique_lock<std::mutex> lock(mutex);
+                std::unique_lock<std::mutex> lock(audioMutex_);
                 audioCv.wait(lock, [&] { return !running || !audioPackets_.empty(); });
                 if (!running) break;
                 packet = std::move(audioPackets_.front());
@@ -365,9 +369,9 @@ struct StreamPlayer::Impl {
                 return;
             }
             if (++videoFrames == 1) XC_LOGI("first video frame received: %zu bytes", n);
-            {
-                // The H.264 profile the server encodes with (from each new SPS).
-                static int lastProfile = -1, lastLevel = -1;
+            static int lastProfile = -1, lastLevel = -1;
+            if (lastProfile == -1) {
+                // The H.264 profile the server encodes with (from the first SPS).
                 for (size_t i = 0; i + 6 < n; ++i)
                     if (d[i] == 0 && d[i + 1] == 0 && d[i + 2] == 1 && (d[i + 3] & 0x1F) == 7) {
                         int profile = d[i + 4], level = d[i + 6];
@@ -393,7 +397,7 @@ struct StreamPlayer::Impl {
         };
         cb.audio = [this](const uint8_t* d, size_t n, uint32_t) {
             if (++audioPackets == 1) XC_LOGI("first audio packet: %zu bytes", n);
-            std::lock_guard<std::mutex> lock(mutex);
+            std::lock_guard<std::mutex> lock(audioMutex_);
             if (audioPackets_.size() < 50) audioPackets_.emplace_back(d, d + n);
             audioCv.notify_one();
         };

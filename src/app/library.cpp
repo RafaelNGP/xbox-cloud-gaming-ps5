@@ -633,9 +633,7 @@ bool Library::fetchFull(const std::vector<std::string>& ids, const Changed& chan
     std::set<std::string> queued;
     for (const auto& id : ids) {
         auto it = products_.find(id);
-        if ((it == products_.end() || it->second.heroUrl.empty() || it->second.description.empty() ||
-             !it->second.detailed || !it->second.plan) &&
-            queued.insert(id).second)
+        if ((it == products_.end() || !it->second.detailed) && queued.insert(id).second)
             order.push_back(id);
     }
     // Batches of 20 (~10 KB per product: bigger ones made the catalog time

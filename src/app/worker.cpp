@@ -782,6 +782,7 @@ void worker() {
                 if (!g_quit) loadConsoles(am, home);
                 break;
             case kPlay: {
+                stopHydration();
                 ui::GameTile tile;
                 {
                     std::lock_guard<std::mutex> lock(g_argMutex);

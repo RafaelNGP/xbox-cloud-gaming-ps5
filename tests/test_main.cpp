@@ -1540,7 +1540,7 @@ static void testNullBackends() {
 
 // --- M1 input / audio backends (pure parts, null backends) ----------------
 
-// The audio queue: bounded at ~60 ms (cut back to 40 ms, oldest first),
+// The audio queue: bounded at ~100 ms (cut back to 60 ms, oldest first),
 // silence past its end, the volume, and what the periodic log counts.
 static void testAudioQueue() {
     media::AudioQueue q;
@@ -1548,22 +1548,22 @@ static void testAudioQueue() {
     q.push(in.data(), 480);
     CHECK(q.queuedFrames() == 0);  // closed: ignored
     q.open();
-    for (int i = 0; i < 5; ++i) q.push(in.data(), 480);  // 50 ms: under the bound
-    CHECK(q.queuedFrames() == 2400 && q.stats().trimmed == 0);
-    q.push(in.data(), 480);
-    q.push(in.data(), 480);  // 70 ms: past 60, back to 40
-    CHECK(q.queuedFrames() == media::AudioQueue::kTrimTo && q.stats().trimmed == 3360 - 1920);
+    for (int i = 0; i < 9; ++i) q.push(in.data(), 480);  // 90 ms: under the bound
+    CHECK(q.queuedFrames() == 4320 && q.stats().trimmed == 0);
+    q.push(in.data(), 480);  // 100 ms
+    q.push(in.data(), 480);  // 110 ms: past 100, back to 60
+    CHECK(q.queuedFrames() == media::AudioQueue::kTrimTo && q.stats().trimmed == 5280 - 2880);
     // The oldest go first: mark the newest frame and find it last.
     float mark[2] = {0.5f, -0.5f};
     q.push(mark, 1);
-    std::vector<float> out(1921 * 2);
-    q.pull(out.data(), 1921);
-    CHECK(out[1920 * 2] == 0.5f && out[1920 * 2 + 1] == -0.5f && out[0] == 0.25f);
+    std::vector<float> out(2881 * 2);
+    q.pull(out.data(), 2881);
+    CHECK(out[2880 * 2] == 0.5f && out[2880 * 2 + 1] == -0.5f && out[100 * 2] == 0.25f);
     CHECK(q.queuedFrames() == 0);
     q.pull(out.data(), 256);  // empty: silence, counted
     CHECK(out[0] == 0.0f && out[511] == 0.0f);
     media::AudioQueue::Stats st = q.stats();
-    CHECK(st.pulls == 2 && st.empty == 1 && st.frames == 1921 + 256 && st.depthMax == 1921);
+    CHECK(st.pulls == 2 && st.empty == 1 && st.frames == 2881 + 256 && st.depthMax == 2881);
     // Volume: clamped to 0..2, applied and clipped at full scale.
     q.setVolume(5.0f);
     CHECK(q.volume() == 2.0f);
@@ -1575,9 +1575,9 @@ static void testAudioQueue() {
     CHECK(q.volume() == 0.0f);
     q.setVolume(1.0f);
     // ~10 s of sound pulled (480000 frames): logged, and the counts start
-    // again. 2179 frames so far, so the 1867th grain of 256 crosses it.
+    // again. 3139 frames so far, so the 1863rd grain of 256 crosses it.
     for (int i = 0; i < 1875; ++i) q.pull(out.data(), 256);
-    CHECK(q.stats().pulls == 8 && q.stats().frames == 8 * 256 && q.stats().trimmed == 0);
+    CHECK(q.stats().pulls == 12 && q.stats().frames == 12 * 256 && q.stats().trimmed == 0);
     q.close();
     q.push(loud, 2);
     CHECK(q.queuedFrames() == 0);
@@ -1732,8 +1732,8 @@ static void testNullBackendsM1() {
     CHECK(!kbm.keyboard && !kbm.mouse && !kbm.moved && kbm.dx == 0);
     input::kbmSetCaptured(false);
     CHECK(media::audioStart() && media::audioStart());
-    std::vector<float> sound(48 * 2 * 100, 0.1f);  // 100 ms, never played: kept to the bound
-    media::audioPush(sound.data(), 4800);
+    std::vector<float> sound(48 * 2 * 110, 0.1f);  // 110 ms, never played: kept to the bound
+    media::audioPush(sound.data(), 48 * 110);
     CHECK(media::audioQueue().queuedFrames() == media::AudioQueue::kTrimTo);
     media::audioStop();
     CHECK(media::audioQueue().queuedFrames() == 0);
