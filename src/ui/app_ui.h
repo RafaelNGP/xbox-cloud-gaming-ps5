@@ -93,6 +93,10 @@ struct NavInput {
     bool dpadLeft = false, dpadRight = false;
     float rawLX = 0, rawLY = 0, rawRX = 0, rawRY = 0;
     float l2Analog = 0, r2Analog = 0;
+    // The pad's buttons pressed since the last pass, a bit per input::PadFn
+    // index (input::padButtons(), the menus' own reading of the pad): the
+    // Controller buttons screen waiting for a press.
+    uint32_t padPressed = 0;
     // Smooth scrolling (the right stick, or the touchpad with inertia):
     // rows down (+) / up (-) and cards right (+) / left (-) to move now.
     int scrollRows = 0, scrollCards = 0;
@@ -120,6 +124,7 @@ struct SettingsChoice {
     int maxBitrateMbps = 0;    // 0 automatic, else 20 / 15 / 10 / 5
     int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
     input::KeyMap keyMap = input::defaultKeyMap();  // the keyboard as a player's controller
+    input::PadMap padMap = input::defaultPadMap();  // the controller's buttons toward the game (always complete)
     bool fullscreen = true;    // a desktop's window fullscreen (UiCaps::desktopWindow; F11 switches it too)
 };
 
@@ -162,9 +167,9 @@ std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool cus
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 14;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+constexpr int kSettingRows = 15;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
                                   // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys,
-                                  // display mode (a desktop's window)
+                                  // display mode (a desktop's window), controller buttons
 
 // The countries "Sign in as another country" offers (xcloud::loginCountryAddress).
 constexpr const char* kLoginCountries[] = {"br", "jp", "kr", "pl", "us"};
@@ -456,13 +461,18 @@ private:
     Color pickerColour() const;
     void drawColourPicker(Canvas& c);
     // The testers that Dead zone and Trigger vibration open in Settings.
-    enum class Tester { None, Sticks, Triggers, Keys };
+    enum class Tester { None, Sticks, Triggers, Keys, Pad };
     void openTester(Tester t);
     void handleTester(const NavInput& in);
     void drawStickTester(Canvas& c);
     void drawTriggerTester(Canvas& c);
     void handleKeysTester(const NavInput& in);
     void drawKeysTester(Canvas& c);
+    // The controller buttons' screen (Tester::Pad), on Settings' map or
+    // (game settings open) the game's.
+    void openPadTester();
+    void handlePadTester(const NavInput& in);
+    void drawPadTester(Canvas& c);
     // A modal panel over Settings with its title; returns its rectangle.
     Rect drawModal(Canvas& c, int w, int h, const std::string& title);
     void drawUpdating(Canvas& c, uint64_t nowMs);
@@ -575,6 +585,13 @@ private:
     uint64_t captureSince_ = 0;
     uint8_t keyRefused_ = 0;
     uint64_t keyRefusedUntil_ = 0;
+    // The controller buttons' screen: the copy being edited (Settings or the
+    // game's profile only get it on a valid way out), the row (0..7 each
+    // column, 8 the Reset / Discard buttons) and column, and waiting for a
+    // press since (ms; 0 not).
+    input::PadMap padWork_ = input::defaultPadMap();
+    int padRow_ = 0, padCol_ = 0;
+    uint64_t padCaptureSince_ = 0;
     int testerStick_ = 0;          // the stick tester: the one being adjusted (L1 / R1)
     float testSticks_[4] = {0, 0, 0, 0}, testL2_ = 0, testR2_ = 0;
     bool pickerOpen_ = false;

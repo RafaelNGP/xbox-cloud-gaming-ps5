@@ -21,6 +21,7 @@
 #include "input/input_ext.h"
 #include "input/kbm.h"
 #include "input/keyboard_nav.h"
+#include "input/pad_map.h"
 #include "ui/input_mode.h"
 #include "ui/pad_glyphs.h"
 #include "input/tuning.h"
@@ -110,6 +111,7 @@ bool saveSettings(const ui::SettingsChoice& choice) {
         g_settings.maxBitrateMbps = choice.maxBitrateMbps;
         g_settings.gameVolume = choice.gameVolume;
         g_settings.keyMap = choice.keyMap;
+        if (input::padMapValid(choice.padMap)) g_settings.padMap = choice.padMap;  // the screen only lets a complete one out
         fullscreenChanged = g_settings.desktopFullscreen != choice.fullscreen;
         g_settings.desktopFullscreen = choice.fullscreen;
         g_settings.save(settingsPath());  // warns itself
@@ -307,6 +309,7 @@ bool coreStartup() {
         choice.maxBitrateMbps = g_settings.maxBitrateMbps;
         choice.gameVolume = g_settings.gameVolume;
         choice.keyMap = g_settings.keyMap;
+        choice.padMap = g_settings.padMap;
         choice.fullscreen = g_settings.desktopFullscreen;
         g_ui->setAllow1440(allow1440Locked());
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
@@ -557,6 +560,7 @@ bool Core::frame() {
     nav.dpadRight = dpadRight.update(pad.dpadRight, now);
     nav.rawLX = pad.rawLeftX, nav.rawLY = pad.rawLeftY, nav.rawRX = pad.rawRightX, nav.rawRY = pad.rawRightY;
     nav.l2Analog = pad.triggerL2, nav.r2Analog = pad.triggerR2;
+    nav.padPressed = input::padButtons(pad) & ~input::padButtons(prev);  // the pad as it is: never through the game's map
     // Smooth scrolling. The right stick: a speed that follows how far it
     // is pushed (up to ~12 rows / 16 cards a second). The touchpad,
     // touched (not pressed): the list follows the finger (its height ~6

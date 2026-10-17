@@ -60,14 +60,15 @@ constexpr int kResolutionOrder[3] = {1, 0, 2};
 // stream (resolution, a desktop's display mode, 120 Hz, bitrate, region);
 // sound; the controller and keyboard; updates last. A group starts at each
 // kSettingsGroupStart.
-constexpr int kSettingsOrder[kSettingRows] = {0, 8, 1, 13, 9, 10, 2, 11, 3, 4, 5, 6, 12, 7};
-constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, true, false, false, false, false,
-                                                    true, true, false, false, false, false, true};
+constexpr int kSettingsOrder[kSettingRows] = {0, 8, 1, 13, 9, 10, 2, 11, 3, 4, 5, 6, 14, 12, 7};
+constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, true, false, false, false, false, true,
+                                                    true, false, false, false, false, false, true};
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
 // sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7
-// confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default).
-constexpr int kGameRowOrder[11] = {0, 4, 8, 1, 2, 3, 5, 6, 7, 9, 10};
-constexpr bool kGameGroupStart[11] = {false, true, false, true, false, false, true, false, false, false, true};
+// confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default, 11 controller
+// buttons).
+constexpr int kGameRowOrder[12] = {0, 4, 8, 1, 2, 3, 5, 6, 7, 11, 9, 10};
+constexpr bool kGameGroupStart[12] = {false, true, false, true, false, false, true, false, false, false, false, true};
 // The keyboard keys' screen: two columns of inputs, then "Reset to default".
 constexpr int kKeysPerColumn = input::kKeyActions / 2;
 // Updates on a desktop: the newest release's page (the app doesn't install it there).
@@ -1109,10 +1110,79 @@ void AppUi::handleKeysTester(const NavInput& in) {
     }
 }
 
+void AppUi::openPadTester() {
+    // Caller holds mutex_. A copy of the map in force (Settings', or the
+    // game's with its settings open) is what the screen edits.
+    tester_ = Tester::Pad;
+    padWork_ = gameSettingsOpen_ ? activeGameProfile_.padMap : settings_.padMap;
+    if (!input::padMapValid(padWork_)) padWork_ = input::defaultPadMap();
+    padRow_ = padCol_ = 0;
+    padCaptureSince_ = 0;
+    dirty_ = true;
+}
+
+void AppUi::handlePadTester(const NavInput& in) {
+    // Caller holds mutex_. The screen reads the pad as it is (the map only
+    // changes what a game is sent), so it always answers. Edits stay in
+    // padWork_: Circle keeps them only when every Xbox button has one
+    // button (else the screen stays, naming what's missing); "Reset to
+    // default" and "Discard changes" are always there below.
+    //
+    // The map's sources are the pad's slots after "Circle confirms"
+    // (input/pad_map.h): a press comes in with the menus' swap (circleConfirms_)
+    // and is stored with the one the map plays under (the game's own with
+    // its settings open).
+    const bool mapSwap = gameSettingsOpen_ ? activeGameProfile_.circleConfirms : settings_.circleConfirms;
+    constexpr int kPerColumn = input::kPadFns / 2, kButtonsRow = kPerColumn;
+    const auto fn = static_cast<input::PadFn>(padCol_ * kPerColumn + std::min(padRow_, kPerColumn - 1));
+    if (padCaptureSince_) {
+        // Waiting for a press: the next button pressed (Circle too; the PS
+        // / Home button isn't one) is the one; 5 s without one give up.
+        if (in.padPressed) {
+            uint8_t slot = 0;
+            while (!(in.padPressed & (1u << slot))) ++slot;
+            const uint8_t onPad = input::physicalSource(slot, circleConfirms_);
+            input::assignPadSource(padWork_, fn, input::physicalSource(onPad, mapSwap));
+            padCaptureSince_ = 0;
+            dirty_ = true;
+        } else if (in.nowMs > padCaptureSince_ && in.nowMs - padCaptureSince_ > 5000) {
+            padCaptureSince_ = 0;
+            dirty_ = true;
+        }
+        return;
+    }
+    if (in.up) padRow_ = (padRow_ + kButtonsRow) % (kButtonsRow + 1), dirty_ = true;
+    if (in.down) padRow_ = (padRow_ + 1) % (kButtonsRow + 1), dirty_ = true;
+    if (in.left || in.right) padCol_ = 1 - padCol_, dirty_ = true;
+    if (in.accept) {
+        dirty_ = true;
+        if (padRow_ < kButtonsRow) {
+            padCaptureSince_ = in.nowMs ? in.nowMs : 1;
+        } else if (padCol_ == 0) {
+            padWork_ = input::defaultPadMap();  // Reset to default (kept on the way out)
+        } else {
+            tester_ = Tester::None;  // Discard changes: what was saved stays
+            return;
+        }
+    }
+    if (in.square && padRow_ < kButtonsRow) input::assignPadSource(padWork_, fn, input::kPadNone), dirty_ = true;
+    if (in.back) {
+        dirty_ = true;
+        if (!input::padMapValid(padWork_)) return;  // incomplete: the warning says what's missing
+        if (gameSettingsOpen_) {
+            if (padWork_ != activeGameProfile_.padMap) activeGameProfile_.padMap = padWork_, activeGameHasCustom_ = true;
+        } else {
+            settings_.padMap = padWork_;  // saved with Settings, as the other choices
+        }
+        tester_ = Tester::None;
+    }
+}
+
 void AppUi::handleTester(const NavInput& in) {
     // Caller holds mutex_. Changes apply as they are made (the pad follows);
     // Cross keeps them, Circle puts the old ones back.
     if (tester_ == Tester::Keys) return handleKeysTester(in);
+    if (tester_ == Tester::Pad) return handlePadTester(in);
     if (tester_ == Tester::Sticks) {
         // L1 / R1 pick the stick, the D-pad (only: the sticks are what is
         // being tried) changes its dead zone.
@@ -1298,6 +1368,7 @@ void AppUi::openGameSettings() {
         activeGameProfile_.circleConfirms = settings_.circleConfirms;
         activeGameProfile_.highRefresh = settings_.highRefresh;
         activeGameProfile_.keyMap = settings_.keyMap;
+        activeGameProfile_.padMap = settings_.padMap;
         activeGameProfile_.gyroMode = gyroMode_;
         activeGameProfile_.gyroLevel = gyroLevel_;
     }
@@ -1414,6 +1485,9 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
     } else if (row == 12) {
         // The keys' own screen changes them.
         out = {tr(settings_.keyMap == input::defaultKeyMap() ? Str::ProfileDefault : Str::ProfileCustom)};
+    } else if (row == 14) {
+        // So do the controller buttons'.
+        out = {tr(settings_.padMap == input::defaultPadMap() ? Str::ProfileDefault : Str::ProfileCustom)};
 
     } else if (row == 8) {
         out.push_back(loginCountryOffText());
@@ -1434,7 +1508,7 @@ int AppUi::settingSelected(int row) const {
         for (int i = 0; i < 3; ++i)
             if (kResolutionOrder[i] == settings_.resolution) return i;
     }
-    if (row == 3 || row == 12) return 0;
+    if (row == 3 || row == 12 || row == 14) return 0;
     if (row == 4) return settings_.triggerStrength;
     if (row == 5) return settings_.circleConfirms ? 1 : 0;
     if (row == 6) return settings_.lightBarMode;
@@ -1468,8 +1542,8 @@ void AppUi::applySetting(int row, int index) {
         setLanguage(static_cast<Language>(index));  // the UI switches right away
     } else if (row == 1) {
         settings_.resolution = kResolutionOrder[index];
-    } else if (row == 3 || row == 12) {
-        (void)index;  // the tester sets each stick's, the keys' screen the keys
+    } else if (row == 3 || row == 12 || row == 14) {
+        (void)index;  // the tester sets each stick's, the keys' and buttons' screens theirs
     } else if (row == 4) {
         settings_.triggerStrength = index;
     } else if (row == 5) {
@@ -2237,9 +2311,13 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             openTester(Tester::Keys);
             settings_.keyMap = activeGameProfile_.keyMap;
             break;
+        case 11: // Controller buttons: their own screen, on this game's
+            openPadTester();
+            break;
         case 10: // Reset to default
             activeGameHasCustom_ = false;
             activeGameProfile_.keyMap = settings_.keyMap;
+            activeGameProfile_.padMap = settings_.padMap;
             activeGameProfile_.sharpness = settings_.sharpness;
             activeGameProfile_.deband = settings_.deband;
             activeGameProfile_.upscaler = settings_.upscaler;
@@ -2369,7 +2447,9 @@ UiEvent AppUi::handle(const NavInput& in) {
             }
             if (in.right) changeSetting(+1);
             if (in.left) changeSetting(-1);
-            if (in.accept && (settingsRow_ == 3 || settingsRow_ == 4 || settingsRow_ == 12)) {
+            if (in.accept && settingsRow_ == 14) {
+                openPadTester();  // controller buttons: their own screen
+            } else if (in.accept && (settingsRow_ == 3 || settingsRow_ == 4 || settingsRow_ == 12)) {
                 // Dead zone, trigger vibration, keyboard keys: their own screens instead of a list.
                 openTester(settingsRow_ == 3 ? Tester::Sticks : settingsRow_ == 4 ? Tester::Triggers : Tester::Keys);
             } else if (in.accept && settingsRow_ == 7) {
@@ -3561,8 +3641,8 @@ void AppUi::drawSettings(Canvas& c) {
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
                                         tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry),
                                         tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume),
-                                        tr(Str::KeyboardKeys),  tr(Str::DisplayMode)};
-    constexpr int kRowW = 1200, kRowH = 46, kGap = 5, kGroupGap = 16;
+                                        tr(Str::KeyboardKeys),  tr(Str::DisplayMode),   tr(Str::ControllerButtons)};
+    constexpr int kRowW = 1200, kRowH = 46, kGap = 4, kGroupGap = 12;
     Rect rows[kSettingRows];  // by row id
     int y = 236;
     for (const auto& [i, groupStart] : visibleSettingsRows(caps_)) {  // what caps_ rules out is hidden
@@ -3619,6 +3699,7 @@ void AppUi::drawSettings(Canvas& c) {
     if (tester_ == Tester::Sticks) return drawStickTester(c);
     if (tester_ == Tester::Triggers) return drawTriggerTester(c);
     if (tester_ == Tester::Keys) return drawKeysTester(c);
+    if (tester_ == Tester::Pad) return drawPadTester(c);
     if (dropdownOpen_) {
         // The list under (or, near the bottom, over) the row, right-aligned
         // with it; scrolls past kVisible choices.
@@ -3880,6 +3961,98 @@ void AppUi::drawTriggerTester(Canvas& c) {
         fonts_.regular.draw(c, help[i], panel.x + 56, panel.y + panel.h - 70 + static_cast<int>(i) * 30, 22, kDim);
 }
 
+void AppUi::drawPadTester(Canvas& c) {
+    Rect panel = drawModal(c, 1500, 860, tr(Str::ControllerButtons));
+    // Each Xbox button the game gets (as an Xbox pad shows it), then the
+    // button on this pad that plays it (in the pad's own glyphs). Left
+    // column the face buttons, shoulders and triggers; right the rest.
+    constexpr int kPerColumn = input::kPadFns / 2;
+    constexpr int kRowH = 52, kGap = 8, kChipW = 300, kColGap = 40;
+    constexpr const char* kArrows[4] = {" \xE2\x86\x91", " \xE2\x86\x93", " \xE2\x86\x90", " \xE2\x86\x92"};
+    static constexpr PadButton kButtons[12] = {PadButton::Cross, PadButton::Circle, PadButton::Square, PadButton::Triangle,
+                                               PadButton::L1,    PadButton::R1,     PadButton::L2,     PadButton::R2,
+                                               PadButton::L3,    PadButton::R3,     PadButton::Touchpad, PadButton::Options};
+    const GlyphStyle style = g_glyphStyle;
+    const bool mapSwap = gameSettingsOpen_ ? activeGameProfile_.circleConfirms : settings_.circleConfirms;
+    const bool capturing = padCaptureSince_ != 0;
+    const std::string dpad = tr(Str::DPad);
+    // A button (a PadFn index) drawn at (x, cy), left-aligned, in `s`'s glyphs.
+    auto drawButton = [&](int i, GlyphStyle s, int x, int cy, Color color) {
+        const int ty = fonts_.semibold.centeredY(cy - kRowH / 2, kRowH, 24);
+        if (i >= 12) {
+            fonts_.semibold.draw(c, dpad + kArrows[i - 12], x, ty, 24, color);
+        } else if (i < 4) {
+            ui::drawFaceButton(c, fonts_.bold, s, kButtons[i], x + 16.0f, static_cast<float>(cy), 16);
+            if (s == GlyphStyle::PlayStation)
+                fonts_.semibold.draw(c, buttonName(s, kButtons[i]), x + 44, ty, 24, color);
+        } else {
+            fonts_.semibold.draw(c, buttonName(s, kButtons[i]), x, ty, 24, color);
+        }
+    };
+    const int colW = (panel.w - 112 - kColGap) / 2;
+    for (int f = 0; f < input::kPadFns; ++f) {
+        const int col = f / kPerColumn, row = f % kPerColumn;
+        Rect r{panel.x + 56 + col * (colW + kColGap), panel.y + 106 + row * (kRowH + kGap), colW, kRowH};
+        const bool on = row == padRow_ && col == padCol_;
+        const int cy = r.y + r.h / 2;
+        c.fillRect(r, on ? rgba(255, 255, 255, 30) : rgba(255, 255, 255, 12), 14);
+        if (on && !capturing) c.strokeRect({r.x - 4, r.y - 4, r.w + 8, r.h + 8}, kWhite, 2, 18);
+        drawButton(f, GlyphStyle::Xbox, r.x + 22, cy, kWhite);
+        Rect chip{r.x + r.w - 10 - kChipW, r.y + 7, kChipW, r.h - 14};
+        fonts_.regular.draw(c, "\xE2\x86\x90", chip.x - 44, fonts_.regular.centeredY(r.y, r.h, 24), 24, kDim);
+        const uint8_t src = padWork_[static_cast<size_t>(f)];
+        const bool none = src >= input::kPadFns, changed = src != f;
+        c.fillRect(chip, none ? rgba(240, 100, 100, 40) : changed ? rgba(90, 170, 255, 60) : rgba(255, 255, 255, 26), 10);
+        if (on && capturing) {
+            c.strokeRect({chip.x - 4, chip.y - 4, chip.w + 8, chip.h + 8}, rgba(90, 220, 110), 3, 13);
+            fonts_.semibold.draw(c, "...", chip.x + 20, fonts_.semibold.centeredY(chip.y, chip.h, 24), 24, kWhite);
+        } else if (none) {
+            fonts_.semibold.draw(c, "\xE2\x80\x94", chip.x + 20, fonts_.semibold.centeredY(chip.y, chip.h, 24), 24,
+                                 rgba(240, 100, 100));
+        } else {
+            drawButton(input::physicalSource(src, mapSwap), style, chip.x + 16, cy, kWhite);
+        }
+    }
+    // Reset to default and Discard changes, side by side under the columns.
+    const int by = panel.y + 106 + kPerColumn * (kRowH + kGap) + 8;
+    for (int col = 0; col < 2; ++col) {
+        Rect b{panel.x + 56 + col * (colW + kColGap), by, colW, kRowH};
+        const bool on = padRow_ == kPerColumn && padCol_ == col;
+        c.fillRect(b, on ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 14);
+        if (on) c.strokeRect({b.x - 4, b.y - 4, b.w + 8, b.h + 8}, kWhite, 2, 18);
+        const char* label = tr(col == 0 ? Str::ResetToDefault : Str::DiscardChanges);
+        fonts_.semibold.draw(c, label, b.x + (b.w - fonts_.semibold.measure(label, 24)) / 2,
+                             fonts_.semibold.centeredY(b.y, b.h, 24), 24, on ? kWhite : rgba(240, 100, 100));
+    }
+    // Waiting for a press: say for what. Else what's missing (Circle won't
+    // leave then), or the help.
+    int hy = by + kRowH + 34;
+    const uint32_t missing = input::padMapMissing(padWork_);
+    if (capturing) {
+        const auto fn = static_cast<input::PadFn>(padCol_ * kPerColumn + std::min(padRow_, kPerColumn - 1));
+        std::string ask = trf(Str::PadPressButton, input::padFnName(fn));
+        fonts_.bold.draw(c, ask, panel.x + (panel.w - fonts_.bold.measure(ask, 28)) / 2, hy, 28, kWhite);
+    } else if (missing || !input::padMapValid(padWork_)) {
+        std::string names;
+        for (int f = 0; f < input::kPadFns; ++f)
+            if (missing & (1u << f)) names += (names.empty() ? "" : ", ") + std::string(input::padFnName(static_cast<input::PadFn>(f)));
+        auto lines = fonts_.semibold.wrap(trf(Str::PadMissing, names), 24, panel.w - 112, 2);
+        for (size_t i = 0; i < lines.size(); ++i)
+            fonts_.semibold.draw(c, lines[i], panel.x + 56, hy + static_cast<int>(i) * 32, 24, rgba(240, 100, 100));
+    } else {
+        auto help = fonts_.regular.wrap(tr(Str::PadHelp), 22, panel.w - 112, 2);
+        for (size_t i = 0; i < help.size(); ++i)
+            fonts_.regular.draw(c, help[i], panel.x + 56, hy + static_cast<int>(i) * 30, 22, kDim);
+    }
+    c.fillRect({0, kH - 80, kW, 80}, kBg);  // its own hints over drawModal's
+    if (capturing)
+        return;
+    if (padRow_ == kPerColumn)
+        drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
+    else
+        drawHints(c, {{kIconCross, tr(Str::ChangeKey)}, {kIconSquare, tr(Str::ClearKey)}, {kIconCircle, tr(Str::Back)}});
+}
+
 void AppUi::drawKeysTester(Canvas& c) {
     Rect panel = drawModal(c, 1500, 860, tr(Str::KeyboardKeys));
     // Each input: its name (the PlayStation button, the Xbox one beside),
@@ -4079,6 +4252,10 @@ void AppUi::drawGameSettings(Canvas& c) {
         drawKeysTester(c);
         return;
     }
+    if (tester_ == Tester::Pad) {
+        drawPadTester(c);
+        return;
+    }
     std::string title = tr(Str::GameSettings);
     if (!detail_.name.empty()) {
         std::string full = title + "  \xE2\x80\xA2  " + detail_.name;
@@ -4094,8 +4271,8 @@ void AppUi::drawGameSettings(Canvas& c) {
             title = title + "  \xE2\x80\xA2  " + cut + "...";
         }
     }
-    constexpr int kModalW = 1140, kModalH = 860;
-    constexpr int kRowH = 52, kGap = 7, kGroupGap = 12;
+    constexpr int kModalW = 1140, kModalH = 880;
+    constexpr int kRowH = 50, kGap = 6, kGroupGap = 12;
     // The rows caps_ allows; the panel loses the height of those it hides
     // (the same as ever with all of them, "Reset to default" or not).
     const auto rows = visibleGameSettingsRows(caps_, activeGameHasCustom_);
@@ -4179,6 +4356,10 @@ void AppUi::drawGameSettings(Canvas& c) {
         case 9:
             label = tr(Str::KeyboardKeys);
             value = tr(activeGameProfile_.keyMap == input::defaultKeyMap() ? Str::ProfileDefault : Str::ProfileCustom);
+            break;
+        case 11:
+            label = tr(Str::ControllerButtons);
+            value = tr(activeGameProfile_.padMap == input::defaultPadMap() ? Str::ProfileDefault : Str::ProfileCustom);
             break;
         default: break;
         }

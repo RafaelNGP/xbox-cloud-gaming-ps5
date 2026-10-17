@@ -297,6 +297,11 @@ constexpr Column kEnglish = {
     "Fullscreen", // DisplayFullscreen
     "Quit PSBox?", // QuitTitle
     "Quit", // QuitConfirm
+    "Controller buttons", // ControllerButtons
+    "Press the button for %s", // PadPressButton
+    "Missing a button: %s. Give each one a button, or reset or discard the changes.", // PadMissing
+    "Discard changes", // DiscardChanges
+    "Only the game sees this: the app's menus keep the buttons as they are. Picking a button used by another swaps the two.", // PadHelp
 };
 
 constexpr Column kPortugueseBR = {
@@ -564,6 +569,11 @@ constexpr Column kPortugueseBR = {
     "Tela cheia", // DisplayFullscreen
     "Sair do PSBox?", // QuitTitle
     "Sair", // QuitConfirm
+    "Botões do controle", // ControllerButtons
+    "Aperte o botão para %s", // PadPressButton
+    "Falta botão para: %s. Dê um botão a cada um, ou restaure o padrão ou descarte as alterações.", // PadMissing
+    "Descartar alterações", // DiscardChanges
+    "Só o jogo vê isto: os menus do app usam os botões como são. Escolher um botão já usado troca os dois.", // PadHelp
 };
 
 constexpr Column kSpanish = {
@@ -831,6 +841,11 @@ constexpr Column kSpanish = {
     "Pantalla completa", // DisplayFullscreen
     "¿Salir de PSBox?", // QuitTitle
     "Salir", // QuitConfirm
+    "Botones del mando", // ControllerButtons
+    "Pulsa el botón para %s", // PadPressButton
+    "Falta botón para: %s. Asigna uno a cada función, o restablece o descarta los cambios.", // PadMissing
+    "Descartar cambios", // DiscardChanges
+    "Solo el juego lo ve: los menús de la app usan los botones tal cual. Elegir un botón ya usado intercambia los dos.", // PadHelp
 };
 
 constexpr Column kFrench = {
@@ -1098,6 +1113,11 @@ constexpr Column kFrench = {
     "Plein écran", // DisplayFullscreen
     "Quitter PSBox ?", // QuitTitle
     "Quitter", // QuitConfirm
+    "Boutons de la manette", // ControllerButtons
+    "Appuyez sur le bouton pour %s", // PadPressButton
+    "Bouton manquant pour : %s. Attribuez-en un à chaque fonction, ou réinitialisez ou annulez les modifications.", // PadMissing
+    "Annuler les modifications", // DiscardChanges
+    "Seul le jeu est concerné : les menus de l'app gardent les boutons tels quels. Choisir un bouton déjà utilisé échange les deux.", // PadHelp
 };
 
 constexpr Column kGerman = {
@@ -1365,6 +1385,11 @@ constexpr Column kGerman = {
     "Vollbild", // DisplayFullscreen
     "PSBox beenden?", // QuitTitle
     "Beenden", // QuitConfirm
+    "Controller-Tasten", // ControllerButtons
+    "Drücke die Taste für %s", // PadPressButton
+    "Ohne Taste: %s. Weise jeder Funktion eine zu, oder setze zurück bzw. verwirf die Änderungen.", // PadMissing
+    "Änderungen verwerfen", // DiscardChanges
+    "Gilt nur im Spiel: Die Menüs der App nutzen die Tasten, wie sie sind. Eine schon belegte Taste zu wählen tauscht die beiden.", // PadHelp
 };
 
 constexpr Column kItalian = {
@@ -1632,6 +1657,11 @@ constexpr Column kItalian = {
     "Schermo intero", // DisplayFullscreen
     "Uscire da PSBox?", // QuitTitle
     "Esci", // QuitConfirm
+    "Pulsanti del controller", // ControllerButtons
+    "Premi il pulsante per %s", // PadPressButton
+    "Manca un pulsante per: %s. Assegnane uno a ogni funzione, oppure ripristina o annulla le modifiche.", // PadMissing
+    "Annulla modifiche", // DiscardChanges
+    "Vale solo nel gioco: i menu dell'app usano i pulsanti così come sono. Scegliere un pulsante già usato scambia i due.", // PadHelp
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

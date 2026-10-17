@@ -39,6 +39,7 @@ struct Autoplay {
     bool consolesEmpty = false;  // with "consolestab": as if none were found
     bool settingsTest = false;   // "settingstest": open the resolution list, save settings.ppm
     bool keysTest = false;       // "keystest": Settings' groups, the keyboard keys' screen, a key chosen (keys*.ppm)
+    bool padMapTest = false;     // "padmaptest": the controller buttons' screen, a press captured, an incomplete map (padmap*.ppm)
     bool badCa = false;          // "badca": a missing CA bundle: the built-in copy must be used
     bool consoles = false;       // "consoles": log the account's own consoles (xhome)
     bool pad = false;            // "pad": the physical pad stays in use, its buttons logged

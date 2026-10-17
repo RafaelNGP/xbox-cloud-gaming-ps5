@@ -137,6 +137,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         deadzone_ = prof.deadzoneLeft;
         circleConfirms_ = prof.circleConfirms;
         keyMap_ = prof.keyMap;
+        padMap_ = prof.padMap;
         gyroMode_ = prof.gyroMode;
         gyroLevel_ = prof.gyroLevel;
         input::setGyro(gyroMode_, gyroLevel_);
@@ -224,6 +225,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     auto had = g_settings.perGame.find(gameKey_);  // not set from this menu: kept
                     p.highRefresh = had != g_settings.perGame.end() ? had->second.highRefresh : g_settings.highRefresh;
                     p.keyMap = had != g_settings.perGame.end() ? had->second.keyMap : g_settings.keyMap;
+                    p.padMap = had != g_settings.perGame.end() ? had->second.padMap : g_settings.padMap;
                     p.gyroMode = gyroMode_;
                     p.gyroLevel = gyroLevel_;
                     g_settings.perGame[gameKey_] = p;
@@ -237,6 +239,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     deadzone_ = def.deadzoneLeft;
                     triggerStrength_ = def.triggerStrength;
                     keyMap_ = def.keyMap;
+                    padMap_ = def.padMap;
                     circleConfirms_ = def.circleConfirms;
                     gyroMode_ = def.gyroMode;
                     gyroLevel_ = def.gyroLevel;
@@ -349,7 +352,10 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             }
             overlaySeq_ = 0;
         }
-        input::ControllerState sent = pad;
+        // The game gets the buttons through this game's map (Settings >
+        // Controller buttons); everything above (the menu's combo, the
+        // menu itself) read them as they are.
+        input::ControllerState sent = input::applyPadMap(pad, padMap_);
         if (g_syntheticA) sent.btnA = true;
         // While another window has the focus on the cloud console (a
         // publisher's page such as NetEase's terms in Marvel Rivals,
@@ -430,6 +436,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         for (int i = 1; i < input::kMaxPads; ++i) {
             input::ControllerState other;
             bool on = input::pollPad(i, other);
+            if (on) other = input::applyPadMap(other, padMap_);  // the same map as player 1's (the keys keep theirs)
             if (on && i == kbSlot) input::mergePads(other, kbPad_);  // the keyboard plays with this player's pad
             if (on != padAttached_[i]) {
                 padAttached_[i] = on;

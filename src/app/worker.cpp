@@ -665,7 +665,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     });
     if (!g_autoplay.title.empty() && g_autoplay.title != "BENCH" && g_autoplay.title != "UPDATE" && g_autoplay.title != "AUTOTEST" &&
         !g_autoplay.detailTest && !g_autoplay.libraryTest &&
-        !g_autoplay.consolesTab && !g_autoplay.settingsTest && !g_autoplay.keysTest &&
+        !g_autoplay.consolesTab && !g_autoplay.settingsTest && !g_autoplay.keysTest && !g_autoplay.padMapTest &&
         !g_autoplay.imeTest && !g_autoplay.vibeTest && !g_autoplay.searchTest && !g_autoplay.quickTest && !g_autoplay.crashTest && !g_autoplay.scrollTest &&
         !g_autoplay.gridTest && !g_autoplay.gameSettingsTest && !g_autoplay.publisherTest && !g_autoplay.friendsTest &&
         !g_autoplay.regionTest) {

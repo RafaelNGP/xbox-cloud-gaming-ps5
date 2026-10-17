@@ -32,6 +32,15 @@ json::Value keyMapJson(const input::KeyMap& m) {
     return v;
 }
 
+// "padMap": absent keeps `fallback`; present but not a complete map of
+// this version (an edited or damaged file) gives the default map.
+input::PadMap readPadMapOr(const json::Value& v, const input::PadMap& fallback, const char* where) {
+    if (v.isNull()) return fallback;
+    input::PadMap m;
+    if (!input::readPadMap(v, m)) XC_LOGW("settings: controller buttons of %s not valid; back to the default", where);
+    return m;
+}
+
 }  // namespace
 
 bool Settings::load(const std::string& path) {
@@ -77,6 +86,7 @@ bool Settings::load(const std::string& path) {
     maxBitrateMbps = static_cast<int>(std::clamp<int64_t>((*j)["maxBitrateMbps"].asInt(maxBitrateMbps), 0, 40));
     gameVolume = static_cast<int>(std::clamp<int64_t>((*j)["gameVolume"].asInt(gameVolume), 0, 200));
     keyMap = readKeyMap((*j)["keyMap"], input::defaultKeyMap());
+    padMap = readPadMapOr((*j)["padMap"], input::defaultPadMap(), "the settings");
     keyboardPlayer = static_cast<int>(std::clamp<int64_t>((*j)["keyboardPlayer"].asInt(keyboardPlayer), 0, 3));
     gyroMode = static_cast<int>(std::clamp<int64_t>((*j)["gyroMode"].asInt(gyroMode), 0, 2));
     gyroLevel = static_cast<int>(std::clamp<int64_t>((*j)["gyroLevel"].asInt(gyroLevel), 1, 10));
@@ -115,6 +125,7 @@ bool Settings::load(const std::string& path) {
         p.circleConfirms = obj["circleConfirms"].asBool(circleConfirms);
         p.highRefresh = obj["highRefresh"].asBool(highRefresh);
         p.keyMap = readKeyMap(obj["keyMap"], keyMap);
+        p.padMap = readPadMapOr(obj["padMap"], padMap, id.c_str());
         p.gyroMode = static_cast<int>(std::clamp<int64_t>(obj["gyroMode"].asInt(gyroMode), 0, 2));
         p.gyroLevel = static_cast<int>(std::clamp<int64_t>(obj["gyroLevel"].asInt(gyroLevel), 1, 10));
         perGame[id] = p;
@@ -142,6 +153,7 @@ GameProfile Settings::defaultProfile() const {
     p.circleConfirms = circleConfirms;
     p.highRefresh = highRefresh;
     p.keyMap = keyMap;
+    p.padMap = padMap;
     p.gyroMode = gyroMode;
     p.gyroLevel = gyroLevel;
     return p;
@@ -202,6 +214,7 @@ bool Settings::save(const std::string& path) const {
     v.set("maxBitrateMbps", maxBitrateMbps);
     v.set("gameVolume", gameVolume);
     v.set("keyMap", keyMapJson(keyMap));
+    v.set("padMap", input::padMapJson(padMap));
     v.set("keyboardPlayer", keyboardPlayer);
     v.set("gyroMode", gyroMode);
     v.set("gyroLevel", gyroLevel);
@@ -228,6 +241,7 @@ bool Settings::save(const std::string& path) const {
         obj.set("circleConfirms", p.circleConfirms);
         obj.set("highRefresh", p.highRefresh);
         obj.set("keyMap", keyMapJson(p.keyMap));
+        obj.set("padMap", input::padMapJson(p.padMap));
         obj.set("gyroMode", p.gyroMode);
         obj.set("gyroLevel", p.gyroLevel);
         pg.set(id, obj);

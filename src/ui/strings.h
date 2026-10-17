@@ -274,6 +274,11 @@ enum class Str {
     DisplayFullscreen,  // ... fullscreen
     QuitTitle,          // desktop: Circle / Esc on the home screen asks before closing the app
     QuitConfirm,        // ... the hint that closes it
+    ControllerButtons,  // Settings / game settings row and its screen: which pad button plays which Xbox button in a game
+    PadPressButton,     // controller buttons: waiting for a press (%s: the Xbox button, e.g. "LB")
+    PadMissing,         // controller buttons: can't leave yet (%s: the Xbox buttons without one, "A, LB")
+    DiscardChanges,     // controller buttons: leave without keeping the changes
+    PadHelp,            // controller buttons: only the game sees the map; a button already used swaps
     Count
 };
 

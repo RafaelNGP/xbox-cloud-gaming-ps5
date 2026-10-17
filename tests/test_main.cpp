@@ -33,6 +33,7 @@
 #include "stream/h264_receiver.h"
 #include "input/kbm.h"
 #include "input/keyboard_nav.h"
+#include "input/pad_map.h"
 #include "input/sdl_mapping.h"
 #include "platform/platform.h"
 #include "auth/msa.h"
@@ -1080,6 +1081,103 @@ static void testKeyMap() {
     std::remove(path.c_str());
 }
 
+// The controller's buttons toward the game (input/pad_map.h).
+static void testPadMap() {
+    using namespace xc::input;
+    auto at = [](const PadMap& m, PadFn f) { return m[static_cast<size_t>(f)]; };
+    auto src = [](PadFn f) { return static_cast<uint8_t>(f); };
+    const PadMap def = defaultPadMap();
+    CHECK(padMapValid(def) && padMapMissing(def) == 0);
+    // The default map passes everything through.
+    ControllerState in;
+    in.btnA = in.dpadLeft = in.btnTouchpad = true;
+    in.triggerL2 = 0.3f;
+    in.leftStickX = 0.7f;
+    in.btnNexus = true;
+    ControllerState same = applyPadMap(in, def);
+    CHECK(same.btnA && same.dpadLeft && same.btnTouchpad && !same.btnB && same.triggerL2 == 0.3f &&
+          same.leftStickX == 0.7f && same.btnNexus);
+    // Assigning a source used elsewhere swaps the two: still complete.
+    PadMap m = def;
+    assignPadSource(m, PadFn::A, src(PadFn::B));  // A <- Circle, so B <- Cross
+    CHECK(at(m, PadFn::A) == src(PadFn::B) && at(m, PadFn::B) == src(PadFn::A) && padMapValid(m));
+    ControllerState cross;
+    cross.btnA = true;
+    ControllerState out = applyPadMap(cross, m);
+    CHECK(!out.btnA && out.btnB);
+    // A trigger fed by a button is fully pressed; a button fed by a trigger past halfway.
+    assignPadSource(m, PadFn::RT, src(PadFn::RB));  // RT <- R1, RB <- R2
+    ControllerState r1;
+    r1.btnR1 = true;
+    out = applyPadMap(r1, m);
+    CHECK(out.triggerR2 == 1.0f && !out.btnR1);
+    ControllerState r2;
+    r2.triggerR2 = 0.4f;
+    CHECK(!applyPadMap(r2, m).btnR1 && applyPadMap(r2, m).triggerR2 == 0.0f);
+    r2.triggerR2 = 0.8f;
+    CHECK(applyPadMap(r2, m).btnR1);
+    // A trigger fed by the other trigger keeps how far it is pressed.
+    PadMap t = def;
+    assignPadSource(t, PadFn::LT, src(PadFn::RT));
+    ControllerState lr;
+    lr.triggerR2 = 0.25f;
+    CHECK(applyPadMap(lr, t).triggerL2 == 0.25f && applyPadMap(lr, t).triggerR2 == 0.0f);
+    // A cleared row: incomplete, named in the missing bits; a source fed twice is not valid.
+    PadMap hole = def;
+    assignPadSource(hole, PadFn::Y, kPadNone);
+    CHECK(!padMapValid(hole) && padMapMissing(hole) == (1u << static_cast<int>(PadFn::Y)));
+    CHECK(!applyPadMap(ControllerState{}, hole).btnY);
+    PadMap twice = def;
+    twice[static_cast<size_t>(PadFn::X)] = src(PadFn::A);
+    CHECK(!padMapValid(twice) && padMapMissing(twice) == 0);
+    // Filling the hole with a button used elsewhere moves the hole there.
+    assignPadSource(hole, PadFn::Y, src(PadFn::X));
+    CHECK(at(hole, PadFn::Y) == src(PadFn::X) && at(hole, PadFn::X) == kPadNone);
+    // The buttons pressed, by source; Circle confirms swaps A / B back to the pad's.
+    ControllerState held;
+    held.btnB = true;
+    held.triggerL2 = 0.9f;
+    CHECK(padButtons(held) == ((1u << static_cast<int>(PadFn::B)) | (1u << static_cast<int>(PadFn::LT))));
+    CHECK(physicalSource(src(PadFn::A), true) == src(PadFn::B) && physicalSource(src(PadFn::A), false) == src(PadFn::A) &&
+          physicalSource(src(PadFn::Y), true) == src(PadFn::Y));
+    CHECK(std::string(padFnName(PadFn::Right)) == "D-pad right");
+    // JSON: round trip; anything else is refused and gives the default.
+    PadMap back;
+    CHECK(readPadMap(padMapJson(m), back) && back == m);
+    auto reads = [&](const char* text) {
+        auto v = json::parse(text);
+        PadMap r = m;
+        bool ok = v && readPadMap(*v, r);
+        CHECK(r == (ok ? r : def));
+        return ok;
+    };
+    CHECK(reads(R"({"version":1,"map":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]})"));
+    CHECK(!reads(R"({"version":2,"map":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]})"));
+    CHECK(!reads(R"({"version":1,"map":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14]})"));
+    CHECK(!reads(R"({"version":1,"map":[0,0,2,3,4,5,6,7,8,9,10,11,12,13,14,15]})"));
+    CHECK(!reads(R"({"version":1,"map":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,255]})"));
+    CHECK(!reads(R"({"version":1,"map":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,"x"]})"));
+    CHECK(!reads(R"([0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15])"));
+    // In the settings and a game's profile: saved and read back; a broken
+    // one falls back to the default; an older file (none) keeps the general one.
+    xc::app::Settings st;
+    st.padMap = m;
+    st.perGame["g"] = st.defaultProfile();
+    CHECK(st.perGame["g"].padMap == m);
+    st.perGame["g"].padMap = t;
+    std::string path = std::string(std::getenv("TMPDIR") ? std::getenv("TMPDIR") : "/tmp") + "/xc_padmap_test.json";
+    CHECK(st.save(path));
+    xc::app::Settings loaded;
+    CHECK(loaded.load(path) && loaded.padMap == m && loaded.perGame["g"].padMap == t);
+    xc::platform::writeFileAtomic(path, R"({"padMap":{"version":1,"map":[1,1]},"perGame":{"h":{},"k":{"padMap":7}}})");
+    xc::app::Settings broken;
+    CHECK(broken.load(path) && broken.padMap == def && broken.perGame["h"].padMap == def && broken.perGame["k"].padMap == def);
+    xc::platform::writeFileAtomic(path, R"({"padMap":)" + padMapJson(m).dump() + R"(,"perGame":{"h":{}}})");
+    xc::app::Settings older;
+    CHECK(older.load(path) && older.perGame["h"].padMap == m);
+    std::remove(path.c_str());
+}
+
 // The xCloud login: a 5xx is tried again, a refusal is not.
 static void testLoginRetry() {
     using namespace xc;
@@ -1181,33 +1279,33 @@ static void testVisibleSettingsRows() {
     };
     const ui::UiCaps ps5;
     auto all = ui::visibleSettingsRows(ps5);
-    CHECK((ids(all) == std::vector<int>{0, 8, 1, 9, 10, 2, 11, 3, 4, 5, 6, 12, 7}));
-    CHECK((groups(all) == std::vector<bool>{false, false, true, false, false, false, true, true, false, false, false, false, true}));
+    CHECK((ids(all) == std::vector<int>{0, 8, 1, 9, 10, 2, 11, 3, 4, 5, 6, 14, 12, 7}));
+    CHECK((groups(all) == std::vector<bool>{false, false, true, false, false, false, true, true, false, false, false, false, false, true}));
     ui::UiCaps pc;
     pc.lightBar = pc.triggerRumble = pc.adaptiveTriggers = pc.gyro = pc.touchpad = false;
     pc.upscalers = pc.sharpen = pc.deband = pc.highRefresh = pc.console = pc.selfUpdate = false;
     pc.openUrl = true;
     auto desk = ui::visibleSettingsRows(pc);
-    CHECK((ids(desk) == std::vector<int>{0, 8, 1, 10, 2, 11, 3, 5, 12, 7}));
-    CHECK((groups(desk) == std::vector<bool>{false, false, true, false, false, true, true, false, false, true}));
+    CHECK((ids(desk) == std::vector<int>{0, 8, 1, 10, 2, 11, 3, 5, 14, 12, 7}));
+    CHECK((groups(desk) == std::vector<bool>{false, false, true, false, false, true, true, false, false, false, true}));
     // The desktop app's window: Display mode after the resolution, in the stream's group.
     ui::UiCaps win = pc;
     win.desktopWindow = true;
     auto w = ui::visibleSettingsRows(win);
-    CHECK((ids(w) == std::vector<int>{0, 8, 1, 13, 10, 2, 11, 3, 5, 12, 7}));
-    CHECK((groups(w) == std::vector<bool>{false, false, true, false, false, false, true, true, false, false, true}));
+    CHECK((ids(w) == std::vector<int>{0, 8, 1, 13, 10, 2, 11, 3, 5, 14, 12, 7}));
+    CHECK((groups(w) == std::vector<bool>{false, false, true, false, false, false, true, true, false, false, false, true}));
     ui::UiCaps xbox = pc;  // an Xbox pad: impulse triggers, no light bar
     xbox.triggerRumble = true;
     auto x = ids(ui::visibleSettingsRows(xbox));
     CHECK(std::find(x.begin(), x.end(), 4) != x.end() && std::find(x.begin(), x.end(), 6) == x.end());
     // A game's settings.
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, true)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 11, 9, 10}));
     CHECK((groups(ui::visibleGameSettingsRows(ps5, true)) ==
-           std::vector<bool>{false, true, false, true, false, false, true, false, false, false, true}));
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 9}));
+           std::vector<bool>{false, true, false, true, false, false, true, false, false, false, false, true}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 11, 9}));
     auto game = ui::visibleGameSettingsRows(pc, false);
-    CHECK((ids(game) == std::vector<int>{0, 4, 5, 7, 9}));
-    CHECK((groups(game) == std::vector<bool>{false, true, true, false, false}));
+    CHECK((ids(game) == std::vector<int>{0, 4, 5, 7, 11, 9}));
+    CHECK((groups(game) == std::vector<bool>{false, true, true, false, false, false}));
 }
 
 // The controller's glyphs by pad kind (ui/pad_glyphs.h).
@@ -1555,6 +1653,7 @@ int main() {
     testKeyboardNav();
     testKeyboardAsGamepad();
     testKeyMap();
+    testPadMap();
     testTeredo();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);

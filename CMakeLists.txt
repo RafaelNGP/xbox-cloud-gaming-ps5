@@ -38,6 +38,7 @@ add_library(xcloud_core STATIC
     src/input/controller_common.cpp
     src/input/kbm_map.cpp
     src/input/key_map.cpp
+    src/input/pad_map.cpp
     src/input/keyboard_nav.cpp
     src/input/sdl_mapping.cpp
     src/xcloud/social.cpp

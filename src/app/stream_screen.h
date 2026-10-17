@@ -11,6 +11,7 @@
 #include "input/controller.h"
 #include "input/kbm.h"
 #include "input/keyboard_nav.h"
+#include "input/pad_map.h"
 #include "ui/app_ui.h"
 #include "ui/stream_menu.h"
 
@@ -77,6 +78,7 @@ private:
     int deadzone_ = 15;
     bool circleConfirms_ = false;
     input::KeyMap keyMap_ = input::defaultKeyMap();  // this game's keys (the keyboard as a controller)
+    input::PadMap padMap_ = input::defaultPadMap();  // this game's controller buttons, toward the game only
     int gyroMode_ = 0, gyroLevel_ = 5;  // gyro aiming (input/gyro.h), this game's
     bool highRefresh_ = false;  // 120 Hz turned on for this stream
     input::KbmInput kbm_;
