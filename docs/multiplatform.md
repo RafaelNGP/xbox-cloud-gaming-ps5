@@ -57,7 +57,7 @@ links those objects with its backends:
   SDL: it proves the shared app builds and starts off the PS5. It uses the
   desktop data folder like `xcloud-cli`; Ctrl+C closes it.
 - `psbox` (desktop, SDL3): core + `xcloud_backends_desktop` (`display_sdl.cpp`,
-  `shell_desktop.cpp`, the self-test, `hw_decoder_null.cpp`) +
+  `gpu.cpp`, `shell_desktop.cpp`, the self-test, `hw_decoder_null.cpp`) +
   `xcloud_backends_sdl_io` (controllers, keyboard / mouse, sound) +
   `desktop_main.cpp`. See "M1: the Linux app" below.
 - `xcloud-cli` and `xcloud-tests` stay SDL-free; the tests link the null backends.
@@ -66,7 +66,7 @@ links those objects with its backends:
 
 | Area                  | Header                    | PS5                                   | Desktop (planned)          | Null                      |
 |-----------------------|---------------------------|---------------------------------------|----------------------------|---------------------------|
-| Display               | `display/display.h`       | `display_ps5.cpp` (+ `gpu.cpp`, RADV) | `display_sdl.cpp`          | `display_null.cpp`        |
+| Display               | `display/display.h`       | `display_ps5.cpp` (+ `gpu.cpp`, RADV) | `display_sdl.cpp` (+ `gpu.cpp`, `SDL_Renderer` fallback) | `display_null.cpp` |
 | Controllers           | `input/controller.h`, `input_ext.h` | `controller_ps5.cpp`        | `controller_sdl.cpp`, `sdl_input.cpp` | `controller_null.cpp` |
 | USB keyboard / mouse  | `input/kbm.h`             | `kbm_ps5.cpp`                         | `kbm_sdl.cpp`              | `kbm_null.cpp`            |
 | Audio out / in        | `media/audio_out.h`, `audio_in.h` | `audio_out_ps5.cpp`, `audio_in_ps5.cpp` | `audio_out_sdl.cpp`, `audio_in_sdl.cpp` | `audio_*_null.cpp` (no device) |
@@ -76,8 +76,9 @@ links those objects with its backends:
 
 Portable, shared by every backend: `controller_common.cpp`, `sdl_mapping.cpp`
 (pure tables), `media/audio_queue.cpp`, `audio_in_common.cpp`, `kbm_map.cpp`,
-`key_map.cpp`, `keyboard_nav.cpp`, `gyro.cpp`, the UI (`src/ui`), decoding
-(`media/decoder.cpp`), the protocol (`src/stream`, `src/xcloud`, `src/auth`).
+`key_map.cpp`, `keyboard_nav.cpp`, `gyro.cpp`, `display/gpu.cpp` (Vulkan 1.3
+compute pipeline), the UI (`src/ui`), decoding (`media/decoder.cpp`), the
+protocol (`src/stream`, `src/xcloud`, `src/auth`).
 
 The shell's hooks, in the order `app_core.cpp` calls them:
 `beforeSettings()` (PS5: an update cut short rolled back, a store update's
@@ -100,8 +101,9 @@ shared code:
 
 - `display::caps()` returns a `DisplayCaps`: `upscalers` (FSR 1 / Anime4K),
   `deband`, `sharpen`, `highRefreshSwitch` (120 Hz per stream),
-  `presentTiming`. On the PS5 it is what the GPU path supports; the null
-  display says false to all. The desktop UI hides the options it can't
+  `presentTiming`. On the PS5 and on a Vulkan 1.3 desktop it is what the GPU
+  path supports; the `SDL_Renderer` fallback says false to the GPU filters, and
+  the null display says false to all. The desktop UI hides the options it can't
   honour; the calls themselves are always safe (no-ops).
 - `input::padCaps(i)` / `anyPadCaps()` (`input_ext.h`): rumble, trigger
   rumble, adaptive triggers, light bar, gyro, touchpad. The PS5 always
@@ -124,8 +126,10 @@ shared code:
   the GPU's switches behind `display::` and `display::caps()`; the app core
   and shell split; `psbox-headless`; `tools/check-platform-boundaries.sh`
   in CI; the microphone gain fix.
-- **M1, Linux app on SDL3** (done, below): a window; an `SDL_Renderer` display with a single
-  render thread and a video mailbox; `controller_sdl` with the DualSense's
+- **M1, Linux app on SDL3** (done, below): a window; a Vulkan display reusing
+  `gpu.cpp` (FSR 1, Anime4K x2, Anime4K Restore, CAS sharpening, deband) with
+  an `SDL_Renderer` fallback, driven from a single render thread and a video
+  mailbox; `controller_sdl` with the DualSense's
   effects, light bar, gyro and touchpad (and the `controller_common` split);
   `kbm_sdl` with relative mouse; SDL audio, with a portable AudioQueue
   splitting `audio_out.cpp` / `audio_in.cpp`; the XDG data folder; toasts for
@@ -145,8 +149,7 @@ shared code:
   release, the app's self-test), the Linux tarball and its optional signed
   release assets, the notices of what the desktop package carries. The
   Windows half comes with M2.
-- **Later**: a Vulkan desktop display reusing `gpu.cpp` (FSR, Anime4K),
-  FFmpeg hardware decoding, a desktop updater.
+- **Later**: FFmpeg hardware decoding, a desktop updater.
 
 ## M1: the Linux app
 
@@ -162,20 +165,24 @@ build-desktop/psbox                     # --fullscreen, --windowed (this run), -
 SDL_VIDEO_DRIVER=offscreen SDL_AUDIO_DRIVER=dummy build-desktop/psbox --selftest /tmp/psbox-selftest
 ```
 
-- **Display** (`display_sdl.cpp`): fullscreen at the desktop's own mode by
+- **Display** (`display_sdl.cpp` + `gpu.cpp`): fullscreen at the desktop's own mode by
   default, else a 1600x900 resizable window: Settings > Display mode (a row
   only a desktop shows, `UiCaps::desktopWindow`; `desktopFullscreen` in
   settings.json), F11 / Alt+Enter switch it and the setting follows,
-  `--fullscreen` / `--windowed` choose for one run. An `SDL_Renderer` with vsync, the 1920x1080 picture
-  letterboxed. SDL renders on the main thread only: the drawing threads fill a
+  `--fullscreen` / `--windowed` choose for one run. When a Vulkan 1.3 device
+  with storage-image writes is present (`SDL_WINDOW_VULKAN` +
+  `SDL_Vulkan_CreateSurface`), `gpu.cpp` runs the same compute pipeline as the
+  PS5 (BT.709 limited-range YUV + deband, Anime4K Restore, FSR 1 EASU or
+  Anime4K x2 upscale into the largest 16:9 box in the window, RCAS sharpening
+  and overlay blend, swapchain recreated on resize); otherwise (or with
+  `XC_SDL_RENDERER=1`) an `SDL_Renderer` with vsync is used as a fallback.
+  Either way, rendering runs on the main thread only: the drawing threads fill a
   back frame, `present()` puts it in a one-slot mailbox (the newest wins; the
   video thread never waits for vsync) and `display::pump()`, each pass of the
-  main loop, uploads it (YUV into a BT.709 limited IYUV texture; the menu as
-  ABGR8888), blends the overlay and presents. `idleWait()` wakes on a new
+  main loop, uploads and presents it. `idleWait()` wakes on a new
   frame. `readBackRgb()` reads on the main thread; asked from another one
   (the video thread's screenshots: autoplay's `screen.ppm`) it waits up to
-  500 ms for the next `pump()` to do it. No upscalers,
-  sharpening, block smoothing or 120 Hz (`caps()`).
+  500 ms for the next `pump()` to do it. 120 Hz switching stays PS5-only (`caps()`).
 - **Shell** (`shell_desktop.cpp`): SDL starts before the display, every event
   goes to `input::sdlInputEvent()`, focus lost lets the mouse go, closing the
   window or Ctrl+C / SIGTERM closes the app in order (the worker leaves its
@@ -245,7 +252,7 @@ PSBox/psbox.png              256 px icon, drawn by xcloud-cli render-icon
 PSBox/README-linux.txt       running it, the data folder, hidraw / udev for DualSense features
 PSBox/licenses/              LICENSE, THIRD_PARTY_NOTICES.md, Mbed TLS, libdatachannel, usrsctp,
                              libSRTP, plog, FFmpeg (LGPL-2.1 + FFmpeg-NOTE.txt: the configure
-                             flags), stb, Inter (OFL), SDL3 (zlib)
+                             flags), stb, FSR 1 (MIT), Anime4K (MIT), Inter (OFL), SDL3 (zlib)
 ```
 
 The release: `tools/release.sh <X.Y.Z> --linux` adds

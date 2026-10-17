@@ -58,8 +58,11 @@ rule, e.g. /etc/udev/rules.d/70-dualsense.rules:
     KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0df2", MODE="0660", TAG+="uaccess"
 
 then "sudo udevadm control --reload && sudo udevadm trigger" and plug the
-pad in again. Options the PC can't honour (the PS5's upscalers, 120 Hz,
-a light bar without a DualSense) are hidden.
+pad in again. With a Vulkan 1.3 driver, the app uses the same GPU compute
+pipeline as the PS5 (FSR 1, Anime4K x2, Anime4K Restore, CAS sharpening and
+block smoothing), falling back to SDL_Renderer otherwise. Options the PC
+can't honour (the PS5's 120 Hz mode switch, a light bar without a DualSense)
+are hidden.
 
 
 Updates
@@ -73,7 +76,7 @@ Licenses
 --------
 PSBox is GPL-3.0-or-later (licenses/LICENSE). It links Mbed TLS,
 libdatachannel, usrsctp, libSRTP, plog, FFmpeg (LGPL-2.1, see
-licenses/FFmpeg-NOTE.txt), stb, and bundles SDL3 (zlib) and the Inter fonts
-(OFL): their texts are in licenses/, the list in
-licenses/THIRD_PARTY_NOTICES.md. Source code: the repository at this
+licenses/FFmpeg-NOTE.txt), stb, FSR 1 and Anime4K shaders (MIT), and bundles
+SDL3 (zlib) and the Inter fonts (OFL): their texts are in licenses/, the
+list in licenses/THIRD_PARTY_NOTICES.md. Source code: the repository at this
 release's tag, https://github.com/RafaelNGP/xbox-cloud-gaming-ps5

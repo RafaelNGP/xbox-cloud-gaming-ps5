@@ -28,9 +28,15 @@
 #include "display/shaders/rcas.spv.h"
 #include "display/shaders/yuv2rgb.spv.h"
 
-// RADV is linked in whole (no loader): its ICD entry point resolves the rest.
-extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance instance, const char* name);
-// RADV with tools/ps5/patches (weak: absent from an unpatched RADV).
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+
+// RADV on the PS5 is linked in whole (no loader): its ICD entry point resolves
+// the rest. Weak so the desktop build links without it and supplies SDL's
+// vkGetInstanceProcAddr through Wsi instead.
+extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(VkInstance instance, const char* name)
+    __attribute__((weak));
+// RADV with tools/ps5/patches (weak: absent from an unpatched RADV or desktop).
 extern "C" int wsi_videoout_set_high_refresh(bool on) __attribute__((weak));
 
 namespace xc::display::gpu {
@@ -40,25 +46,32 @@ namespace {
 #define XC_VK_GLOBAL(X) X(CreateInstance) X(EnumerateInstanceExtensionProperties)
 
 #define XC_VK_INSTANCE(X)                                                                                    \
+    X(DestroyInstance) X(DestroySurfaceKHR)                                                                  \
     X(EnumeratePhysicalDevices) X(GetPhysicalDeviceProperties) X(GetPhysicalDeviceQueueFamilyProperties)     \
     X(GetPhysicalDeviceMemoryProperties) X(GetPhysicalDeviceFeatures) X(CreateDevice) X(GetDeviceProcAddr)   \
     X(EnumerateDeviceExtensionProperties)                                                                    \
     X(GetPhysicalDeviceDisplayPropertiesKHR) X(GetDisplayModePropertiesKHR) X(CreateDisplayPlaneSurfaceKHR)  \
     X(GetPhysicalDeviceSurfaceSupportKHR) X(GetPhysicalDeviceSurfaceCapabilitiesKHR)                         \
-    X(GetPhysicalDeviceSurfacePresentModesKHR)
+    X(GetPhysicalDeviceSurfaceFormatsKHR) X(GetPhysicalDeviceSurfacePresentModesKHR)
 
 #define XC_VK_DEVICE(X)                                                                                      \
-    X(GetDeviceQueue) X(DeviceWaitIdle) X(CreateSwapchainKHR) X(GetSwapchainImagesKHR)                       \
-    X(AcquireNextImageKHR) X(QueuePresentKHR) X(CreateSemaphore) X(CreateFence) X(WaitForFences)             \
-    X(ResetFences) X(CreateCommandPool) X(AllocateCommandBuffers) X(BeginCommandBuffer) X(EndCommandBuffer)  \
-    X(ResetCommandBuffer) X(QueueSubmit) X(CmdPipelineBarrier2) X(CmdClearColorImage)                        \
+    X(DestroyDevice) X(GetDeviceQueue) X(DeviceWaitIdle)                                                     \
+    X(CreateSwapchainKHR) X(DestroySwapchainKHR) X(GetSwapchainImagesKHR)                                    \
+    X(AcquireNextImageKHR) X(QueuePresentKHR)                                                                \
+    X(CreateSemaphore) X(DestroySemaphore) X(CreateFence) X(DestroyFence) X(WaitForFences) X(ResetFences)    \
+    X(CreateCommandPool) X(DestroyCommandPool) X(AllocateCommandBuffers)                                     \
+    X(BeginCommandBuffer) X(EndCommandBuffer) X(ResetCommandBuffer) X(QueueSubmit)                           \
+    X(CmdPipelineBarrier2) X(CmdClearColorImage)                                                             \
     X(CreateBuffer) X(DestroyBuffer) X(GetBufferMemoryRequirements) X(BindBufferMemory) X(CreateImage)       \
     X(DestroyImage) X(GetImageMemoryRequirements) X(BindImageMemory) X(AllocateMemory) X(FreeMemory)         \
-    X(MapMemory) X(CreateImageView) X(DestroyImageView) X(CreateSampler) X(CreateShaderModule)               \
-    X(CreateDescriptorSetLayout) X(CreatePipelineLayout) X(CreateComputePipelines)                           \
-    X(CreateDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets) X(CmdBindPipeline)            \
-    X(CmdBindDescriptorSets) X(CmdPushConstants) X(CmdDispatch) X(CmdCopyBufferToImage)                     \
-    X(CmdCopyImageToBuffer)
+    X(MapMemory) X(CreateImageView) X(DestroyImageView) X(CreateSampler) X(DestroySampler)                   \
+    X(CreateShaderModule) X(DestroyShaderModule)                                                             \
+    X(CreateDescriptorSetLayout) X(DestroyDescriptorSetLayout)                                               \
+    X(CreatePipelineLayout) X(DestroyPipelineLayout)                                                         \
+    X(CreateComputePipelines) X(DestroyPipeline)                                                             \
+    X(CreateDescriptorPool) X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets)       \
+    X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdPushConstants) X(CmdDispatch)                           \
+    X(CmdCopyBufferToImage) X(CmdCopyImageToBuffer)
 
 #define XC_VK_DECLARE(name) PFN_vk##name vk##name = nullptr;
 XC_VK_GLOBAL(XC_VK_DECLARE)
@@ -89,6 +102,8 @@ struct Pipeline {
 
 struct State {
     bool ready = false;
+    Wsi wsi{};
+    PFN_vkGetInstanceProcAddr getProc = nullptr;
     VkInstance instance = VK_NULL_HANDLE;
     VkPhysicalDevice physical = VK_NULL_HANDLE;
     VkPhysicalDeviceMemoryProperties memory{};
@@ -97,11 +112,14 @@ struct State {
     VkQueue queue = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+    VkFormat swapFormat = VK_FORMAT_B8G8R8A8_UNORM;
     VkExtent2D extent{3840, 2160};
+    uint32_t boxW = 3840, boxH = 2160;  // largest 16:9 box inside extent
     uint32_t refreshMilliHz = 60000;
     VkImage images[8]{};
     VkImageView views[8]{};
     uint32_t imageCount = 0;
+    bool needSwapchain = false;
     VkCommandPool pool = VK_NULL_HANDLE;
     VkCommandBuffer cmd = VK_NULL_HANDLE;
     VkSemaphore acquired = VK_NULL_HANDLE, rendered = VK_NULL_HANDLE;
@@ -113,9 +131,10 @@ struct State {
     VkSampler nearest = VK_NULL_HANDLE, linear = VK_NULL_HANDLE;
     Pipeline yuv, easu, rcas;
     // Anime4K x2 (S): four convolutions at the picture's size, then the
-    // depth-to-space into the 4K image; in place of EASU when chosen.
+    // depth-to-space into the 2x image (or straight into upscaled when the
+    // display box is already 2x); in place of EASU when chosen.
     Pipeline a4kConv[4], a4kD2s;
-    VkDescriptorSet a4kConvSets[4]{}, a4kD2sSet = VK_NULL_HANDLE;
+    VkDescriptorSet a4kConvSets[4]{}, a4kD2sSet = VK_NULL_HANDLE, easuA4kSet = VK_NULL_HANDLE;
     bool a4kReady = false;
     // Anime4K Restore (S): four convolutions that clean compression artefacts
     // off the picture before it is upscaled (FSR or Anime4K), in place.
@@ -128,6 +147,7 @@ struct State {
 
     Image luma, chromaU, chromaV, rgb;  // the video picture, at its size
     Image features[2];                  // Anime4K's feature maps, ping-ponged
+    Image a4k;                          // 2x intermediate when the display box != 2x stream
     Image ui, upscaled, overlay;
     Buffer staging;         // this frame's planes or canvas
     Buffer overlayStaging;  // the overlay, when it changed
@@ -168,50 +188,129 @@ bool fail(const char* step, VkResult r) {
     return false;
 }
 
+void updateBox() {
+    g.boxW = g.extent.width;
+    g.boxH = g.extent.height;
+    if (g.boxW * 9 > g.boxH * 16) g.boxW = std::max(1u, (g.boxH * 16 + 4) / 9);
+    else if (g.boxH * 16 > g.boxW * 9) g.boxH = std::max(1u, (g.boxW * 9 + 8) / 16);
+}
+
 // --- device -------------------------------------------------------------------
 
 bool createInstance() {
-#define XC_VK_LOAD_GLOBAL(name) vk##name = reinterpret_cast<PFN_vk##name>(vk_icdGetInstanceProcAddr(VK_NULL_HANDLE, "vk" #name));
+    g.getProc = g.wsi.getInstanceProcAddr ? reinterpret_cast<PFN_vkGetInstanceProcAddr>(g.wsi.getInstanceProcAddr)
+                                          : vk_icdGetInstanceProcAddr;
+    if (!g.getProc) {
+        XC_LOGE("gpu: no vkGetInstanceProcAddr");
+        return false;
+    }
+#define XC_VK_LOAD_GLOBAL(name) vk##name = reinterpret_cast<PFN_vk##name>(g.getProc(VK_NULL_HANDLE, "vk" #name));
     XC_VK_GLOBAL(XC_VK_LOAD_GLOBAL)
     if (!vkCreateInstance || !vkEnumerateInstanceExtensionProperties) {
-        XC_LOGE("gpu: the RADV ICD has no vkCreateInstance");
+        XC_LOGE("gpu: no vkCreateInstance");
         return false;
     }
-    VkExtensionProperties ext[64];
-    uint32_t n = 64;
-    bool display = false;
-    if (vkEnumerateInstanceExtensionProperties(nullptr, &n, ext) >= VK_SUCCESS)
-        for (uint32_t i = 0; i < n; ++i) display |= std::strcmp(ext[i].extensionName, VK_KHR_DISPLAY_EXTENSION_NAME) == 0;
-    if (!display) {
-        XC_LOGE("gpu: VK_KHR_display is not reported");
-        return false;
+    const char* const ps5Names[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_DISPLAY_EXTENSION_NAME};
+    const char* const* extNames = ps5Names;
+    uint32_t extCount = 2;
+    if (g.wsi.createSurface) {
+        extNames = g.wsi.extensions;
+        extCount = g.wsi.extensionCount;
+    } else {
+        VkExtensionProperties ext[64];
+        uint32_t n = 64;
+        bool display = false;
+        if (vkEnumerateInstanceExtensionProperties(nullptr, &n, ext) >= VK_SUCCESS)
+            for (uint32_t i = 0; i < n; ++i) display |= std::strcmp(ext[i].extensionName, VK_KHR_DISPLAY_EXTENSION_NAME) == 0;
+        if (!display) {
+            XC_LOGE("gpu: VK_KHR_display is not reported");
+            return false;
+        }
     }
-    const char* const names[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_DISPLAY_EXTENSION_NAME};
     VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
     app.pApplicationName = "PSBox Cloud Gaming";
     app.apiVersion = VK_API_VERSION_1_3;
     VkInstanceCreateInfo info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     info.pApplicationInfo = &app;
-    info.enabledExtensionCount = 2;
-    info.ppEnabledExtensionNames = names;
+    info.enabledExtensionCount = extCount;
+    info.ppEnabledExtensionNames = extNames;
     VkResult r = vkCreateInstance(&info, nullptr, &g.instance);
     if (r != VK_SUCCESS) return fail("vkCreateInstance", r);
-#define XC_VK_LOAD_INSTANCE(name) vk##name = reinterpret_cast<PFN_vk##name>(vk_icdGetInstanceProcAddr(g.instance, "vk" #name));
+#define XC_VK_LOAD_INSTANCE(name) vk##name = reinterpret_cast<PFN_vk##name>(g.getProc(g.instance, "vk" #name));
     XC_VK_INSTANCE(XC_VK_LOAD_INSTANCE)
-    return vkEnumeratePhysicalDevices && vkCreateDevice && vkCreateDisplayPlaneSurfaceKHR;
+    if (!vkEnumeratePhysicalDevices || !vkCreateDevice) return false;
+    if (g.wsi.createSurface) {
+        if (!g.wsi.createSurface(g.wsi.user, g.instance, &g.surface) || !g.surface) {
+            XC_LOGE("gpu: window surface creation failed");
+            return false;
+        }
+        return true;
+    }
+    return vkCreateDisplayPlaneSurfaceKHR != nullptr;
 }
 
 bool createDevice() {
-    uint32_t n = 1;
-    VkResult r = vkEnumeratePhysicalDevices(g.instance, &n, &g.physical);
-    if ((r != VK_SUCCESS && r != VK_INCOMPLETE) || n == 0) return fail("vkEnumeratePhysicalDevices", r);
+    VkPhysicalDevice devs[8]{};
+    uint32_t devCount = 8;
+    VkResult r = vkEnumeratePhysicalDevices(g.instance, &devCount, devs);
+    if ((r != VK_SUCCESS && r != VK_INCOMPLETE) || devCount == 0) return fail("vkEnumeratePhysicalDevices", r);
+
+    int bestScore = -1;
+    uint32_t bestFamily = UINT32_MAX;
+    for (uint32_t d = 0; d < devCount; ++d) {
+        VkPhysicalDevice dev = devs[d];
+        VkPhysicalDeviceProperties props{};
+        vkGetPhysicalDeviceProperties(dev, &props);
+        if (props.apiVersion < VK_API_VERSION_1_3) continue;
+        VkPhysicalDeviceFeatures supported{};
+        vkGetPhysicalDeviceFeatures(dev, &supported);
+        if (!supported.shaderStorageImageWriteWithoutFormat) continue;
+        static VkExtensionProperties ext[512];
+        uint32_t count = 512;
+        bool hasSwapchain = false;
+        if (vkEnumerateDeviceExtensionProperties(dev, nullptr, &count, ext) >= VK_SUCCESS)
+            for (uint32_t i = 0; i < count; ++i)
+                hasSwapchain |= std::strcmp(ext[i].extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0;
+        if (!hasSwapchain) continue;
+        VkQueueFamilyProperties families[16]{};
+        uint32_t qCount = 16;
+        vkGetPhysicalDeviceQueueFamilyProperties(dev, &qCount, families);
+        uint32_t fam = UINT32_MAX;
+        for (uint32_t i = 0; i < qCount; ++i) {
+            if ((families[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) !=
+                (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
+                continue;
+            if (g.surface) {
+                VkBool32 surfOk = VK_FALSE;
+                if (vkGetPhysicalDeviceSurfaceSupportKHR(dev, i, g.surface, &surfOk) != VK_SUCCESS || !surfOk) continue;
+            }
+            fam = i;
+            break;
+        }
+        if (fam == UINT32_MAX) continue;
+        int score = props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU     ? 4
+                  : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU   ? 3
+                  : props.deviceType == VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU      ? 2
+                                                                                 : 1;
+        if (score > bestScore) {
+            bestScore = score;
+            g.physical = dev;
+            bestFamily = fam;
+        }
+    }
+    if (!g.physical || bestFamily == UINT32_MAX) {
+        XC_LOGE("gpu: no Vulkan 1.3 graphics+compute device with storage image writes");
+        return false;
+    }
+    g.family = bestFamily;
+
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(g.physical, &props);
     XC_LOGI("gpu: %s, Vulkan %u.%u.%u", props.deviceName, VK_API_VERSION_MAJOR(props.apiVersion),
             VK_API_VERSION_MINOR(props.apiVersion), VK_API_VERSION_PATCH(props.apiVersion));
     vkGetPhysicalDeviceMemoryProperties(g.physical, &g.memory);
-    VkQueueFamilyProperties families[8];
-    n = 8;
+    VkQueueFamilyProperties families[16];
+    uint32_t n = 16;
     vkGetPhysicalDeviceQueueFamilyProperties(g.physical, &n, families);
     // What the driver offers for hardware video decoding (Vulkan Video).
     for (uint32_t i = 0; i < n; ++i)
@@ -232,21 +331,6 @@ bool createDevice() {
         }
         XC_LOGI("gpu: %u device extensions; video/present/swapchain/display:%s", count,
                 video.empty() ? " none" : video.c_str());
-    }
-    g.family = UINT32_MAX;
-    for (uint32_t i = 0; i < n && g.family == UINT32_MAX; ++i)
-        if ((families[i].queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT)) ==
-            (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
-            g.family = i;
-    if (g.family == UINT32_MAX) {
-        XC_LOGE("gpu: no graphics queue");
-        return false;
-    }
-    VkPhysicalDeviceFeatures supported;
-    vkGetPhysicalDeviceFeatures(g.physical, &supported);
-    if (!supported.shaderStorageImageWriteWithoutFormat) {
-        XC_LOGE("gpu: no shaderStorageImageWriteWithoutFormat");
-        return false;
     }
     const float priority = 1.0f;
     VkDeviceQueueCreateInfo queue{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -278,6 +362,12 @@ bool createDevice() {
     info.ppEnabledExtensionNames = ext;
     info.pEnabledFeatures = &features;
     r = vkCreateDevice(g.physical, &info, nullptr, &g.device);
+    if (r != VK_SUCCESS && g.presentWait) {
+        g.presentWait = false;
+        v13.pNext = nullptr;
+        info.enabledExtensionCount = 1;
+        r = vkCreateDevice(g.physical, &info, nullptr, &g.device);
+    }
     if (r != VK_SUCCESS) return fail("vkCreateDevice", r);
 #define XC_VK_LOAD_DEVICE(name) vk##name = reinterpret_cast<PFN_vk##name>(vkGetDeviceProcAddr(g.device, "vk" #name));
     XC_VK_DEVICE(XC_VK_LOAD_DEVICE)
@@ -291,31 +381,21 @@ bool createDevice() {
     return true;
 }
 
-bool createSwapchain() {
-    VkDisplayPropertiesKHR display;
-    uint32_t n = 1;
-    VkResult r = vkGetPhysicalDeviceDisplayPropertiesKHR(g.physical, &n, &display);
-    if ((r != VK_SUCCESS && r != VK_INCOMPLETE) || n == 0) return fail("vkGetPhysicalDeviceDisplayPropertiesKHR", r);
-    VkDisplayModePropertiesKHR modes[4];
-    n = 4;
-    r = vkGetDisplayModePropertiesKHR(g.physical, display.display, &n, modes);
-    if ((r != VK_SUCCESS && r != VK_INCOMPLETE) || n == 0) return fail("vkGetDisplayModePropertiesKHR", r);
-    g.extent = display.physicalResolution;
-    g.refreshMilliHz = modes[0].parameters.refreshRate;
-    XC_LOGI("gpu: display %ux%u at %.3f Hz", g.extent.width, g.extent.height, g.refreshMilliHz / 1000.0);
-
-    VkDisplaySurfaceCreateInfoKHR surface{VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR};
-    surface.displayMode = modes[0].displayMode;
-    surface.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-    surface.alphaMode = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR;
-    surface.imageExtent = g.extent;
-    r = vkCreateDisplayPlaneSurfaceKHR(g.instance, &surface, nullptr, &g.surface);
-    if (r != VK_SUCCESS) return fail("vkCreateDisplayPlaneSurfaceKHR", r);
-    VkBool32 supported = VK_FALSE;
-    vkGetPhysicalDeviceSurfaceSupportKHR(g.physical, g.family, g.surface, &supported);
-    VkSurfaceCapabilitiesKHR caps;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(g.physical, g.surface, &caps);
-    {
+bool buildSwapchain(bool first) {
+    VkSurfaceCapabilitiesKHR caps{};
+    if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(g.physical, g.surface, &caps) != VK_SUCCESS)
+        return fail("vkGetPhysicalDeviceSurfaceCapabilitiesKHR", VK_ERROR_SURFACE_LOST_KHR);
+    if (g.wsi.createSurface) {
+        uint32_t w = caps.currentExtent.width, h = caps.currentExtent.height;
+        if ((w == UINT32_MAX || h == UINT32_MAX || w == 0 || h == 0) && g.wsi.getExtent)
+            g.wsi.getExtent(g.wsi.user, w, h);
+        if (w == UINT32_MAX || h == UINT32_MAX) w = 1600, h = 900;
+        if (w == 0 || h == 0) return false;
+        g.extent.width = std::clamp(w, caps.minImageExtent.width, std::max(caps.minImageExtent.width, caps.maxImageExtent.width));
+        g.extent.height = std::clamp(h, caps.minImageExtent.height, std::max(caps.minImageExtent.height, caps.maxImageExtent.height));
+    }
+    updateBox();
+    if (first) {
         VkPresentModeKHR modes[8];
         uint32_t count = 8;
         vkGetPhysicalDeviceSurfacePresentModesKHR(g.physical, g.surface, &count, modes);
@@ -326,40 +406,106 @@ bool createSwapchain() {
     }
     const VkImageUsageFlags usage =
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    if (!supported || (caps.supportedUsageFlags & usage) != usage) {
-        XC_LOGE("gpu: the display can't take storage writes (usage 0x%x)", caps.supportedUsageFlags);
+    if ((caps.supportedUsageFlags & usage) != usage) {
+        XC_LOGE("gpu: the surface can't take storage writes (usage 0x%x)", caps.supportedUsageFlags);
         return false;
     }
-
+    g.swapFormat = VK_FORMAT_B8G8R8A8_UNORM;
+    VkColorSpaceKHR colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    if (vkGetPhysicalDeviceSurfaceFormatsKHR) {
+        VkSurfaceFormatKHR formats[32]{};
+        uint32_t fcount = 32;
+        if (vkGetPhysicalDeviceSurfaceFormatsKHR(g.physical, g.surface, &fcount, formats) >= VK_SUCCESS && fcount > 0) {
+            bool found = false;
+            for (uint32_t i = 0; i < fcount; ++i) {
+                if (formats[i].format == VK_FORMAT_B8G8R8A8_UNORM || formats[i].format == VK_FORMAT_R8G8B8A8_UNORM) {
+                    g.swapFormat = formats[i].format;
+                    colorSpace = formats[i].colorSpace;
+                    found = true;
+                    if (formats[i].format == VK_FORMAT_B8G8R8A8_UNORM) break;
+                }
+            }
+            if (!found) {
+                XC_LOGE("gpu: surface offers neither BGRA8 nor RGBA8 UNORM");
+                return false;
+            }
+        }
+    }
+    uint32_t minImages = std::max(caps.minImageCount, g_swapImages);
+    if (caps.maxImageCount > 0 && minImages > caps.maxImageCount) minImages = caps.maxImageCount;
+    VkCompositeAlphaFlagBitsKHR alpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    for (VkCompositeAlphaFlagBitsKHR a :
+         {VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR, VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+          VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR, VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR}) {
+        if (caps.supportedCompositeAlpha & a) {
+            alpha = a;
+            break;
+        }
+    }
     VkSwapchainCreateInfoKHR info{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
     info.surface = g.surface;
     // Two images: one on the screen, one being drawn. With three, FIFO kept
     // two finished frames queued and the one shown was ~33 ms old.
-    info.minImageCount = std::max(caps.minImageCount, g_swapImages);
-    info.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
-    info.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    info.minImageCount = minImages;
+    info.imageFormat = g.swapFormat;
+    info.imageColorSpace = colorSpace;
     info.imageExtent = g.extent;
     info.imageArrayLayers = 1;
     info.imageUsage = usage;
     info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    info.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
-    info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    info.preTransform = (caps.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
+                            ? VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR
+                            : caps.currentTransform;
+    info.compositeAlpha = alpha;
     info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
     info.clipped = VK_TRUE;
-    r = vkCreateSwapchainKHR(g.device, &info, nullptr, &g.swapchain);
+    VkResult r = vkCreateSwapchainKHR(g.device, &info, nullptr, &g.swapchain);
     if (r != VK_SUCCESS) return fail("vkCreateSwapchainKHR", r);
     g.imageCount = 8;
     r = vkGetSwapchainImagesKHR(g.device, g.swapchain, &g.imageCount, g.images);
-    if (r != VK_SUCCESS) return fail("vkGetSwapchainImagesKHR", r);
+    if (r != VK_SUCCESS && r != VK_INCOMPLETE) return fail("vkGetSwapchainImagesKHR", r);
     for (uint32_t i = 0; i < g.imageCount; ++i) {
         VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         view.image = g.images[i];
         view.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        view.format = VK_FORMAT_B8G8R8A8_UNORM;
+        view.format = g.swapFormat;
         view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         r = vkCreateImageView(g.device, &view, nullptr, &g.views[i]);
         if (r != VK_SUCCESS) return fail("swapchain image view", r);
     }
+    return true;
+}
+
+bool createSwapchain() {
+    if (!g.wsi.createSurface) {
+        VkDisplayPropertiesKHR display;
+        uint32_t n = 1;
+        VkResult r = vkGetPhysicalDeviceDisplayPropertiesKHR(g.physical, &n, &display);
+        if ((r != VK_SUCCESS && r != VK_INCOMPLETE) || n == 0) return fail("vkGetPhysicalDeviceDisplayPropertiesKHR", r);
+        VkDisplayModePropertiesKHR modes[4];
+        n = 4;
+        r = vkGetDisplayModePropertiesKHR(g.physical, display.display, &n, modes);
+        if ((r != VK_SUCCESS && r != VK_INCOMPLETE) || n == 0) return fail("vkGetDisplayModePropertiesKHR", r);
+        g.extent = display.physicalResolution;
+        g.refreshMilliHz = modes[0].parameters.refreshRate;
+        XC_LOGI("gpu: display %ux%u at %.3f Hz", g.extent.width, g.extent.height, g.refreshMilliHz / 1000.0);
+
+        VkDisplaySurfaceCreateInfoKHR surface{VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR};
+        surface.displayMode = modes[0].displayMode;
+        surface.transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+        surface.alphaMode = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR;
+        surface.imageExtent = g.extent;
+        r = vkCreateDisplayPlaneSurfaceKHR(g.instance, &surface, nullptr, &g.surface);
+        if (r != VK_SUCCESS) return fail("vkCreateDisplayPlaneSurfaceKHR", r);
+    }
+    VkBool32 supported = VK_FALSE;
+    vkGetPhysicalDeviceSurfaceSupportKHR(g.physical, g.family, g.surface, &supported);
+    if (!supported) {
+        XC_LOGE("gpu: queue family %u does not support surface presentation", g.family);
+        return false;
+    }
+    if (!buildSwapchain(true)) return false;
+    if (g.wsi.createSurface) XC_LOGI("gpu: window swapchain %ux%u (16:9 box %ux%u)", g.extent.width, g.extent.height, g.boxW, g.boxH);
     return true;
 }
 
@@ -406,7 +552,11 @@ bool createBuffer(Buffer& b, size_t size, VkBufferUsageFlags usage) {
     if (vkCreateBuffer(g.device, &info, nullptr, &b.buffer) != VK_SUCCESS) return false;
     VkMemoryRequirements req;
     vkGetBufferMemoryRequirements(g.device, b.buffer, &req);
-    if (!allocate(req, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, b.memory)) return false;
+    const VkMemoryPropertyFlags host = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    if (!((usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) &&
+          allocate(req, host | VK_MEMORY_PROPERTY_HOST_CACHED_BIT, b.memory)) &&
+        !allocate(req, host, b.memory))
+        return false;
     vkBindBufferMemory(g.device, b.buffer, b.memory, 0);
     void* map = nullptr;
     if (vkMapMemory(g.device, b.memory, 0, VK_WHOLE_SIZE, 0, &map) != VK_SUCCESS) return false;
@@ -449,6 +599,19 @@ void destroyImage(Image& img) {
     img = Image{};
 }
 
+void destroyBuffer(Buffer& b) {
+    if (b.buffer) vkDestroyBuffer(g.device, b.buffer, nullptr);
+    if (b.memory) vkFreeMemory(g.device, b.memory, nullptr);
+    b = Buffer{};
+}
+
+void destroyPipeline(Pipeline& p) {
+    if (p.pipeline) vkDestroyPipeline(g.device, p.pipeline, nullptr);
+    if (p.layout) vkDestroyPipelineLayout(g.device, p.layout, nullptr);
+    if (p.setLayout) vkDestroyDescriptorSetLayout(g.device, p.setLayout, nullptr);
+    p = Pipeline{};
+}
+
 bool createPipeline(Pipeline& p, const uint32_t* code, size_t bytes, const VkDescriptorSetLayoutBinding* bindings,
                     uint32_t bindingCount, uint32_t pushBytes) {
     VkDescriptorSetLayoutCreateInfo set{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
@@ -465,7 +628,7 @@ bool createPipeline(Pipeline& p, const uint32_t* code, size_t bytes, const VkDes
     VkShaderModuleCreateInfo module{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     module.codeSize = bytes;
     module.pCode = code;
-    VkShaderModule shader;
+    VkShaderModule shader = VK_NULL_HANDLE;
     if (vkCreateShaderModule(g.device, &module, nullptr, &shader) != VK_SUCCESS) return false;
     VkComputePipelineCreateInfo info{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     info.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
@@ -473,7 +636,9 @@ bool createPipeline(Pipeline& p, const uint32_t* code, size_t bytes, const VkDes
     info.stage.module = shader;
     info.stage.pName = "main";
     info.layout = p.layout;
-    return vkCreateComputePipelines(g.device, VK_NULL_HANDLE, 1, &info, nullptr, &p.pipeline) == VK_SUCCESS;
+    VkResult r = vkCreateComputePipelines(g.device, VK_NULL_HANDLE, 1, &info, nullptr, &p.pipeline);
+    if (vkDestroyShaderModule) vkDestroyShaderModule(g.device, shader, nullptr);
+    return r == VK_SUCCESS;
 }
 
 VkDescriptorSetLayoutBinding binding(uint32_t index, VkDescriptorType type) {
@@ -512,6 +677,23 @@ void writeStorage(VkDescriptorSet set, uint32_t index, VkImageView view) {
     vkUpdateDescriptorSets(g.device, 1, &w, 0, nullptr);
 }
 
+void bindSwapchainSets() {
+    writeStorage(g.easuUiSet, 1, g.upscaled.view);
+    writeStorage(g.easuVideoSet, 1, g.upscaled.view);
+    if (g.a4kReady) {
+        writeStorage(g.easuA4kSet, 1, g.upscaled.view);
+        if (g.a4k.view) {
+            bool direct = (g.rgb.w * 2 == g.boxW && g.rgb.h * 2 == g.boxH);
+            writeStorage(g.a4kD2sSet, 2, direct ? g.upscaled.view : g.a4k.view);
+        }
+    }
+    for (uint32_t i = 0; i < g.imageCount; ++i) {
+        writeStorage(g.rcasSets[i], 0, g.upscaled.view);
+        writeSampled(g.rcasSets[i], 1, g.overlay.view, g.linear);
+        writeStorage(g.rcasSets[i], 2, g.views[i]);
+    }
+}
+
 bool createPipelines() {
     VkSamplerCreateInfo s{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
     s.addressModeU = s.addressModeV = s.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
@@ -548,19 +730,20 @@ bool createPipelines() {
             g.restoreReady = createPipeline(g.restoreConv[i], rcode[i], rbytes[i], conv, 2, 0);
         if (g.a4kReady && !g.restoreReady) XC_LOGW("gpu: no Anime4K Restore pipelines");
     }
-    const VkDescriptorPoolSize sizes[] = {{sampled, 32}, {storage, 32}};
+    const VkDescriptorPoolSize sizes[] = {{sampled, 40}, {storage, 40}};
     VkDescriptorPoolCreateInfo pool{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-    pool.maxSets = 24;
+    pool.maxSets = 32;
     pool.poolSizeCount = 2;
     pool.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(g.device, &pool, nullptr, &g.descriptors) != VK_SUCCESS) return false;
     g.yuvSet = allocateSet(g.yuv);
     g.easuVideoSet = allocateSet(g.easu);
     g.easuUiSet = allocateSet(g.easu);
-    for (uint32_t i = 0; i < g.imageCount; ++i) g.rcasSets[i] = allocateSet(g.rcas);
+    for (uint32_t i = 0; i < 8; ++i) g.rcasSets[i] = allocateSet(g.rcas);
     if (g.a4kReady) {
         for (int i = 0; i < 4; ++i) g.a4kConvSets[i] = allocateSet(g.a4kConv[i]);
         g.a4kD2sSet = allocateSet(g.a4kD2s);
+        g.easuA4kSet = allocateSet(g.easu);
     }
     if (g.restoreReady)
         for (int i = 0; i < 4; ++i) g.restoreSets[i] = allocateSet(g.restoreConv[i]);
@@ -569,7 +752,7 @@ bool createPipelines() {
     const VkImageUsageFlags upload = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     if (!createImage(g.ui, VK_FORMAT_R8G8B8A8_UNORM, kUiW, kUiH, upload) ||
         !createImage(g.overlay, VK_FORMAT_R8G8B8A8_UNORM, kUiW, kUiH, upload) ||
-        !createImage(g.upscaled, VK_FORMAT_R8G8B8A8_UNORM, g.extent.width, g.extent.height,
+        !createImage(g.upscaled, VK_FORMAT_R8G8B8A8_UNORM, g.boxW, g.boxH,
                      VK_IMAGE_USAGE_STORAGE_BIT) ||
         !createBuffer(g.staging, kUiW * kUiH * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT) ||
         !createBuffer(g.overlayStaging, kUiW * kUiH * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT)) {
@@ -577,15 +760,40 @@ bool createPipelines() {
         return false;
     }
     writeSampled(g.easuUiSet, 0, g.ui.view, g.linear);
-    writeStorage(g.easuUiSet, 1, g.upscaled.view);
-    writeStorage(g.easuVideoSet, 1, g.upscaled.view);
-    for (uint32_t i = 0; i < g.imageCount; ++i) {
-        writeStorage(g.rcasSets[i], 0, g.upscaled.view);
-        writeSampled(g.rcasSets[i], 1, g.overlay.view, g.linear);
-        writeStorage(g.rcasSets[i], 2, g.views[i]);
-    }
+    bindSwapchainSets();
     std::memset(g.overlayStaging.map, 0, g.overlayStaging.size);
     g_overlayDirty = true;  // the first frame clears the overlay image
+    return true;
+}
+
+bool recreateSwapchain() {
+    if (!g.wsi.createSurface) return false;
+    uint32_t w = 0, h = 0;
+    if (g.wsi.getExtent) {
+        g.wsi.getExtent(g.wsi.user, w, h);
+        if (w == 0 || h == 0) return false;
+    }
+    vkDeviceWaitIdle(g.device);
+    g.fencePending = false;
+    g.frameOpen = false;
+    g.lastPresented = UINT32_MAX;
+    g.presented = 0;
+    g_shownId = 0;
+    g.needSwapchain = false;
+    for (uint32_t i = 0; i < g.imageCount; ++i) {
+        if (g.views[i]) vkDestroyImageView(g.device, g.views[i], nullptr);
+        g.views[i] = VK_NULL_HANDLE;
+    }
+    g.imageCount = 0;
+    if (g.swapchain) {
+        vkDestroySwapchainKHR(g.device, g.swapchain, nullptr);
+        g.swapchain = VK_NULL_HANDLE;
+    }
+    destroyImage(g.upscaled);
+    destroyBuffer(g.readback);
+    if (!buildSwapchain(false)) return false;
+    if (!createImage(g.upscaled, VK_FORMAT_R8G8B8A8_UNORM, g.boxW, g.boxH, VK_IMAGE_USAGE_STORAGE_BIT)) return false;
+    bindSwapchainSets();
     return true;
 }
 
@@ -599,6 +807,7 @@ bool videoImages(uint32_t w, uint32_t h) {
     destroyImage(g.rgb);
     destroyImage(g.features[0]);
     destroyImage(g.features[1]);
+    destroyImage(g.a4k);
     const VkImageUsageFlags upload = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     uint32_t cw = (w + 1) / 2, ch = (h + 1) / 2;
     if (!createImage(g.luma, VK_FORMAT_R8_UNORM, w, h, upload) ||
@@ -615,11 +824,13 @@ bool videoImages(uint32_t w, uint32_t h) {
     writeSampled(g.easuVideoSet, 0, g.rgb.view, g.linear);
     if (g.a4kReady) {
         if (!createImage(g.features[0], VK_FORMAT_R16G16B16A16_SFLOAT, w, h, VK_IMAGE_USAGE_STORAGE_BIT) ||
-            !createImage(g.features[1], VK_FORMAT_R16G16B16A16_SFLOAT, w, h, VK_IMAGE_USAGE_STORAGE_BIT)) {
+            !createImage(g.features[1], VK_FORMAT_R16G16B16A16_SFLOAT, w, h, VK_IMAGE_USAGE_STORAGE_BIT) ||
+            !createImage(g.a4k, VK_FORMAT_R8G8B8A8_UNORM, w * 2, h * 2,
+                         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)) {
             XC_LOGW("gpu: no Anime4K feature maps; FSR only");
             g.a4kReady = false;
         } else {
-            // picture -> f0 -> f1 -> f0 -> f1 -> 4K
+            // picture -> f0 -> f1 -> f0 -> f1 -> 2x (direct into upscaled when 2x == box, else g.a4k -> EASU)
             const VkImageView in[4] = {g.rgb.view, g.features[0].view, g.features[1].view, g.features[0].view};
             const VkImageView out[4] = {g.features[0].view, g.features[1].view, g.features[0].view,
                                         g.features[1].view};
@@ -627,9 +838,12 @@ bool videoImages(uint32_t w, uint32_t h) {
                 writeStorage(g.a4kConvSets[i], 0, in[i]);
                 writeStorage(g.a4kConvSets[i], 1, out[i]);
             }
+            bool direct = (w * 2 == g.boxW && h * 2 == g.boxH);
             writeStorage(g.a4kD2sSet, 0, g.features[1].view);
             writeSampled(g.a4kD2sSet, 1, g.rgb.view, g.linear);
-            writeStorage(g.a4kD2sSet, 2, g.upscaled.view);
+            writeStorage(g.a4kD2sSet, 2, direct ? g.upscaled.view : g.a4k.view);
+            writeSampled(g.easuA4kSet, 0, g.a4k.view, g.linear);
+            writeStorage(g.easuA4kSet, 1, g.upscaled.view);
             if (g.restoreReady) {
                 // picture -> f0 -> f1 -> f0 -> (+ picture) -> picture
                 const VkImageView rin[4] = {g.rgb.view, g.features[0].view, g.features[1].view, g.features[0].view};
@@ -702,6 +916,13 @@ bool beginFrame(bool wait) {
         g.fencePending = false;
     }
     if (g.frameOpen) return true;  // drawn twice without a present: draw over it
+    if (g.wsi.getExtent) {
+        uint32_t w = 0, h = 0;
+        g.wsi.getExtent(g.wsi.user, w, h);
+        if (w == 0 || h == 0) return false;
+        if (w != g.extent.width || h != g.extent.height) g.needSwapchain = true;
+    }
+    if (g.needSwapchain && !recreateSwapchain()) return false;
     if (g.presentWait && g.presented) {
         if (!g_noPresentWait) {
             // The frame before on the screen first (at most 50 ms, then go on).
@@ -722,7 +943,13 @@ bool beginFrame(bool wait) {
     uint64_t t0 = platform::nowUs();
     VkResult r = vkAcquireNextImageKHR(g.device, g.swapchain, wait ? UINT64_MAX : 0, g.acquired, VK_NULL_HANDLE,
                                        &g.frameIndex);
+    if (r == VK_ERROR_OUT_OF_DATE_KHR && g.wsi.createSurface) {
+        if (!recreateSwapchain()) return false;
+        r = vkAcquireNextImageKHR(g.device, g.swapchain, wait ? UINT64_MAX : 0, g.acquired, VK_NULL_HANDLE,
+                                  &g.frameIndex);
+    }
     if (r == VK_NOT_READY || r == VK_TIMEOUT) return false;
+    if (r == VK_SUBOPTIMAL_KHR) g.needSwapchain = true;
     uint64_t waited = platform::nowUs() - t0;
     g_acquireWaitUs += waited;
     g_acquireWaitMaxUs = std::max(g_acquireWaitMaxUs, waited);
@@ -756,10 +983,11 @@ void recordRestore(uint32_t w, uint32_t h) {
     }
 }
 
-// Anime4K x2 into `upscaled`; false (nothing recorded) when it doesn't fit:
-// only the video, and only a picture of exactly half the display.
-bool recordAnime4K(uint32_t w, uint32_t h) {
-    if (!g.a4kReady || w * 2 != g.extent.width || h * 2 != g.extent.height || g.features[0].w != w) return false;
+// Anime4K x2 into `upscaled` when the 16:9 display box is 2x the stream, else
+// into `g.a4k` (2*w x 2*h) so EASU scales that 2x image to the display box.
+bool recordAnime4K(uint32_t w, uint32_t h, bool& direct) {
+    if (!g.a4kReady || g.features[0].w != w || g.features[0].h != h || g.a4k.w != w * 2) return false;
+    direct = (w * 2 == g.boxW && h * 2 == g.boxH);
     barrier(g.features[0].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
     barrier(g.features[1].image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
     for (int i = 0; i < 4; ++i) {
@@ -769,28 +997,35 @@ bool recordAnime4K(uint32_t w, uint32_t h) {
         vkCmdDispatch(g.cmd, (w + 7) / 8, (h + 7) / 8, 1);
         memoryBarrier();
     }
-    barrier(g.upscaled.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    barrier(direct ? g.upscaled.image : g.a4k.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
     vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.a4kD2s.pipeline);
     vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.a4kD2s.layout, 0, 1, &g.a4kD2sSet, 0, nullptr);
-    vkCmdDispatch(g.cmd, (g.extent.width + 7) / 8, (g.extent.height + 7) / 8, 1);
+    vkCmdDispatch(g.cmd, (w * 2 + 7) / 8, (h * 2 + 7) / 8, 1);
     memoryBarrier();
     return true;
 }
 
 void recordUpscale(VkDescriptorSet easuSet, uint32_t w, uint32_t h, int sharpness, bool overlay, bool ai = false) {
-    // EASU constants (FsrEasuCon), the picture filling the display.
-    float ow = static_cast<float>(g.extent.width), oh = static_cast<float>(g.extent.height);
-    float iw = static_cast<float>(w), ih = static_cast<float>(h);
-    uint32_t easu[16] = {asBits(iw / ow), asBits(ih / oh), asBits(0.5f * iw / ow - 0.5f), asBits(0.5f * ih / oh - 0.5f),
-                         asBits(1.0f / iw), asBits(1.0f / ih), asBits(1.0f / iw), asBits(-1.0f / ih),
-                         asBits(-1.0f / iw), asBits(2.0f / ih), asBits(1.0f / iw), asBits(2.0f / ih),
-                         asBits(0.0f / iw), asBits(4.0f / ih), 0, 0};
-    if (!ai || !recordAnime4K(w, h)) {
+    bool direct = false;
+    if (ai && recordAnime4K(w, h, direct)) {
+        if (!direct) {
+            easuSet = g.easuA4kSet;
+            w *= 2, h *= 2;
+        }
+    }
+    if (!direct) {
+        // EASU constants (FsrEasuCon), the picture filling the 16:9 display box.
+        float ow = static_cast<float>(g.boxW), oh = static_cast<float>(g.boxH);
+        float iw = static_cast<float>(w), ih = static_cast<float>(h);
+        uint32_t easu[16] = {asBits(iw / ow), asBits(ih / oh), asBits(0.5f * iw / ow - 0.5f), asBits(0.5f * ih / oh - 0.5f),
+                             asBits(1.0f / iw), asBits(1.0f / ih), asBits(1.0f / iw), asBits(-1.0f / ih),
+                             asBits(-1.0f / iw), asBits(2.0f / ih), asBits(1.0f / iw), asBits(2.0f / ih),
+                             asBits(0.0f / iw), asBits(4.0f / ih), 0, 0};
         barrier(g.upscaled.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.pipeline);
         vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.layout, 0, 1, &easuSet, 0, nullptr);
         vkCmdPushConstants(g.cmd, g.easu.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof easu, easu);
-        vkCmdDispatch(g.cmd, (g.extent.width + 7) / 8, (g.extent.height + 7) / 8, 1);
+        vkCmdDispatch(g.cmd, (g.boxW + 7) / 8, (g.boxH + 7) / 8, 1);
         memoryBarrier();
     }
 
@@ -823,14 +1058,50 @@ void recordOverlay(bool& shown) {
 
 }  // namespace
 
-bool init() {
+bool init(const Wsi& wsi) {
     if (g.ready) return true;
+    g.wsi = wsi;
     uint64_t t0 = platform::nowMs();
-    if (!createInstance() || !createDevice() || !createSwapchain() || !createCommands() || !createPipelines())
+    if (!createInstance() || !createDevice() || !createSwapchain() || !createCommands() || !createPipelines()) {
+        shutdown();
         return false;
+    }
     g.ready = true;
     XC_LOGI("gpu: ready in %llu ms", static_cast<unsigned long long>(platform::nowMs() - t0));
     return true;
+}
+
+void shutdown() {
+    if (g.device) {
+        if (vkDeviceWaitIdle) vkDeviceWaitIdle(g.device);
+        for (Image* img : {&g.luma, &g.chromaU, &g.chromaV, &g.rgb, &g.features[0], &g.features[1], &g.a4k, &g.ui,
+                           &g.upscaled, &g.overlay})
+            destroyImage(*img);
+        for (Buffer* buf : {&g.staging, &g.overlayStaging, &g.readback}) destroyBuffer(*buf);
+        if (g.descriptors && vkDestroyDescriptorPool) vkDestroyDescriptorPool(g.device, g.descriptors, nullptr);
+        for (Pipeline* p : {&g.yuv, &g.easu, &g.rcas, &g.a4kD2s}) destroyPipeline(*p);
+        for (int i = 0; i < 4; ++i) {
+            destroyPipeline(g.a4kConv[i]);
+            destroyPipeline(g.restoreConv[i]);
+        }
+        if (g.nearest && vkDestroySampler) vkDestroySampler(g.device, g.nearest, nullptr);
+        if (g.linear && vkDestroySampler) vkDestroySampler(g.device, g.linear, nullptr);
+        if (g.acquired && vkDestroySemaphore) vkDestroySemaphore(g.device, g.acquired, nullptr);
+        if (g.rendered && vkDestroySemaphore) vkDestroySemaphore(g.device, g.rendered, nullptr);
+        if (g.fence && vkDestroyFence) vkDestroyFence(g.device, g.fence, nullptr);
+        if (g.pool && vkDestroyCommandPool) vkDestroyCommandPool(g.device, g.pool, nullptr);
+        for (uint32_t i = 0; i < g.imageCount; ++i)
+            if (g.views[i] && vkDestroyImageView) vkDestroyImageView(g.device, g.views[i], nullptr);
+        if (g.swapchain && vkDestroySwapchainKHR) vkDestroySwapchainKHR(g.device, g.swapchain, nullptr);
+        if (vkDestroyDevice) vkDestroyDevice(g.device, nullptr);
+    }
+    if (g.instance) {
+        if (g.surface && vkDestroySurfaceKHR) vkDestroySurfaceKHR(g.instance, g.surface, nullptr);
+        if (vkDestroyInstance) vkDestroyInstance(g.instance, nullptr);
+    }
+    g = State{};
+    g_shownId = 0, g_shownAtUs = 0;
+    g_acquires = g_acquireWaitUs = g_acquireWaitMaxUs = 0;
 }
 
 bool ready() { return g.ready; }
@@ -913,9 +1184,14 @@ void present() {
     present.pSwapchains = &g.swapchain;
     present.pImageIndices = &g.frameIndex;
     r = vkQueuePresentKHR(g.queue, &present);
-    if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) fail("vkQueuePresentKHR", r);
+    if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) g.needSwapchain = true;
+    else if (r != VK_SUCCESS) fail("vkQueuePresentKHR", r);
     g.lastPresented = g.frameIndex;
     g.presented = id;
+    if (!g.presentWait) {
+        g_shownAtUs = platform::nowUs();
+        g_shownId = id;
+    }
 }
 
 void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opacity) {
@@ -975,8 +1251,10 @@ bool readBack(std::vector<uint8_t>& rgb, int& width, int& height) {
         vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, UINT64_MAX);
         g.fencePending = false;
     }
-    size_t bytes = static_cast<size_t>(g.extent.width) * g.extent.height * 4;
-    if (!g.readback.buffer && !createBuffer(g.readback, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT)) return false;
+    size_t bytes = static_cast<size_t>(g.boxW) * g.boxH * 4;
+    if ((!g.readback.buffer || g.readback.size < bytes) &&
+        (destroyBuffer(g.readback), !createBuffer(g.readback, bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT)))
+        return false;
     VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkResetCommandBuffer(g.cmd, 0);
@@ -985,7 +1263,9 @@ bool readBack(std::vector<uint8_t>& rgb, int& width, int& height) {
     barrier(image, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_GENERAL);
     VkBufferImageCopy copy{};
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    copy.imageExtent = {g.extent.width, g.extent.height, 1};
+    copy.imageOffset = {static_cast<int32_t>((g.extent.width - g.boxW) / 2),
+                        static_cast<int32_t>((g.extent.height - g.boxH) / 2), 0};
+    copy.imageExtent = {g.boxW, g.boxH, 1};
     vkCmdCopyImageToBuffer(g.cmd, image, VK_IMAGE_LAYOUT_GENERAL, g.readback.buffer, 1, &copy);
     barrier(image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     vkEndCommandBuffer(g.cmd);
@@ -995,14 +1275,15 @@ bool readBack(std::vector<uint8_t>& rgb, int& width, int& height) {
     vkResetFences(g.device, 1, &g.fence);
     if (vkQueueSubmit(g.queue, 1, &submit, g.fence) != VK_SUCCESS) return false;
     vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, UINT64_MAX);
-    width = static_cast<int>(g.extent.width);
-    height = static_cast<int>(g.extent.height);
+    width = static_cast<int>(g.boxW);
+    height = static_cast<int>(g.boxH);
     rgb.resize(static_cast<size_t>(width) * height * 3);
-    const uint8_t* p = g.readback.map;  // B, G, R, A
+    const uint8_t* p = g.readback.map;
+    const bool bgra = g.swapFormat == VK_FORMAT_B8G8R8A8_UNORM;
     for (size_t i = 0, n = static_cast<size_t>(width) * height; i < n; ++i) {
-        rgb[i * 3] = p[i * 4 + 2];
+        rgb[i * 3] = p[i * 4 + (bgra ? 2 : 0)];
         rgb[i * 3 + 1] = p[i * 4 + 1];
-        rgb[i * 3 + 2] = p[i * 4];
+        rgb[i * 3 + 2] = p[i * 4 + (bgra ? 0 : 2)];
     }
     return true;
 }
@@ -1033,3 +1314,5 @@ void probe(int frames) {
 }
 
 }  // namespace xc::display::gpu
+
+#pragma GCC diagnostic pop

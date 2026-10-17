@@ -179,7 +179,9 @@ int desktopSelftest(const std::string& dir) {
     ui.setCaps(caps);
     ui.setSettings(ui::SettingsChoice{});
     ui.setUpdateState(XC_APP_VERSION, {}, false);
-    check(!caps.console && caps.openUrl && !caps.selfUpdate && !caps.highRefresh && !caps.upscalers,
+    const display::DisplayCaps dc = display::caps();
+    check(!caps.console && caps.openUrl && !caps.selfUpdate && !caps.highRefresh &&
+              caps.upscalers == dc.upscalers && caps.sharpen == dc.sharpen && caps.deband == dc.deband,
           "desktop capabilities");
     ui::Canvas canvas(static_cast<int>(display::kWidth), static_cast<int>(display::kHeight));
 
@@ -341,6 +343,20 @@ int desktopSelftest(const std::string& dir) {
     for (int b = 0; b < 8 && barsOk; ++b) barsOk = barMatches(shot, b, 540);
     check(barsOk, "colour bars through drawYuv420 + pump (3-video.png)");
     check(display::lastPresentId() > 0, "present ids counted");
+    if (dc.upscalers) {
+        display::setSharpness(176);
+        display::setDeband(2);
+        display::setUpscaler(1);
+        display::setRestore(true);
+        drawVideo(bars);
+        bool gpuOk = screenshot(dir, "3c-video-upscaled.png", shot);
+        for (int b = 0; b < 8 && gpuOk; ++b) gpuOk = barMatches(shot, b, 540);
+        check(gpuOk, "GPU filters: Anime4K + Restore + RCAS + deband (3c-video-upscaled.png)");
+        display::setSharpness(0);
+        display::setDeband(1);
+        display::setUpscaler(0);
+        display::setRestore(false);
+    }
     // A read back asked from another thread (the video thread's
     // screenshots), done by the main loop's pump().
     {
@@ -406,6 +422,17 @@ int desktopSelftest(const std::string& dir) {
     shell::beforeShutdown();
     input::shutdown();
     display::shutdown();
+    if (dc.upscalers) {
+        bool fb = display::init(false);
+        bool fbOk = fb && !display::caps().upscalers;
+        if (fbOk) {
+            drawVideo(bars);
+            fbOk = screenshot(dir, "3d-video-fallback.png", shot);
+            for (int b = 0; b < 8 && fbOk; ++b) fbOk = barMatches(shot, b, 540);
+        }
+        display::shutdown();
+        check(fbOk, "SDL_Renderer fallback (3d-video-fallback.png)");
+    }
     std::printf("selftest: %s (%d failed)\n", g_failures ? "FAILED" : "all passed", g_failures);
     XC_LOGI("self-test: %d failed", g_failures);
     log::setFile(nullptr);

@@ -204,10 +204,11 @@ if(XC_DESKTOP_APP)
     )
     target_link_libraries(xcloud_backends_sdl_io PUBLIC xcloud_core xcloud_media SDL3::SDL3)
 
-    # The window, its renderer and events, the self-test; no hardware
-    # decoder yet (FFmpeg decodes).
+    # The window, its Vulkan / SDL_Renderer display and events, the self-test;
+    # no hardware decoder yet (FFmpeg decodes).
     add_library(xcloud_backends_desktop OBJECT
         src/display/display_sdl.cpp
+        src/display/gpu.cpp
         src/app/shell_desktop.cpp
         src/app/desktop_selftest.cpp
         src/media/hw_decoder_null.cpp

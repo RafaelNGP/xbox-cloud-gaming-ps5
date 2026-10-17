@@ -14,10 +14,22 @@
 
 namespace xc::display::gpu {
 
+// Window-system hooks for a desktop window (SDL_Vulkan_*). Empty on the PS5,
+// where RADV's vk_icdGetInstanceProcAddr and VK_KHR_display are used directly.
+struct Wsi {
+    void* getInstanceProcAddr = nullptr;  // PFN_vkGetInstanceProcAddr
+    const char* const* extensions = nullptr;
+    uint32_t extensionCount = 0;
+    bool (*createSurface)(void* user, void* instance, void* surfaceOut) = nullptr;
+    void (*getExtent)(void* user, uint32_t& width, uint32_t& height) = nullptr;
+    void* user = nullptr;
+};
+
 // Instance, device, display surface, swapchain and the FSR pipelines. False,
-// with the step that failed in the log, when the console won't give them:
-// the CPU display is used instead.
-bool init();
+// with the step that failed in the log, when the console or desktop driver
+// won't give them: the fallback display is used instead.
+bool init(const Wsi& wsi = {});
+void shutdown();
 bool ready();
 
 // Bring-up check: `frames` frames cleared to changing colours and presented,
