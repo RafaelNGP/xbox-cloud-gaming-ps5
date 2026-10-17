@@ -41,6 +41,7 @@ const char* gameSettingsShot = nullptr; // "gamesettingstest": save screenshot
 std::string gameSettingsKey;                 // the game whose profile the test changes
 std::optional<GameProfile> gameSettingsBefore;  // its profile before (none: it had none)
 std::optional<input::KeyMap> keysBefore;        // "keystest": the keys before, put back at the end
+std::optional<input::PadMap> padMapBefore;      // "padmaptest": the controller buttons before, put back at the end
 const char* regionShot = nullptr;  // "regiontest": save this screen next
 bool acceptUpdate = false;  // "updatetest": Cross on the pop-up, next pass ("updateskip": Circle)
 }  // namespace
@@ -81,6 +82,7 @@ void loadAutoplay() {
         if (opt == "consolestab") g_autoplay.consolesTab = true;
         if (opt == "settingstest") g_autoplay.settingsTest = true;
         if (opt == "keystest") g_autoplay.keysTest = true;
+        if (opt == "padmaptest") g_autoplay.padMapTest = true;
         if (opt == "badca") g_autoplay.badCa = true;
         if (opt == "consolesempty") g_autoplay.consolesTab = g_autoplay.consolesEmpty = true;
         if (opt == "librarytest") g_autoplay.libraryTest = true;
@@ -502,7 +504,7 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         enum { Options, Down, Up, Accept, Back, Shot, Reserved, KeyG, End };
         static const Step steps[] = {
             {500, Options}, {1500, Down}, {1800, Down}, {2100, Down}, {2400, Down}, {2700, Down}, {3000, Down},
-            {3300, Down}, {3600, Down}, {3900, Down}, {4200, Down}, {4500, Down}, {5200, Shot},
+            {3300, Down}, {3600, Down}, {3900, Down}, {4200, Down}, {4500, Down}, {4800, Down}, {5200, Shot},
             {5800, Accept}, {7000, Shot}, {7500, Down}, {8000, Accept}, {8600, Reserved}, {9400, Shot},
             {10000, KeyG}, {10800, Shot}, {11400, Up}, {11800, Up}, {12400, Accept}, {13000, Back},
             {14000, Shot}, {14600, Back}, {15200, End}};
@@ -540,6 +542,68 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
             }
             }
             ++step;
+        }
+    }
+
+    if (g_autoplay.padMapTest && uiSaved) {
+        // Settings down to Controller buttons, their screen, Circle captured
+        // for A (A and B swap), B cleared and Circle refused (incomplete),
+        // then "Discard changes": nothing is saved. The user's map is put
+        // back at the end all the same.
+        static uint64_t since = 0;
+        static int step = 0;
+        static int downs = -1;
+        if (!since) since = now;
+        if (downs < 0) {
+            auto rows = ui::visibleSettingsRows(g_ui->caps());
+            downs = 0;
+            for (size_t i = 0; i < rows.size(); ++i)
+                if (rows[i].row == 14) downs = static_cast<int>(i);
+        }
+        struct Step { uint64_t at; int what; };
+        enum { Options, Downs, Down, Up, Right, Accept, Back, Square, Shot, PressCircle, End };
+        static const Step steps[] = {
+            {500, Options}, {1500, Downs}, {5200, Accept}, {6400, Shot}, {7000, Accept}, {7600, Shot},
+            {8200, PressCircle}, {8800, Down}, {9200, Square}, {9800, Back}, {10600, Shot}, {11200, Up},
+            {11500, Up}, {12000, Right}, {12500, Accept}, {13300, Back}, {14000, End}};
+        static const char* shots[] = {"padmap.ppm", "padmap_capture.ppm", "padmap_incomplete.ppm"};
+        static int shot = 0;
+        static int downsDone = 0;
+        if (!padMapBefore) {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            padMapBefore = g_settings.padMap;
+        }
+        if (step < static_cast<int>(std::size(steps)) && now - since >= steps[step].at) {
+            bool next = true;
+            switch (steps[step].what) {
+            case Options: nav.options = true; break;
+            case Downs:  // down to the row: a press every other pass
+                if (downsDone < downs * 2 && downsDone % 2 == 0) nav.down = true;
+                next = ++downsDone >= downs * 2;
+                break;
+            case Down: nav.down = true; break;
+            case Up: nav.up = true; break;
+            case Right: nav.right = true; break;
+            case Accept: nav.accept = true; break;
+            case Back: nav.back = true; break;
+            case Square: nav.square = true; break;
+            case Shot: keysShot = shots[shot++]; break;
+            case PressCircle: nav.padPressed = 1u << static_cast<int>(input::PadFn::B); break;
+            case End: {
+                ui::SettingsChoice choice = g_ui->settings();
+                choice.padMap = *padMapBefore;
+                g_ui->setSettings(choice);
+                {
+                    std::lock_guard<std::mutex> lock(g_settingsMutex);
+                    g_settings.padMap = *padMapBefore;
+                    g_settings.save(settingsPath());
+                }
+                g_autoplay.padMapTest = false;
+                XC_LOGI("AUTOPLAY END: padmap test (the controller buttons put back as they were)");
+                break;
+            }
+            }
+            if (next) ++step;
         }
     }
 
