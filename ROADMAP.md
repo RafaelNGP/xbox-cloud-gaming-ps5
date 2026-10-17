@@ -208,6 +208,12 @@ is rolled back at the next start), then the app restarts itself
 - Sign-in: the xCloud login is tried again on a 5xx (six tries over ~25 s); the renewed refresh token is saved at once. The queue's wait from `/v1/waittime/{titleId}` while queued; the pictures' quantiser (QP) in the statistics line.
 - Crash reports: a fatal signal records the faulting instruction's offset in eboot (`pc=eboot+0x...`), the accessed address (`addr=0x...`) and the caller return addresses (`bt=...`), shown on the report panel and in the GitHub issue link; `tools/release.sh` keeps `symbols/vX.Y.Z/eboot.elf` (a development link with `tools/ps5/link.sh`: `symbols/vX.Y.Z-dev`) and `tools/symbolize.sh` translates offsets back to function and `file:line`.
 
+### Multiplatform: Linux app, shared core — done (v1.1.0)
+- One app core for every platform (`docs/multiplatform.md`): the PS5 code in `*_ps5.cpp` backends, null backends for tools and tests, `tools/check-platform-boundaries.sh` in CI.
+- PSBox on Linux (`psbox`, SDL3): window (fullscreen by default, Display mode in Settings), video and menus, DualSense (adaptive triggers, light bar, gyro, touchpad; hot-plug), Xbox and generic pads (Xbox glyphs), keyboard and mouse (held during a game), typing in the search, audio and microphone, the options the PC can't honour hidden, Circle / Esc asks before quitting.
+- Linux tarball built and attached by CI on each release (ubuntu-24.04); signed on the release machine (`tools/desktop/sign-linux-release.sh`).
+- PS5: microphone gain fixed (50 % muted it, 150 % gave 200 %); the autoplay tests put the user's settings back; development links keep their symbols apart from a release's.
+
 ## Next
 
 | Item | Why | Size |
