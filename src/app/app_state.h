@@ -37,6 +37,8 @@ extern std::atomic<bool> g_cancel;
 extern std::mutex g_argMutex;
 extern ui::GameTile g_playTile;  // what kPlay plays
 void worker();
+// The worker thread started (detached), as coreStartup() does.
+void startWorker();
 // The update pop-up's "Not now": that release isn't offered again on start.
 void skipOfferedUpdate();
 
@@ -55,8 +57,22 @@ extern std::atomic<uint64_t> g_xboxButtonUntil;  // the Xbox button, held until 
 // call that does it takes the app down when made from another thread).
 extern std::atomic<bool> g_restartWanted;
 
+// --- Closing (desktop: the PS5 is closed by the system, never by the app) ------
+// The app is closing: the worker leaves its loop after what it is doing is
+// cancelled (g_cancel): a stream is stopped and its xCloud session closed,
+// so the account's streaming slot is free at once.
+extern std::atomic<bool> g_quit;
+void requestQuit();
+// After requestQuit(): true once the worker has left its loop (with the
+// threads it started), false if `ms` went by first (a request hanging on
+// the network). True at once when it never started.
+bool waitForWorker(uint32_t ms);
+
 // --- Store prices (price_loop.cpp) -----------------------------------------------
 void startPriceLoop();
+// Closing: the price loop told to end; true once it has (joined) within
+// `ms`, else it is left to the process's exit.
+bool stopPriceLoop(uint32_t ms);
 void setPriceMarket(const std::string& market, const std::string& language);
 // The signed-in xCloud client (a copy), for the open game page's queue
 // estimate; nullptr after signing out.

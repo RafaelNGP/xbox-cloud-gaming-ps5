@@ -1,0 +1,23 @@
+FFmpeg in psbox
+===============
+
+psbox links a slice of FFmpeg n7.1.2 statically: libavcodec, libswresample
+and libavutil, with the H.264 and Opus decoders, the Opus encoder and the
+H.264 / Opus parsers only. FFmpeg is licensed under the GNU Lesser General
+Public License version 2.1 or later (FFmpeg-LGPL-2.1.txt); it was built
+without --enable-gpl, --enable-version3 or --enable-nonfree.
+
+Configure flags (tools/build-ffmpeg.sh, "host"):
+
+    --enable-static --disable-shared --enable-pic
+    --disable-programs --disable-doc --disable-network --disable-autodetect
+    --disable-everything --disable-avdevice --disable-avformat --disable-avfilter
+    --disable-swscale --disable-postproc
+    --enable-decoder=h264,opus --enable-encoder=opus --enable-parser=h264,opus
+    --disable-debug --cc=clang
+
+Source: https://ffmpeg.org (tag n7.1.2), also the deps/ffmpeg submodule of
+https://github.com/RafaelNGP/xbox-cloud-gaming-ps5 at this release's tag.
+To relink psbox with another FFmpeg build, build the project from that
+source (README.md) with your FFmpeg in place of deps/ffmpeg: every object
+psbox is made of is built from the same repository.

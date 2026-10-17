@@ -11,6 +11,7 @@
 #define STBTT_STATIC
 #include "stb_truetype.h"
 
+#include <atomic>
 #include <cmath>
 
 namespace xc::ui {
@@ -24,6 +25,7 @@ Font::Font() : impl_(std::make_unique<Impl>()) {}
 Font::~Font() = default;
 
 bool Font::load(const std::string& path) {
+    loaded_ = false;
     std::string bytes;
     if (!platform::readFile(path, bytes)) {
         XC_LOGE("font %s: cannot read", path.c_str());
@@ -35,10 +37,23 @@ bool Font::load(const std::string& path) {
         return false;
     }
     stbtt_GetFontVMetrics(&impl_->info, &impl_->ascent, &impl_->descent, &impl_->lineGap);
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        cache_.clear();
+    }
+    loaded_ = true;
     return true;
 }
 
+bool Font::usable() const {
+    if (loaded_) return true;
+    static std::atomic<bool> told{false};
+    if (!told.load(std::memory_order_relaxed) && !told.exchange(true)) XC_LOGE("a font is missing: its text isn't drawn");
+    return false;
+}
+
 int Font::centeredY(int boxY, int boxH, int px) const {
+    if (!usable()) return boxY;
     // Cap height from the "H" glyph's box, in font units.
     int x0, y0, x1, y1;
     float capH = stbtt_GetCodepointBox(&impl_->info, 'H', &x0, &y0, &x1, &y1) ? y1 * scale(px) : 0.7f * px;
@@ -50,6 +65,7 @@ int Font::centeredY(int boxY, int boxH, int px) const {
 float Font::scale(int px) const { return stbtt_ScaleForPixelHeight(&impl_->info, static_cast<float>(px)); }
 
 int Font::lineHeight(int px) const {
+    if (!usable()) return px;
     return static_cast<int>(std::ceil((impl_->ascent - impl_->descent) * scale(px)));
 }
 
@@ -67,6 +83,8 @@ uint32_t nextCodepoint(std::string_view s, size_t& i) {
 }
 
 const Font::Glyph& Font::glyph(uint32_t cp, int px) const {
+    static const Glyph kNone;
+    if (!usable()) return kNone;
     std::lock_guard<std::mutex> lock(mutex_);
     auto key = std::make_pair(cp, px);
     auto it = cache_.find(key);
@@ -95,6 +113,7 @@ int Font::measure(std::string_view text, int px) const {
 }
 
 int Font::draw(Canvas& c, std::string_view text, int x, int y, int px, Color color) const {
+    if (!usable()) return x;
     int baseline = y + static_cast<int>(std::lround(impl_->ascent * scale(px)));
     for (size_t i = 0; i < text.size();) {
         const Glyph& g = glyph(nextCodepoint(text, i), px);

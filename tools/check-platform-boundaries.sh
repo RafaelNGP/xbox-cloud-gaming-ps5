@@ -26,8 +26,6 @@ allowed=(
     'ps5/*'                # link stubs and compat headers for the PS5 SDK
     # Legacy: these still pick their PS5 code with #if. Each comes off the
     # list once it is split into a PS5 backend and a portable part.
-    'src/media/audio_out.cpp'  # TODO(M1): portable AudioQueue + audio_out_ps5.cpp / an SDL backend
-    'src/media/audio_in.cpp'   # TODO(M1): audio_in_ps5.cpp / an SDL backend
     'src/app/crash_guard.cpp'  # TODO(M2): crash_guard_ps5.cpp / POSIX / Windows (SEH)
 )
 

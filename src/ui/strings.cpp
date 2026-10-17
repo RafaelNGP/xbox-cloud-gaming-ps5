@@ -285,6 +285,18 @@ constexpr Column kEnglish = {
     "Always", // GyroAlways
     "While aiming (L2)", // GyroAiming
     "Gyro intensity", // GyroIntensity
+    "Secure connections were refused because this computer's date and time look wrong (it says %s). Correct them in the system's settings, then try again.", // ClockWrongPc
+    "This computer's date and time look wrong (%s): some content can't load. Correct them in the system's settings.", // ClockWrongNoticePc
+    "Off (this computer's)", // LoginCountryOffPc
+    "Open in the browser", // OpenInBrowser
+    "%s available: download", // UpdateReadyPc
+    "Menu: START + BACK or F12 · Xbox button: Guide or Home", // GestureHintButtons
+    "START + BACK or F12: this menu · Guide or Home: Xbox button", // MenuButtonHint
+    "Display mode", // DisplayMode
+    "Window", // DisplayWindow
+    "Fullscreen", // DisplayFullscreen
+    "Quit PSBox?", // QuitTitle
+    "Quit", // QuitConfirm
 };
 
 constexpr Column kPortugueseBR = {
@@ -540,6 +552,18 @@ constexpr Column kPortugueseBR = {
     "Sempre", // GyroAlways
     "Ao mirar (L2)", // GyroAiming
     "Intensidade do giroscópio", // GyroIntensity
+    "As conexões seguras foram recusadas porque a data e a hora deste computador parecem erradas (ele diz %s). Acerte nas configurações do sistema e tente de novo.", // ClockWrongPc
+    "A data e a hora deste computador parecem erradas (%s): parte do conteúdo não carrega. Acerte nas configurações do sistema.", // ClockWrongNoticePc
+    "Desativado (o do computador)", // LoginCountryOffPc
+    "Abrir no navegador", // OpenInBrowser
+    "%s disponível: baixar", // UpdateReadyPc
+    "Menu: START + BACK ou F12 · Botão Xbox: Guide ou Home", // GestureHintButtons
+    "START + BACK ou F12: este menu · Guide ou Home: botão Xbox", // MenuButtonHint
+    "Modo de exibição", // DisplayMode
+    "Janela", // DisplayWindow
+    "Tela cheia", // DisplayFullscreen
+    "Sair do PSBox?", // QuitTitle
+    "Sair", // QuitConfirm
 };
 
 constexpr Column kSpanish = {
@@ -795,6 +819,18 @@ constexpr Column kSpanish = {
     "Siempre", // GyroAlways
     "Al apuntar (L2)", // GyroAiming
     "Intensidad del giroscopio", // GyroIntensity
+    "Se rechazaron las conexiones seguras porque la fecha y la hora de este ordenador parecen incorrectas (indica %s). Corrígelas en los ajustes del sistema y vuelve a intentarlo.", // ClockWrongPc
+    "La fecha y la hora de este ordenador parecen incorrectas (%s): parte del contenido no carga. Corrígelas en los ajustes del sistema.", // ClockWrongNoticePc
+    "Desactivado (el del ordenador)", // LoginCountryOffPc
+    "Abrir en el navegador", // OpenInBrowser
+    "%s disponible: descargar", // UpdateReadyPc
+    "Menú: START + BACK o F12 · Botón Xbox: Guide o Inicio", // GestureHintButtons
+    "START + BACK o F12: este menú · Guide o Inicio: botón Xbox", // MenuButtonHint
+    "Modo de pantalla", // DisplayMode
+    "Ventana", // DisplayWindow
+    "Pantalla completa", // DisplayFullscreen
+    "¿Salir de PSBox?", // QuitTitle
+    "Salir", // QuitConfirm
 };
 
 constexpr Column kFrench = {
@@ -1050,6 +1086,18 @@ constexpr Column kFrench = {
     "Toujours", // GyroAlways
     "En visant (L2)", // GyroAiming
     "Intensité du gyroscope", // GyroIntensity
+    "Les connexions sécurisées ont été refusées car la date et l'heure de cet ordinateur semblent fausses (il indique %s). Corrigez-les dans les paramètres du système, puis réessayez.", // ClockWrongPc
+    "La date et l'heure de cet ordinateur semblent fausses (%s) : une partie du contenu ne se charge pas. Corrigez-les dans les paramètres du système.", // ClockWrongNoticePc
+    "Désactivé (celui de l'ordinateur)", // LoginCountryOffPc
+    "Ouvrir dans le navigateur", // OpenInBrowser
+    "%s disponible : télécharger", // UpdateReadyPc
+    "Menu : START + BACK ou F12 · Bouton Xbox : Guide ou Origine", // GestureHintButtons
+    "START + BACK ou F12 : ce menu · Guide ou Origine : bouton Xbox", // MenuButtonHint
+    "Mode d'affichage", // DisplayMode
+    "Fenêtre", // DisplayWindow
+    "Plein écran", // DisplayFullscreen
+    "Quitter PSBox ?", // QuitTitle
+    "Quitter", // QuitConfirm
 };
 
 constexpr Column kGerman = {
@@ -1305,6 +1353,18 @@ constexpr Column kGerman = {
     "Immer", // GyroAlways
     "Beim Zielen (L2)", // GyroAiming
     "Gyro-Stärke", // GyroIntensity
+    "Sichere Verbindungen wurden abgelehnt, weil Datum und Uhrzeit dieses Computers falsch zu sein scheinen (er zeigt %s). Korrigiere sie in den Systemeinstellungen und versuche es erneut.", // ClockWrongPc
+    "Datum und Uhrzeit dieses Computers scheinen falsch zu sein (%s): Einige Inhalte laden nicht. Korrigiere sie in den Systemeinstellungen.", // ClockWrongNoticePc
+    "Aus (das des Computers)", // LoginCountryOffPc
+    "Im Browser öffnen", // OpenInBrowser
+    "%s verfügbar: herunterladen", // UpdateReadyPc
+    "Menü: START + BACK oder F12 · Xbox-Taste: Guide oder Pos1", // GestureHintButtons
+    "START + BACK oder F12: dieses Menü · Guide oder Pos1: Xbox-Taste", // MenuButtonHint
+    "Anzeigemodus", // DisplayMode
+    "Fenster", // DisplayWindow
+    "Vollbild", // DisplayFullscreen
+    "PSBox beenden?", // QuitTitle
+    "Beenden", // QuitConfirm
 };
 
 constexpr Column kItalian = {
@@ -1560,6 +1620,18 @@ constexpr Column kItalian = {
     "Sempre", // GyroAlways
     "Mirando (L2)", // GyroAiming
     "Intensità giroscopio", // GyroIntensity
+    "Le connessioni sicure sono state rifiutate perché la data e l'ora di questo computer sembrano errate (indica %s). Correggile nelle impostazioni di sistema, poi riprova.", // ClockWrongPc
+    "La data e l'ora di questo computer sembrano errate (%s): alcuni contenuti non si caricano. Correggile nelle impostazioni di sistema.", // ClockWrongNoticePc
+    "Disattivato (quello del computer)", // LoginCountryOffPc
+    "Apri nel browser", // OpenInBrowser
+    "%s disponibile: scarica", // UpdateReadyPc
+    "Menu: START + BACK o F12 · Pulsante Xbox: Guide o Home", // GestureHintButtons
+    "START + BACK o F12: questo menu · Guide o Home: pulsante Xbox", // MenuButtonHint
+    "Modalità schermo", // DisplayMode
+    "Finestra", // DisplayWindow
+    "Schermo intero", // DisplayFullscreen
+    "Uscire da PSBox?", // QuitTitle
+    "Esci", // QuitConfirm
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

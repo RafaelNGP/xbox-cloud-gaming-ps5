@@ -60,6 +60,7 @@ bool AuthManager::save() const {
         saved_ = false;
         return false;
     }
+    platform::makePrivate(storePath_);  // the refresh token: the user's alone on a desktop
     saved_ = true;
     return true;
 }

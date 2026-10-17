@@ -27,5 +27,6 @@ std::atomic<bool> g_playingHome{false};
 std::atomic<bool> g_tierPicked{false};
 std::atomic<uint64_t> g_xboxButtonUntil{0};
 std::atomic<bool> g_restartWanted{false};
+std::atomic<bool> g_quit{false};
 
 }  // namespace xc::app

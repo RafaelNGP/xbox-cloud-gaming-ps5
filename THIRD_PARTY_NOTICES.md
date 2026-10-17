@@ -46,6 +46,27 @@ the end.
 | NASM (assembles FFmpeg's x86 SIMD code) | BSD-2-Clause |
 | PS5_Vulkan tooling (`link.sh` recipe, `ps5-native-tool` ELF/FSELF writer, FTP deploy script) | GPL-3.0-or-later |
 
+## The Linux package (`PSBox-*-linux-x86_64.tar.gz`)
+
+`psbox` statically links the same Mbed TLS, libdatachannel (libjuice,
+usrsctp, libSRTP, plog), FFmpeg slice, stb and QR Code generator listed
+above; the PS5 runtime, the payload SDK, Mesa, FSR 1 and Anime4K are not in
+it. Their texts, with this file and `LICENSE`, are in `PSBox/licenses/`;
+`FFmpeg-NOTE.txt` there gives FFmpeg's version and configure flags. It
+links the system's C and C++ libraries (glibc, libstdc++, libgcc_s)
+dynamically, and carries:
+
+| File | Component | License |
+| --- | --- | --- |
+| `PSBox/lib/libSDL3.so.0` | SDL 3.4 (3.4.18 in CI builds; <https://github.com/libsdl-org/SDL>) | zlib (`licenses/SDL3-LICENSE.txt`) |
+| `PSBox/assets/fonts/Inter-*.ttf` | Inter 4.1 | SIL Open Font License 1.1 (`licenses/Inter-OFL.txt`) |
+| `PSBox/assets/cacert.pem` | Mozilla CA certificate data | MPL-2.0 |
+| `PSBox/psbox.png`, `psbox.desktop` | project artwork and metadata | GPL-3.0-or-later |
+
+SDL3 loads X11, Wayland, libdecor, PulseAudio, PipeWire, ALSA, JACK, dbus
+and libusb from the system at run time when present; none of them is
+bundled.
+
 ## Protocol references
 
 The xCloud protocol handling follows the open-source clients

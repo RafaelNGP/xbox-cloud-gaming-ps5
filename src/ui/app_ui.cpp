@@ -2,13 +2,16 @@
 // Copyright (C) 2026 RafaelNGP
 #include "ui/app_ui.h"
 #include "ui/input_mode.h"
+#include "ui/pad_glyphs.h"
 
 #include "input/tuning.h"
 #include "xcloud/catalog.h"
 #include "ui/accent_color.h"
 
+#include "platform/toasts.h"
 #include "ui/brand.h"
 #include "ui/strings.h"
+#include "ui/toast_view.h"
 
 #include "qrcodegen.h"
 
@@ -54,16 +57,12 @@ enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad,
 constexpr int kResolutionOrder[3] = {1, 0, 2};
 // Settings' rows on screen, alike ones together (the row ids stay what
 // settingsRow_ and the helpers use): language and sign-in country; the
-// stream (resolution, 120 Hz, bitrate, region); sound; the controller and
-// keyboard; updates last. A group starts at each kSettingsGroupStart.
-constexpr int kSettingsOrder[kSettingRows] = {0, 8, 1, 9, 10, 2, 11, 3, 4, 5, 6, 12, 7};
-constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, true, false, false, false, true,
-                                                    true, false, false, false, false, true};
-int settingsPos(int row) {
-    for (int i = 0; i < kSettingRows; ++i)
-        if (kSettingsOrder[i] == row) return i;
-    return 0;
-}
+// stream (resolution, a desktop's display mode, 120 Hz, bitrate, region);
+// sound; the controller and keyboard; updates last. A group starts at each
+// kSettingsGroupStart.
+constexpr int kSettingsOrder[kSettingRows] = {0, 8, 1, 13, 9, 10, 2, 11, 3, 4, 5, 6, 12, 7};
+constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, true, false, false, false, false,
+                                                    true, true, false, false, false, false, true};
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
 // sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7
 // confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default).
@@ -71,6 +70,30 @@ constexpr int kGameRowOrder[11] = {0, 4, 8, 1, 2, 3, 5, 6, 7, 9, 10};
 constexpr bool kGameGroupStart[11] = {false, true, false, true, false, false, true, false, false, false, true};
 // The keyboard keys' screen: two columns of inputs, then "Reset to default".
 constexpr int kKeysPerColumn = input::kKeyActions / 2;
+// Updates on a desktop: the newest release's page (the app doesn't install it there).
+constexpr const char* kReleasesPage = "https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/releases/latest";
+
+// The rows of `order` that `shown` keeps. A group starts on screen where the
+// row above belongs to another group (a hidden group leaves no gap).
+template <size_t N, class Shown>
+std::vector<SettingsRowPos> filterRows(const int (&order)[N], const bool (&groupStart)[N], Shown shown) {
+    std::vector<SettingsRowPos> out;
+    int group = 0, lastGroup = -1;
+    for (size_t pos = 0; pos < N; ++pos) {
+        if (groupStart[pos]) ++group;
+        if (!shown(order[pos])) continue;
+        out.push_back({order[pos], !out.empty() && group != lastGroup});
+        lastGroup = group;
+    }
+    return out;
+}
+
+// Where `row` is in `rows` (0 when it isn't there).
+int posOf(const std::vector<SettingsRowPos>& rows, int row) {
+    for (size_t i = 0; i < rows.size(); ++i)
+        if (rows[i].row == row) return static_cast<int>(i);
+    return 0;
+}
 
 // Grids ("Your games", search results): cards with the name below.
 constexpr int kGridPitchY = 300;
@@ -212,6 +235,32 @@ bool matchesPublisher(const std::string& rawPublisher, int filter) {
 constexpr uint64_t kSignOutHoldMs = 5000;
 
 }  // namespace
+
+std::vector<SettingsRowPos> visibleSettingsRows(const UiCaps& caps) {
+    return filterRows(kSettingsOrder, kSettingsGroupStart, [&](int row) {
+        switch (row) {
+        case 4: return caps.triggerRumble || caps.adaptiveTriggers;  // trigger vibration and its tester
+        case 6: return caps.lightBar;
+        case 9: return caps.highRefresh;
+        case 13: return caps.desktopWindow;
+        default: return true;
+        }
+    });
+}
+
+std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool custom) {
+    return filterRows(kGameRowOrder, kGameGroupStart, [&](int row) {
+        switch (row) {
+        case 1: return caps.upscalers;
+        case 2: return caps.sharpen;
+        case 3: return caps.deband;
+        case 6: return caps.triggerRumble || caps.adaptiveTriggers;
+        case 8: return caps.highRefresh;
+        case 10: return custom;
+        default: return true;
+        }
+    });
+}
 
 std::string loginCountryName(const std::string& country) {
     static const std::pair<const char*, Str> kNames[] = {
@@ -1076,7 +1125,7 @@ void AppUi::handleTester(const NavInput& in) {
             if (now[i] != testSticks_[i]) testSticks_[i] = now[i], dirty_ = true;
     } else {
         if (in.up && testerRow_ > 0) --testerRow_, dirty_ = true;
-        if (in.down && testerRow_ < 3) ++testerRow_, dirty_ = true;
+        if (in.down && testerRow_ < triggerTesterRows() - 1) ++testerRow_, dirty_ = true;
         int delta = (in.right ? 1 : 0) - (in.left ? 1 : 0);
         if (delta && testerRow_ == 0)
             settings_.triggerStrength = std::clamp(settings_.triggerStrength + delta, 0, input::kTriggerStrengths - 1);
@@ -1199,6 +1248,13 @@ void AppUi::setUpdateStatus(const std::string& status, float fraction) {
 void AppUi::setSettings(const SettingsChoice& choice) {
     std::lock_guard<std::mutex> lock(mutex_);
     settings_ = choice;
+    dirty_ = true;
+}
+
+void AppUi::setFullscreen(bool on) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (settings_.fullscreen == on) return;
+    settings_.fullscreen = on;
     dirty_ = true;
 }
 
@@ -1348,6 +1404,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         // Updates: Cross acts, no list.
     } else if (row == 9) {
         out = {tr(Str::Deactivated), tr(Str::HighRefreshOn)};
+    } else if (row == 13) {
+        out = {tr(Str::DisplayWindow), tr(Str::DisplayFullscreen)};
     } else if (row == 10) {
         out.push_back(tr(Str::BitrateAuto));
         for (int mbps : kBitrateCaps) out.push_back(std::to_string(mbps) + " Mbps");
@@ -1358,7 +1416,7 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         out = {tr(settings_.keyMap == input::defaultKeyMap() ? Str::ProfileDefault : Str::ProfileCustom)};
 
     } else if (row == 8) {
-        out.push_back(tr(Str::LoginCountryOff));
+        out.push_back(loginCountryOffText());
         for (const char* country : kLoginCountries) out.push_back(loginCountryName(country));
     } else {
         // Automatic first, then the regions in the login's order.
@@ -1382,6 +1440,7 @@ int AppUi::settingSelected(int row) const {
     if (row == 6) return settings_.lightBarMode;
     if (row == 7) return 0;
     if (row == 9) return settings_.highRefresh ? 1 : 0;
+    if (row == 13) return settings_.fullscreen ? 1 : 0;
     if (row == 10) {
         for (size_t i = 0; i < std::size(kBitrateCaps); ++i)
             if (kBitrateCaps[i] == settings_.maxBitrateMbps) return static_cast<int>(i) + 1;
@@ -1421,6 +1480,10 @@ void AppUi::applySetting(int row, int index) {
     } else if (row == 7) {
     } else if (row == 9) {
         settings_.highRefresh = index == 1;
+    } else if (row == 13) {
+        // In force at once (handle() sends the settings): the window follows.
+        if (settings_.fullscreen != (index == 1)) displayModeChanged_ = true;
+        settings_.fullscreen = index == 1;
     } else if (row == 10) {
         settings_.maxBitrateMbps = index == 0 ? 0 : kBitrateCaps[index - 1];
     } else if (row == 11) {
@@ -1448,6 +1511,47 @@ Screen AppUi::screen() const {
 void AppUi::invalidate() {
     std::lock_guard<std::mutex> lock(mutex_);
     dirty_ = true;
+}
+
+void AppUi::setCaps(const UiCaps& caps) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (caps == caps_) return;
+    caps_ = caps;
+    dirty_ = true;
+    // A pad without what a row is for came in (or the one with it left): the
+    // focus goes to the row after it, and what the row had open closes.
+    const auto rows = visibleSettingsRows(caps_);
+    auto shown = [&](int row) {
+        return std::any_of(rows.begin(), rows.end(), [&](const SettingsRowPos& r) { return r.row == row; });
+    };
+    if (!shown(settingsRow_)) {
+        int pos = 0, next = -1;
+        for (int i = 0; i < kSettingRows; ++i)
+            if (kSettingsOrder[i] == settingsRow_) pos = i;
+        for (int i = pos; i < kSettingRows && next < 0; ++i)
+            if (shown(kSettingsOrder[i])) next = kSettingsOrder[i];
+        for (int i = pos; i >= 0 && next < 0; --i)
+            if (shown(kSettingsOrder[i])) next = kSettingsOrder[i];
+        settingsRow_ = next < 0 ? 0 : next;  // the language row is always there
+        dropdownOpen_ = pickerOpen_ = false;
+        if (tester_ == Tester::Triggers && !gameSettingsOpen_) tester_ = Tester::None, settings_ = testerBackup_;
+    }
+    if (tester_ == Tester::Triggers && !caps_.triggerRumble && !caps_.adaptiveTriggers) {
+        if (gameSettingsOpen_) settings_ = testerBackup_;
+        tester_ = Tester::None;
+    }
+    testerRow_ = std::min(testerRow_, triggerTesterRows() - 1);
+    int gameRows = static_cast<int>(visibleGameSettingsRows(caps_, activeGameHasCustom_).size());
+    gameSettingsRow_ = std::min(gameSettingsRow_, gameRows - 1);
+}
+
+UiCaps AppUi::caps() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return caps_;
+}
+
+const char* AppUi::loginCountryOffText() const {
+    return tr(caps_.console ? Str::LoginCountryOff : Str::LoginCountryOffPc);
 }
 
 const GameTile* AppUi::focusedTile() const {
@@ -1873,6 +1977,39 @@ void AppUi::pressFilter(Filter f) {
     dirty_ = true;
 }
 
+bool AppUi::wantsTextInput() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return screen_ == Screen::Home && searching_ && searchOnKeys_ && filterList_ < 0 && keyRow_ <= kKeyRows;
+}
+
+void AppUi::typeText(std::string_view utf8) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!(screen_ == Screen::Home && searching_ && searchOnKeys_)) return;
+    bool edited = false;
+    for (char ch : utf8) {
+        if (ch == '\b') {
+            // The last character, all of its UTF-8 bytes.
+            while (!query_.empty() && (static_cast<unsigned char>(query_.back()) & 0xC0) == 0x80) query_.pop_back();
+            if (!query_.empty()) query_.pop_back(), edited = true;
+        } else if (ch == '\n') {
+            if (edited) runSearch(), edited = false;
+            if (!results_.empty()) {
+                searchOnKeys_ = false;
+                resultFocus_ = 0;
+                dirty_ = true;
+            }
+        } else if (static_cast<unsigned char>(ch) >= 0x20 && (query_.size() < 64 || (ch & 0xC0) == 0x80)) {
+            if (ch == ' ' && (query_.empty() || query_.back() == ' ')) continue;  // as the Space key
+            query_ += ch;
+            edited = true;
+        }
+    }
+    if (edited) {
+        runSearch();
+        dirty_ = true;
+    }
+}
+
 std::pair<int, int> AppUi::searchKeyFocus() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return {keyRow_, keyCol_};
@@ -1961,7 +2098,9 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
         handleTester(in);
         return;
     }
-    int rowCount = activeGameHasCustom_ ? 11 : 10;
+    // The rows on screen (gameSettingsRow_ is a position among them).
+    const auto rows = visibleGameSettingsRows(caps_, activeGameHasCustom_);
+    const int rowCount = static_cast<int>(rows.size());
     if (in.up) {
         gameSettingsRow_ = (gameSettingsRow_ + rowCount - 1) % rowCount;
         dirty_ = true;
@@ -1970,7 +2109,7 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
         gameSettingsRow_ = (gameSettingsRow_ + 1) % rowCount;
         dirty_ = true;
     }
-    const int rowId = kGameRowOrder[std::clamp(gameSettingsRow_, 0, 10)];
+    const int rowId = rows[static_cast<size_t>(std::clamp(gameSettingsRow_, 0, rowCount - 1))].row;
     if (in.left || in.right) {
         int dir = in.right ? 1 : -1;
         switch (rowId) {
@@ -2141,7 +2280,13 @@ UiEvent AppUi::handle(const NavInput& in) {
     std::lock_guard<std::mutex> lock(mutex_);
     UiEvent ev;
     if (reportOpen_) {  // the report's QR code: Circle (or Cross) closes it
-        if (in.back || in.accept) reportOpen_ = false, dirty_ = true;
+        if (in.accept && caps_.openUrl) {
+            // A desktop: Cross opens the form in the browser (the panel stays).
+            ev.action = Action::OpenUrl;
+            ev.url = reportUrl_;
+        } else if (in.back || in.accept) {
+            reportOpen_ = false, dirty_ = true;
+        }
         return ev;
     }
     if (screen_ == Screen::Home && updatePrompt_) {
@@ -2169,7 +2314,31 @@ UiEvent AppUi::handle(const NavInput& in) {
         return ev;
     }
     switch (screen_) {
-        case Screen::Home: handleHome(in, ev); break;
+        case Screen::Home:
+            if (quitPrompt_) {  // two buttons, Close / Cancel: left / right picks, Cross presses, Circle cancels
+                if (in.left || in.right) promptFocus_ = in.left ? 0 : 1, dirty_ = true;
+                if (in.accept && promptFocus_ == 0) ev.action = Action::Quit;
+                if (in.accept || in.back) quitPrompt_ = false, dirty_ = true;
+                break;
+            }
+            // A desktop window has no system menu to close it from (fullscreen,
+            // a controller in hand): Circle / Esc at the top of the home screen
+            // asks. On the PS5 the system closes the app; Circle does nothing here.
+            if (caps_.desktopWindow && in.back && !searching_) {
+                quitPrompt_ = true;
+                promptFocus_ = 1;  // Cancel first: a second Circle / Esc never closes by accident
+                dirty_ = true;
+                break;
+            }
+            handleHome(in, ev);
+            break;
+        case Screen::SignIn:
+            // A desktop: Cross (Enter) opens the sign-in page in the browser.
+            if (in.accept && caps_.openUrl) {
+                ev.action = Action::OpenUrl;
+                ev.url = codeUrl_.empty() ? "https://www.microsoft.com/link" : codeUrl_;
+            }
+            break;
         case Screen::Settings:
             if (pickerOpen_) {
                 handleColourPicker(in);
@@ -2191,18 +2360,28 @@ UiEvent AppUi::handle(const NavInput& in) {
                 dirty_ = true;
                 break;
             }
-            if (int pos = settingsPos(settingsRow_); in.down && pos < kSettingRows - 1)
-                settingsRow_ = kSettingsOrder[pos + 1], dirty_ = true;
-            else if (in.up && pos > 0)
-                settingsRow_ = kSettingsOrder[pos - 1], dirty_ = true;
+            if (auto rows = visibleSettingsRows(caps_); true) {  // the rows on screen, in their order
+                int pos = posOf(rows, settingsRow_);
+                if (in.down && pos + 1 < static_cast<int>(rows.size()))
+                    settingsRow_ = rows[static_cast<size_t>(pos + 1)].row, dirty_ = true;
+                else if (in.up && pos > 0)
+                    settingsRow_ = rows[static_cast<size_t>(pos - 1)].row, dirty_ = true;
+            }
             if (in.right) changeSetting(+1);
             if (in.left) changeSetting(-1);
             if (in.accept && (settingsRow_ == 3 || settingsRow_ == 4 || settingsRow_ == 12)) {
                 // Dead zone, trigger vibration, keyboard keys: their own screens instead of a list.
                 openTester(settingsRow_ == 3 ? Tester::Sticks : settingsRow_ == 4 ? Tester::Triggers : Tester::Keys);
             } else if (in.accept && settingsRow_ == 7) {
-                // Updates: a newer version is installed (the settings saved first).
-                if (!updateAvailable_.empty() && !updateChecking_) {
+                // Updates: a newer version is installed (the settings saved
+                // first). Where the app doesn't install it, the release's
+                // page opens in the browser instead.
+                if (!caps_.selfUpdate) {
+                    if (caps_.openUrl) {
+                        ev.action = Action::OpenUrl;
+                        ev.url = kReleasesPage;
+                    }
+                } else if (!updateAvailable_.empty() && !updateChecking_) {
                     ev.action = Action::UpdateNow;
                     ev.settings = settings_;
                 }
@@ -2297,6 +2476,15 @@ UiEvent AppUi::handle(const NavInput& in) {
         signOutHoldStart_ = 0;
         if (!in.touchpad) signOutLatched_ = false;
     }
+    if (displayModeChanged_) {
+        // A desktop's display mode applies (and is saved) as it is picked,
+        // not when Settings closes.
+        displayModeChanged_ = false;
+        if (ev.action == Action::None) {
+            ev.action = Action::SettingsChanged;
+            ev.settings = settings_;
+        }
+    }
     return ev;
 }
 
@@ -2306,6 +2494,8 @@ bool AppUi::needsRedraw(uint64_t nowMs) const {
     std::lock_guard<std::mutex> lock(mutex_);
     if (screen_ == Screen::Streaming) return false;
     if (dirty_ || animating_) return true;
+    // A desktop's toast came or went (the PS5 sends system notifications).
+    if (platform::toastsEnabled() && platform::toasts().version(nowMs) != toastsDrawn_) return true;
     // Spinners keep moving (about 30 fps is enough).
     bool spinner = screen_ == Screen::Splash || screen_ == Screen::SignIn || screen_ == Screen::Launching ||
                    screen_ == Screen::Updating;
@@ -2388,25 +2578,17 @@ void AppUi::drawTopBar(Canvas& c) {
     }
 }
 
-// A face button as on the pad: its symbol in its colour on a round key,
-// `r` its radius (14 in the button hints).
-static void drawFaceButton(Canvas& c, int icon, float cx, float cy, float r) {
-    const float k = r / 14.0f, t = 2.5f * k;
-    c.fillCircle(cx, cy, r, rgba(255, 255, 255, 40));
-    if (icon == kIconCross) {
-        c.line(cx - 6 * k, cy - 6 * k, cx + 6 * k, cy + 6 * k, t, rgba(124, 178, 232));
-        c.line(cx + 6 * k, cy - 6 * k, cx - 6 * k, cy + 6 * k, t, rgba(124, 178, 232));
-    } else if (icon == kIconCircle) {
-        c.strokeArc(cx, cy, 6.5f * k, t, 0, 6.2832f, rgba(255, 102, 102));
-    } else if (icon == kIconSquare) {
-        int h = static_cast<int>(6 * k);
-        c.strokeRect({static_cast<int>(cx) - h, static_cast<int>(cy) - h, 2 * h, 2 * h}, rgba(240, 130, 200),
-                     std::max(2, static_cast<int>(2 * k)));
-    } else {
-        c.line(cx, cy - 7 * k, cx - 7 * k, cy + 5 * k, t, rgba(64, 226, 160));
-        c.line(cx, cy - 7 * k, cx + 7 * k, cy + 5 * k, t, rgba(64, 226, 160));
-        c.line(cx - 7 * k, cy + 5 * k, cx + 7 * k, cy + 5 * k, t, rgba(64, 226, 160));
-    }
+// A face button (an Icon: Cross, Circle, Square, Triangle) as on the pad,
+// in the glyphs of the pad in use (pad_glyphs.h), `r` its radius (14 in the
+// button hints).
+static PadButton faceOf(int icon) {
+    return icon == kIconCross ? PadButton::Cross
+           : icon == kIconCircle ? PadButton::Circle
+           : icon == kIconSquare ? PadButton::Square
+                                 : PadButton::Triangle;
+}
+static void drawFaceButton(Canvas& c, const Font& letters, int icon, float cx, float cy, float r) {
+    ui::drawFaceButton(c, letters, g_glyphStyle, faceOf(icon), cx, cy, r);
 }
 
 void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>& hints) {
@@ -2435,17 +2617,25 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
             icon = icon == kIconCross ? kIconCircle : kIconCross;
         x -= 10 + 2 * kR;
         float cx = x + kR, cy = y + 13;
+        const GlyphStyle style = g_glyphStyle;
+        const bool xbox = style == GlyphStyle::Xbox;
         if (icon == kIconL2R2) {
+            const std::string both = std::string(buttonName(style, PadButton::L2)) + " " + buttonName(style, PadButton::R2);
             Rect pill{x - 40, static_cast<int>(cy) - 12, 2 * kR + 46, 24};
             c.fillRect(pill, rgba(255, 255, 255, 40), 8);
-            fonts_.bold.draw(c, "L2 R2", pill.x + (pill.w - fonts_.bold.measure("L2 R2", 14)) / 2,
+            fonts_.bold.draw(c, both, pill.x + (pill.w - fonts_.bold.measure(both, 14)) / 2,
                              fonts_.bold.centeredY(pill.y, pill.h, 14), 14, kGray);
             x -= 34;
         } else if (icon == kIconR3) {
+            const char* r3 = buttonName(style, PadButton::R3);
             Rect pill{x - 6, static_cast<int>(cy) - 12, 2 * kR + 12, 24};
             c.fillRect(pill, rgba(255, 255, 255, 40), 8);
-            fonts_.bold.draw(c, "R3", pill.x + (pill.w - fonts_.bold.measure("R3", 14)) / 2,
+            fonts_.bold.draw(c, r3, pill.x + (pill.w - fonts_.bold.measure(r3, 14)) / 2,
                              fonts_.bold.centeredY(pill.y, pill.h, 14), 14, kGray);
+        } else if (xbox && icon == kIconTouchpad) {  // View
+            drawXboxViewButton(c, cx, cy, kR, kGray);
+        } else if (xbox && icon == kIconOptions) {  // Menu
+            drawXboxMenuButton(c, cx, cy, kR, kGray);
         } else if (icon == kIconTouchpad) {
             Rect pad{x - 18, static_cast<int>(cy) - 10, 2 * kR + 12, 20};
             c.fillRect(pad, rgba(255, 255, 255, 40), 6);
@@ -2455,7 +2645,7 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
             c.fillRect({x - 4, static_cast<int>(cy) - 11, 2 * kR + 8, 22}, rgba(255, 255, 255, 40), 11);
             for (int k = -1; k <= 1; ++k) c.line(cx - 8, cy + k * 5, cx + 8, cy + k * 5, 2, kGray);
         } else {
-            drawFaceButton(c, icon, cx, cy, kR);
+            drawFaceButton(c, fonts_.bold, icon, cx, cy, kR);
         }
         x -= kGap;
     }
@@ -2571,6 +2761,7 @@ void AppUi::drawSignIn(Canvas& c, uint64_t nowMs) {
         int w = fonts_.regular.measure(tr(Str::SignInScan), 26);
         fonts_.regular.draw(c, tr(Str::SignInScan), box.x + (box.w - w) / 2, box.y + box.h + 24, 26, kGray);
     }
+    if (caps_.openUrl) drawHints(c, {{kIconCross, tr(Str::OpenInBrowser)}});  // a desktop: the page in the browser
 }
 
 void AppUi::drawTabs(Canvas& c) {
@@ -2588,7 +2779,7 @@ void AppUi::drawTabs(Canvas& c) {
         c.fillRect(r, rgba(255, 255, 255, 40), 8);
         fonts_.bold.draw(c, name, cx - fonts_.bold.measure(name, 16) / 2, fonts_.bold.centeredY(r.y, r.h, 16), 16, kGray);
     };
-    shoulder(g_keyboardHints ? "Q" : "L1", x - 40);
+    shoulder(g_keyboardHints ? "Q" : buttonName(g_glyphStyle, PadButton::L1), x - 40);
     for (int i = 0; i < 3; ++i) {
         bool on = static_cast<int>(tab_) == i;
         Rect r{x, kY, widths[i], kH};
@@ -2596,7 +2787,7 @@ void AppUi::drawTabs(Canvas& c) {
         fonts_.semibold.draw(c, labels[i], x + kPad, fonts_.semibold.centeredY(kY, kH, kPx), kPx, on ? kBg : kGray);
         x += widths[i] + kGap;
     }
-    shoulder(g_keyboardHints ? "E" : "R1", x - kGap + 40);
+    shoulder(g_keyboardHints ? "E" : buttonName(g_glyphStyle, PadButton::R1), x - kGap + 40);
 }
 
 namespace {
@@ -2832,7 +3023,7 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
         std::string label = trf(Str::SortLabel, tr(sortName));
         int w = fonts_.semibold.measure(label, 22);
         int right = left + kGridW;
-        const char* sortKey = g_keyboardHints ? "R" : "R3";
+        const char* sortKey = g_keyboardHints ? "R" : buttonName(g_glyphStyle, PadButton::R3);
         Rect pill{right - 44, 112, 44, 28};
         c.fillRect(pill, rgba(255, 255, 255, 40), 8);
         if (g_keyboardHints) c.strokeRect(pill, kGray, 2, 8);
@@ -3334,7 +3525,8 @@ void AppUi::drawLaunching(Canvas& c, uint64_t nowMs) {
     drawCentered(c, fonts_.bold, launching_.name, 500, 48, kWhite);
     drawCentered(c, fonts_.semibold, tr(Str::GettingReady), 576, 30, kGray);
     drawCentered(c, fonts_.regular, status_, 630, 26, kDim);
-    drawCentered(c, fonts_.regular, tr(Str::GestureHint), 900, 22, kDim);
+    // The touchpad's gestures, or the buttons and keys that do the same.
+    drawCentered(c, fonts_.regular, tr(caps_.touchpad ? Str::GestureHint : Str::GestureHintButtons), 900, 22, kDim);
     drawHints(c, {{kIconCircle, tr(Str::Cancel)}});
 }
 
@@ -3369,13 +3561,12 @@ void AppUi::drawSettings(Canvas& c) {
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
                                         tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry),
                                         tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume),
-                                        tr(Str::KeyboardKeys)};
+                                        tr(Str::KeyboardKeys),  tr(Str::DisplayMode)};
     constexpr int kRowW = 1200, kRowH = 46, kGap = 5, kGroupGap = 16;
     Rect rows[kSettingRows];  // by row id
     int y = 236;
-    for (int pos = 0; pos < kSettingRows; ++pos) {
-        const int i = kSettingsOrder[pos];
-        if (kSettingsGroupStart[pos]) y += kGroupGap;
+    for (const auto& [i, groupStart] : visibleSettingsRows(caps_)) {  // what caps_ rules out is hidden
+        if (groupStart) y += kGroupGap;
         Rect r{kMargin, y, kRowW, kRowH};
         rows[i] = r;
         bool focused = i == settingsRow_;
@@ -3385,9 +3576,10 @@ void AppUi::drawSettings(Canvas& c) {
         fonts_.semibold.draw(c, labels[i], r.x + 36, ty, 28, kWhite);
         if (i == 7) {
             // Updates: the state; Cross updates when there is a newer version.
-            std::string value = updateChecking_            ? tr(Str::UpdateChecking)
-                                : !updateAvailable_.empty() ? trf(Str::UpdateReady, updateAvailable_)
-                                                            : trf(Str::UpToDate, "v" + updateCurrent_);
+            std::string value = updateChecking_ ? tr(Str::UpdateChecking)
+                                : !updateAvailable_.empty()
+                                    ? trf(caps_.selfUpdate ? Str::UpdateReady : Str::UpdateReadyPc, updateAvailable_)
+                                    : trf(Str::UpToDate, "v" + updateCurrent_);
             Color color = !updateAvailable_.empty() && !updateChecking_ ? rgba(120, 220, 120) : focused ? kWhite : kGray;
             int w = fonts_.regular.measure(value, 28);
             fonts_.regular.draw(c, value, r.x + r.w - 44 - w, fonts_.regular.centeredY(r.y, r.h, 28), 28, color);
@@ -3404,7 +3596,7 @@ void AppUi::drawSettings(Canvas& c) {
         int vx = r.x + r.w - 76;
         if (i == 5) {
             // The confirm button, as the button itself.
-            drawFaceButton(c, settings_.circleConfirms ? kIconCircle : kIconCross, vx - 20.0f, cy, 20);
+            drawFaceButton(c, fonts_.bold, settings_.circleConfirms ? kIconCircle : kIconCross, vx - 20.0f, cy, 20);
         } else {
             int w = fonts_.regular.measure(value, 28);
             fonts_.regular.draw(c, value, vx - w, fonts_.regular.centeredY(r.y, r.h, 28), 28, focused ? kWhite : kGray);
@@ -3450,7 +3642,7 @@ void AppUi::drawSettings(Canvas& c) {
             if (on) c.fillRect(item, kWhite, 12);
             Color text = on ? kBg : (i == sel ? kWhite : kGray);
             if (settingsRow_ == 5)
-                drawFaceButton(c, i == 1 ? kIconCircle : kIconCross, item.x + 44.0f, item.y + item.h / 2.0f, 20);
+                drawFaceButton(c, fonts_.bold, i == 1 ? kIconCircle : kIconCross, item.x + 44.0f, item.y + item.h / 2.0f, 20);
             else
                 fonts_.semibold.draw(c, options[static_cast<size_t>(i)], item.x + 24,
                                      fonts_.semibold.centeredY(item.y, item.h, 26), 26, text);
@@ -3511,7 +3703,10 @@ void AppUi::drawReport(Canvas& c) {
         }
     }
     c.fillRect({0, kH - 80, kW, 80}, kBg);
-    drawHints(c, {{kIconCircle, tr(Str::Back)}});
+    if (caps_.openUrl)  // a desktop: Cross opens the form in the browser
+        drawHints(c, {{kIconCross, tr(Str::OpenInBrowser)}, {kIconCircle, tr(Str::Back)}});
+    else
+        drawHints(c, {{kIconCircle, tr(Str::Back)}});
 }
 
 void AppUi::drawCountryPicker(Canvas& c) {
@@ -3531,7 +3726,7 @@ void AppUi::drawCountryPicker(Canvas& c) {
         Rect item{panel.x + 48, panel.y + listY + i * kItemH, panel.w - 96, kItemH};
         bool on = i == countryIndex_;
         if (on) c.fillRect(item, kWhite, 12);
-        std::string label = i ? loginCountryName(kLoginCountries[i - 1]) : tr(Str::LoginCountryOff);
+        std::string label = i ? loginCountryName(kLoginCountries[i - 1]) : loginCountryOffText();
         fonts_.semibold.draw(c, label, item.x + 24, fonts_.semibold.centeredY(item.y, item.h, 26), 26,
                              on ? kBg : (i == sel ? kWhite : kGray));
         if (i == sel) {  // a check mark on the current choice
@@ -3540,6 +3735,23 @@ void AppUi::drawCountryPicker(Canvas& c) {
             c.line(cx - 3, cy + 7, cx + 10, cy - 7, 3, on ? kBg : kGreen);
         }
     }
+}
+
+void AppUi::drawQuitPrompt(Canvas& c) {
+    // As the update pop-up: the question, then Close and Cancel as buttons.
+    constexpr int kButtonW = 300, kButtonH = 72, kPanelW = 2 * kButtonW + 24 + 112, kPanelH = 250;
+    Rect panel = drawModal(c, kPanelW, kPanelH, tr(Str::QuitTitle));
+    const char* labels[2] = {tr(Str::QuitConfirm), tr(Str::Cancel)};
+    for (int i = 0; i < 2; ++i) {
+        Rect b{panel.x + 56 + i * (kButtonW + 24), panel.y + panel.h - kButtonH - 44, kButtonW, kButtonH};
+        bool on = i == promptFocus_;
+        c.fillRect(b, on ? kWhite : rgba(255, 255, 255, 30), 14);
+        int tw = fonts_.semibold.measure(labels[i], 28);
+        fonts_.semibold.draw(c, labels[i], b.x + (b.w - tw) / 2, fonts_.semibold.centeredY(b.y, b.h, 28), 28,
+                             on ? kBg : kWhite);
+    }
+    c.fillRect({0, kH - 80, kW, 80}, kBg);  // its own hints over drawModal's
+    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Cancel)}});
 }
 
 void AppUi::drawUpdatePrompt(Canvas& c) {
@@ -3624,7 +3836,9 @@ void AppUi::drawStickTester(Canvas& c) {
 }
 
 void AppUi::drawTriggerTester(Canvas& c) {
-    Rect panel = drawModal(c, 1100, 830, tr(Str::TriggerRumble));
+    // Without adaptive triggers, no resistance or style rows: the panel shorter by them.
+    const int rows = triggerTesterRows(), lessY = (4 - rows) * 84;
+    Rect panel = drawModal(c, 1100, 830 - lessY, tr(Str::TriggerRumble));
     // The two choices, as Settings' rows: up / down picks one, left / right changes it.
     const char* strengths[] = {tr(Str::Deactivated), tr(Str::TriggerLight), tr(Str::TriggerMedium), tr(Str::TriggerStrong),
                                tr(Str::TriggerMax)};
@@ -3637,7 +3851,7 @@ void AppUi::drawTriggerTester(Canvas& c) {
                                   std::string(freqs[settings_.triggerHz]) + "  (" + std::to_string(hz) + " Hz)",
                                   strengths[settings_.triggerResistance],  // off, light, medium, strong
                                   tr(settings_.triggerPulses ? Str::StylePulses : Str::StyleVibration)};
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < rows; ++i) {
         Rect r{panel.x + 56, panel.y + 120 + i * 84, panel.w - 112, 70};
         bool on = i == testerRow_;
         c.fillRect(r, on ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 16);
@@ -3651,12 +3865,12 @@ void AppUi::drawTriggerTester(Canvas& c) {
     const float pressed[2] = {testL2_, testR2_};
     for (int t = 0; t < 2; ++t) {
         constexpr int kBarW = 90, kBarH = 170;
-        int bx = panel.x + panel.w / 2 + (t ? 80 : -80 - kBarW), by = panel.y + 490;
+        int bx = panel.x + panel.w / 2 + (t ? 80 : -80 - kBarW), by = panel.y + 490 - lessY;
         c.fillRect({bx, by, kBarW, kBarH}, rgba(255, 255, 255, 20), 16);
         int fill = static_cast<int>(kBarH * std::clamp(pressed[t], 0.0f, 1.0f));
         int level = input::triggerAmplitude(static_cast<uint8_t>(std::lround(pressed[t] * 255)), settings_.triggerStrength);
         if (fill > 0) c.fillRect({bx, by + kBarH - fill, kBarW, fill}, level ? rgba(90, 220, 110) : rgba(120, 120, 120), 16);
-        std::string name = t ? "R2" : "L2";
+        std::string name = buttonName(g_glyphStyle, t ? PadButton::R2 : PadButton::L2);
         fonts_.bold.draw(c, name, bx + (kBarW - fonts_.bold.measure(name, 26)) / 2, by + kBarH + 14, 26, kWhite);
         std::string lv = trf(Str::TriggerLevel, std::to_string(level) + " / 8");
         fonts_.regular.draw(c, lv, bx + (kBarW - fonts_.regular.measure(lv, 22)) / 2, by + kBarH + 48, 22, kGray);
@@ -3676,6 +3890,15 @@ void AppUi::drawKeysTester(Canvas& c) {
         stick + kUp, stick + kDown, stick + kLeft, stick + kRight, dpad + kUp, dpad + kDown, dpad + kLeft, dpad + kRight,
         "A", "B", "X", "Y", "L1  (LB)", "R1  (RB)", "L2  (LT)", "R2  (RT)", "L3", "R3", "View", "Menu"};
     const int faceIcon[4] = {kIconCross, kIconCircle, kIconSquare, kIconTriangle};  // A B X Y
+    // An Xbox pad: its own names alone.
+    const bool xbox = g_glyphStyle == GlyphStyle::Xbox;
+    std::string xboxNames[input::kKeyActions];
+    if (xbox) {
+        static constexpr PadButton kShoulders[6] = {PadButton::L1, PadButton::R1, PadButton::L2,
+                                                    PadButton::R2, PadButton::L3, PadButton::R3};
+        for (int i = 0; i < 6; ++i)
+            xboxNames[static_cast<int>(input::KeyAction::LB) + i] = buttonName(GlyphStyle::Xbox, kShoulders[i]);
+    }
     constexpr int kRowH = 52, kGap = 8, kChipW = 170, kColGap = 40;
     const int colW = (panel.w - 112 - kColGap) / 2;
     const bool capturing = captureSince_ != 0;
@@ -3687,10 +3910,10 @@ void AppUi::drawKeysTester(Canvas& c) {
         int ty = fonts_.semibold.centeredY(r.y, r.h, 24);
         if (a >= static_cast<int>(input::KeyAction::A) && a <= static_cast<int>(input::KeyAction::Y)) {
             int k = a - static_cast<int>(input::KeyAction::A);
-            drawFaceButton(c, faceIcon[k], r.x + 38.0f, r.y + r.h / 2.0f, 16);
-            fonts_.semibold.draw(c, "(" + names[a] + ")", r.x + 66, ty, 24, kGray);
+            drawFaceButton(c, fonts_.bold, faceIcon[k], r.x + 38.0f, r.y + r.h / 2.0f, 16);
+            if (!xbox) fonts_.semibold.draw(c, "(" + names[a] + ")", r.x + 66, ty, 24, kGray);
         } else {
-            fonts_.semibold.draw(c, names[a], r.x + 22, ty, 24, kWhite);
+            fonts_.semibold.draw(c, xbox && !xboxNames[a].empty() ? xboxNames[a] : names[a], r.x + 22, ty, 24, kWhite);
         }
         for (int slot = 0; slot < 2; ++slot) {
             Rect chip{r.x + r.w - 10 - (2 - slot) * kChipW - (1 - slot) * 10, r.y + 7, kChipW, r.h - 14};
@@ -3872,15 +4095,22 @@ void AppUi::drawGameSettings(Canvas& c) {
         }
     }
     constexpr int kModalW = 1140, kModalH = 860;
-    Rect panel = drawModal(c, kModalW, kModalH, title);
-
-    int rowCount = activeGameHasCustom_ ? 11 : 10;
     constexpr int kRowH = 52, kGap = 7, kGroupGap = 12;
+    // The rows caps_ allows; the panel loses the height of those it hides
+    // (the same as ever with all of them, "Reset to default" or not).
+    const auto rows = visibleGameSettingsRows(caps_, activeGameHasCustom_);
+    const auto most = visibleGameSettingsRows(caps_, true), all = visibleGameSettingsRows(UiCaps{}, true);
+    auto groups = [](const std::vector<SettingsRowPos>& v) {
+        return static_cast<int>(std::count_if(v.begin(), v.end(), [](const SettingsRowPos& r) { return r.groupStart; }));
+    };
+    const int modalH = kModalH - static_cast<int>(all.size() - most.size()) * (kRowH + kGap) -
+                       (groups(all) - groups(most)) * kGroupGap;
+    Rect panel = drawModal(c, kModalW, modalH, title);
     int y = panel.y + 106;
 
-    for (int pos = 0; pos < rowCount; ++pos) {
-        const int i = kGameRowOrder[pos];
-        if (kGameGroupStart[pos]) y += kGroupGap;
+    for (int pos = 0; pos < static_cast<int>(rows.size()); ++pos) {
+        const int i = rows[static_cast<size_t>(pos)].row;
+        if (rows[static_cast<size_t>(pos)].groupStart) y += kGroupGap;
         Rect r{panel.x + 50, y, panel.w - 100, kRowH};
         bool focused = (pos == gameSettingsRow_);
         c.fillRect(r, focused ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 14);
@@ -3961,7 +4191,7 @@ void AppUi::drawGameSettings(Canvas& c) {
                 fonts_.regular.draw(c, "\xE2\x80\xB9", static_cast<int>(cx) - 40, fonts_.regular.centeredY(r.y, r.h, 26), 26, kWhite);
                 fonts_.regular.draw(c, "\xE2\x80\xBA", static_cast<int>(cx) + 28, fonts_.regular.centeredY(r.y, r.h, 26), 26, kWhite);
             }
-            drawFaceButton(c, activeGameProfile_.circleConfirms ? kIconCircle : kIconCross, cx, cy, 16);
+            drawFaceButton(c, fonts_.bold, activeGameProfile_.circleConfirms ? kIconCircle : kIconCross, cx, cy, 16);
         } else {
             std::string disp = focused ? ("\xE2\x80\xB9  " + value + "  \xE2\x80\xBA") : value;
             int vw = fonts_.regular.measure(disp, 26);
@@ -3997,10 +4227,16 @@ void AppUi::render(Canvas& c, uint64_t nowMs) {
         case Screen::Streaming: break;
     }
     if (screen_ == Screen::Home && updatePrompt_) drawUpdatePrompt(c);
+    if (screen_ == Screen::Home && quitPrompt_) drawQuitPrompt(c);
     if (screen_ == Screen::Error && countryPickerOpen_) drawCountryPicker(c);
     if (reportOpen_) drawReport(c);
     if ((screen_ == Screen::Home && !updatePrompt_) || screen_ == Screen::Error) drawSignOutHold(c, nowMs);
     if (!toast_.empty()) animating_ = true;  // to expire it
+    if (platform::toastsEnabled()) {
+        // platform::notify() on a desktop: over everything, under the top bar's right side.
+        toastsDrawn_ = platform::toasts().version(nowMs);
+        drawToasts(c, fonts_, platform::toasts().visible(nowMs), kW - kMargin, 132);
+    }
 }
 
 }  // namespace xc::ui

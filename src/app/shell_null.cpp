@@ -19,6 +19,7 @@ void onQuit(int) { g_quit = true; }
 
 void beforeSettings() {}
 void beforeDisplay(const Settings&) {}
+bool afterDisplay(bool) { return true; }
 std::vector<std::string> iconFontPaths() { return {}; }
 
 bool pumpEvents() {
@@ -31,8 +32,16 @@ bool pumpEvents() {
     return !g_quit;
 }
 
+bool hasFocus() { return true; }
 bool canSelfUpdate() { return false; }
 bool isInstalledCopy(const std::string&) { return false; }
+void beforeShutdown() {}
+Caps caps() { return {false, false, false}; }
+void setFullscreen(bool) {}
+bool fullscreenSwitched(bool&) { return false; }
+bool openUrl(const std::string&) { return false; }
+bool setTextInput(bool) { return false; }
+std::string takeTextInput() { return {}; }
 
 void restartOrExit() {
     // Never asked (no update is installed here); closed as the PS5 does.

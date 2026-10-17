@@ -24,6 +24,7 @@ std::string g_priceMarket, g_priceLanguage;  // set by setPriceMarket() (empty: 
 std::unique_ptr<xcloud::GssvClient> g_queueClient;  // g_priceMutex
 platform::Thread g_priceThread;
 std::atomic<bool> g_stopPrices{false};
+std::atomic<bool> g_pricesEnded{false};  // the loop returned: joining won't wait
 constexpr int64_t kPriceTtlSeconds = 24 * 3600;
 
 std::string pricesPath() { return platform::dataDir() + "/prices.json"; }
@@ -41,7 +42,22 @@ void priceLoop();
 
 }  // namespace
 
-void startPriceLoop() { platform::startThread(g_priceThread, priceLoop); }
+void startPriceLoop() {
+    platform::startThread(g_priceThread, [] {
+        priceLoop();
+        g_pricesEnded = true;
+    });
+}
+
+bool stopPriceLoop(uint32_t ms) {
+    g_stopPrices = true;
+    if (!g_priceThread.joinable()) return true;
+    // Its pauses check the flag every 300 ms; a request may take longer.
+    for (uint64_t start = platform::nowMs(); !g_pricesEnded && platform::nowMs() - start < ms;) platform::sleepMs(20);
+    if (!g_pricesEnded) return false;
+    g_priceThread.join();
+    return true;
+}
 
 void setPriceMarket(const std::string& market, const std::string& language) {
     std::lock_guard<std::mutex> lock(g_priceMutex);
