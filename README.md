@@ -97,7 +97,15 @@ bash tools/check-platform-boundaries.sh       # PS5 calls only in the PS5 backen
 
 ### Linux (preview)
 
-`psbox` is the app in a window, on SDL3 (3.2 or newer, with its development
+**Download:** releases may carry `PSBox-vX.Y.Z-linux-x86_64.tar.gz` (x86-64,
+glibc 2.39 or newer: Ubuntu 24.04, Fedora 40, Debian 13 or later; X11 or
+Wayland). Unpack it anywhere and run `PSBox/psbox`: SDL3 is bundled in
+`PSBox/lib`, nothing else to install. `PSBox/README-linux.txt` covers the
+menu entry and the udev rule some systems need for the DualSense's
+rumble, triggers, light bar and gyro. Each push's build is also an
+artifact (`psbox-linux-x86_64`) of the CI's `linux-app` job.
+
+**From source:** `psbox` is the app in a window, on SDL3 (3.2 or newer, with its development
 files: `SDL3-devel` on Fedora, `libsdl3-dev` on Debian / Ubuntu). It is
 built with the desktop build above whenever CMake finds SDL3
 (`-DXCLOUD_DESKTOP_APP=ON` to require it, `OFF` to skip it).
@@ -113,7 +121,8 @@ beside the executable. Controllers (DualSense, DualShock 4, Xbox, Switch...),
 keyboard and mouse are supported (a preview: not checked on every pad yet); options the PC can't honour (light bar without a
 DualSense, 120 Hz, the PS5's upscalers) are hidden. It doesn't update
 itself: Settings > Updates opens the release page. See
-`docs/multiplatform.md` (M1).
+`docs/multiplatform.md` (M1). `tools/desktop/package-linux.sh <build-dir>`
+makes and checks the tarball (M3).
 
 ### PS5 build
 
