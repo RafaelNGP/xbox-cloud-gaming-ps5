@@ -73,6 +73,33 @@ std::vector<uint8_t> metadataReport(uint32_t sequence, double timestampMs, const
     return b;
 }
 
+uint32_t gamepadPhysicality(const GamepadFrame& f) {
+    uint32_t p = 0;
+    if (f.buttons & kDPadUp) p |= (1 << 0);
+    if (f.buttons & kDPadDown) p |= (1 << 1);
+    if (f.buttons & kDPadLeft) p |= (1 << 2);
+    if (f.buttons & kDPadRight) p |= (1 << 3);
+    if (f.buttons & kMenu) p |= (1 << 4);
+    if (f.buttons & kView) p |= (1 << 5);
+    if (f.buttons & kLeftThumb) p |= (1 << 6);
+    if (f.buttons & kRightThumb) p |= (1 << 7);
+    if (f.buttons & kLeftShoulder) p |= (1 << 8);
+    if (f.buttons & kRightShoulder) p |= (1 << 9);
+    if (f.buttons & kNexus) p |= (1 << 10);
+    // (1 << 11) is Share/Misc
+    if (f.buttons & kA) p |= (1 << 12);
+    if (f.buttons & kB) p |= (1 << 13);
+    if (f.buttons & kX) p |= (1 << 14);
+    if (f.buttons & kY) p |= (1 << 15);
+    if (trigger(f.leftTrigger) != 0) p |= (1 << 16);
+    if (trigger(f.rightTrigger) != 0) p |= (1 << 17);
+    if (axis(f.leftX) != 0) p |= (1 << 18);
+    if (axis(f.leftY) != 0) p |= (1 << 19);
+    if (axis(f.rightX) != 0) p |= (1 << 20);
+    if (axis(f.rightY) != 0) p |= (1 << 21);
+    return p;
+}
+
 std::vector<uint8_t> gamepadReport(uint32_t sequence, double timestampMs, const GamepadFrame& f) {
     auto b = header(kReportGamepad, sequence, timestampMs, kHeaderSize + 1 + 23);
     size_t o = kHeaderSize;
@@ -85,8 +112,8 @@ std::vector<uint8_t> gamepadReport(uint32_t sequence, double timestampMs, const 
     put16(b, o + 8, static_cast<uint16_t>(axis(f.rightY)));
     put16(b, o + 10, trigger(f.leftTrigger));
     put16(b, o + 12, trigger(f.rightTrigger));
-    put32(b, o + 14, 1);    // physical physicality
-    put32be(b, o + 18, 1);  // virtual physicality (big-endian in the web client too)
+    put32(b, o + 14, gamepadPhysicality(f));  // physical physicality (0 when idle)
+    put32(b, o + 18, 0);                      // virtual physicality (LE)
     return b;
 }
 
