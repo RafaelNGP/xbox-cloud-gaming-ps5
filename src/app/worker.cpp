@@ -139,7 +139,9 @@ std::string stream(xcloud::GssvClient& gssv) {
                 snapshot1 = true;
                 player.requestSnapshot(platform::dataDir() + "/frame.ppm");
             }
-            bool press = !g_autoplay.idle && ((elapsed >= 15000 && elapsed < 15300) || (elapsed >= 20000 && elapsed < 20300));
+            bool press = !g_autoplay.idle && ((elapsed >= 15000 && elapsed < 15300) ||
+                                              (elapsed >= 20000 && elapsed < 20300) ||
+                                              (elapsed >= 25000 && (elapsed % 12000 < 300)));
             if (press != g_syntheticA.exchange(press)) XC_LOGI("autoplay: A %s", press ? "down" : "up");
             static bool dropped = false;
             if (g_autoplay.dropTest && !dropped && elapsed >= 20000) {

@@ -106,6 +106,10 @@ bool Settings::load(const std::string& path) {
         if (upscaler == 0) upscaler = 2;
         XC_LOGI("settings: from before v0.8.0; block smoothing %d, upscaling %d", deband, upscaler);
     }
+    if ((*j)["settingsVersion"].asInt(1) < 3) {
+        if (sharpness == 0) sharpness = 2;
+        XC_LOGI("settings: upgraded default sharpness to %d (FidelityFX RCAS)", sharpness);
+    }
     regionRtt.clear();
     for (const auto& [name, ms] : (*j)["regionRtt"].members())
         if (ms.asInt() > 0) regionRtt[name] = static_cast<int>(ms.asInt());
@@ -252,7 +256,7 @@ bool Settings::save(const std::string& path) const {
         pg.set(id, obj);
     }
     v.set("perGame", pg);
-    v.set("settingsVersion", 2);
+    v.set("settingsVersion", 3);
     if (platform::writeFileAtomic(path, v.dump())) return true;
     XC_LOGW("settings: could not save %s", path.c_str());  // every caller's warning
     return false;

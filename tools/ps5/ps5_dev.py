@@ -185,13 +185,13 @@ def cmd_test(args):
         "tunetest", "confirmtest", "pickertest", "menutest", "regiontest",
         "friendstest", "publishertest", "scrolltest", "quicktest", "tlscheck",
     }
-    if target.startswith("AUTOTEST") or target.startswith("BENCH"):
+    if target.startswith("AUTOTEST") or target.startswith("BENCH") or " " in target:
         autoplay_cmd = target
     elif target in KNOWN_UI_TESTS:
         autoplay_cmd = f"AUTOTEST {duration} {target}"
     else:
         # Real game streaming test (e.g. FORTNITE, BALATRO)
-        autoplay_cmd = f"{target} {duration} idle"
+        autoplay_cmd = f"{target} {duration}"
 
     print("  1. Stopping app on console...")
     console_ctl("kill", TITLE_ID, host)
@@ -217,7 +217,7 @@ def cmd_test(args):
         ftp.cwd("/data/psbox")
 
     # Delete old artifacts on PS5
-    for name in ("xcloud.log", "frame.ppm", "frame2.ppm", "ui.ppm", "launch.ppm", "detail.ppm",
+    for name in ("xcloud.log", "frame.ppm", "frame2.ppm", "screen.ppm", "ui.ppm", "launch.ppm", "detail.ppm",
                  "settings.ppm", "game_settings.ppm", "game_settings_custom.ppm", "library.ppm"):
         try:
             ftp.sendcmd(f"DELE {name}")
@@ -252,7 +252,7 @@ def cmd_test(args):
 
     print(f"  6. Test finished: {'SUCCESS' if finished else 'TIMEOUT'}. Downloading results...")
     # Fetch all PPMs and log
-    ppm_names = ["ui.ppm", "launch.ppm", "frame.ppm", "frame2.ppm", "detail.ppm", "settings.ppm",
+    ppm_names = ["ui.ppm", "launch.ppm", "frame.ppm", "frame2.ppm", "screen.ppm", "detail.ppm", "settings.ppm",
                  "game_settings.ppm", "game_settings_custom.ppm", "library.ppm", "error.ppm"]
     ftp = get_ftp(host, port)
     ftp.cwd("/data/psbox")

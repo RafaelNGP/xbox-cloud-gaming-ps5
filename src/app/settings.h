@@ -15,7 +15,7 @@ namespace xc::app {
 
 struct GameProfile {
     // Picture
-    int sharpness = 0;           // 0 off, 1..3 low, medium, high
+    int sharpness = 2;           // 0 off, 1..3 low, medium (FSR RCAS), high
     int deband = 3;              // 0 off, 1 low, 2 high, 3 auto
     int upscaler = 2;            // 0 FSR 1, 1 Anime4K, 2 FSR + clean, 3 Anime4K + clean
     int resolution = 0;          // 0 1080p, 1 720p, 2 1440p
@@ -58,8 +58,8 @@ struct Settings {
     std::string librarySort = "recent";
     // The statistics line over the game (in-game menu).
     bool streamStats = false;
-    // Sharpening of the game picture: 0 off, 1..3 low, medium, high.
-    int sharpness = 0;
+    // Sharpening of the game picture: 0 off, 1..3 low, medium (FSR RCAS), high.
+    int sharpness = 2;
     // Smoothing of compression blocks (GPU display): 0 off, 1 low, 2 high,
     // 3 auto (stronger as the bitrate falls).
     int deband = 3;
