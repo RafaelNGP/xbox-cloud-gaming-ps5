@@ -16,6 +16,8 @@
 #include <cstring>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <pthread.h>
+#include <sched.h>
 #include <sys/random.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -164,5 +166,42 @@ KeyboardStatus pollSystemKeyboard(std::string&) { return KeyboardStatus::Closed;
 bool restartApp() { return false; }
 
 std::string firmwareVersion() { return {}; }
+
+void setThreadAffinity(ThreadRole role, const char* name) {
+    if (name && *name) {
+        pthread_setname_np(pthread_self(), name);
+    }
+    long numCores = sysconf(_SC_NPROCESSORS_ONLN);
+    if (numCores < 4) return;  // Do not restrict on systems with few cores
+
+    cpu_set_t mask;
+    CPU_ZERO(&mask);
+    switch (role) {
+    case ThreadRole::Main:
+        CPU_SET(0, &mask);
+        break;
+    case ThreadRole::Network:
+        CPU_SET(std::min(1L, numCores - 1), &mask);
+        break;
+    case ThreadRole::VideoDecode:
+        CPU_SET(std::min(2L, numCores - 1), &mask);
+        break;
+    case ThreadRole::Audio:
+        CPU_SET(std::min(3L, numCores - 1), &mask);
+        break;
+    case ThreadRole::Worker:
+        for (long c = 4; c < numCores; ++c) CPU_SET(c, &mask);
+        if (numCores <= 4) CPU_SET(numCores - 1, &mask);
+        break;
+    }
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &mask);
+}
+
+void setThreadRealtimePriority() {
+    struct sched_param param{};
+    int maxPrio = sched_get_priority_max(SCHED_RR);
+    param.sched_priority = maxPrio > 0 ? maxPrio : 1;
+    pthread_setschedparam(pthread_self(), SCHED_RR, &param);
+}
 
 }  // namespace xc::platform

@@ -179,6 +179,8 @@ struct StreamPlayer::Impl {
     }
 
     void audioLoop() {
+        platform::setThreadAffinity(platform::ThreadRole::Audio, "xcloud_adec");
+        platform::setThreadRealtimePriority();
         audioDecoder.resetPlc();
         QueuedAudioPacket packet;
         bool first = true;
@@ -226,6 +228,7 @@ struct StreamPlayer::Impl {
     }
 
     void videoLoop() {
+        platform::setThreadAffinity(platform::ThreadRole::VideoDecode, "xcloud_vdec");
         media::VideoDecoder decoder;
         if (!decoder.init(decodeThreads)) {
             end("could not start the H.264 decoder");

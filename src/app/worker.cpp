@@ -715,6 +715,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         xblAuth = g_xblAuth;
     }
     platform::startThread(g_hydrationThread, [library, publish, owned = gssv, xblAuth] {
+        platform::setThreadAffinity(platform::ThreadRole::Worker, "xcloud_hydr");
         auto changed = [&] { publish(*library); };
         library->loadFirstScreen(xblAuth, changed, &g_stopHydration);
         library->loadFriends(xblAuth, changed, &g_stopHydration);

@@ -17,6 +17,10 @@
 #include <arpa/inet.h>
 #include <atomic>
 #include <netinet/in.h>
+#include <pthread.h>
+#include <pthread_np.h>
+#include <sched.h>
+#include <sys/cpuset.h>
 #include <sys/socket.h>
 
 extern "C" {
@@ -211,6 +215,87 @@ void notify(const std::string& text, const std::string& forLog) {
     } req{};
     std::snprintf(req.message, sizeof req.message, "%s", text.c_str());
     sceKernelSendNotificationRequest(0, &req, sizeof req, 0);
+}
+
+void setThreadAffinity(ThreadRole role, const char* name) {
+    if (name && *name) {
+        pthread_set_name_np(pthread_self(), name);
+    }
+    static cpuset_t s_procMask;
+    static bool s_procMaskQueried = false;
+    static int s_allowedCpus[32];
+    static int s_numAllowedCpus = 0;
+
+    if (!s_procMaskQueried) {
+        s_procMaskQueried = true;
+        CPU_ZERO(&s_procMask);
+        int grc = pthread_getaffinity_np(pthread_self(), sizeof(cpuset_t), &s_procMask);
+        if (grc == 0) {
+            for (int i = 0; i < 32; ++i) {
+                if (CPU_ISSET(i, &s_procMask)) {
+                    s_allowedCpus[s_numAllowedCpus++] = i;
+                }
+            }
+        }
+        XC_LOGI("ps5 cpuset: %d allowed cpus detected (grc=%d)", s_numAllowedCpus, grc);
+        for (int i = 0; i < s_numAllowedCpus; ++i) {
+            XC_LOGI("  cpu slot %d: logical core %d", i, s_allowedCpus[i]);
+        }
+    }
+
+    if (s_numAllowedCpus <= 1) {
+        return;
+    }
+
+    cpuset_t mask;
+    CPU_ZERO(&mask);
+    auto setSlot = [&](int slotIndex) {
+        int idx = s_allowedCpus[slotIndex % s_numAllowedCpus];
+        CPU_SET(idx, &mask);
+    };
+
+    switch (role) {
+    case ThreadRole::Main:
+        setSlot(0);
+        if (s_numAllowedCpus >= 8) setSlot(1);
+        break;
+    case ThreadRole::Network:
+        setSlot(1);
+        break;
+    case ThreadRole::VideoDecode:
+        setSlot(2);
+        if (s_numAllowedCpus >= 4) setSlot(3);
+        break;
+    case ThreadRole::Audio:
+        setSlot(s_numAllowedCpus >= 6 ? 4 : 1);
+        break;
+    case ThreadRole::Worker:
+        if (s_numAllowedCpus >= 6) {
+            setSlot(5);
+            if (s_numAllowedCpus >= 7) setSlot(6);
+        } else {
+            setSlot(s_numAllowedCpus - 1);
+        }
+        break;
+    }
+    int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpuset_t), &mask);
+    if (rc != 0) {
+        XC_LOGW("pthread_setaffinity_np(%s): %d", name ? name : "thread", rc);
+    } else {
+        XC_LOGI("thread %s pinned to role %d", name ? name : "unknown", static_cast<int>(role));
+    }
+}
+
+void setThreadRealtimePriority() {
+    struct sched_param param{};
+    param.sched_priority = sched_get_priority_max(SCHED_RR);
+    if (param.sched_priority <= 0) param.sched_priority = 50;
+    int rc = pthread_setschedparam(pthread_self(), SCHED_RR, &param);
+    if (rc != 0) {
+        XC_LOGW("pthread_setschedparam(SCHED_RR, prio=%d): %d", param.sched_priority, rc);
+    } else {
+        XC_LOGI("thread elevated to SCHED_RR (prio=%d)", param.sched_priority);
+    }
 }
 
 } // namespace xc::platform

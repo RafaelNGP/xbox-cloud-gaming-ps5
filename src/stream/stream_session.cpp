@@ -523,6 +523,11 @@ struct StreamSession::Impl {
         videoReceiver->addToChain(videoReporter);
         video->setMediaHandler(videoReceiver);
         video->onFrame([this](rtc::binary data, rtc::FrameInfo info) {
+            static thread_local bool s_netPinned = false;
+            if (!s_netPinned) {
+                platform::setThreadAffinity(platform::ThreadRole::Network, "xcloud_net");
+                s_netPinned = true;
+            }
             if (resolutionPending.exchange(false)) sendResolution(opt.resolutionAlias);
             uint64_t now = platform::nowMs();
             uint64_t last = lastVideoMs.exchange(now);

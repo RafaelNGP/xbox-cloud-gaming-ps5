@@ -162,6 +162,7 @@ void ImageCache::trimDisk() {
 }
 
 void ImageCache::loop() {
+    platform::setThreadAffinity(platform::ThreadRole::Worker, "xcloud_img");
     for (;;) {
         Job job;
         {
