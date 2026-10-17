@@ -72,6 +72,15 @@ Frame g_mailbox;  // the newest picture handed over
 bool g_mailboxFull = false;
 uint64_t g_handed = 0;
 std::atomic<uint64_t> g_lastHanded{0};
+// readBackRgb() from another thread (the video thread's screenshots): asked
+// here, done by the next pump() on the main thread (under g_mailboxMutex).
+struct ReadBack {
+    bool asked = false, done = false, ok = false;
+    std::vector<uint8_t> rgb;
+    int w = 0, h = 0;
+};
+ReadBack g_readBack;
+std::condition_variable g_readBackCv;
 
 std::mutex g_overlayMutex;
 Overlay g_overlay;
@@ -260,6 +269,25 @@ void present() {
     g_mailboxCv.notify_all();
 }
 
+namespace {
+bool readBackMain(std::vector<uint8_t>& rgb, int& width, int& height);
+
+// Another thread's readBackRgb(), done here with the newest picture.
+void serveReadBack() {
+    {
+        std::lock_guard<std::mutex> lock(g_mailboxMutex);
+        if (!g_readBack.asked || g_readBack.done) return;
+    }
+    ReadBack r;
+    r.ok = readBackMain(r.rgb, r.w, r.h);
+    std::lock_guard<std::mutex> lock(g_mailboxMutex);
+    if (!g_readBack.asked || g_readBack.done) return;  // given up meanwhile
+    r.asked = r.done = true;
+    g_readBack = std::move(r);
+    g_readBackCv.notify_all();
+}
+}  // namespace
+
 void pump() {
     if (!g_renderer || !onMainThread()) return;
     {
@@ -270,6 +298,7 @@ void pump() {
             g_frontPending = true;
         }
     }
+    serveReadBack();
     {
         std::lock_guard<std::mutex> lock(g_overlayMutex);
         if (g_overlayChanged) {
@@ -300,7 +329,7 @@ void pump() {
 
 void idleWait(uint32_t ms) {
     std::unique_lock<std::mutex> lock(g_mailboxMutex);
-    g_mailboxCv.wait_for(lock, std::chrono::milliseconds(ms), [] { return g_mailboxFull; });
+    g_mailboxCv.wait_for(lock, std::chrono::milliseconds(ms), [] { return g_mailboxFull || (g_readBack.asked && !g_readBack.done); });
 }
 
 void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opacity) {
@@ -344,9 +373,11 @@ bool lastShown(uint64_t& id, uint64_t& atUs) {
     return true;
 }
 
-bool readBackRgb(std::vector<uint8_t>& rgb, int& width, int& height) {
-    // The renderer is the main thread's: the video thread's snapshots get nothing.
-    if (!g_renderer || !onMainThread() || g_front.kind == Kind::None) return false;
+namespace {
+
+// The picture on screen read back (main thread).
+bool readBackMain(std::vector<uint8_t>& rgb, int& width, int& height) {
+    if (g_front.kind == Kind::None) return false;
     upload();
     if (!g_readTex)
         g_readTex = SDL_CreateTexture(g_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, kWidth, kHeight);
@@ -371,6 +402,29 @@ bool readBackRgb(std::vector<uint8_t>& rgb, int& width, int& height) {
         std::memcpy(&rgb[static_cast<size_t>(r) * width * 3], static_cast<const uint8_t*>(conv->pixels) + r * conv->pitch,
                     static_cast<size_t>(width) * 3);
     SDL_DestroySurface(conv);
+    return true;
+}
+
+}  // namespace
+
+bool readBackRgb(std::vector<uint8_t>& rgb, int& width, int& height) {
+    if (!g_renderer) return false;
+    if (onMainThread()) return readBackMain(rgb, width, height);
+    // The renderer is the main thread's: asked of its next pump(), waited
+    // for a while (the main loop pumps each pass; not while it is closing).
+    std::unique_lock<std::mutex> lock(g_mailboxMutex);
+    if (g_readBack.asked) return false;  // one at a time
+    g_readBack = ReadBack{};
+    g_readBack.asked = true;
+    g_mailboxCv.notify_all();  // idleWait() returns: the main loop pumps
+    bool done = g_readBackCv.wait_for(lock, std::chrono::milliseconds(500), [] { return g_readBack.done; });
+    g_readBack.asked = false;
+    if (!done || !g_readBack.ok) {
+        if (!done) XC_LOGW("display: read back from another thread: no pump() came");
+        return false;
+    }
+    rgb = std::move(g_readBack.rgb);
+    width = g_readBack.w, height = g_readBack.h;
     return true;
 }
 

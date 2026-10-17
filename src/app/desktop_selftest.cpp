@@ -39,6 +39,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <thread>
 #include <filesystem>
 #include <vector>
 
@@ -262,6 +263,26 @@ int desktopSelftest(const std::string& dir) {
     for (int b = 0; b < 8 && barsOk; ++b) barsOk = barMatches(shot, b, 540);
     check(barsOk, "colour bars through drawYuv420 + pump (3-video.png)");
     check(display::lastPresentId() > 0, "present ids counted");
+    // A read back asked from another thread (the video thread's
+    // screenshots), done by the main loop's pump().
+    {
+        Shot t;
+        std::atomic<bool> finished{false};
+        bool ok = false;
+        std::thread reader([&] {
+            ok = display::readBackRgb(t.rgb, t.w, t.h);
+            finished = true;
+        });
+        for (int i = 0; i < 200 && !finished; ++i) {
+            display::idleWait(5);
+            display::pump();
+        }
+        reader.join();
+        for (int b = 0; b < 8 && ok; ++b) ok = barMatches(t, b, 540);
+        std::string path = dir + "/3b-readback-thread.png";
+        ok = ok && stbi_write_png(path.c_str(), t.w, t.h, 3, t.rgb.data(), t.w * 3) != 0;
+        check(ok, "read back off the main thread (3b-readback-thread.png)");
+    }
 
     ui::StreamMenu menu(fonts);
     menu.setCapabilities(caps);

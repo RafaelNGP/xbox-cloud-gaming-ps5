@@ -169,7 +169,9 @@ SDL_VIDEO_DRIVER=offscreen SDL_AUDIO_DRIVER=dummy build-desktop/psbox --selftest
   video thread never waits for vsync) and `display::pump()`, each pass of the
   main loop, uploads it (YUV into a BT.709 limited IYUV texture; the menu as
   ABGR8888), blends the overlay and presents. `idleWait()` wakes on a new
-  frame. `readBackRgb()` works on the main thread only. No upscalers,
+  frame. `readBackRgb()` reads on the main thread; asked from another one
+  (the video thread's screenshots: autoplay's `screen.ppm`) it waits up to
+  500 ms for the next `pump()` to do it. No upscalers,
   sharpening, block smoothing or 120 Hz (`caps()`).
 - **Shell** (`shell_desktop.cpp`): SDL starts before the display, every event
   goes to `input::sdlInputEvent()`, focus lost lets the mouse go, closing the
