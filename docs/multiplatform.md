@@ -281,3 +281,14 @@ keeps no release to install and Settings > Updates opens the release page.
    `tools/release.sh` writes `symbols/vX.Y.Z`, the release's, which decode
    users' crash reports (`tools/symbolize.sh`). A change to the PS5's UI is
    still checked on the console with its screenshots (`AGENTS.md`).
+
+### Linux release assets (automatic)
+
+Publishing a GitHub release runs `.github/workflows/release-linux.yml`: the
+same build as CI's `linux-app` job on ubuntu-24.04 (glibc 2.39), the
+self-test, then `PSBox-vX.Y.Z-linux-x86_64.tar.gz` and its `.sha256`
+attached to the release; `psbox.debug` is kept as a 90-day artifact. The
+signature comes from the release machine, so the key never goes to GitHub:
+`tools/desktop/sign-linux-release.sh vX.Y.Z` downloads the tarball, checks
+the checksum, signs it like the PS5 zip and uploads the `.sig`. The workflow
+can also be run by hand (Actions → "Release (Linux)", with the tag).

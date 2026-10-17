@@ -91,7 +91,8 @@ Para evitar degradação de desempenho, latência alta e manter a interação á
   1. `PPSA99810.zip` (pacote limpo sem contas/tokens, empacotado sem `XC_INCLUDE_ACCOUNT`).
   2. `PPSA99810.zip.sig` (assinatura ECDSA gerada com `~/.config/psbox-release/signing-key.pem`).
   3. `PPSA99810.zip.sha256` (checksum para integridade).
-- **Assets Opcionais do Linux (app desktop `psbox`)**, gerados com `tools/release.sh <X.Y.Z> --linux`:
+- **Assets do Linux (app desktop `psbox`) — caminho recomendado, automático:** ao publicar a release no GitHub, o workflow `.github/workflows/release-linux.yml` compila no ubuntu-24.04 e anexa `PSBox-vX.Y.Z-linux-x86_64.tar.gz` + `.sha256` (a tag precisa bater com a versão do `CMakeLists.txt`). Depois, na máquina de release, rodar `tools/desktop/sign-linux-release.sh vX.Y.Z`: baixa o tarball, confere o checksum, assina com a chave local (que nunca vai para o GitHub) e envia o `.sig`. Pode ser disparado à mão em Actions → "Release (Linux)" → Run workflow com a tag.
+- **Assets Opcionais do Linux gerados localmente** (alternativa; herdam a glibc desta máquina), com `tools/release.sh <X.Y.Z> --linux`:
   1. `PSBox-vX.Y.Z-linux-x86_64.tar.gz` (pasta `PSBox/` com `psbox` sem debug info, `lib/libSDL3.so.0`, `assets/`, `licenses/`; nunca dados de conta).
   2. `PSBox-vX.Y.Z-linux-x86_64.tar.gz.sig` (assinado com a **mesma** chave e o mesmo método do `PPSA99810.zip`).
   3. `PSBox-vX.Y.Z-linux-x86_64.tar.gz.sha256`.
