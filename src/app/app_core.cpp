@@ -151,6 +151,7 @@ private:
 // What main() kept on its stack when it ran the loop itself: made by
 // coreStartup(), carried from one pass to the next.
 struct Core {
+    bool quitAsked_ = false;  // desktop: "Close PSBox?" confirmed on the home screen
     explicit Core(bool withDisplay) : haveDisplay(withDisplay) {}
     bool frame();
 
@@ -338,7 +339,7 @@ bool coreStartup() {
 }
 
 bool Core::frame() {
-    if (!shell::pumpEvents()) return false;
+    if (!shell::pumpEvents() || quitAsked_) return false;
     if (bool on; shell::fullscreenSwitched(on)) {
         // F11 / Alt+Enter on a desktop: the Display mode setting follows.
         {
@@ -671,6 +672,7 @@ bool Core::frame() {
             g_command = kSignIn;
             break;
         case ui::Action::Report: openReport(ev.reportWhat, false, ui::tr(ui::Str::ReportProblem)); break;
+        case ui::Action::Quit: quitAsked_ = true; break;  // desktop only (the PS5 never asks)
         case ui::Action::OpenUrl: {
             // A desktop: the sign-in page, the report form, the release page.
             bool ok = shell::openUrl(ev.url);

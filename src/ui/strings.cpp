@@ -295,6 +295,8 @@ constexpr Column kEnglish = {
     "Display mode", // DisplayMode
     "Window", // DisplayWindow
     "Fullscreen", // DisplayFullscreen
+    "Close PSBox?", // QuitTitle
+    "Close", // QuitConfirm
 };
 
 constexpr Column kPortugueseBR = {
@@ -560,6 +562,8 @@ constexpr Column kPortugueseBR = {
     "Modo de exibição", // DisplayMode
     "Janela", // DisplayWindow
     "Tela cheia", // DisplayFullscreen
+    "Fechar o PSBox?", // QuitTitle
+    "Fechar", // QuitConfirm
 };
 
 constexpr Column kSpanish = {
@@ -825,6 +829,8 @@ constexpr Column kSpanish = {
     "Modo de pantalla", // DisplayMode
     "Ventana", // DisplayWindow
     "Pantalla completa", // DisplayFullscreen
+    "¿Cerrar PSBox?", // QuitTitle
+    "Cerrar", // QuitConfirm
 };
 
 constexpr Column kFrench = {
@@ -1090,6 +1096,8 @@ constexpr Column kFrench = {
     "Mode d'affichage", // DisplayMode
     "Fenêtre", // DisplayWindow
     "Plein écran", // DisplayFullscreen
+    "Fermer PSBox ?", // QuitTitle
+    "Fermer", // QuitConfirm
 };
 
 constexpr Column kGerman = {
@@ -1355,6 +1363,8 @@ constexpr Column kGerman = {
     "Anzeigemodus", // DisplayMode
     "Fenster", // DisplayWindow
     "Vollbild", // DisplayFullscreen
+    "PSBox schließen?", // QuitTitle
+    "Schließen", // QuitConfirm
 };
 
 constexpr Column kItalian = {
@@ -1620,6 +1630,8 @@ constexpr Column kItalian = {
     "Modalità schermo", // DisplayMode
     "Finestra", // DisplayWindow
     "Schermo intero", // DisplayFullscreen
+    "Chiudere PSBox?", // QuitTitle
+    "Chiudi", // QuitConfirm
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

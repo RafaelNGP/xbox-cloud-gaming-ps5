@@ -178,7 +178,8 @@ enum class Action {
     GameSettingsChanged,
     Report,  // "Report a problem" (Triangle on an error or in Settings): reportWhat is the error shown
     LoginCountry,  // the sign-in country changed (settings): save them and sign in again
-    OpenUrl  // a link on screen to open in the browser (UiCaps::openUrl): `url`
+    OpenUrl,  // a link on screen to open in the browser (UiCaps::openUrl): `url`
+    Quit      // desktop: the user closed the app from the home screen
 };
 
 // How "Your games" is sorted (R3).
@@ -439,6 +440,7 @@ private:
     void drawError(Canvas& c);
     void drawSettings(Canvas& c);
     void drawUpdatePrompt(Canvas& c);
+    void drawQuitPrompt(Canvas& c);
     void drawReport(Canvas& c);
     void drawCountryPicker(Canvas& c);
     // The light bar's colour picker (Settings > Light bar > Custom colour).
@@ -552,6 +554,7 @@ private:
     std::string settingsCountry_;  // the sign-in country when Settings opened
     std::string reportUrl_, reportHeading_, reportDetail_;
     bool updatePrompt_ = false;  // the pop-up is up (on the home screen)
+    bool quitPrompt_ = false;    // desktop: "Close PSBox?" is up (Circle / Esc on the home screen)
     int promptFocus_ = 0;        // 0 Update now, 1 Not now
     std::string updatingTo_, updateStatus_;
     float updateFraction_ = -1;

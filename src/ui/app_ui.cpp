@@ -2280,7 +2280,22 @@ UiEvent AppUi::handle(const NavInput& in) {
         return ev;
     }
     switch (screen_) {
-        case Screen::Home: handleHome(in, ev); break;
+        case Screen::Home:
+            if (quitPrompt_) {  // Cross closes the app, Circle stays
+                if (in.accept) ev.action = Action::Quit;
+                if (in.accept || in.back) quitPrompt_ = false, dirty_ = true;
+                break;
+            }
+            // A desktop window has no system menu to close it from (fullscreen,
+            // a controller in hand): Circle / Esc at the top of the home screen
+            // asks. On the PS5 the system closes the app; Circle does nothing here.
+            if (caps_.desktopWindow && in.back && !searching_) {
+                quitPrompt_ = true;
+                dirty_ = true;
+                break;
+            }
+            handleHome(in, ev);
+            break;
         case Screen::SignIn:
             // A desktop: Cross (Enter) opens the sign-in page in the browser.
             if (in.accept && caps_.openUrl) {
@@ -3686,6 +3701,12 @@ void AppUi::drawCountryPicker(Canvas& c) {
     }
 }
 
+void AppUi::drawQuitPrompt(Canvas& c) {
+    drawModal(c, 760, 170, tr(Str::QuitTitle));
+    c.fillRect({0, kH - 80, kW, 80}, kBg);  // its own hints over drawModal's
+    drawHints(c, {{kIconCross, tr(Str::QuitConfirm)}, {kIconCircle, tr(Str::Cancel)}});
+}
+
 void AppUi::drawUpdatePrompt(Canvas& c) {
     c.fillRect({0, 0, kW, kH}, rgba(0, 0, 0, 160));
     constexpr int kPanelW = 960, kPanelH = 340, kButtonW = 360, kButtonH = 72;
@@ -4150,6 +4171,7 @@ void AppUi::render(Canvas& c, uint64_t nowMs) {
         case Screen::Streaming: break;
     }
     if (screen_ == Screen::Home && updatePrompt_) drawUpdatePrompt(c);
+    if (screen_ == Screen::Home && quitPrompt_) drawQuitPrompt(c);
     if (screen_ == Screen::Error && countryPickerOpen_) drawCountryPicker(c);
     if (reportOpen_) drawReport(c);
     if ((screen_ == Screen::Home && !updatePrompt_) || screen_ == Screen::Error) drawSignOutHold(c, nowMs);

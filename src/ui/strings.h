@@ -272,6 +272,8 @@ enum class Str {
     DisplayMode,        // Settings row on a desktop: the app in a window or fullscreen (F11 / Alt+Enter switch it too)
     DisplayWindow,      // ... in a window
     DisplayFullscreen,  // ... fullscreen
+    QuitTitle,          // desktop: Circle / Esc on the home screen asks before closing the app
+    QuitConfirm,        // ... the hint that closes it
     Count
 };
 
