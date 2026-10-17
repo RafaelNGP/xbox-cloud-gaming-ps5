@@ -4,6 +4,7 @@
 #pragma once
 
 #include "input/key_map.h"
+#include "input/pad_map.h"
 
 #include <cstdint>
 #include <map>
@@ -29,6 +30,8 @@ struct GameProfile {
     bool highRefresh = false;    // 120 Hz output (VRR) while streaming
     // Keyboard and mouse as a controller: which keys play what
     input::KeyMap keyMap = input::defaultKeyMap();
+    // The controller's buttons toward the game (input/pad_map.h)
+    input::PadMap padMap = input::defaultPadMap();
     // Gyro aiming: 0 off, 1 always, 2 while L2 is held; intensity 1..10
     int gyroMode = 0;
     int gyroLevel = 5;
@@ -82,6 +85,9 @@ struct Settings {
     int maxBitrateMbps = 0;    // the stream's bitrate cap: 0 automatic (the tier's), else 20, 15, 10 or 5
     int gameVolume = 100;      // percent: 25, 50, 75, 100 or 150
     input::KeyMap keyMap = input::defaultKeyMap();  // the keys when the keyboard is a player's controller
+    // Which pad button plays which Xbox button in a game (input/pad_map.h;
+    // the menus always read the buttons as they are). Always complete.
+    input::PadMap padMap = input::defaultPadMap();
     int keyboardPlayer = 0;    // the player a USB keyboard and mouse play as (0..3; keys 1-4): 0 native with player 1, else that player's controller
     int gyroMode = 0;          // gyro aiming (input/gyro.h): 0 off, 1 always, 2 while L2 is held
     int gyroLevel = 5;         // its intensity, 1..10

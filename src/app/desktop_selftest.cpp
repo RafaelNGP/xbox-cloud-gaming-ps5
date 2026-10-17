@@ -12,6 +12,7 @@
 #include "display/display_sdl.h"
 #include "input/controller.h"
 #include "input/input_ext.h"
+#include "input/pad_map.h"
 #include "media/audio_in.h"
 #include "media/audio_out.h"
 #include "platform/platform.h"
@@ -206,6 +207,12 @@ int desktopSelftest(const std::string& dir) {
     ui.render(canvas, platform::nowMs());
     drawCanvas(canvas);
     check(screenshot(dir, "2-settings.png", shot) && varied(shot), "Settings screen (2-settings.png)");
+    // The PS5's Settings, every row shown (the console's own capabilities).
+    ui.setCaps(ui::UiCaps{});
+    ui.render(canvas, platform::nowMs());
+    drawCanvas(canvas);
+    check(screenshot(dir, "2e-settings-all-rows.png", shot) && varied(shot), "Settings with every row (2e-settings-all-rows.png)");
+    ui.setCaps(caps);
     // The same with an Xbox pad's glyphs (A / B, Menu, View...).
     {
         const std::vector<uint8_t> ps = shot.rgb;
@@ -225,6 +232,77 @@ int desktopSelftest(const std::string& dir) {
               "home screen with Xbox glyphs (2c-home-xbox.png)");
         ui::g_glyphStyle = ui::GlyphStyle::PlayStation;
         ui.invalidate();
+    }
+    // Settings > Controller buttons: the map as it is, a row cleared (Circle
+    // then stays, naming it), a press captured, and a complete map kept on
+    // the way out (A and B swapped).
+    {
+        auto step = [&](auto set) {
+            ui::NavInput in;
+            set(in);
+            in.nowMs = platform::nowMs();
+            ui.handle(in);
+            ui.render(canvas, platform::nowMs());
+            drawCanvas(canvas);
+        };
+        auto bit = [](input::PadFn f) { return 1u << static_cast<int>(f); };
+        step([](ui::NavInput& in) { in.options = true; });
+        const int downs = [&] {
+            auto shown = ui::visibleSettingsRows(caps);
+            for (size_t i = 0; i < shown.size(); ++i)
+                if (shown[i].row == 14) return static_cast<int>(i);
+            return -1;
+        }();
+        check(downs > 0, "Settings has the Controller buttons row");
+        for (int i = 0; i < downs; ++i) step([](ui::NavInput& in) { in.down = true; });
+        step([](ui::NavInput& in) { in.accept = true; });
+        check(screenshot(dir, "5-padmap.png", shot) && varied(shot), "Controller buttons screen (5-padmap.png)");
+        step([](ui::NavInput& in) { in.square = true; });  // A cleared
+        step([](ui::NavInput& in) { in.back = true; });    // refused: A has no button
+        check(ui.screen() == ui::Screen::Settings && ui.settings().padMap == input::defaultPadMap() &&
+                  screenshot(dir, "5b-padmap-incomplete.png", shot) && varied(shot),
+              "an incomplete map stays on its screen, unsaved (5b-padmap-incomplete.png)");
+        step([](ui::NavInput& in) { in.accept = true; });  // A: waiting for a press
+        check(screenshot(dir, "5c-padmap-capture.png", shot) && varied(shot), "waiting for a press (5c-padmap-capture.png)");
+        step([&](ui::NavInput& in) { in.padPressed = bit(input::PadFn::B); });  // Circle -> A (B now has none)
+        step([](ui::NavInput& in) { in.down = true; });
+        step([](ui::NavInput& in) { in.accept = true; });
+        step([&](ui::NavInput& in) { in.padPressed = bit(input::PadFn::A); });  // Cross -> B
+        check(screenshot(dir, "5d-padmap-swapped.png", shot) && varied(shot), "A and B swapped (5d-padmap-swapped.png)");
+        step([](ui::NavInput& in) { in.back = true; });  // complete: kept
+        input::PadMap swapped = input::defaultPadMap();
+        input::assignPadSource(swapped, input::PadFn::A, static_cast<uint8_t>(input::PadFn::B));
+        check(ui.settings().padMap == swapped, "a complete map is kept on the way out");
+        // Back to the default for the rest (Reset to default, then out).
+        step([](ui::NavInput& in) { in.accept = true; });
+        for (int i = 0; i < 8; ++i) step([](ui::NavInput& in) { in.down = true; });
+        step([](ui::NavInput& in) { in.accept = true; });
+        step([](ui::NavInput& in) { in.back = true; });
+        check(ui.settings().padMap == input::defaultPadMap(), "Reset to default");
+        step([](ui::NavInput& in) { in.back = true; });  // the home screen
+        // A game's settings with every row (the PS5's), its Controller
+        // buttons row opening the screen on the game's map; Discard leaves.
+        ui.setCaps(ui::UiCaps{});
+        ui::GameTile game;
+        game.productId = "SELFTEST";
+        game.titleId = "selftest";
+        game.name = "Self-test game";
+        ui.showDetails(game);
+        step([](ui::NavInput& in) { in.options = true; });
+        check(screenshot(dir, "5e-game-settings.png", shot) && varied(shot), "a game's settings (5e-game-settings.png)");
+        const auto gameRows = ui::visibleGameSettingsRows(ui::UiCaps{}, false);
+        for (size_t i = 0; i < gameRows.size() && gameRows[i].row != 11; ++i) step([](ui::NavInput& in) { in.down = true; });
+        step([](ui::NavInput& in) { in.accept = true; });
+        step([](ui::NavInput& in) { in.square = true; });
+        check(screenshot(dir, "5f-game-padmap.png", shot) && varied(shot), "the game's controller buttons (5f-game-padmap.png)");
+        step([](ui::NavInput& in) { in.up = true; });     // Reset / Discard
+        step([](ui::NavInput& in) { in.right = true; });  // Discard changes
+        step([](ui::NavInput& in) { in.accept = true; });
+        check(screenshot(dir, "5g-game-settings-after.png", shot) && varied(shot), "discarded: still Default (5g-game-settings-after.png)");
+        step([](ui::NavInput& in) { in.back = true; });
+        step([](ui::NavInput& in) { in.back = true; });
+        ui.setCaps(caps);
+        ui.showHome();
     }
     // The search typed on the keyboard: the shell's text input, the text
     // through AppUi::typeText().
