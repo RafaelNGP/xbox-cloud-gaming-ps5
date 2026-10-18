@@ -78,7 +78,11 @@ std::string lower(std::string s) {
 
 int bioSend(void* ctx, const unsigned char* buf, size_t len) {
     int fd = *static_cast<int*>(ctx);
-    ssize_t n = ::send(fd, buf, len, 0);
+    int flags = 0;
+#ifdef MSG_NOSIGNAL
+    flags = MSG_NOSIGNAL;  // a connection the server dropped: an error, not SIGPIPE
+#endif
+    ssize_t n = ::send(fd, buf, len, flags);
     if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) return MBEDTLS_ERR_SSL_TIMEOUT;
         if (errno == EINTR) return MBEDTLS_ERR_SSL_WANT_WRITE;
@@ -98,6 +102,13 @@ int bioRecv(void* ctx, unsigned char* buf, size_t len) {
     return static_cast<int>(n);  // 0 = peer closed
 }
 
+// Each request's own time limits (a kept-alive socket keeps the last ones).
+void setTimeouts(int fd, int timeoutMs) {
+    timeval tv{timeoutMs / 1000, (timeoutMs % 1000) * 1000};
+    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+}
+
 int connectTcp(const std::string& host, int port, int timeoutMs, std::string& err) {
     uint32_t ip = 0;
     if (!platform::resolveIPv4(host, ip, err)) return -1;
@@ -111,11 +122,12 @@ int connectTcp(const std::string& host, int port, int timeoutMs, std::string& er
         err = "socket() failed (errno " + std::to_string(errno) + ")";
         return -1;
     }
-    timeval tv{timeoutMs / 1000, (timeoutMs % 1000) * 1000};
-    ::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-    ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    setTimeouts(fd, timeoutMs);
     int one = 1;
     ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+#ifdef SO_NOSIGPIPE
+    ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+#endif
     // A larger window: catalog responses are hundreds of KB from far away.
     int buf = 1 << 20;
     ::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buf, sizeof buf);
@@ -149,6 +161,39 @@ bool dechunk(const std::string& in, std::string& out) {
         out.append(in, pos, size);
         pos += size + 2;
     }
+}
+
+long long chunkedLength(std::string_view in) {
+    size_t pos = 0;
+    for (;;) {
+        size_t eol = in.find("\r\n", pos);
+        if (eol == std::string_view::npos) return in.size() - pos > 1024 ? -1 : 0;  // no size line is that long
+        std::string line(in.substr(pos, eol - pos));
+        char* end = nullptr;
+        unsigned long long size = std::strtoull(line.c_str(), &end, 16);
+        if (end == line.c_str() || (*end && *end != ';' && *end != ' ')) return -1;
+        if (size > (1ull << 31)) return -1;  // no answer here is that large
+        pos = eol + 2;
+        if (size == 0) {
+            // Trailers, if any, then an empty line.
+            for (;;) {
+                size_t e = in.find("\r\n", pos);
+                if (e == std::string_view::npos) return 0;
+                if (e == pos) return static_cast<long long>(pos + 2);
+                pos = e + 2;
+            }
+        }
+        if (in.size() - pos < size + 2) return 0;
+        if (in.compare(pos + size, 2, "\r\n") != 0) return -1;
+        pos += size + 2;
+    }
+}
+
+bool keepAliveAfter(int status, bool http10, const std::string& connection, long long bodyEnd, size_t received) {
+    if (status <= 0 || bodyEnd < 0 || static_cast<unsigned long long>(bodyEnd) != received) return false;
+    std::string c = lower(connection);
+    if (c.find("close") != std::string::npos) return false;
+    return !http10 || c.find("keep-alive") != std::string::npos;
 }
 
 void setTestTransport(std::function<Response(const Request&)> transport) { g_testTransport = std::move(transport); }
@@ -287,81 +332,116 @@ bool addTrustedCa(const std::string& pemPath) {
 
 namespace {
 
+// A TLS connection, kept open between requests to the same host.
 struct PooledConn {
     std::string host;
     int port = 443;
     int fd = -1;
+    bool tls = false;  // ssl and conf initialised
     mbedtls_ssl_context ssl;
     mbedtls_ssl_config conf;
     uint64_t lastUsedMs = 0;
-};
 
+    PooledConn() = default;
+    PooledConn(const PooledConn&) = delete;
+    PooledConn& operator=(const PooledConn&) = delete;
+    // No close_notify: a write that could block (or hit a dropped peer) for
+    // nothing; the server is fine with the TCP close.
+    ~PooledConn() {
+        if (tls) {
+            mbedtls_ssl_free(&ssl);
+            mbedtls_ssl_config_free(&conf);
+        }
+        if (fd >= 0) ::close(fd);
+    }
+};
+using Conns = std::vector<std::unique_ptr<PooledConn>>;
+
+// Idle kept-alive connections. The ones it closes are collected under its
+// lock and closed after it, so a slow close never holds up other threads.
 class ConnectionPool {
 public:
+    // Never destroyed: detached threads may still be in a request at exit.
+    static ConnectionPool& instance() {
+        static ConnectionPool* pool = new ConnectionPool;
+        return *pool;
+    }
+
     std::unique_ptr<PooledConn> acquire(const std::string& host, int port) {
+        Conns dead;  // closed after the lock (declared before it)
+        std::unique_ptr<PooledConn> found;
         std::lock_guard<std::mutex> lock(mutex_);
         uint64_t now = platform::nowMs();
         for (auto it = pool_.begin(); it != pool_.end();) {
-            if (now - (*it)->lastUsedMs > 15000) {
-                destroy(std::move(*it));
-                it = pool_.erase(it);
-                continue;
-            }
-            if ((*it)->host == host && (*it)->port == port) {
+            bool mine = !found && (*it)->host == host && (*it)->port == port;
+            bool expired = now - (*it)->lastUsedMs > kIdleMs;
+            if (mine && !expired) {
+                // Readable while idle: the server closed it (or sent
+                // something unasked); not usable either way.
                 struct pollfd pfd{(*it)->fd, POLLIN, 0};
-                int r = ::poll(&pfd, 1, 0);
-                if (r != 0) {
-                    destroy(std::move(*it));
+                if (::poll(&pfd, 1, 0) == 0) {
+                    found = std::move(*it);
                     it = pool_.erase(it);
                     continue;
                 }
-                auto conn = std::move(*it);
-                pool_.erase(it);
-                return conn;
+                expired = true;
+            }
+            if (expired) {
+                dead.push_back(std::move(*it));
+                it = pool_.erase(it);
+                continue;
             }
             ++it;
         }
-        return nullptr;
+        return found;
     }
 
     void release(std::unique_ptr<PooledConn> conn) {
         if (!conn) return;
+        Conns dead;
         std::lock_guard<std::mutex> lock(mutex_);
-        if (pool_.size() >= 8) {
-            destroy(std::move(conn));
-            return;
+        if (pool_.size() >= kMaxIdle) {  // the oldest makes room
+            dead.push_back(std::move(pool_.front()));
+            pool_.erase(pool_.begin());
         }
         conn->lastUsedMs = platform::nowMs();
         pool_.push_back(std::move(conn));
     }
 
-    void clear() {
+    // A kept-alive connection to this host turned out dead: the others,
+    // idle as long or longer, likely are too.
+    void dropHost(const std::string& host, int port) {
+        Conns dead;
         std::lock_guard<std::mutex> lock(mutex_);
-        for (auto& conn : pool_) destroy(std::move(conn));
-        pool_.clear();
+        for (auto it = pool_.begin(); it != pool_.end();) {
+            if ((*it)->host == host && (*it)->port == port) {
+                dead.push_back(std::move(*it));
+                it = pool_.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 
-    static void destroy(std::unique_ptr<PooledConn> conn) {
-        if (!conn) return;
-        mbedtls_ssl_close_notify(&conn->ssl);
-        mbedtls_ssl_free(&conn->ssl);
-        mbedtls_ssl_config_free(&conn->conf);
-        if (conn->fd >= 0) ::close(conn->fd);
+    void clear() {
+        Conns dead;
+        std::lock_guard<std::mutex> lock(mutex_);
+        dead.swap(pool_);
     }
 
 private:
+    static constexpr uint64_t kIdleMs = 15000;
+    static constexpr size_t kMaxIdle = 8;
     std::mutex mutex_;
-    std::vector<std::unique_ptr<PooledConn>> pool_;
+    Conns pool_;
 };
-
-static ConnectionPool g_connPool;
 
 }  // namespace
 
 void shutdownTls() {
     std::lock_guard<std::mutex> lock(g.mutex);
     if (!g.ready) return;
-    g_connPool.clear();
+    ConnectionPool::instance().clear();
     mbedtls_x509_crt_free(&g.ca);
     mbedtls_ctr_drbg_free(&g.drbg);
     mbedtls_entropy_free(&g.entropy);
@@ -370,25 +450,19 @@ void shutdownTls() {
 
 namespace {
 
-Response performOnce(const Request& req) {
+// One request on one connection: a kept-alive one from the pool when
+// `reuse` and there is one, else a new one. `stale` is set (and nothing
+// else is to be trusted in the answer) when a kept-alive connection failed
+// before a single byte of the answer came: the server had closed it, never
+// saw the request, and it can be sent again on a new connection, whatever
+// its method. A time-out is not that (the server may be working on it).
+Response exchange(const Request& req, const Url& url, bool reuse, bool& stale) {
     Response resp;
-    Url url;
-    if (!Url::parse(req.url, url)) {
-        resp.error = "bad URL: " + req.url;
-        return resp;
-    }
-    if (url.scheme != "https") {
-        resp.error = "only https is supported";
-        return resp;
-    }
-    if (!g.ready) {
-        resp.error = "TLS not initialised";
-        return resp;
-    }
-
+    stale = false;
     const uint64_t t0 = platform::nowMs();
-    auto conn = g_connPool.acquire(url.host, url.port);
-    bool isReused = (conn != nullptr);
+    auto conn = reuse ? ConnectionPool::instance().acquire(url.host, url.port) : nullptr;
+    const bool isReused = conn != nullptr;
+    if (isReused) setTimeouts(conn->fd, req.timeoutMs);
     uint64_t tConnected = t0;
     uint64_t tHandshake = t0;
 
@@ -400,13 +474,13 @@ Response performOnce(const Request& req) {
             XC_LOGI("slow request %s%s: connect %llu ms, TLS %llu ms, total %llu ms", url.host.c_str(),
                     url.path.substr(0, 40).c_str(), static_cast<unsigned long long>(tConnected - t0),
                     static_cast<unsigned long long>(tHandshake - tConnected), static_cast<unsigned long long>(total));
-        if (conn) {
-            if (canKeepAlive) {
-                g_connPool.release(std::move(conn));
-            } else {
-                ConnectionPool::destroy(std::move(conn));
-            }
-        }
+        if (conn && canKeepAlive) ConnectionPool::instance().release(std::move(conn));
+        conn.reset();
+        return resp;
+    };
+    auto staleReuse = [&] {
+        stale = true;
+        conn.reset();
         return resp;
     };
 
@@ -421,6 +495,7 @@ Response performOnce(const Request& req) {
 
         mbedtls_ssl_init(&conn->ssl);
         mbedtls_ssl_config_init(&conn->conf);
+        conn->tls = true;
 
         int rc = mbedtls_ssl_config_defaults(&conn->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
                                              MBEDTLS_SSL_PRESET_DEFAULT);
@@ -479,11 +554,7 @@ Response performOnce(const Request& req) {
         int rc = mbedtls_ssl_write(&conn->ssl, reinterpret_cast<const unsigned char*>(out.data() + sent), out.size() - sent);
         if (rc == MBEDTLS_ERR_SSL_WANT_READ || rc == MBEDTLS_ERR_SSL_WANT_WRITE) continue;
         if (rc < 0) {
-            if (isReused) {
-                // If a reused connection failed during initial write, drop it and retry once fresh
-                ConnectionPool::destroy(std::move(conn));
-                return performOnce(req);
-            }
+            if (isReused) return staleReuse();  // the server never got the whole request
             return finish("TLS write: " + tlsError(rc));
         }
         sent += static_cast<size_t>(rc);
@@ -494,6 +565,8 @@ Response performOnce(const Request& req) {
     size_t headerEnd = std::string::npos;
     long contentLength = -1;
     bool chunked = false;
+    bool http10 = false;
+    long long chunkedEnd = 0;  // chunkedLength() of the body so far
     bool streaming = false;  // the body goes to req.onBody
     size_t streamed = 0;
     unsigned char buf[16384];
@@ -503,6 +576,8 @@ Response performOnce(const Request& req) {
 #if defined(MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET)
         if (rc == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) continue;
 #endif
+        // A kept-alive connection closed (or reset) before any answer.
+        if (isReused && raw.empty() && !streaming && rc <= 0 && rc != MBEDTLS_ERR_SSL_TIMEOUT) return staleReuse();
         if (rc == 0 || rc == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) break;
         if (rc < 0) {
             if (headerEnd != std::string::npos && contentLength < 0 && !chunked) break;  // EOF-delimited
@@ -525,6 +600,7 @@ Response performOnce(const Request& req) {
             std::string status = raw.substr(0, lineEnd);
             size_t sp = status.find(' ');
             resp.status = sp == std::string::npos ? 0 : std::atoi(status.c_str() + sp + 1);
+            http10 = status.rfind("HTTP/1.0", 0) == 0;
             size_t pos = lineEnd + 2;
             while (pos < headerEnd) {
                 size_t e = raw.find("\r\n", pos);
@@ -539,7 +615,7 @@ Response performOnce(const Request& req) {
             }
             if (resp.headers.count("content-length")) contentLength = std::atol(resp.headers["content-length"].c_str());
             chunked = lower(resp.header("transfer-encoding")).find("chunked") != std::string::npos;
-            if (req.method == "HEAD" || resp.status == 204 || resp.status == 304) contentLength = 0;
+            if (req.method == "HEAD" || resp.status == 204 || resp.status == 304) contentLength = 0, chunked = false;  // no body
             if (req.onBody && resp.ok() && !chunked) {
                 // What came with the headers, then each read as it arrives.
                 streaming = true;
@@ -552,8 +628,14 @@ Response performOnce(const Request& req) {
             }
         }
         size_t bodyLen = raw.size() - (headerEnd + 4);
-        if (contentLength >= 0 && bodyLen >= static_cast<size_t>(contentLength)) break;
-        if (chunked && raw.size() >= 5 && raw.compare(raw.size() - 5, 5, "0\r\n\r\n") == 0) break;
+        if (chunked) {
+            // The framing itself says where the body ends (not a guess on
+            // the last bytes read).
+            chunkedEnd = chunkedLength(std::string_view(raw).substr(headerEnd + 4));
+            if (chunkedEnd != 0) break;  // complete, or broken
+        } else if (contentLength >= 0 && bodyLen >= static_cast<size_t>(contentLength)) {
+            break;
+        }
     }
 
     if (headerEnd == std::string::npos) return finish("no HTTP response from " + url.host);
@@ -562,16 +644,19 @@ Response performOnce(const Request& req) {
             resp.status = 0;
             return finish("download cut short");
         }
-        canKeepAlive = (contentLength >= 0) && lower(resp.header("connection")) != "close";
+        canKeepAlive = keepAliveAfter(resp.status, http10, resp.header("connection"), contentLength, streamed);
         return finish({});
     }
     std::string body = raw.substr(headerEnd + 4);
+    const size_t received = body.size();
+    long long bodyEnd = -1;  // where the framing ends the body; -1: the server's closing did
     if (chunked) {
-        if (!dechunk(body, resp.body)) {
+        if (chunkedEnd <= 0 || !dechunk(body.substr(0, static_cast<size_t>(chunkedEnd)), resp.body)) {
             resp.status = 0;  // not an answer (Response::ok() false)
             resp.body.clear();
-            return finish("malformed chunked body");
+            return finish(chunkedEnd == 0 ? "response cut short" : "malformed chunked body");
         }
+        bodyEnd = chunkedEnd;
     } else {
         resp.body = std::move(body);
         // The connection closed before all of it came: not an answer.
@@ -582,11 +667,37 @@ Response performOnce(const Request& req) {
         }
         if (contentLength >= 0 && resp.body.size() > static_cast<size_t>(contentLength))
             resp.body.resize(static_cast<size_t>(contentLength));
+        bodyEnd = contentLength;
     }
-    canKeepAlive = (resp.status > 0) &&
-                   lower(resp.header("connection")) != "close" &&
-                   (contentLength >= 0 || chunked);
+    canKeepAlive = keepAliveAfter(resp.status, http10, resp.header("connection"), bodyEnd, received);
     return finish({});
+}
+
+Response performOnce(const Request& req) {
+    Response resp;
+    Url url;
+    if (!Url::parse(req.url, url)) {
+        resp.error = "bad URL: " + req.url;
+        return resp;
+    }
+    if (url.scheme != "https") {
+        resp.error = "only https is supported";
+        return resp;
+    }
+    if (!g.ready) {
+        resp.error = "TLS not initialised";
+        return resp;
+    }
+    bool stale = false;
+    resp = exchange(req, url, true, stale);
+    if (stale) {
+        // Once, on a new connection, for any method (the request never got
+        // there); the other idle connections to the host go too.
+        XC_LOGI("%s: kept-alive connection closed by the server; sending again on a new one", url.host.c_str());
+        ConnectionPool::instance().dropHost(url.host, url.port);
+        resp = exchange(req, url, false, stale);
+    }
+    return resp;
 }
 
 Response performRetrying(const Request& req) {

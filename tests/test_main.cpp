@@ -874,6 +874,40 @@ static void testPrivacyAndRobustness() {
     CHECK(!app::unzip(storedZip({{"PPSA99810/eboot.bin", "a"}, {"PPSA99810/eboot.bin", "b"}}), "PPSA99810/", files, err));
 }
 
+// Kept-alive connections: the end of a chunked body from its framing, and a
+// connection kept only when the server keeps it and the body ended exactly.
+static void testHttpKeepAlive() {
+    using net::chunkedLength;
+    using net::keepAliveAfter;
+    std::string whole = "4\r\nWiki\r\n5;x=1\r\npedia\r\n0\r\n\r\n";
+    CHECK(chunkedLength(whole) == static_cast<long long>(whole.size()));
+    for (size_t n = 0; n < whole.size(); ++n) CHECK(chunkedLength(whole.substr(0, n)) == 0);  // more to come
+    std::string trailers = "3\r\nabc\r\n0\r\nX-Trailer: 1\r\n\r\n";
+    CHECK(chunkedLength(trailers) == static_cast<long long>(trailers.size()));
+    CHECK(chunkedLength(trailers.substr(0, trailers.size() - 2)) == 0);
+    // Data that happens to end like a last chunk is not the end.
+    std::string tricky = "5\r\nab0\r\n\r\n";
+    CHECK(chunkedLength(tricky) == 0);
+    CHECK(chunkedLength(tricky + "0\r\n\r\n") == static_cast<long long>(tricky.size() + 5));
+    // Bytes after the end: the length stops at the end, so the caller sees them.
+    CHECK(chunkedLength(whole + "HTTP/1.1 200 OK") == static_cast<long long>(whole.size()));
+    CHECK(chunkedLength("zz\r\nab\r\n0\r\n\r\n") == -1);
+    CHECK(chunkedLength("2\r\nabXX0\r\n\r\n") == -1);
+    CHECK(chunkedLength("ffffffffffffffff\r\nab\r\n") == -1);
+    CHECK(chunkedLength(std::string(2000, '1')) == -1);  // a size line that never ends
+
+    CHECK(keepAliveAfter(200, false, "", 10, 10));
+    CHECK(keepAliveAfter(404, false, "keep-alive", 0, 0));
+    CHECK(!keepAliveAfter(200, false, "close", 10, 10));
+    CHECK(!keepAliveAfter(200, false, "Close", 10, 10));
+    CHECK(!keepAliveAfter(200, false, "", 10, 12));   // bytes past the body
+    CHECK(!keepAliveAfter(200, false, "", 10, 8));    // body cut short
+    CHECK(!keepAliveAfter(200, false, "", -1, 10));   // ended by the server closing
+    CHECK(!keepAliveAfter(0, false, "", 0, 0));       // no answer
+    CHECK(!keepAliveAfter(200, true, "", 10, 10));    // HTTP/1.0 closes by default
+    CHECK(keepAliveAfter(200, true, "Keep-Alive", 10, 10));
+}
+
 // The home rows come from the network on every load(): the cache's rows
 // (kept for the instant start) are never added to them, and a cache that
 // holds every row twice heals at the next save.
@@ -2062,6 +2096,7 @@ int main() {
     testBuiltinCa();
     testLoginCountry();
     testPrivacyAndRobustness();
+    testHttpKeepAlive();
     testStoreLeftovers();
     testLibraryRowsOnce();
     testHostPacer();
