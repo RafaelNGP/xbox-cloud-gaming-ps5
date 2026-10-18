@@ -1879,6 +1879,14 @@ static void testVisibleSettingsRows() {
     auto game = ui::visibleGameSettingsRows(pc, false);
     CHECK((ids(game) == std::vector<int>{0, 4, 14, 5, 7, 11, 9}));
     CHECK((groups(game) == std::vector<bool>{false, true, false, true, false, false, false}));
+    // How far down the autoplay tests walk to each row (autoplay.cpp's
+    // downsTo): on the PS5 the confirm button is 9 down (5 is the region),
+    // the keyboard keys 13 (12 is the controller buttons).
+    CHECK(ui::settingsRowPosition(ps5, 1) == 2 && ui::settingsRowPosition(ps5, 3) == 7);
+    CHECK(ui::settingsRowPosition(ps5, 5) == 9 && ui::settingsRowPosition(ps5, 6) == 10);
+    CHECK(ui::settingsRowPosition(ps5, 12) == 13 && ui::settingsRowPosition(ps5, 14) == 12);
+    CHECK(ui::settingsRowPosition(ps5, 7) == 14 && ui::settingsRowPosition(ps5, 2) == 5);
+    CHECK(ui::settingsRowPosition(pc, 5) == 7 && ui::settingsRowPosition(pc, 6) == -1 && ui::settingsRowPosition(pc, 4) == -1);
 }
 
 // The controller's glyphs by pad kind (ui/pad_glyphs.h).

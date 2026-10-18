@@ -15,6 +15,7 @@
 #include "ui/strings.h"
 #include "util/log.h"
 
+#include <cerrno>
 #include <cmath>
 #include <csignal>
 #include <cstdio>
@@ -45,6 +46,36 @@ std::optional<input::KeyMap> keysBefore;        // "keystest": the keys before, 
 std::optional<input::PadMap> padMapBefore;      // "padmaptest": the controller buttons before, put back at the end
 const char* regionShot = nullptr;  // "regiontest": save this screen next
 bool acceptUpdate = false;  // "updatetest": Cross on the pop-up, next pass ("updateskip": Circle)
+std::optional<ui::SettingsChoice> confirmBefore;  // "confirmtest": the settings before, put back at the end
+
+// Settings' rows, walked the same way by every test: the rows this system
+// shows (ui::visibleSettingsRows with its capabilities), from the top (the
+// language). Presses of down from there to row `row` (its id); -1 when it
+// isn't shown here.
+int downsTo(int row) { return ui::settingsRowPosition(g_ui->caps(), row); }
+
+// True when Settings is up with row `row` focused. Otherwise the test stops
+// before it presses Cross or saves anything (these are the user's real
+// settings): logged as a failure, and as the end of the run for the scripts.
+bool onSettingsRow(int row, const char* test) {
+    bool open = g_ui->screen() == ui::Screen::Settings;
+    int focused = g_ui->settingsFocus();
+    if (open && focused == row) return true;
+    XC_LOGE("AUTOPLAY FAIL: %s: expected row %d, focused %d%s", test, row, focused, open ? "" : " (Settings not open)");
+    XC_LOGI("AUTOPLAY END: %s failed, stopped before changing anything", test);
+    return false;
+}
+
+// Down to a row of Settings: a press every other pass, `downs` of them;
+// true once done.
+struct SettingsWalk {
+    int done = 0;
+    bool step(ui::NavInput& nav, int downs) {
+        if (done >= downs * 2) return true;
+        if (done % 2 == 0) nav.down = true;
+        return ++done >= downs * 2;
+    }
+};
 }  // namespace
 
 void loadAutoplay() {
@@ -124,6 +155,35 @@ void loadAutoplay() {
     platform::probeNetworking();
 }
 
+void guardSettingsForAutoplay(const std::string& settingsPath) {
+    const std::string backup = settingsPath.substr(0, settingsPath.rfind('/') + 1) + "settings.autoplay-backup.json";
+    std::string text;
+    bool haveBackup = platform::readFile(backup, text);
+    if (!g_autoplay.title.empty()) {
+        if (haveBackup) {
+            XC_LOGI("autoplay: the settings from before the tests are kept in %s", backup.c_str());
+            return;
+        }
+        // An empty backup: there was no settings.json (it goes again then).
+        std::string current;
+        if (!platform::readFile(settingsPath, current)) current.clear();
+        if (platform::writeFileAtomic(backup, current))
+            XC_LOGI("autoplay: settings saved to %s, put back at the next start without autoplay.txt", backup.c_str());
+        else
+            XC_LOGW("autoplay: could not save the settings to %s", backup.c_str());
+        return;
+    }
+    if (!haveBackup) return;
+    bool ok = text.empty() ? (std::remove(settingsPath.c_str()) == 0 || errno == ENOENT)
+                           : platform::writeFileAtomic(settingsPath, text);
+    if (ok) {
+        std::remove(backup.c_str());
+        XC_LOGI("autoplay: the settings from before the tests put back (%s)", text.empty() ? "none then: defaults" : backup.c_str());
+    } else {
+        XC_LOGW("autoplay: could not put back the settings from %s (kept for the next start)", backup.c_str());
+    }
+}
+
 void autoplayFinished(const std::string& result) {
     if (g_autoplay.title.empty()) return;
     if (--g_autoplay.runs > 0) {
@@ -180,31 +240,50 @@ void autoplayPad(input::ControllerState& pad) {
         // The user's dead zones and trigger feel come back at the end (the
         // test saves its own).
         static std::optional<ui::SettingsChoice> before;
-        if (!before) before = g_ui->settings();
-        // Settings' rows on screen: the dead zone is the 8th (7 down), the
-        // trigger vibration right under it.
+        static int downs = -1;
+        if (!before) before = g_ui->settings(), downs = downsTo(3);
+        // Down to the dead zone (its row as this system shows them), the
+        // trigger vibration right under it. The timeline below was made for
+        // 7 presses: what comes after them moves with their number.
+        const int64_t shift = 130 * (static_cast<int64_t>(std::max(downs, 0)) - 7);
+        auto at = [&](uint64_t ms) { return static_cast<uint64_t>(static_cast<int64_t>(ms) + shift); };
         auto quick = [&](uint64_t from, int n) {
             for (int i = 0; i < n; ++i)
                 if (in(from + 130u * static_cast<unsigned>(i), 60)) return true;
             return false;
         };
-        pad.btnOptions = in(500, 150);
-        pad.dpadDown = quick(1000, 7) || in(8000, 120) || in(9400, 120) || in(10200, 120) || in(11600, 120);
-        pad.btnA = in(2000, 150) || in(8500, 150);
-        pad.btnB = in(7500, 150) || in(16500, 150);
-        pad.btnR1 = in(4600, 150);
-        pad.dpadRight = pulses(3000, 5) || in(9000, 120) || in(9800, 120) || pulses(10600, 3) || in(12000, 120);
-        pad.dpadLeft = pulses(5000, 3);
-        if (in(2500, 5000)) pad.rawLeftX = 0.1f, pad.rawLeftY = 0.06f, pad.rawRightX = 0.7f, pad.rawRightY = -0.4f;
-        if (in(12500, 1500)) pad.triggerL2 = 0.5f;  // each trigger alone: the log shows each one
-        if (in(14500, 1500)) pad.triggerR2 = 0.6f;
-        if (in(6500, 20)) tuneShot = "sticks.ppm";
-        if (in(15500, 20)) tuneShot = "triggers.ppm";
-        if (in(17500, 20)) {
+        // Before each Cross: on the row it is meant for, else stop here.
+        static bool deadzoneChecked = false, triggersChecked = false;
+        bool stop = false;
+        if (!deadzoneChecked && t >= at(1950)) deadzoneChecked = true, stop = !onSettingsRow(3, "tune test");
+        if (!triggersChecked && t >= at(8450)) triggersChecked = true, stop = !onSettingsRow(4, "tune test");
+        if (stop) {
             g_ui->setSettings(*before);
-            saveSettingsChoice(*before);
+            saveSettingsChoice(*before);  // the dead zone's own changes (saved by its tester) undone
+            g_ui->showHome();
             g_autoplay.tuneTest = false;
-            XC_LOGI("AUTOPLAY END: tune test (dead zones and triggers put back as they were)");
+            pad = input::ControllerState{};
+        } else {
+            pad.btnOptions = in(500, 150);
+            pad.dpadDown = quick(1000, downs) || in(at(8000), 120) || in(at(9400), 120) || in(at(10200), 120) ||
+                           in(at(11600), 120);
+            pad.btnA = in(at(2000), 150) || in(at(8500), 150);
+            pad.btnB = in(at(7500), 150) || in(at(16500), 150);
+            pad.btnR1 = in(at(4600), 150);
+            pad.dpadRight = pulses(at(3000), 5) || in(at(9000), 120) || in(at(9800), 120) || pulses(at(10600), 3) ||
+                            in(at(12000), 120);
+            pad.dpadLeft = pulses(at(5000), 3);
+            if (in(at(2500), 5000)) pad.rawLeftX = 0.1f, pad.rawLeftY = 0.06f, pad.rawRightX = 0.7f, pad.rawRightY = -0.4f;
+            if (in(at(12500), 1500)) pad.triggerL2 = 0.5f;  // each trigger alone: the log shows each one
+            if (in(at(14500), 1500)) pad.triggerR2 = 0.6f;
+            if (in(at(6500), 20)) tuneShot = "sticks.ppm";
+            if (in(at(15500), 20)) tuneShot = "triggers.ppm";
+            if (in(at(17500), 20)) {
+                g_ui->setSettings(*before);
+                saveSettingsChoice(*before);
+                g_autoplay.tuneTest = false;
+                XC_LOGI("AUTOPLAY END: tune test (dead zones and triggers put back as they were)");
+            }
         }
     }
     if (g_autoplay.gameSettingsTest && uiSaved) {
@@ -332,19 +411,39 @@ void autoplayPad(input::ControllerState& pad) {
         // them: Settings, down to the confirm button; Cross opens its list,
         // down, Cross (held over the change) picks Circle; Circle now opens
         // the list again (saved), Circle picks; Cross now leaves Settings.
+        // The user's confirm button is put back at the end (autoplayScreens).
         static uint64_t since = 0;
+        static int downs = -1;
+        static bool checked = false;
         uint64_t now = platform::nowMs();
-        if (!since) since = now;
+        if (!since) since = now, downs = downsTo(5), confirmBefore = g_ui->settings();
         uint64_t t = now - since;
         auto in = [&](uint64_t at, uint64_t len) { return t >= at && t < at + len; };
-        bool cross = in(2700, 150) || in(3700, 500) || in(6800, 150), circle = in(4800, 150) || in(6000, 150);
-        bool swapped = input::circleConfirms();
-        pad.btnA = swapped ? circle : cross;
-        pad.btnB = swapped ? cross : circle;
-        pad.btnOptions = in(500, 150);
-        pad.dpadDown = in(1000, 120) || in(1300, 120) || in(1600, 120) || in(1900, 120) || in(2200, 120) || in(3200, 120);
-        if (in(5500, 20)) confirmShot = true;
-        if (in(8000, 20)) confirmHome = true;
+        // Down to the confirm button (its row as this system shows them), a
+        // press every 300 ms; the rest follows from t0.
+        const uint64_t t0 = 1000 + 300u * static_cast<unsigned>(std::max(downs, 0));
+        auto after = [&](uint64_t at, uint64_t len) { return in(t0 + at, len); };
+        if (!checked && t >= t0 + 100) {
+            checked = true;
+            if (!onSettingsRow(5, "confirm test")) {
+                g_autoplay.confirmTest = false;  // no Cross: nothing changed
+                confirmBefore.reset();
+                g_ui->showHome();
+            }
+        }
+        if (g_autoplay.confirmTest) {
+            bool cross = after(200, 150) || after(1200, 500) || after(4300, 150);
+            bool circle = after(2300, 150) || after(3500, 150);
+            bool swapped = input::circleConfirms();
+            pad.btnA = swapped ? circle : cross;
+            pad.btnB = swapped ? cross : circle;
+            pad.btnOptions = in(500, 150);
+            bool down = after(700, 120);
+            for (int i = 0; i < downs; ++i) down |= in(1000 + 300u * static_cast<unsigned>(i), 120);
+            pad.dpadDown = down;
+            if (after(3000, 20)) confirmShot = true;
+            if (after(5500, 20)) confirmHome = true;
+        }
     }
     if (g_autoplay.gridTest && uiSaved) {
         static uint64_t since = 0;
@@ -432,13 +531,19 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         // Settings, down to Updates (the last row), Cross.
         static uint64_t since = 0;
         static int step = 0;
+        static SettingsWalk walk;
         if (!since) since = now;
-        if (step < 10 && now - since >= 500u + 300u * static_cast<unsigned>(step)) {
+        if (step == 0 && now - since >= 500) {
             nav = ui::NavInput{};
-            if (step == 0) nav.options = true;
-            if (step >= 1 && step <= 8) nav.down = true;
-            if (step == 9) nav.accept = true;
-            XC_LOGI("autoplay: settings update step %d", step);
+            nav.options = true;
+            ++step;
+        } else if (step == 1 && now - since >= 800) {
+            nav = ui::NavInput{};
+            if (walk.step(nav, downsTo(7))) ++step;
+        } else if (step == 2 && now - since >= 3500) {
+            nav = ui::NavInput{};
+            if (onSettingsRow(7, "settings update test")) nav.accept = true;
+            else g_autoplay.settingsUpdate = false, g_ui->showHome();
             ++step;
         }
     }
@@ -453,27 +558,58 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         // Settings; down to the confirm button, its list (saved), closed;
         // down to the light bar, its list, Custom colour; the stick right and
         // up for 1.5 s, L2 (darker); saved; Cross; Settings saved.
+        // The light bar's change is never saved: the screen's copy is put
+        // back at the end, and Settings left without saving.
         static uint64_t since = 0;
-        if (!since) since = now;
+        static std::optional<ui::SettingsChoice> before;
+        static SettingsWalk walk;
+        if (!since) since = now, before = g_ui->settings();
         uint64_t t = now - since;
         static int step = 0;
-        const uint64_t at[] = {500, 1000, 1300, 1600, 1900, 2200, 2700, 4500, 5000, 5500, 6000, 6500, 7000, 9000, 10500, 11000, 12500};
+        enum { Options, Walk, CheckConfirm, Accept, Shot, Back, Down, CheckLightBar, L2, End };
+        struct Step { uint64_t at; int what; const char* shot; };
+        static const Step steps[] = {
+            {500, Options, nullptr},       {1000, Walk, nullptr},  {2600, CheckConfirm, nullptr},
+            {2700, Accept, nullptr},       {4500, Shot, "confirm.ppm"},
+            {5000, Back, nullptr},  // the confirm button's list closes, unchanged
+            {5500, Down, nullptr},         {5900, CheckLightBar, nullptr}, {6000, Accept, nullptr},
+            {6500, Down, nullptr},  // in the light bar's list: Custom colour
+            {7000, Accept, nullptr},       {9000, L2, nullptr},  // after the stick: darker
+            {10500, Shot, "picker.ppm"},   {11000, Accept, nullptr}, {12500, Shot, "settings.ppm"},
+            {13500, End, nullptr}};
         if (t >= 7500 && t < 9000) nav.stickX = 1.0f, nav.stickY = -0.6f;
-        if (step < 17 && t >= at[step]) {
+        if (step < static_cast<int>(std::size(steps)) && t >= steps[step].at) {
             nav = ui::NavInput{};
             nav.nowMs = now;
-            switch (step) {
-            case 0: nav.options = true; break;
-            case 1: case 2: case 3: case 4: case 5: case 9: case 11: nav.down = true; break;
-            case 6: case 10: case 12: case 15: nav.accept = true; break;
-            case 7: pickerShot = "confirm.ppm"; break;
-            case 8: nav.back = true; break;  // the confirm button's list closes, unchanged
-            case 13: nav.l2 = true; break;   // after the stick: darker
-            case 14: pickerShot = "picker.ppm"; break;
-            case 16: pickerShot = "settings.ppm"; break;
+            bool next = true;
+            auto abort = [&] {
+                g_autoplay.pickerTest = false;
+                g_ui->setSettings(*before);
+                g_ui->showHome();
+            };
+            switch (steps[step].what) {
+            case Options: nav.options = true; break;
+            case Walk: next = walk.step(nav, downsTo(5)); break;
+            case CheckConfirm:
+                if (!onSettingsRow(5, "picker test")) abort();
+                break;
+            case CheckLightBar:
+                if (!onSettingsRow(6, "picker test")) abort();
+                break;
+            case Accept: nav.accept = true; break;
+            case Back: nav.back = true; break;
+            case Down: nav.down = true; break;
+            case L2: nav.l2 = true; break;
+            case Shot: pickerShot = steps[step].shot; break;
+            case End:
+                abort();  // the same way out: nothing kept
+                XC_LOGI("AUTOPLAY END: picker test (the light bar put back as it was)");
+                break;
             }
-            XC_LOGI("autoplay: picker step %d", step);
-            ++step;
+            if (next) {
+                XC_LOGI("autoplay: picker step %d", step);
+                ++step;
+            }
         }
     }
     if (acceptUpdate) {
@@ -509,23 +645,31 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         static int step = 0;
         if (!since) since = now;
         struct Step { uint64_t at; int what; };
-        enum { Options, Down, Up, Accept, Back, Shot, Reserved, KeyG, End };
+        enum { Options, Walk, Check, Down, Up, Accept, Back, Shot, Reserved, KeyG, End };
         static const Step steps[] = {
-            {500, Options}, {1500, Down}, {1800, Down}, {2100, Down}, {2400, Down}, {2700, Down}, {3000, Down},
-            {3300, Down}, {3600, Down}, {3900, Down}, {4200, Down}, {4500, Down}, {4800, Down}, {5200, Shot},
+            {500, Options}, {1500, Walk}, {5100, Check}, {5200, Shot},
             {5800, Accept}, {7000, Shot}, {7500, Down}, {8000, Accept}, {8600, Reserved}, {9400, Shot},
             {10000, KeyG}, {10800, Shot}, {11400, Up}, {11800, Up}, {12400, Accept}, {13000, Back},
             {14000, Shot}, {14600, Back}, {15200, End}};
         static const char* shots[] = {"keys_settings.ppm", "keys.ppm", "keys_capture.ppm", "keys_after.ppm",
                                       "keys_settings_after.ppm"};
         static int shot = 0;
+        static SettingsWalk walk;
         if (!keysBefore) {
             std::lock_guard<std::mutex> lock(g_settingsMutex);
             keysBefore = g_settings.keyMap;
         }
         if (step < static_cast<int>(std::size(steps)) && now - since >= steps[step].at) {
+            bool next = true;
             switch (steps[step].what) {
             case Options: nav.options = true; break;
+            case Walk: next = walk.step(nav, downsTo(12)); break;  // the keyboard keys
+            case Check:
+                if (!onSettingsRow(12, "keys test")) {
+                    g_autoplay.keysTest = false;  // nothing chosen yet: nothing to put back
+                    g_ui->showHome();
+                }
+                break;
             case Down: nav.down = true; break;
             case Up: nav.up = true; break;
             case Accept: nav.accept = true; break;
@@ -549,7 +693,7 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
                 break;
             }
             }
-            ++step;
+            if (next) ++step;
         }
     }
 
@@ -560,23 +704,16 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         // back at the end all the same.
         static uint64_t since = 0;
         static int step = 0;
-        static int downs = -1;
         if (!since) since = now;
-        if (downs < 0) {
-            auto rows = ui::visibleSettingsRows(g_ui->caps());
-            downs = 0;
-            for (size_t i = 0; i < rows.size(); ++i)
-                if (rows[i].row == 14) downs = static_cast<int>(i);
-        }
         struct Step { uint64_t at; int what; };
-        enum { Options, Downs, Down, Up, Right, Accept, Back, Square, Shot, PressCircle, End };
+        enum { Options, Downs, Check, Down, Up, Right, Accept, Back, Square, Shot, PressCircle, End };
         static const Step steps[] = {
-            {500, Options}, {1500, Downs}, {5200, Accept}, {6400, Shot}, {7000, Accept}, {7600, Shot},
+            {500, Options}, {1500, Downs}, {5100, Check}, {5200, Accept}, {6400, Shot}, {7000, Accept}, {7600, Shot},
             {8200, PressCircle}, {8800, Down}, {9200, Square}, {9800, Back}, {10600, Shot}, {11200, Up},
             {11500, Up}, {12000, Right}, {12500, Accept}, {13300, Back}, {14000, End}};
         static const char* shots[] = {"padmap.ppm", "padmap_capture.ppm", "padmap_incomplete.ppm"};
         static int shot = 0;
-        static int downsDone = 0;
+        static SettingsWalk walk;
         if (!padMapBefore) {
             std::lock_guard<std::mutex> lock(g_settingsMutex);
             padMapBefore = g_settings.padMap;
@@ -585,9 +722,12 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
             bool next = true;
             switch (steps[step].what) {
             case Options: nav.options = true; break;
-            case Downs:  // down to the row: a press every other pass
-                if (downsDone < downs * 2 && downsDone % 2 == 0) nav.down = true;
-                next = ++downsDone >= downs * 2;
+            case Downs: next = walk.step(nav, downsTo(14)); break;  // the controller buttons
+            case Check:
+                if (!onSettingsRow(14, "padmap test")) {
+                    g_autoplay.padMapTest = false;  // nothing changed yet
+                    g_ui->showHome();
+                }
                 break;
             case Down: nav.down = true; break;
             case Up: nav.up = true; break;
@@ -624,11 +764,20 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
             since = now;
             settingsBefore = g_ui->settings();
         }
+        static SettingsWalk walk;
         const uint64_t at[] = {500, 1500, 2500, 4500, 5200};
         if (step < 5 && now - since >= at[step]) {
+            bool next = true;
             if (step == 0) nav.options = true;
-            if (step == 1) nav.down = true;
-            if (step == 2) nav.accept = true;
+            if (step == 1) next = walk.step(nav, downsTo(1));  // the resolution
+            if (step == 2) {
+                if (onSettingsRow(1, "settings test")) {
+                    nav.accept = true;
+                } else {
+                    g_autoplay.settingsTest = false;
+                    g_ui->showHome();
+                }
+            }
             if (step == 3) {
                 settingsShot = true;  // saved below, once drawn
             }
@@ -641,7 +790,7 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
                 g_autoplay.settingsTest = false;
                 XC_LOGI("AUTOPLAY END: settings test (settings put back as they were)");
             }
-            ++step;
+            if (next) ++step;
         }
     }
 }
@@ -799,7 +948,15 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         confirmHome = false;
         g_autoplay.confirmTest = false;
         saveCanvas("home.ppm");
-        XC_LOGI("AUTOPLAY END: confirm test, on the %s screen", g_ui->screen() == ui::Screen::Home ? "home" : "WRONG");
+        bool home = g_ui->screen() == ui::Screen::Home;
+        if (confirmBefore) {
+            // The user's own confirm button back (the test saved Circle).
+            g_ui->setSettings(*confirmBefore);
+            saveSettingsChoice(*confirmBefore);
+            confirmBefore.reset();
+        }
+        XC_LOGI("AUTOPLAY END: confirm test, on the %s screen (the confirm button put back as it was)",
+                home ? "home" : "WRONG");
     }
     if (g_autoplay.crashTest && uiSaved) {
         XC_LOGI("AUTOPLAY END: crash test (SIGSEGV now)");

@@ -92,6 +92,13 @@ extern Autoplay g_autoplay;
 extern std::atomic<bool> g_syntheticA;  // A held down for the game
 
 void loadAutoplay();
+// After loadAutoplay(), before the settings are read. Starting in autoplay
+// mode, settings.json is copied to settings.autoplay-backup.json (once: a
+// backup already there, from a run before, is the user's and is kept);
+// starting without autoplay.txt, such a backup is put back over
+// settings.json and deleted. A test that misbehaves or is killed can't
+// leave the user's settings changed.
+void guardSettingsForAutoplay(const std::string& settingsPath);
 // A test stream ended: the next run, or "AUTOPLAY END".
 void autoplayFinished(const std::string& result);
 void runDecodeBench();
