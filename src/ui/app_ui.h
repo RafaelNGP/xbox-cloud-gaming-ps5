@@ -133,6 +133,14 @@ struct SettingsChoice {
     bool touchpadMouse = false;
 };
 
+// Settings' screen and settings.json, one mapping both ways: what the screen
+// shows from the saved settings (at start, and after anything outside
+// Settings changed them: the game menu, ...), and the saved settings
+// updated with what the screen holds (only the fields it carries; the rest
+// stay as they are).
+SettingsChoice choiceFromSettings(const app::Settings& settings);
+void applyChoice(const SettingsChoice& choice, app::Settings& settings);
+
 // What this system and its pads can do, filled in by the app from the pads'
 // capabilities (input/input_ext.h), display::caps() and shell::caps(): the
 // screens hide the options that can't work here and word the rest for the

@@ -324,6 +324,78 @@ static void testSettingsMigration() {
 }
 
 // The microphone's gain is stored as a choice (0..2), not as the factor.
+// Settings' screen and settings.json share one mapping: every field the
+// screen carries comes back as it was (Settings -> choice -> Settings), and
+// the fields it doesn't carry are left alone.
+static void testSettingsChoiceRoundTrip() {
+    using namespace xc::input;
+    xc::app::Settings s;
+    s.language = "pt-BR";
+    s.resolution = "720p";
+    s.region = "Brazil South";
+    s.loginCountry = "jp";
+    s.deadzoneLeft = 7, s.deadzoneRight = 21;
+    s.triggerStrength = 4, s.triggerHz = 2, s.triggerResistance = 3, s.triggerPulses = true, s.triggerProfile = 2;
+    s.circleConfirms = true;
+    s.lightBarMode = 1, s.lightBarColour = 0xFF112233;
+    s.sharpness = 3, s.deband = 1, s.upscaler = 0;
+    s.highRefresh = true;
+    s.maxBitrateMbps = 15, s.gameVolume = 150;
+    assignKey(s.keyMap, KeyAction::A, 0, 'E');
+    assignPadSource(s.padMap, PadFn::A, static_cast<uint8_t>(PadFn::B));
+    CHECK(padMapValid(s.padMap));
+    s.gyroMode = 2, s.gyroLevel = 9;
+    s.desktopFullscreen = false;
+    s.touchpadMouse = true;
+    // Not carried by the screen: must survive applyChoice untouched.
+    s.keyboardPlayer = 3;
+    s.streamStats = true;
+    s.favorites = {"P1"};
+
+    ui::SettingsChoice c = ui::choiceFromSettings(s);
+    CHECK(c.language == static_cast<int>(ui::Language::PortugueseBR));
+    CHECK(c.resolution == 1 && c.triggerProfile == 2 && c.lightBarColour == 0xFF112233u && !c.fullscreen);
+
+    xc::app::Settings back;  // defaults, then what the screen carries
+    back.keyboardPlayer = 3;
+    back.streamStats = true;
+    back.favorites = {"P1"};
+    ui::applyChoice(c, back);
+    CHECK(back.language == s.language);
+    CHECK(back.resolution == s.resolution);
+    CHECK(back.region == s.region && back.loginCountry == s.loginCountry);
+    CHECK(back.deadzoneLeft == s.deadzoneLeft && back.deadzoneRight == s.deadzoneRight);
+    CHECK(back.triggerStrength == s.triggerStrength && back.triggerHz == s.triggerHz &&
+          back.triggerResistance == s.triggerResistance && back.triggerPulses == s.triggerPulses &&
+          back.triggerProfile == s.triggerProfile);
+    CHECK(back.circleConfirms == s.circleConfirms);
+    CHECK(back.lightBarMode == s.lightBarMode && back.lightBarColour == s.lightBarColour);
+    CHECK(back.sharpness == s.sharpness && back.deband == s.deband && back.upscaler == s.upscaler);
+    CHECK(back.highRefresh == s.highRefresh);
+    CHECK(back.maxBitrateMbps == s.maxBitrateMbps && back.gameVolume == s.gameVolume);
+    CHECK(back.keyMap == s.keyMap && back.padMap == s.padMap);
+    CHECK(back.gyroMode == s.gyroMode && back.gyroLevel == s.gyroLevel);
+    CHECK(back.desktopFullscreen == s.desktopFullscreen && back.touchpadMouse == s.touchpadMouse);
+    CHECK(back.keyboardPlayer == 3 && back.streamStats && back.favorites.size() == 1);
+    // Every resolution, both ways ("1440p" from older versions reads as the top tier).
+    for (const char* res : {"1080p", "720p", "best"}) {
+        xc::app::Settings r;
+        r.resolution = res;
+        xc::app::Settings out;
+        ui::applyChoice(ui::choiceFromSettings(r), out);
+        CHECK(out.resolution == res);
+    }
+    xc::app::Settings old;
+    old.resolution = "1440p";
+    CHECK(ui::choiceFromSettings(old).resolution == 2);
+    // An incomplete controller map from the screen never replaces a valid one.
+    ui::SettingsChoice broken = c;
+    broken.padMap[0] = kPadNone;
+    xc::app::Settings kept = s;
+    ui::applyChoice(broken, kept);
+    CHECK(kept.padMap == s.padMap);
+}
+
 static void testMicGain() {
     app::Settings s;
     CHECK(s.micGain == 1 && s.micGainFactor() == 1.0f);
@@ -2146,6 +2218,7 @@ int main() {
     testVersions();
     testStreamMenu();
     testSettingsMigration();
+    testSettingsChoiceRoundTrip();
     testMicGain();
     testPerGameSettings();
     testPlaytimeLimit();

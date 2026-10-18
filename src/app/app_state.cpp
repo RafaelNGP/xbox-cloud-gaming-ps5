@@ -14,6 +14,9 @@ std::mutex g_settingsMutex;
 Settings g_settings;
 std::string settingsPath() { return platform::dataDir() + "/settings.json"; }
 bool allow1440Locked() { return std::max(g_settings.maxHeightCloud, g_settings.maxHeightHome) >= 1440; }
+void refreshSettingsUiLocked() {
+    if (g_ui) g_ui->setSettings(ui::choiceFromSettings(g_settings));
+}
 std::atomic<int> g_command{kSignIn};
 std::atomic<bool> g_cancel{false};
 std::mutex g_argMutex;
