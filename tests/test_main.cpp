@@ -53,6 +53,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <cstdlib>
+#include <ctime>
+#include <map>
 #include <vector>
 #include <string>
 
@@ -944,6 +946,121 @@ static void testPrivacyAndRobustness() {
     // The same file twice in a package: refused.
     std::vector<app::ZipEntry> files;
     CHECK(!app::unzip(storedZip({{"PPSA99810/eboot.bin", "a"}, {"PPSA99810/eboot.bin", "b"}}), "PPSA99810/", files, err));
+}
+
+// The sign-in kept up: renewed before it expires (10 minutes ahead), only
+// the xCloud login when only it is due, the whole chain when the XSTS is
+// (or a request was refused), the region kept, the rotated refresh token
+// saved at once, a refused refresh keeping the stored account.
+static void testTokenRefresh() {
+    using namespace xc::auth;
+    CHECK(refreshDue(0, 1000));                // never logged in
+    CHECK(refreshDue(900, 1000));              // expired
+    CHECK(refreshDue(1000 + 600, 1000));       // within the margin
+    CHECK(!refreshDue(1000 + 601, 1000));
+    CHECK(parseIsoUtc("1970-01-02T00:00:00Z") == 86400);
+    CHECK(parseIsoUtc("2026-10-19T09:12:34.1234567Z") == 1792401154);
+    CHECK(parseIsoUtc("2024-02-29T23:59:59Z") == 1709251199);
+    CHECK(parseIsoUtc("") == 0 && parseIsoUtc("soon") == 0 && parseIsoUtc("2026-13-01T00:00:00Z") == 0);
+
+    std::string dir = "/tmp/xcloud-auth-test";
+    std::system(("rm -rf " + dir + " && mkdir -p " + dir).c_str());
+    std::string store = dir + "/account.json";
+    xc::platform::writeFileAtomic(store, R"({"version":1,"clientId":"000000004c20a908","refreshToken":"rt-0"})");
+    int64_t xstsLife = 16 * 3600, loginLife = 300;
+    int serial = 0, logins = 0;
+    bool refuseRefresh = false;
+    std::map<std::string, int> hits;
+    auto iso = [](int64_t t) {
+        std::time_t tt = static_cast<std::time_t>(t);
+        std::tm utc{};
+        gmtime_r(&tt, &utc);
+        char text[40];
+        std::strftime(text, sizeof text, "%Y-%m-%dT%H:%M:%S.0000000Z", &utc);
+        return std::string(text);
+    };
+    net::setTestTransport([&](const net::Request& req) {
+        net::Response r;
+        r.status = 200;
+        const std::string& u = req.url;
+        if (u.find("login.live.com/oauth20_token.srf") != std::string::npos) {
+            ++hits["msa"];
+            if (refuseRefresh) {
+                r.status = 400;
+                r.body = R"({"error":"invalid_grant"})";
+            } else {
+                r.body = R"({"access_token":"at","expires_in":3600,"refresh_token":"rt-)" + std::to_string(++serial) + R"("})";
+            }
+        } else if (u.find("user.auth.xboxlive.com") != std::string::npos) {
+            ++hits["user"];
+            r.body = R"({"Token":"ut","NotAfter":")" + iso(unixNow() + 14 * 86400) + R"(","DisplayClaims":{"xui":[{"uhs":"h"}]}})";
+        } else if (u.find("xsts.auth.xboxlive.com") != std::string::npos) {
+            ++hits["xsts"];
+            r.body = R"({"Token":"xt)" + std::to_string(serial) + R"(","NotAfter":")" + iso(unixNow() + xstsLife) +
+                     R"(","DisplayClaims":{"xui":[{"uhs":"h","gtg":"Tester","xid":"1"}]}})";
+        } else if (u.find("gssv-play-prod.xboxlive.com/v2/login/user") != std::string::npos) {
+            ++hits["login"];
+            r.body = R"({"gsToken":"gs)" + std::to_string(++logins) + R"(","market":"US","durationInSeconds":)" +
+                     std::to_string(loginLife) +
+                     R"(,"offeringSettings":{"regions":[{"name":"EastUS","baseUri":"https://eus.example","isDefault":true},)"
+                     R"({"name":"BrazilSouth","baseUri":"https://brs.example","isDefault":false}]}})";
+        } else {
+            ++hits["other"];  // gamerpic, plan, playtime: optional
+            r.status = 404;
+            r.body = "{}";
+        }
+        return r;
+    });
+    auto storedRefresh = [&] {
+        std::string text;
+        xc::platform::readFile(store, text);
+        auto j = json::parse(text);
+        return j ? (*j)["refreshToken"].str() : std::string();
+    };
+    std::string err;
+    bool renewed = true;
+    {
+        AuthManager am(store);
+        xcloud::GssvClient gssv;
+        CHECK(!am.ensureFresh(&gssv, err, false, &renewed) && !renewed && hits.empty());  // not signed in: nothing sent
+        CHECK(am.signIn(gssv, {}, err) && am.signedIn());
+        CHECK(storedRefresh() == "rt-1");
+        // The xCloud login expires in 5 minutes: only it is renewed, in the region chosen.
+        gssv.setRegion(gssv.session().regions[1]);
+        std::string token = gssv.session().gsToken;
+        loginLife = 14400;
+        hits.clear();
+        CHECK(am.ensureFresh(&gssv, err, false, &renewed) && renewed);
+        CHECK(hits.size() == 1 && hits["login"] == 1);
+        CHECK(gssv.session().gsToken != token && gssv.region().name == "BrazilSouth");
+        // Nothing due: nothing sent.
+        hits.clear();
+        CHECK(am.ensureFresh(&gssv, err, false, &renewed) && !renewed && hits.empty());
+        CHECK(am.ensureFresh(nullptr, err, false, &renewed) && !renewed && hits.empty());
+        // A refused request: the whole chain, without the profile's extras;
+        // the rotated refresh token saved at once.
+        CHECK(am.ensureFresh(&gssv, err, true, &renewed) && renewed);
+        CHECK(hits["msa"] == 1 && hits["user"] == 1 && hits["xsts"] == 2 && hits["login"] == 1 && hits["other"] == 0);
+        CHECK(storedRefresh() == "rt-2" && !am.profile().xblAuthorization.empty());
+        CHECK(gssv.region().name == "BrazilSouth");
+        // The XSTS about to expire: renewed without being asked.
+        xstsLife = 120;
+        CHECK(am.ensureFresh(&gssv, err, true, &renewed));  // now holds a 2-minute XSTS
+        xstsLife = 16 * 3600;
+        hits.clear();
+        CHECK(am.ensureFresh(&gssv, err, false, &renewed) && renewed && hits["msa"] == 1 && hits["login"] == 1);
+        hits.clear();
+        CHECK(am.ensureFresh(&gssv, err, false, &renewed) && !renewed && hits.empty());
+        // The refresh refused: false, and the stored account stays.
+        refuseRefresh = true;
+        std::string before = storedRefresh();
+        CHECK(!am.ensureFresh(&gssv, err, true, &renewed) && !renewed);
+        CHECK(err.find("token refresh failed") != std::string::npos);
+        CHECK(storedRefresh() == before && am.hasStoredAccount());
+        CHECK(err.find(before) == std::string::npos);  // no token in the message
+    }
+    net::setTestTransport({});
+    std::system(("rm -rf " + dir).c_str());
 }
 
 // Kept-alive connections: the end of a chunked body from its framing, and a
@@ -2201,6 +2318,7 @@ int main() {
     testScancodeToVk();
     testSdlSensorUnits();
     testLoginRetry();
+    testTokenRefresh();
     testGyro();
     testReport();
     testCrashGuard();

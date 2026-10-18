@@ -68,6 +68,7 @@ bool AuthManager::save() const {
 }
 
 void AuthManager::signOut() {
+    signedIn_ = false;
     tokens_ = {};
     profile_ = {};
     gssvXsts_ = {};
@@ -111,7 +112,7 @@ bool AuthManager::deviceCodeSignIn(const DeviceCodeCallback& onCode, std::string
     return false;
 }
 
-bool AuthManager::xboxChain(xcloud::GssvClient& gssv, std::string& err) {
+bool AuthManager::xboxChain(xcloud::GssvClient* gssv, std::string& err, bool full) {
     XblToken user;
     // login.live.com tokens for a custom client id use the "t=" ticket form;
     // fall back to "d=" in case the service expects the MSAL form.
@@ -127,14 +128,50 @@ bool AuthManager::xboxChain(xcloud::GssvClient& gssv, std::string& err) {
         profile_.gamertag = profileXsts.gamertag;
         profile_.xuid = profileXsts.xuid;
         profile_.xblAuthorization = profileXsts.authorizationHeader();
-        fetchGamerpic(profileXsts);
+        if (full) fetchGamerpic(profileXsts);
     } else {
         XC_LOGW("profile XSTS: %s", perr.c_str());
     }
 
     if (!xstsToken(user, rp::kGssv, gssvXsts_, err)) return false;
-    if (!gssv.login(gssvXsts_, err)) return false;
-    fetchSubscription(user, gssv.session().market);
+    if (gssv && !gssv->login(gssvXsts_, err)) return false;
+    if (full) fetchSubscription(user, gssv ? gssv->session().market : std::string());
+    return true;
+}
+
+bool refreshDue(int64_t expiresAt, int64_t now, int64_t marginSec) { return expiresAt - now <= marginSec; }
+
+bool AuthManager::ensureFresh(xcloud::GssvClient* gssv, std::string& err, bool force, bool* renewed) {
+    if (renewed) *renewed = false;
+    if (gssvXsts_.token.empty() || tokens_.refreshToken.empty()) {
+        err = "not signed in";  // only a sign-in made is kept up
+        return false;
+    }
+    int64_t now = unixNow();
+    // An unreadable NotAfter: left to the login's own expiry and to a
+    // refused request (`force`).
+    int64_t xstsUntil = parseIsoUtc(gssvXsts_.notAfter);
+    bool xstsDue = force || (xstsUntil > 0 && refreshDue(xstsUntil, now));
+    bool loginDue = gssv && (xstsDue || refreshDue(gssv->session().expiresAt, now));
+    if (!xstsDue && !loginDue) return true;
+    std::string region = gssv ? gssv->region().name : std::string();
+    if (xstsDue) {
+        XC_LOGI("sign-in: renewing the Xbox tokens (%s)", force ? "a request was refused" : "about to expire");
+        MsaTokens t;
+        if (!msa_.refresh(tokens_.refreshToken, t, err)) return false;  // the stored account stays
+        if (t.userId.empty()) t.userId = tokens_.userId;
+        tokens_ = t;
+        // A new refresh token each time: saved at once, as signIn() does.
+        if (!save()) XC_LOGW("the renewed sign-in could not be saved");
+        if (!xboxChain(gssv, err, false)) return false;
+    } else {
+        XC_LOGI("sign-in: renewing the xCloud login (%s)", gssv->isHome() ? "own Xbox" : "cloud");
+        if (!gssv->login(gssvXsts_, err)) return false;
+    }
+    if (gssv && !region.empty())  // login() picked the default region: the chosen one back
+        for (const auto& r : gssv->session().regions)
+            if (r.name == region) gssv->setRegion(r);
+    if (renewed) *renewed = true;
     return true;
 }
 
@@ -353,6 +390,7 @@ void AuthManager::fetchGamerpic(const XblToken& xsts) {
 
 bool AuthManager::signIn(xcloud::GssvClient& gssv, const DeviceCodeCallback& onCode, std::string& err,
                          const std::atomic<bool>* cancel) {
+    signedIn_ = false;
     bool fresh = false;
     if (!tokens_.refreshToken.empty()) {
         MsaTokens t;
@@ -376,7 +414,7 @@ bool AuthManager::signIn(xcloud::GssvClient& gssv, const DeviceCodeCallback& onC
         if (!deviceCodeSignIn(onCode, err, cancel)) return false;
         fresh = true;
     }
-    if (!xboxChain(gssv, err)) {
+    if (!xboxChain(&gssv, err)) {
         // A just-granted token that fails means the account itself is the
         // problem (no Xbox profile, no Game Pass...): keep it for diagnosis.
         if (!fresh) XC_LOGW("Xbox sign-in failed with stored token: %s", err.c_str());
@@ -384,6 +422,7 @@ bool AuthManager::signIn(xcloud::GssvClient& gssv, const DeviceCodeCallback& onC
         return false;
     }
     save();
+    signedIn_ = true;
     XC_LOGI("signed in%s", profile_.gamertag.empty() ? " (no gamertag)" : "");  // the gamertag isn't logged
     return true;
 }

@@ -123,7 +123,8 @@ public:
 
     // --- Session lifecycle -------------------------------------------------
     // `titleId` for a cloud game; for the xhome offering, the console's serverId.
-    bool startSession(const std::string& titleId, const std::string& locale, std::string& err);
+    // `status`: the answer's HTTP status (0: none), e.g. 401 for a token refused.
+    bool startSession(const std::string& titleId, const std::string& locale, std::string& err, int* status = nullptr);
     bool hasSession() const { return !sessionPath_.empty(); }
     bool sessionState(SessionStatus& out, std::string& err);
     // Before a session: the estimated wait to start `titleId` (xCloud title

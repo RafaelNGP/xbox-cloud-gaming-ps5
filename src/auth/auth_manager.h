@@ -39,6 +39,12 @@ std::string subscriptionRenewal(const std::string& entitlementsJson, int64_t now
 // Parses playtime limit from JSON or Protobuf response
 bool parsePlaytimeLimit(const std::string& body, int64_t& remaining, int64_t& max);
 
+// The tokens are renewed this long before they expire.
+constexpr int64_t kRefreshMarginSec = 600;
+// Whether a token that expires at `expiresAt` (unix seconds; 0: none yet)
+// is to be renewed at `now`.
+bool refreshDue(int64_t expiresAt, int64_t now, int64_t marginSec = kRefreshMarginSec);
+
 class AuthManager {
 public:
     // Called while waiting for the user to sign in on another device.
@@ -47,6 +53,8 @@ public:
     explicit AuthManager(std::string storePath, MsaConfig cfg = {});
 
     bool hasStoredAccount() const { return !tokens_.refreshToken.empty(); }
+    // The last signIn() went through (until signOut()).
+    bool signedIn() const { return signedIn_; }
     // False when the last sign-in couldn't be written to the store file: the
     // next start asks for a code again.
     bool saved() const { return saved_; }
@@ -65,6 +73,17 @@ public:
     // the user's own consoles) in with the same Xbox token.
     bool loginOffering(xcloud::GssvClient& other, std::string& err) const;
 
+    // After signIn(): keeps the sign-in usable. When the XSTS token expires
+    // within kRefreshMarginSec (or `force`: a request was refused), the chain
+    // runs again from the stored refresh token: MSA refresh (the rotated
+    // refresh token saved at once) -> Xbox user token -> XSTS (the profile's
+    // too: profile().xblAuthorization) -> `gssv`'s login. When only `gssv`'s
+    // login is due, just that login. `gssv`'s region stays as chosen; it may
+    // be null (the XSTS only). True when nothing was due or the renewal
+    // worked; `renewed` says whether anything was renewed. A refused refresh
+    // keeps the stored account (the next start decides). No token is logged.
+    bool ensureFresh(xcloud::GssvClient* gssv, std::string& err, bool force = false, bool* renewed = nullptr);
+
     void signOut();
     const Profile& profile() const { return profile_; }
 
@@ -73,7 +92,8 @@ private:
     bool save() const;
     mutable bool saved_ = true;
     bool deviceCodeSignIn(const DeviceCodeCallback& onCode, std::string& err, const std::atomic<bool>* cancel);
-    bool xboxChain(xcloud::GssvClient& gssv, std::string& err);
+    // `full`: the profile's extras too (gamerpic, plan, playtime): not on a renewal.
+    bool xboxChain(xcloud::GssvClient* gssv, std::string& err, bool full = true);
     void fetchGamerpic(const XblToken& xsts);
     void fetchSubscription(const XblToken& userToken, const std::string& market);
     void fetchPlaytimeLimit(const XblToken& mp, const std::string& market);
@@ -83,6 +103,7 @@ private:
     MsaTokens tokens_;
     Profile profile_;
     XblToken gssvXsts_;  // in memory only, for loginOffering()
+    bool signedIn_ = false;
 };
 
 }  // namespace xc::auth

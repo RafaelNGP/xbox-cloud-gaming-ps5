@@ -455,7 +455,7 @@ bool GssvClient::listConsoles(std::vector<Console>& out, std::string& err) {
     return true;
 }
 
-bool GssvClient::startSession(const std::string& titleId, const std::string& locale, std::string& err) {
+bool GssvClient::startSession(const std::string& titleId, const std::string& locale, std::string& err, int* status) {
     json::Value settings = json::Value::object();
     settings.set("nanoVersion", "V3;WebrtcTransport.dll");
     settings.set("enableTextToSpeech", false);
@@ -490,6 +490,7 @@ bool GssvClient::startSession(const std::string& titleId, const std::string& loc
 
     std::string kind = offering_ == "xhome" ? "home" : "cloud";
     auto r = net::perform(authed(resolution_, login_, "POST", url("/v5/sessions/" + kind + "/play"), body.dump()));
+    if (status) *status = r.status;
     auto j = json::parse(r.body);
     if (!r.ok() || !j || !(*j)["sessionPath"].isString()) {
         err = "session start failed: " + describe(r);
