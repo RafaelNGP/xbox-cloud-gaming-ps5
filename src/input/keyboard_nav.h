@@ -30,13 +30,21 @@ constexpr uint8_t kVkAppMenu = 0x7B;
 // a second controller isn't needed): the keys as `map` says (defaultKeyMap()
 // unless changed in Settings), the mouse the right stick, a wheel notch a
 // press of Y.
+//
+// Timed by the clock (`nowMs`, monotonic), not by the passes: the mouse's
+// speed (counts per ms), the stick's easing and the wheel's presses come
+// out the same however often it runs (the stream's input loop, 4 or 8 ms;
+// the desktop's, woken by events).
 struct MouseStick {
     float x = 0, y = 0;  // the right stick, eased towards the mouse's speed
+    uint64_t lastMs = 0;  // the previous pass (0: none yet)
     // The wheel: each notch is a short press of Y (switch weapon in most
-    // shooters): presses still to give, and where the current one is.
-    int wheelPresses = 0, wheelPhase = 0;
+    // shooters): presses still to give, and when the current one began.
+    int wheelPresses = 0;
+    bool wheelPressing = false;
+    uint64_t wheelSinceMs = 0;
 };
-void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& out,
+void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& out, uint64_t nowMs,
                        const KeyMap& map = defaultKeyMap());
 
 // Adds `extra` (the keyboard as a controller) to `pad`: buttons pressed on

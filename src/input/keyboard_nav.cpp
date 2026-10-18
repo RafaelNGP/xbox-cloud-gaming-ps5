@@ -7,7 +7,8 @@
 
 namespace xc::input {
 
-void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& out, const KeyMap& map) {
+void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& out, uint64_t nowMs,
+                       const KeyMap& map) {
     out = ControllerState{};
     out.connected = in.keyboard || in.mouse;
     auto down = [&](KeyAction a) {
@@ -38,26 +39,42 @@ void keyboardAsGamepad(const KbmInput& in, MouseStick& stick, ControllerState& o
     out.btnOptions = down(KeyAction::Menu);
     out.triggerL2 = down(KeyAction::LT) ? 1.0f : 0.0f;
     out.triggerR2 = down(KeyAction::RT) ? 1.0f : 0.0f;
-    // The mouse: about 12 counts a pass is the stick all the way; eased so
-    // a still mouse lets the stick come back to the centre.
-    constexpr float kFull = 12.0f, kEase = 0.45f;
-    float tx = std::clamp(in.dx / kFull, -1.0f, 1.0f), ty = std::clamp(in.dy / kFull, -1.0f, 1.0f);
-    stick.x += (tx - stick.x) * kEase;
-    stick.y += (ty - stick.y) * kEase;
+    // The time this pass's mouse counts cover: since the previous pass, 8 ms
+    // for the first one; at most 50 ms (after the app's menu, say), so a
+    // long pause doesn't read as a slow mouse.
+    float dtMs = stick.lastMs ? std::clamp(static_cast<float>(nowMs - stick.lastMs), 1.0f, 50.0f) : 8.0f;
+    stick.lastMs = nowMs;
+    // The mouse: 1.5 counts a millisecond is the stick all the way (the 12
+    // counts per 8 ms pass it was tuned with); eased so a still mouse lets
+    // the stick come back to the centre: 45 % of the way every 8 ms, the
+    // same curve at any pass length.
+    constexpr float kFullPerMs = 12.0f / 8.0f, kEase8Ms = 0.45f;
+    float full = kFullPerMs * dtMs;
+    float tx = std::clamp(in.dx / full, -1.0f, 1.0f), ty = std::clamp(in.dy / full, -1.0f, 1.0f);
+    float ease = 1.0f - std::pow(1.0f - kEase8Ms, dtMs / 8.0f);
+    stick.x += (tx - stick.x) * ease;
+    stick.y += (ty - stick.y) * ease;
     if (std::abs(stick.x) < 0.02f) stick.x = 0;
     if (std::abs(stick.y) < 0.02f) stick.y = 0;
     out.rightStickX = stick.x;
     out.rightStickY = stick.y;
     // The wheel: a press of Y per notch, ~50 ms down and ~30 ms up so the
-    // game sees each one (a pass is ~8 ms).
-    constexpr int kDown = 6, kCycle = 10;
+    // game sees each one, whatever the pass length.
+    constexpr uint64_t kDownMs = 48, kCycleMs = 80;
     stick.wheelPresses = std::min(stick.wheelPresses + std::abs(in.wheel), 4);
     if (stick.wheelPresses > 0) {
-        if (stick.wheelPhase < kDown) out.btnY = true;
-        if (++stick.wheelPhase >= kCycle) {
-            stick.wheelPhase = 0;
-            --stick.wheelPresses;
+        if (!stick.wheelPressing) {
+            stick.wheelPressing = true;
+            stick.wheelSinceMs = nowMs;
         }
+        uint64_t t = nowMs - stick.wheelSinceMs;
+        if (t >= kCycleMs) {  // this press is over: the next one, if any, starts now
+            --stick.wheelPresses;
+            stick.wheelPressing = stick.wheelPresses > 0;
+            stick.wheelSinceMs = nowMs;
+            t = 0;
+        }
+        if (stick.wheelPressing && t < kDownMs) out.btnY = true;
     }
 }
 
