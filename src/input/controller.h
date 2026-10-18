@@ -82,6 +82,8 @@ std::string padDeviceName(int index);
 void setRumble(uint8_t large, uint8_t small, uint32_t durationMs, int pad = 0);
 // Sub-bass audio-to-haptics pulse (when no active game rumble is running)
 void setAudioHaptics(uint8_t kick, uint32_t durationMs = 60, int pad = 0);
+void setAudioHapticsEnabled(bool on);
+bool audioHapticsEnabled();
 // Vibration in the triggers (Xbox impulse triggers), 0..255 each; the
 // DualSense's adaptive triggers vibrate along their whole travel.
 void setTriggerRumble(uint8_t left, uint8_t right, uint32_t durationMs, int pad = 0);

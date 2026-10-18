@@ -48,15 +48,29 @@ constexpr const char* kDataDir = "/data/psbox";
 constexpr const char* kLegacyDir = "/data/homebrew/PPSA99810";
 std::string g_dataDir = kDataDir;
 std::string g_dataNote;
+bool g_dataDirWritable = false;
+int g_dataDirErrno = 0;
 std::atomic<int> g_netPool{-1};
 }
 
 // True when files can be made in `dir` (made first if missing).
-bool writable(const std::string& dir) {
+bool writable(const std::string& dir, int& errOut) {
+    errOut = 0;
     struct stat st{};
-    if (::stat(dir.c_str(), &st) != 0 && ::mkdir(dir.c_str(), 0777) != 0) return false;
+    if (::stat(dir.c_str(), &st) != 0) {
+        if (::mkdir(dir.c_str(), 0777) != 0) {
+            errOut = errno;
+            return false;
+        }
+    } else {
+        // Folder exists: ensure permissions allow writing by uid 1
+        ::chmod(dir.c_str(), 0777);
+    }
     std::string probe = dir + "/.write-test";
-    if (!writeFileAtomic(probe, "ok")) return false;
+    if (!writeFileAtomic(probe, "ok")) {
+        errOut = errno;
+        return false;
+    }
     ::unlink(probe.c_str());
     return true;
 }
@@ -81,14 +95,37 @@ void migrateLegacy() {
 }
 
 bool init() {
-    if (writable(kDataDir)) {
+    int errPsbox = 0;
+    int errLegacy = 0;
+    if (writable(kDataDir, errPsbox)) {
+        g_dataDirWritable = true;
         migrateLegacy();
-    } else if (writable(kLegacyDir)) {  // as before 0.9.7
-        int err = errno;
+    } else if (writable(kLegacyDir, errLegacy)) {  // as before 0.9.7
+        g_dataDirWritable = true;
         g_dataDir = kLegacyDir;
-        g_dataNote = std::string(kDataDir) + " not writable (errno " + std::to_string(err) + "); using " + kLegacyDir;
+        g_dataNote = std::string(kDataDir) + " not writable (errno " + std::to_string(errPsbox) + "); using " + kLegacyDir;
     } else {
-        g_dataNote = std::string("neither ") + kDataDir + " nor " + kLegacyDir + " is writable: nothing will be kept";
+        // Try fallback directories on PS5 sandbox
+        bool found = false;
+        for (const char* fb : {"/download0/psbox", "/user/home/psbox", "/temp0/psbox"}) {
+            int errFb = 0;
+            if (writable(fb, errFb)) {
+                g_dataDir = fb;
+                g_dataDirWritable = true;
+                g_dataNote = std::string("neither ") + kDataDir + " (errno " + std::to_string(errPsbox) +
+                             ") nor " + kLegacyDir + " (errno " + std::to_string(errLegacy) +
+                             ") writable; fallback to " + fb;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            g_dataDirErrno = errPsbox ? errPsbox : errLegacy;
+            g_dataDirWritable = false;
+            g_dataNote = std::string("neither ") + kDataDir + " (errno " + std::to_string(errPsbox) +
+                         ") nor " + kLegacyDir + " (errno " + std::to_string(errLegacy) +
+                         ") is writable: nothing will be kept";
+        }
     }
     // libSceNet's resolver: 32 KiB pool.
     int rc = sceNetInit();
@@ -106,6 +143,8 @@ std::string dataDir() {
 }
 
 std::string dataDirNote() { return g_dataNote; }
+bool dataDirWritable() { return g_dataDirWritable; }
+int dataDirErrno() { return g_dataDirErrno; }
 
 std::string appDir() {
     // /app0 is the app's own folder; its real path where it has been

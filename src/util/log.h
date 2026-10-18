@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdarg>
+#include <string>
 
 namespace xc::log {
 
@@ -10,7 +11,11 @@ enum class Level { Debug, Info, Warn, Error };
 
 void setLevel(Level level);
 // Also appends every line to this file (created if missing). nullptr disables.
-void setFile(const char* path);
+// Returns true on success (or if path is nullptr), false if fopen failed.
+bool setFile(const char* path);
+
+// Returns recent log lines kept in memory (up to 64 KiB).
+std::string recentLogs();
 
 void write(Level level, const char* fmt, ...) __attribute__((format(printf, 2, 3)));
 

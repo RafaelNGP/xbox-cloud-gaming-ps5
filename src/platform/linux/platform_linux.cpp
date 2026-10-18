@@ -91,6 +91,8 @@ void shutdown() {}
 
 std::string dataDir() { return g_dataDir; }
 std::string dataDirNote() { return g_dataDirNote; }
+bool dataDirWritable() { return true; }
+int dataDirErrno() { return 0; }
 // Where the executable is (an update would go there): never the data folder.
 std::string appDir() { return exeDir().empty() ? std::string(".") : exeDir(); }
 

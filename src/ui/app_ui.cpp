@@ -8,6 +8,7 @@
 #include "xcloud/catalog.h"
 #include "ui/accent_color.h"
 
+#include "platform/platform.h"
 #include "platform/toasts.h"
 #include "ui/brand.h"
 #include "ui/strings.h"
@@ -2948,6 +2949,14 @@ void AppUi::drawSignIn(Canvas& c, uint64_t nowMs) {
     }
     drawSpinner(c, left + 18, 830, 14, nowMs);
     fonts_.regular.draw(c, tr(Str::SignInWaiting), left + 48, 815, 26, kDim);
+
+    if (!platform::dataDirWritable()) {
+        std::string pathAndErr = platform::dataDir() + " (errno " + std::to_string(platform::dataDirErrno()) + ")";
+        std::string warn1 = trf(Str::StorageNotWritable, pathAndErr);
+        std::string warn2 = trf(Str::StorageFixHint, platform::dataDir());
+        fonts_.semibold.draw(c, warn1, left, 875, 22, rgba(255, 160, 40));
+        fonts_.regular.draw(c, warn2, left, 905, 20, kGray);
+    }
 
     // QR code for the sign-in page. Not "?otc=<code>": that prefilled link
     // goes through a consent flow that rejects this client id ("first party

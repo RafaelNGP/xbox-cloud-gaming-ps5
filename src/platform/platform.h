@@ -24,6 +24,10 @@ std::string dataDir();
 // What start-up did about the data folder (moved from the app's folder,
 // fell back...), for the log once it is open; empty when nothing.
 std::string dataDirNote();
+// Whether the data folder is writable (false when permission or filesystem error occurred).
+bool dataDirWritable();
+// If dataDirWritable() is false, the errno from the write probe.
+int dataDirErrno();
 // The folder the app runs from (updates are installed there).
 std::string appDir();
 // Read-only directory with the bundled assets (fonts, certificates).

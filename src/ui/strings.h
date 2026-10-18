@@ -298,6 +298,8 @@ enum class Str {
     TriggerProfileStd,  // Standard
     TriggerProfileShooter, // Shooter (Hair Trigger)
     TriggerProfileRacing,  // Racing (ABS)
+    StorageNotWritable, // sign-in / notification: storage not writable (%s: path, %d: errno)
+    StorageFixHint,     // sign-in: hint to fix folder permissions (%s: path)
     Count
 };
 

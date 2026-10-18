@@ -321,6 +321,8 @@ constexpr Column kEnglish = {
     "Standard", // TriggerProfileStd
     "Shooter (Hair Trigger)", // TriggerProfileShooter
     "Racing (ABS)", // TriggerProfileRacing
+    "Storage %s is not writable: sign-in and settings will not be saved", // StorageNotWritable
+    "FTP: run 'chmod 777 %s' or delete the folder and relaunch", // StorageFixHint
 };
 
 constexpr Column kPortugueseBR = {
@@ -612,6 +614,8 @@ constexpr Column kPortugueseBR = {
     "Padrão", // TriggerProfileStd
     "Tiroteio (Hair Trigger)", // TriggerProfileShooter
     "Corrida (ABS)", // TriggerProfileRacing
+    "Armazenamento %s não permite gravação: login e ajustes não serão salvos", // StorageNotWritable
+    "FTP: use 'chmod 777 %s' ou exclua a pasta e reabra o app", // StorageFixHint
 };
 
 constexpr Column kSpanish = {
@@ -903,6 +907,8 @@ constexpr Column kSpanish = {
     "Estándar", // TriggerProfileStd
     "Disparos (Hair Trigger)", // TriggerProfileShooter
     "Carreras (ABS)", // TriggerProfileRacing
+    "El almacenamiento %s no permite escritura: la sesión y ajustes no se guardarán", // StorageNotWritable
+    "FTP: usa 'chmod 777 %s' o borra la carpeta y reinicia la app", // StorageFixHint
 };
 
 constexpr Column kFrench = {
@@ -1194,6 +1200,8 @@ constexpr Column kFrench = {
     "Standard", // TriggerProfileStd
     "Tir (Hair Trigger)", // TriggerProfileShooter
     "Course (ABS)", // TriggerProfileRacing
+    "Le stockage %s n'est pas accessible en écriture : connexion et réglages non enregistrés", // StorageNotWritable
+    "FTP : faites 'chmod 777 %s' ou supprimez le dossier et relancez", // StorageFixHint
 };
 
 constexpr Column kGerman = {
@@ -1485,6 +1493,8 @@ constexpr Column kGerman = {
     "Standard", // TriggerProfileStd
     "Shooter (Hair Trigger)", // TriggerProfileShooter
     "Rennen (ABS)", // TriggerProfileRacing
+    "Speicher %s ist schreibgeschützt: Anmeldung und Einstellungen werden nicht gespeichert", // StorageNotWritable
+    "FTP: 'chmod 777 %s' ausführen oder Ordner löschen und neu starten", // StorageFixHint
 };
 
 constexpr Column kItalian = {
@@ -1776,6 +1786,8 @@ constexpr Column kItalian = {
     "Standard", // TriggerProfileStd
     "Sparatutto (Hair Trigger)", // TriggerProfileShooter
     "Corsa (ABS)", // TriggerProfileRacing
+    "La memoria %s non è scrivibile: accesso e impostazioni non verranno salvati", // StorageNotWritable
+    "FTP: esegui 'chmod 777 %s' o elimina la cartella e riavvia", // StorageFixHint
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

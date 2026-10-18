@@ -57,11 +57,20 @@ std::string crashMarkerPath() { return platform::dataDir() + "/crash.marker"; }
 void openReport(const std::string& what, bool previousSession, const std::string& heading, const std::string& crash = {}) {
     std::string logText;
     platform::readFile(platform::dataDir() + "/xcloud.log", logText);
+    if (logText.empty()) {
+        logText = log::recentLogs();
+    }
     std::vector<std::string> privateWords = {g_ui->gamertag()};
     for (int i = 0; i < input::kMaxPads; ++i) privateWords.push_back(input::padUserName(i));
     for (auto& name : g_ui->consoleNames()) privateWords.push_back(std::move(name));
     report::Info info;
-    info.what = report::sanitize(what.empty() ? "Reported from Settings" : what, privateWords);
+    std::string whatText = what.empty() ? "Reported from Settings" : what;
+    if (!platform::dataDirWritable() || !platform::dataDirNote().empty()) {
+        whatText += " [storage=" + platform::dataDir() + " writable=" + (platform::dataDirWritable() ? "yes" : "no");
+        if (!platform::dataDirNote().empty()) whatText += " note=" + platform::dataDirNote();
+        whatText += "]";
+    }
+    info.what = report::sanitize(whatText, privateWords);
     info.title = what.empty() ? "Problem report" : report::shorten(info.what, 70);
     info.release = XC_APP_VERSION;
     info.firmware = platform::firmwareVersion();
@@ -239,9 +248,11 @@ ui::UiCaps uiCaps() {
 bool coreStartup() {
     platform::init();
     platform::setThreadAffinity(platform::ThreadRole::Main, "xcloud_main");
-    log::setFile((platform::dataDir() + "/xcloud.log").c_str());
+    bool logOk = log::setFile((platform::dataDir() + "/xcloud.log").c_str());
     if (!platform::dataDirNote().empty())
         XC_LOGI("data folder %s: %s", platform::dataDir().c_str(), platform::dataDirNote().c_str());
+    if (!logOk)
+        XC_LOGW("could not open xcloud.log in %s: log kept in memory", platform::dataDir().c_str());
     XC_LOGI("=== PSBox Cloud Gaming starting ===");
     XC_LOGI("firmware %s, PSBox %s", platform::firmwareVersion().c_str(), XC_APP_VERSION);
     // Did the last session go down? (A crash leaves a marker; being closed

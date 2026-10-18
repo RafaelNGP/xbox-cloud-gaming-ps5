@@ -194,7 +194,13 @@ void setRumble(uint8_t large, uint8_t small, uint32_t durationMs, int pad) {
     if (pad >= 0 && pad < kMaxPads) g_pads[pad].motors.set(large, small, durationMs);
 }
 
+std::atomic<bool> g_audioHapticsEnabled{false};
+
+void setAudioHapticsEnabled(bool on) { g_audioHapticsEnabled.store(on, std::memory_order_relaxed); }
+bool audioHapticsEnabled() { return g_audioHapticsEnabled.load(std::memory_order_relaxed); }
+
 void setAudioHaptics(uint8_t kick, uint32_t durationMs, int pad) {
+    if (!g_audioHapticsEnabled.load(std::memory_order_relaxed)) return;
     if (pad >= 0 && pad < kMaxPads && kick > 0) {
         Pad& p = g_pads[pad];
         if (p.motors.current() == 0) {

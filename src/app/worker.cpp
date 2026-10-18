@@ -583,6 +583,11 @@ std::string g_subscription;
 }  // namespace
 
 void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
+    if (!platform::dataDirWritable()) {
+        std::string pathAndErr = platform::dataDir() + " (errno " + std::to_string(platform::dataDirErrno()) + ")";
+        platform::notify(ui::trf(ui::Str::StorageNotWritable, pathAndErr),
+                         "storage not writable (notification)");
+    }
     g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
     std::string err;
     auto onCode = [](const auth::DeviceCode& dc) { g_ui->showSignIn(dc.userCode, dc.verificationUri); };
