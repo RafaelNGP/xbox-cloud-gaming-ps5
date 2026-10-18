@@ -317,6 +317,10 @@ constexpr Column kEnglish = {
     "Playtime remaining", // PlaytimeRemaining
     "%s h remaining", // HoursRemaining
     "Less than 2 h remaining", // PlaytimeWarning
+    "Trigger profile", // TriggerProfile
+    "Standard", // TriggerProfileStd
+    "Shooter (Hair Trigger)", // TriggerProfileShooter
+    "Racing (ABS)", // TriggerProfileRacing
 };
 
 constexpr Column kPortugueseBR = {
@@ -604,6 +608,10 @@ constexpr Column kPortugueseBR = {
     "Tempo de jogo restante", // PlaytimeRemaining
     "%s h restantes", // HoursRemaining
     "Menos de 2 h restantes", // PlaytimeWarning
+    "Perfil de gatilho", // TriggerProfile
+    "Padrão", // TriggerProfileStd
+    "Tiroteio (Hair Trigger)", // TriggerProfileShooter
+    "Corrida (ABS)", // TriggerProfileRacing
 };
 
 constexpr Column kSpanish = {
@@ -891,6 +899,10 @@ constexpr Column kSpanish = {
     "Tiempo de juego restante", // PlaytimeRemaining
     "%s h restantes", // HoursRemaining
     "Menos de 2 h restantes", // PlaytimeWarning
+    "Perfil de gatillos", // TriggerProfile
+    "Estándar", // TriggerProfileStd
+    "Disparos (Hair Trigger)", // TriggerProfileShooter
+    "Carreras (ABS)", // TriggerProfileRacing
 };
 
 constexpr Column kFrench = {
@@ -1178,6 +1190,10 @@ constexpr Column kFrench = {
     "Temps de jeu restant", // PlaytimeRemaining
     "%s h restantes", // HoursRemaining
     "Moins de 2 h restantes", // PlaytimeWarning
+    "Profil de gâchettes", // TriggerProfile
+    "Standard", // TriggerProfileStd
+    "Tir (Hair Trigger)", // TriggerProfileShooter
+    "Course (ABS)", // TriggerProfileRacing
 };
 
 constexpr Column kGerman = {
@@ -1465,6 +1481,10 @@ constexpr Column kGerman = {
     "Verbleibende Spielzeit", // PlaytimeRemaining
     "%s Std. verbleibend", // HoursRemaining
     "Weniger als 2 Std. verbleibend", // PlaytimeWarning
+    "Trigger-Profil", // TriggerProfile
+    "Standard", // TriggerProfileStd
+    "Shooter (Hair Trigger)", // TriggerProfileShooter
+    "Rennen (ABS)", // TriggerProfileRacing
 };
 
 constexpr Column kItalian = {
@@ -1752,6 +1772,10 @@ constexpr Column kItalian = {
     "Tempo di gioco rimanente", // PlaytimeRemaining
     "%s ore rimanenti", // HoursRemaining
     "Meno di 2 ore rimanenti", // PlaytimeWarning
+    "Profilo grilletti", // TriggerProfile
+    "Standard", // TriggerProfileStd
+    "Sparatutto (Hair Trigger)", // TriggerProfileShooter
+    "Corsa (ABS)", // TriggerProfileRacing
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

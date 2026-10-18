@@ -25,6 +25,7 @@ struct GameProfile {
     int triggerHz = 1;           // 0..2
     int triggerResistance = 0;   // 0 off .. 3 strong
     bool triggerPulses = false;
+    int triggerProfile = 0;      // 0 Standard, 1 Shooter, 2 Racing
     bool circleConfirms = false;
     // Display
     bool highRefresh = false;    // 120 Hz output (VRR) while streaming
@@ -78,6 +79,7 @@ struct Settings {
     int triggerHz = 1;
     int triggerResistance = 0;   // 0 off .. 3 strong (the triggers' weight)
     bool triggerPulses = false;  // pulses of the resistance instead of the motor vibrating
+    int triggerProfile = 0;      // 0 Standard, 1 Shooter, 2 Racing
     bool circleConfirms = false;
     // The DualSense light bar: 0 the colour of the game in focus, 1
     // lightBarColour, 2 off.

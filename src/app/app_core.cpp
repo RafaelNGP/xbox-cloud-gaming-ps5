@@ -238,6 +238,7 @@ ui::UiCaps uiCaps() {
 
 bool coreStartup() {
     platform::init();
+    platform::setThreadAffinity(platform::ThreadRole::Main, "xcloud_main");
     log::setFile((platform::dataDir() + "/xcloud.log").c_str());
     if (!platform::dataDirNote().empty())
         XC_LOGI("data folder %s: %s", platform::dataDir().c_str(), platform::dataDirNote().c_str());
@@ -625,12 +626,12 @@ bool Core::frame() {
     streamScreen->idle();
 
     ui::UiEvent ev = g_ui->handle(nav);
-    int strength, hz, resistance;
+    int strength, hz, resistance, profile = 0;
     bool pulses;
-    if (g_ui->settingsTriggerFeel(strength, hz, resistance, pulses)) {
+    if (g_ui->settingsTriggerFeel(strength, hz, resistance, pulses, profile)) {
         // Settings: the triggers' feel as chosen there, at once; their
         // tester makes them vibrate as far as they are pressed.
-        input::setTriggerFeel(strength, hz, resistance, pulses);
+        input::setTriggerFeel(strength, hz, resistance, pulses, profile);
         float l2, r2;
         static bool testing = false;
         input::setTriggerLogging(g_ui->triggerTest(l2, r2));

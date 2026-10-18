@@ -294,6 +294,10 @@ enum class Str {
     PlaytimeRemaining,  // telemetry / top bar: playtime remaining
     HoursRemaining,     // "%s h remaining" / "%s h restantes"
     PlaytimeWarning,    // warning when < 2 hours remaining
+    TriggerProfile,     // trigger profile row
+    TriggerProfileStd,  // Standard
+    TriggerProfileShooter, // Shooter (Hair Trigger)
+    TriggerProfileRacing,  // Racing (ABS)
     Count
 };
 

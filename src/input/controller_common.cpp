@@ -82,6 +82,7 @@ std::atomic<float> g_deadzone[2] = {0.15f, 0.15f};
 std::atomic<bool> g_circleConfirms{false};
 std::atomic<int> g_triggerStrength{kTriggerMedium}, g_triggerHz{1}, g_triggerResistance{0};
 std::atomic<bool> g_triggerPulses{false}, g_triggerLogging{false}, g_resistanceActive{false};
+std::atomic<int> g_triggerProfile{kTriggerProfileStandard};
 std::atomic<int> g_gyroMode{kGyroOff}, g_gyroLevel{5};
 std::atomic<bool> g_gyroActive{false};
 int g_gyroLogged = 0, g_gyroLoggedX = 0;  // the first turns up / down and sideways, to check the axes
@@ -142,9 +143,10 @@ void applyRumble(int index, Pad& pad) {
     const uint8_t level[2] = {static_cast<uint8_t>(v >> 8), static_cast<uint8_t>(v)};
     int strength = g_triggerStrength, hz = g_triggerHz, resistance = g_resistanceActive ? g_triggerResistance.load() : 0;
     bool pulses = g_triggerPulses;
+    int profile = g_resistanceActive ? g_triggerProfile.load() : kTriggerProfileStandard;
     uint64_t now = platform::nowMs();
     TriggerCommand want[2];
-    for (int t = 0; t < 2; ++t) want[t] = triggerCommand(level[t], strength, hz, resistance, pulses, now);
+    for (int t = 0; t < 2; ++t) want[t] = triggerCommand(t, level[t], strength, hz, resistance, pulses, profile, now);
     if (pad.triggerFresh && want[0] == pad.triggerSent[0] && want[1] == pad.triggerSent[1]) return;
     int rc = backend::setTriggerEffects(index, want);
     static int failures = 0;  // a refused effect is sent again each poll: logged a few times
@@ -192,6 +194,15 @@ void setRumble(uint8_t large, uint8_t small, uint32_t durationMs, int pad) {
     if (pad >= 0 && pad < kMaxPads) g_pads[pad].motors.set(large, small, durationMs);
 }
 
+void setAudioHaptics(uint8_t kick, uint32_t durationMs, int pad) {
+    if (pad >= 0 && pad < kMaxPads && kick > 0) {
+        Pad& p = g_pads[pad];
+        if (p.motors.current() == 0) {
+            p.motors.set(kick, 0, durationMs);
+        }
+    }
+}
+
 void setTriggerRumble(uint8_t left, uint8_t right, uint32_t durationMs, int pad) {
     if (g_triggerStrength <= 0) left = right = 0;
     if (pad >= 0 && pad < kMaxPads) g_pads[pad].triggers.set(left, right, durationMs);
@@ -210,14 +221,23 @@ void resetLightBar(int pad) {
 
 bool padConnected(int index) { return index >= 0 && index < kMaxPads && g_pads[index].connected; }
 
-void setTriggerFeel(int strength, int hzIndex, int resistance, bool pulses) {
+void setTriggerFeel(int strength, int hzIndex, int resistance, bool pulses, int profile) {
     g_triggerStrength = std::clamp(strength, 0, kTriggerStrengths - 1);
     g_triggerHz = std::clamp(hzIndex, 0, 2);
     g_triggerResistance = std::clamp(resistance, 0, kTriggerResistances - 1);
     g_triggerPulses = pulses;
+    g_triggerProfile = std::clamp(profile, 0, kTriggerProfiles - 1);
     if (!g_triggerStrength)
         for (Pad& p : g_pads) p.triggers.set(0, 0, 0);
     // The next poll works the triggers out in the new feel.
+}
+
+void setTriggerProfile(int profile) {
+    g_triggerProfile = std::clamp(profile, 0, kTriggerProfiles - 1);
+}
+
+int triggerProfile() {
+    return g_triggerProfile.load();
 }
 
 void setTriggerLogging(bool on) { g_triggerLogging = on; }

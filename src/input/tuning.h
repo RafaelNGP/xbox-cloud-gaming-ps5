@@ -77,13 +77,80 @@ struct TriggerCommand {
 // second, so the push / release can't go faster than this.
 constexpr int kTriggerPulseHz[] = {10, 20, 30};
 
+// Trigger feel profiles:
+// 0: Standard (user vibration, frequency, resistance, and pulses)
+// 1: Shooter (L2 Hair Trigger instant aim snap, R2 Weapon Trigger Break wall)
+// 2: Racing (L2 Hydraulic ABS brake lockup pulses, R2 Progressive Throttle)
+constexpr int kTriggerProfileStandard = 0;
+constexpr int kTriggerProfileShooter = 1;
+constexpr int kTriggerProfileRacing = 2;
+constexpr int kTriggerProfiles = 3;
+
 // One trigger at a moment: `level` the game's request (0..255), and the
 // user's strength, frequency choice (index), resistance, and style: the
 // motor vibrating (resistance gone while it does), or pulses of the
 // resistance itself (pushing harder and letting go at kTriggerPulseHz),
 // which keep the weight.
-inline TriggerCommand triggerCommand(uint8_t level, int strength, int hzIndex, int resistance, bool pulses, uint64_t nowMs) {
-    // Resistance: where it starts (0..9) and how hard (0..8).
+inline TriggerCommand triggerCommand(int triggerIndex, uint8_t level, int strength, int hzIndex, int resistance, bool pulses, int profile, uint64_t nowMs) {
+    if (profile == kTriggerProfileShooter) {
+        TriggerCommand c;
+        uint8_t amplitude = triggerAmplitude(level, strength);
+        if (triggerIndex == 0) {
+            // L2 (Aim Down Sight): Hair Trigger snap with instant light resistance at position 1
+            if (amplitude) {
+                c.mode = 3;
+                c.data[1] = amplitude;
+                c.data[2] = static_cast<uint8_t>(kTriggerHz[hzIndex]);
+            } else {
+                c.mode = 1;
+                c.data[0] = 1;  // start position 1
+                c.data[1] = 2;  // force 2 (light aim wall)
+            }
+        } else {
+            // R2 (Weapon Trigger): Mechanical Trigger Break wall at position 2
+            if (amplitude) {
+                c.mode = 3;
+                c.data[1] = std::max<uint8_t>(amplitude, 6);
+                c.data[2] = 60;  // 60 Hz weapon recoil
+            } else {
+                c.mode = 1;
+                c.data[0] = 2;  // start position 2
+                c.data[1] = 5;  // force 5 (firm trigger wall)
+            }
+        }
+        return c;
+    }
+    if (profile == kTriggerProfileRacing) {
+        TriggerCommand c;
+        uint8_t amplitude = triggerAmplitude(level, strength);
+        if (triggerIndex == 0) {
+            // L2 (Brake Pedal): ABS Hydraulic Pulsing when braking hard (level > 0)
+            if (amplitude || level > 30) {
+                bool push = (nowMs * 25 * 2 / 1000) % 2 == 0;
+                c.mode = 1;
+                c.data[0] = 1;
+                c.data[1] = push ? 7 : 2;  // ABS rapid kickback
+            } else {
+                c.mode = 1;
+                c.data[0] = 2;
+                c.data[1] = 3;  // moderate brake resistance
+            }
+        } else {
+            // R2 (Gas / Throttle): Smooth progressive throttle resistance
+            if (amplitude) {
+                c.mode = 3;
+                c.data[1] = amplitude;
+                c.data[2] = 60;  // traction loss vibration
+            } else {
+                c.mode = 1;
+                c.data[0] = 1;
+                c.data[1] = 3;  // throttle resistance
+            }
+        }
+        return c;
+    }
+
+    // Standard profile
     static constexpr uint8_t kFeedback[kTriggerResistances][2] = {{0, 0}, {4, 2}, {3, 4}, {2, 6}};
     static constexpr uint8_t kBase[kTriggerResistances] = {0, 2, 3, 4};
     resistance = std::clamp(resistance, 0, kTriggerResistances - 1);
@@ -103,6 +170,10 @@ inline TriggerCommand triggerCommand(uint8_t level, int strength, int hzIndex, i
         c.data[0] = kFeedback[resistance][0], c.data[1] = kFeedback[resistance][1];
     }
     return c;
+}
+
+inline TriggerCommand triggerCommand(uint8_t level, int strength, int hzIndex, int resistance, bool pulses, uint64_t nowMs) {
+    return triggerCommand(0, level, strength, hzIndex, resistance, pulses, kTriggerProfileStandard, nowMs);
 }
 
 }  // namespace xc::input
