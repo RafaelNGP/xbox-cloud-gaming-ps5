@@ -93,6 +93,7 @@ public:
 
     Canvas renderMenu(const StreamInfo& info) const;
     Canvas renderStats(const StreamInfo& info) const;
+    void recordFrametime(float ms) const;
     // "Unstable connection", on its own (when the statistics line is off).
     Canvas renderWarning() const;
 
@@ -133,6 +134,7 @@ private:
     bool micMuted_ = false;
     float micLevel_ = 0.0f;
     PadSlots pads_{};
+    mutable std::vector<float> frametimes_;
 };
 
 }  // namespace xc::ui

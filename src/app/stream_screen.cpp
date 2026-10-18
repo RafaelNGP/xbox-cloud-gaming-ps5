@@ -137,6 +137,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
 
         // Apply controller profile settings
         triggerStrength_ = prof.triggerStrength;
+        triggerProfile_ = prof.triggerProfile;
         deadzone_ = prof.deadzoneLeft;
         circleConfirms_ = prof.circleConfirms;
         keyMap_ = prof.keyMap;
@@ -145,7 +146,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         gyroLevel_ = prof.gyroLevel;
         input::setGyro(gyroMode_, gyroLevel_);
         input::setDeadzone(prof.deadzoneLeft / 100.0f, prof.deadzoneRight / 100.0f);
-        input::setTriggerFeel(prof.triggerStrength, prof.triggerHz, prof.triggerResistance, prof.triggerPulses);
+        input::setTriggerFeel(prof.triggerStrength, prof.triggerHz, prof.triggerResistance, prof.triggerPulses, triggerProfile_);
         input::setCircleConfirms(prof.circleConfirms);
         if (g_ui) g_ui->setCircleConfirms(prof.circleConfirms);
         // 120 Hz (VRR) for this game's stream: active when enabled in profile,
@@ -162,6 +163,21 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
     }
     if (g_player) {
         updateTextInput(g_player);
+        // L3 + R3 simultaneous press toggles HUD statistics overlay
+        bool l3r3 = pad.btnL3 && pad.btnR3;
+        if (l3r3 && !prevL3R3_ && !menu_.isOpen()) {
+            showStats_ = !showStats_;
+            {
+                std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                g_settings.streamStats = showStats_;
+                g_settings.save(settingsPath());
+            }
+            overlaySeq_ = 0;
+            platform::notify(showStats_ ? "Telemetria ativada" : "Telemetria desativada",
+                             showStats_ ? "stats on" : "stats off");
+        }
+        prevL3R3_ = l3r3;
+
         // OPTIONS + TOUCHPAD opens the menu (and closes it again).
         bool wasOpen = menu_.isOpen();
         if (!wasOpen && (menuCombo || swipeMenu_) && g_keyboardFor.empty()) {
@@ -225,6 +241,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     p.triggerHz = g_settings.triggerHz;
                     p.triggerResistance = g_settings.triggerResistance;
                     p.triggerPulses = g_settings.triggerPulses;
+                    p.triggerProfile = triggerProfile_;
                     p.circleConfirms = circleConfirms_;
                     auto had = g_settings.perGame.find(gameKey_);  // not set from this menu: kept
                     p.highRefresh = had != g_settings.perGame.end() ? had->second.highRefresh : g_settings.highRefresh;
@@ -242,6 +259,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     streamResolution_ = def.resolution;
                     deadzone_ = def.deadzoneLeft;
                     triggerStrength_ = def.triggerStrength;
+                    triggerProfile_ = def.triggerProfile;
                     keyMap_ = def.keyMap;
                     padMap_ = def.padMap;
                     circleConfirms_ = def.circleConfirms;
@@ -253,7 +271,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     applyDeband_();
                     applyUpscaler(upscaler_);
                     input::setDeadzone(deadzone_ / 100.0f, deadzone_ / 100.0f);
-                    input::setTriggerFeel(triggerStrength_, g_settings.triggerHz, g_settings.triggerResistance, g_settings.triggerPulses);
+                    input::setTriggerFeel(triggerStrength_, g_settings.triggerHz, g_settings.triggerResistance, g_settings.triggerPulses, triggerProfile_);
                     input::setCircleConfirms(circleConfirms_);
                     menu_.setProfileValues(streamResolution_, sharpness_, deband_, upscaler_,
                                            triggerStrength_, deadzone_, circleConfirms_, false);
@@ -531,6 +549,8 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             ui::Canvas c = ui::renderToastPanel(fonts_, shown);
             display::setOverlay(c.data(), (static_cast<int>(display::kWidth) - c.width()) / 2, 28, c.width(), c.height(), 235);
         } else if (showStats_ && seq) {
+            if (info.onScreenMs > 0) menu_.recordFrametime(static_cast<float>(info.onScreenMs));
+            else if (info.fps > 0) menu_.recordFrametime(static_cast<float>(1000.0 / info.fps));
             ui::Canvas c = menu_.renderStats(info);
             display::setOverlay(c.data(), ui::StreamMenu::kStatsX, ui::StreamMenu::kStatsY, c.width(), c.height(), 200);
         } else if (info.degraded) {
@@ -573,7 +593,7 @@ void StreamScreen::idle() {
         overlayPlayer_ = nullptr;
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         input::setDeadzone(g_settings.deadzoneLeft / 100.0f, g_settings.deadzoneRight / 100.0f);
-        input::setTriggerFeel(g_settings.triggerStrength, g_settings.triggerHz, g_settings.triggerResistance, g_settings.triggerPulses);
+        input::setTriggerFeel(g_settings.triggerStrength, g_settings.triggerHz, g_settings.triggerResistance, g_settings.triggerPulses, g_settings.triggerProfile);
         input::setCircleConfirms(g_settings.circleConfirms);
         if (g_ui) g_ui->setCircleConfirms(g_settings.circleConfirms);
         if (highRefresh_) display::setHighRefresh(false);

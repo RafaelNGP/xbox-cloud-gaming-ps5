@@ -387,22 +387,59 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     return c;
 }
 
+void StreamMenu::recordFrametime(float ms) const {
+    if (ms <= 0.0f || ms > 250.0f) return;
+    frametimes_.push_back(ms);
+    if (frametimes_.size() > 60) frametimes_.erase(frametimes_.begin());
+}
+
 Canvas StreamMenu::renderStats(const StreamInfo& info) const {
     std::string text;
     if (info.height > 0) text += std::to_string(info.height) + "p  ";
     text += fmt("%.0f fps", info.fps) + "  " + fmt("%.1f Mbps", info.mbps);
     if (info.rttMs > 0) text += "  " + std::to_string(info.rttMs) + " ms";
     text += "  " + fmt("%.1f%%", info.lossPct);
-    if (info.qp >= 0) text += "  QP " + fmt("%.0f", info.qp);  // the encoder's quantiser: lower is finer
+    if (info.qp >= 0) text += "  QP " + fmt("%.0f", info.qp);  // encoder quantiser
+    if (info.onScreenMs > 0) text += "  Screen " + fmt("%.1f ms", info.onScreenMs);
+    if (info.decodeMs > 0) text += "  Dec " + fmt("%.1f ms", info.decodeMs);
     if (!micMuted_) text += "  MIC";
-    constexpr int kPx = 20, kH = 36;
+    constexpr int kPx = 18;
     std::string warn = info.degraded ? std::string("  ") + tr(Str::ConnectionUnstable) : std::string();
     int tw = fonts_.semibold.measure(text, kPx);
     int w = tw + fonts_.semibold.measure(warn, kPx) + 28;
+    w = std::max(w, 440);
+
+    constexpr int kH = 62;
     Canvas c(w, kH);
     c.clear(kPanel);
-    fonts_.semibold.draw(c, text, 14, fonts_.semibold.centeredY(0, kH, kPx), kPx, kWhite);
-    if (!warn.empty()) fonts_.semibold.draw(c, warn, 14 + tw, fonts_.semibold.centeredY(0, kH, kPx), kPx, kWarnColor);
+    fonts_.semibold.draw(c, text, 14, 8, kPx, kWhite);
+    if (!warn.empty()) fonts_.semibold.draw(c, warn, 14 + tw, 8, kPx, kWarnColor);
+
+    // Row 2: Frametime sparkline bars (last 60 frames)
+    int graphX = 14;
+    int graphY = 32;
+    int graphH = 22;
+    int graphW = w - 28;
+    // Draw subtle baseline
+    c.line(graphX, graphY + graphH, graphX + graphW, graphY + graphH, 1.0f, rgba(80, 80, 80, 160));
+    // Target 60fps line (16.7ms out of 40ms scale = ~9px above baseline)
+    float targetLineY = (graphY + graphH) - (16.7f / 40.0f) * graphH;
+    c.line(graphX, targetLineY, graphX + graphW, targetLineY, 1.0f, rgba(60, 160, 90, 120));
+
+    if (!frametimes_.empty()) {
+        size_t count = frametimes_.size();
+        float barW = std::max(2.0f, static_cast<float>(graphW) / 60.0f - 1.0f);
+        float step = barW + 1.0f;
+        for (size_t i = 0; i < count; ++i) {
+            float ms = frametimes_[i];
+            float norm = std::clamp(ms / 40.0f, 0.08f, 1.0f);
+            float bh = norm * graphH;
+            float bx = graphX + i * step;
+            if (bx + barW > graphX + graphW) break;
+            Color barColor = ms <= 17.5f ? rgba(40, 200, 60) : ms <= 33.3f ? rgba(255, 190, 40) : rgba(255, 60, 60);
+            c.fillRect({static_cast<int>(bx), static_cast<int>(graphY + graphH - bh), static_cast<int>(barW), static_cast<int>(bh)}, barColor);
+        }
+    }
     return c;
 }
 
