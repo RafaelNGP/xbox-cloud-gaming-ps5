@@ -302,7 +302,7 @@ void Library::sortOwned() {
     });
 }
 
-bool Library::loadCache() {
+bool Library::loadCache(bool withLayout) {
     std::string text;
     if (cachePath_.empty() || !platform::readFile(cachePath_, text)) return false;
     auto j = json::parse(text);
@@ -338,7 +338,13 @@ bool Library::loadCache() {
         purchasable_.emplace_back(o["p"].str(), o["t"].str());
         purchasableSet_.insert(o["p"].str());
     }
-    if (layout_.empty() && (*j)["layout"].size() > 0) {
+    // The home rows: only for the instant start. load() builds them fresh,
+    // and adding these too showed every row twice (and the cache grew with
+    // each start). A cache written that way shows each row once here, and
+    // the next save keeps only the fresh rows.
+    size_t layoutRows = 0;
+    if (withLayout && layout_.empty()) {
+        std::set<std::string> titles;
         for (const auto& rowObj : (*j)["layout"].items()) {
             RowIds r;
             r.title = rowObj["title"].str();
@@ -348,14 +354,15 @@ bool Library::loadCache() {
             for (const auto& it : rowObj["items"].items()) {
                 r.items.emplace_back(it["p"].str(), it["t"].str());
             }
-            if (!r.items.empty()) layout_.push_back(std::move(r));
+            if (!r.items.empty() && titles.insert(r.title).second) layout_.push_back(std::move(r));
         }
+        layoutRows = layout_.size();
     }
-    ownershipKnown_ = !ownedTitles_.empty() || !layout_.empty();
+    ownershipKnown_ = !ownedTitles_.empty();
     sortOwned();
-    XC_LOGI("library: cache: %zu of the account's games, %zu to buy, %zu layout rows, %zu consoles known",
-            owned_.size(), purchasable_.size(), layout_.size(), platform_.size());
-    return ownershipKnown_;
+    XC_LOGI("library: cache: %zu of the account's games, %zu to buy, %zu home rows, %zu consoles known",
+            owned_.size(), purchasable_.size(), layoutRows, platform_.size());
+    return true;
 }
 
 void Library::saveCache() const {
@@ -377,7 +384,9 @@ void Library::saveCache() const {
     root.set("gamePass", gamePass);  // the next start tells the games added since
     root.set("purchasable", itemsToJson(purchasable_));
     json::Value layoutArr = json::Value::array();
+    std::set<std::string> layoutTitles;
     for (const auto& r : layout_) {
+        if (!layoutTitles.insert(r.title).second) continue;  // each row once
         json::Value rowObj = json::Value::object();
         rowObj.set("title", r.title);
         rowObj.set("badges", r.badges);
@@ -448,8 +457,9 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
         XC_LOGW("%s", e.c_str());
         lastErr = e;
     }
-    // The account's games from the previous run, until loadOwned() refreshes them.
-    loadCache();
+    // The account's games from the previous run, until loadOwned() refreshes
+    // them. Not its home rows: those are built below.
+    loadCache(false);
 
     // "Jump back in": recently played games, Game Pass or the account's own
     // (rows() leaves out those it can't play; they also go first in "Your

@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RafaelNGP
 // Offline unit tests for the portable core (no network).
 #include "app/auto_deband.h"
+#include "app/library.h"
 #include "app/settings.h"
 #include "app/update_check.h"
 #include "app/updater.h"
@@ -871,6 +872,93 @@ static void testPrivacyAndRobustness() {
     // The same file twice in a package: refused.
     std::vector<app::ZipEntry> files;
     CHECK(!app::unzip(storedZip({{"PPSA99810/eboot.bin", "a"}, {"PPSA99810/eboot.bin", "b"}}), "PPSA99810/", files, err));
+}
+
+// The home rows come from the network on every load(): the cache's rows
+// (kept for the instant start) are never added to them, and a cache that
+// holds every row twice heals at the next save.
+static void testLibraryRowsOnce() {
+    std::string dir = "/tmp/xcloud-library-test";
+    std::system(("rm -rf " + dir + " && mkdir -p " + dir).c_str());
+    std::string cache = dir + "/library.json";
+    net::setTestTransport([](const net::Request& req) {
+        net::Response r;
+        r.status = 200;
+        if (req.url.find("/sigls/") != std::string::npos) {
+            std::string id = req.url.substr(req.url.find("id=") + 3);
+            id = id.substr(0, id.find('&'));
+            r.body = R"([{"siglId":")" + id + R"(","title":"List )" + id + R"("},{"id":"P1"},{"id":"P2"}])";
+        } else if (req.url.find("/v3/products") != std::string::npos) {
+            r.body = R"({"Products":{"P1":{"XCloudTitleId":"T1","ProductTitle":"Game One"},)"
+                     R"("P2":{"XCloudTitleId":"T2","ProductTitle":"Game Two"}}})";
+        } else {
+            r.status = 503;  // the account's titles: not needed here
+        }
+        return r;
+    });
+    auto titlesOf = [](const std::vector<ui::GameRow>& rows) {
+        std::vector<std::string> t;
+        for (const auto& r : rows) t.push_back(r.title);
+        return t;
+    };
+    auto unique = [](std::vector<std::string> t) {
+        std::sort(t.begin(), t.end());
+        return std::adjacent_find(t.begin(), t.end()) == t.end();
+    };
+    auto layoutSize = [&] {
+        std::string text;
+        if (!xc::platform::readFile(cache, text)) return size_t(0);
+        auto j = json::parse(text);
+        return j ? (*j)["layout"].size() : size_t(0);
+    };
+    xcloud::GssvClient gssv;
+    std::string err;
+    size_t fresh = 0;
+    {
+        app::Library lib;
+        lib.setCachePath(cache);
+        CHECK(lib.load(gssv, "en-US", [] {}, err));
+        fresh = lib.rows().size();
+        CHECK(fresh >= 4 && unique(titlesOf(lib.rows())));
+        lib.saveCache();
+        CHECK(layoutSize() == fresh);
+    }
+    {
+        // The next start: the cache has rows, load() still shows each once.
+        app::Library lib;
+        lib.setCachePath(cache);
+        CHECK(lib.load(gssv, "en-US", [] {}, err));
+        CHECK(lib.rows().size() == fresh && unique(titlesOf(lib.rows())));
+        lib.saveCache();
+        CHECK(layoutSize() == fresh);
+    }
+    {
+        // A cache written with every row twice (the old bug).
+        std::string text;
+        CHECK(xc::platform::readFile(cache, text));
+        auto j = json::parse(text);
+        CHECK(j.has_value());
+        if (j) {
+            json::Value doubled = json::Value::array();
+            for (int k = 0; k < 2; ++k)
+                for (const auto& row : (*j)["layout"].items()) doubled.push(row);
+            j->set("layout", doubled);
+            xc::platform::writeFileAtomic(cache, j->dump());
+        }
+        CHECK(layoutSize() == 2 * fresh);
+        app::Library instant;  // the instant start: each row once
+        instant.setCachePath(cache);
+        CHECK(instant.loadCache(true));
+        CHECK(instant.rows().size() == fresh && unique(titlesOf(instant.rows())));
+        app::Library lib;
+        lib.setCachePath(cache);
+        CHECK(lib.load(gssv, "en-US", [] {}, err));
+        CHECK(lib.rows().size() == fresh);
+        lib.saveCache();
+        CHECK(layoutSize() == fresh);  // healed
+    }
+    net::setTestTransport({});
+    std::system(("rm -rf " + dir).c_str());
 }
 
 static void testStoreLeftovers() {
@@ -1930,6 +2018,7 @@ int main() {
     testLoginCountry();
     testPrivacyAndRobustness();
     testStoreLeftovers();
+    testLibraryRowsOnce();
     testHostPacer();
     testSubscriptionPlan();
     testMicrosoftHost();

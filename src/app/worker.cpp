@@ -603,7 +603,7 @@ void tryInstantCachedBoot(auth::AuthManager& am) {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         library->setFavorites(g_settings.favorites);
     }
-    if (library->loadCache() && !library->rows().empty()) {
+    if (library->loadCache(true) && !library->rows().empty()) {
         {
             std::lock_guard<std::mutex> lock(s_libraryMutex);
             s_library = library;
