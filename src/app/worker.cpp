@@ -60,6 +60,9 @@ bool g_gameClosedOnServer = false;
 std::map<std::string, std::string> g_regionFallback;
 std::shared_ptr<app::Library> s_library;
 std::mutex s_libraryMutex;
+// Cloud playtime telemetry in seconds (-1 unknown/uncapped).
+// STRICTLY INFORMATIVE: The client never blocks gameplay, streams, or launches
+// based on playtime telemetry, as Microsoft does not enforce client-side blocking.
 int64_t s_playtimeRemainingSeconds = -1;
 
 }  // namespace

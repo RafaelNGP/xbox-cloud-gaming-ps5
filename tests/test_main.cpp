@@ -442,6 +442,32 @@ static void testPlaytimeLimit() {
     // 5. Empty and invalid inputs
     CHECK(!auth::parsePlaytimeLimit("", rem, max));
     CHECK(!auth::parsePlaytimeLimit("not a valid payload", rem, max));
+
+    // 6. Zero playtime remains purely informational
+    std::string zeroJson = R"({"remainingGameplayTimeInSeconds": 0, "maxGameplayTimeInSeconds": 18000})";
+    CHECK(auth::parsePlaytimeLimit(zeroJson, rem, max));
+    CHECK(rem == 0 && max == 18000);
+
+    // 7. Client-side launch is never blocked by zero or low remaining playtime
+    ui::Fonts fonts;
+    ui::ImageCache images([] {});
+    ui::AppUi app(fonts, images);
+    ui::GameTile tile;
+    tile.titleId = "TEST_TITLE_1";
+    tile.productId = "TEST_PROD_1";
+    tile.playable = true;
+    ui::GameRow row;
+    row.title = "Popular";
+    row.tiles = {tile};
+    app.setRows({row});
+    app.setPlaytime(0, 18000);  // 0 seconds remaining
+    app.showHome();
+    ui::NavInput in;
+    in.accept = true;
+    app.handle(in);                   // Home -> Details
+    ui::UiEvent ev = app.handle(in);  // Details -> Play
+    CHECK(ev.action == ui::Action::Play);
+    CHECK(ev.game.titleId == "TEST_TITLE_1");
 }
 
 static void testStreamMenu() {

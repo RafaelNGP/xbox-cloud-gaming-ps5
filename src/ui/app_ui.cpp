@@ -2725,6 +2725,18 @@ void AppUi::drawGamerscoreBadge(Canvas& c, float cx, float cy, float r) {
 void AppUi::drawTopBar(Canvas& c) {
     drawLogo(c, kMargin + 22, 72, 22);
     fonts_.semibold.draw(c, tr(Str::CloudGaming), kMargin + 64, 60, 22, kWhite);
+
+    // Cloud playtime remaining badge positioned under the "PSBox Cloud Gaming" brand mark.
+    // Purely informative; hidden from the active UI for now until Xbox Cloud Gaming enforces limits.
+    constexpr bool kShowPlaytimeBadge = false;
+    if (kShowPlaytimeBadge && playtimeRemaining_ >= 0) {
+        int hours = static_cast<int>((playtimeRemaining_ + 3599) / 3600);
+        std::string pt = trf(Str::HoursRemaining, std::to_string(hours));
+        bool warn = playtimeRemaining_ <= 7200;
+        Color col = warn ? rgba(255, 160, 40) : kGray;
+        fonts_.semibold.draw(c, pt, kMargin + 64, 86, 14, col);
+    }
+
     int x = kW - kMargin;
     constexpr int kAvatar = 52;
     x -= kAvatar;
@@ -2773,16 +2785,6 @@ void AppUi::drawTopBar(Canvas& c) {
             fonts_.semibold.draw(c, n, nx, fonts_.semibold.centeredY(kLineY, kLineH, kLinePx), kLinePx, kGray);
             drawGamerscoreBadge(c, nx - 13.0f, midY, 8.5f);
             right = nx - 26;
-        }
-        if (playtimeRemaining_ >= 0) {
-            int hours = static_cast<int>((playtimeRemaining_ + 3599) / 3600);
-            std::string pt = trf(Str::HoursRemaining, std::to_string(hours));
-            int pw = fonts_.semibold.measure(pt, kLinePx);
-            int px = right - pw;
-            bool warn = playtimeRemaining_ <= 7200;
-            Color col = warn ? rgba(255, 160, 40) : kGray;
-            fonts_.semibold.draw(c, pt, px, fonts_.semibold.centeredY(kLineY, kLineH, kLinePx), kLinePx, col);
-            right = px - 16;
         }
     }
 }

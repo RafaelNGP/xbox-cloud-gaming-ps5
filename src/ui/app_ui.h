@@ -258,7 +258,8 @@ public:
     void setSearchPools(std::vector<GameTile> gamePass, std::vector<GameTile> library);
     // Measured round trip to each region, ms (shown in Settings).
     void setRegionLatency(std::map<std::string, int> ms);
-    // Cloud playtime limit telemetry (remaining and max in seconds, -1 unknown)
+    // Cloud playtime limit telemetry (remaining and max in seconds, -1 unknown).
+    // Purely informative; never blocks launch or gameplay.
     void setPlaytime(int64_t remainingSeconds, int64_t maxSeconds);
     // Store prices, formatted: productId -> {now, regular (empty unless on sale)}.
     void setPrices(const std::map<std::string, PriceInfo>& prices);
