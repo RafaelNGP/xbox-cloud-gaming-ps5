@@ -1389,27 +1389,58 @@ static void testKeyboardAsGamepad() {
     in.dx = 24;                  // a fast move right
     xc::input::MouseStick stick;
     xc::input::ControllerState out;
-    xc::input::keyboardAsGamepad(in, stick, out);
+    uint64_t now = 1000;
+    xc::input::keyboardAsGamepad(in, stick, out, now);
     CHECK(out.connected && out.btnA && out.leftStickX == 1.0f && out.leftStickY == -1.0f);
     CHECK(out.triggerR2 == 1.0f && out.triggerL2 == 0.0f);
     CHECK(out.rightStickX > 0.4f && out.rightStickY == 0.0f);
     in = {};
     in.keyboard = true;
-    for (int i = 0; i < 20; ++i) xc::input::keyboardAsGamepad(in, stick, out);  // the mouse still: back to the centre
+    for (int i = 0; i < 20; ++i) xc::input::keyboardAsGamepad(in, stick, out, now += 8);  // the mouse still: back to the centre
     CHECK(out.rightStickX == 0.0f && !out.btnA);
-    // A wheel notch: Y pressed for a few passes, then released.
-    in = {};
-    in.keyboard = true;
-    in.wheel = 1;
-    xc::input::keyboardAsGamepad(in, stick, out);
-    CHECK(out.btnY);
-    in.wheel = 0;
-    bool released = false;
-    for (int i = 0; i < 12; ++i) {
-        xc::input::keyboardAsGamepad(in, stick, out);
-        released |= !out.btnY;
+
+    // The same mouse speed gives the same stick whether the passes are 4 or
+    // 8 ms apart (the counts a pass covers halve with it).
+    auto stickAfter = [](uint64_t passMs, float countsPerMs, uint64_t forMs) {
+        xc::input::MouseStick st;
+        xc::input::ControllerState o;
+        xc::input::KbmInput mv;
+        mv.mouse = true;
+        uint64_t t = 5000;
+        xc::input::keyboardAsGamepad(mv, st, o, t);  // a still first pass: the clock starts
+        for (uint64_t el = 0; el < forMs; el += passMs) {
+            mv.dx = static_cast<int32_t>(countsPerMs * static_cast<float>(passMs));
+            xc::input::keyboardAsGamepad(mv, st, o, t += passMs);
+        }
+        return o.rightStickX;
+    };
+    for (uint64_t forMs : {8u, 24u, 48u, 400u}) {
+        float at4 = stickAfter(4, 0.75f, forMs), at8 = stickAfter(8, 0.75f, forMs);
+        CHECK(std::abs(at4 - at8) < 0.01f);
     }
-    CHECK(released && !out.btnY);
+    CHECK(std::abs(stickAfter(4, 0.75f, 400) - 0.5f) < 0.01f);  // half of full speed: half the stick
+    CHECK(std::abs(stickAfter(8, 0.75f, 400) - 0.5f) < 0.01f);
+    CHECK(stickAfter(4, 3.0f, 400) > 0.999f && stickAfter(8, 3.0f, 400) > 0.999f);  // faster: all the way
+
+    // A wheel notch: Y held ~50 ms, then let go ~30 ms, at either pass length.
+    for (uint64_t passMs : {4u, 8u}) {
+        xc::input::MouseStick st;
+        in = {};
+        in.keyboard = true;
+        in.wheel = 2;  // two notches: two presses
+        uint64_t t = 9000, downMs = 0, presses = 0;
+        bool was = false;
+        for (uint64_t el = 0; el < 400; el += passMs) {
+            xc::input::keyboardAsGamepad(in, st, out, t);
+            in.wheel = 0;
+            if (out.btnY) downMs += passMs;
+            if (out.btnY && !was) ++presses;
+            was = out.btnY;
+            t += passMs;
+        }
+        CHECK(presses == 2 && !out.btnY);
+        CHECK(downMs >= 2 * 40 && downMs <= 2 * 56);  // ~48 ms each
+    }
     xc::input::ControllerState pad, kb;
     pad.btnB = true;
     pad.leftStickX = 0.3f;
@@ -1527,7 +1558,7 @@ static void testKeyMap() {
     in.buttons = 8;  // back
     MouseStick stick;
     ControllerState out;
-    keyboardAsGamepad(in, stick, out, map);
+    keyboardAsGamepad(in, stick, out, 1000, map);
     CHECK(out.btnA && out.btnY && !out.triggerR2);
     CHECK(keyName(0x20) == "Space" && keyName('W') == "W" && keyName(kMouseLeft) == "Mouse L" && keyName(0x7B) == "F12");
     CHECK(isReservedKey(0x7B) && isReservedKey('2') && !isReservedKey('5'));

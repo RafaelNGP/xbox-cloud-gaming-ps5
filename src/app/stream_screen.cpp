@@ -440,7 +440,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         // in the slot by itself.
         int kbSlot = keyboardPadSlot(kbm_.keyboard || kbm_.mouse);
         kbPad_ = input::ControllerState{};
-        if (kbSlot >= 0 && !menu_.isOpen()) input::keyboardAsGamepad(kbm_, mouseStick_, kbPad_, keyMap_);
+        if (kbSlot >= 0 && !menu_.isOpen()) input::keyboardAsGamepad(kbm_, mouseStick_, kbPad_, platform::nowMs(), keyMap_);
         int alone = kbSlot >= 0 && !input::padConnected(kbSlot) ? kbSlot : -1;
         if (alone != kbSlotAttached_) {
             if (kbSlotAttached_ >= 0 && !input::padConnected(kbSlotAttached_)) g_player->setPadConnected(kbSlotAttached_, false);
