@@ -61,6 +61,7 @@ bool Settings::load(const std::string& path) {
         if (!id.str().empty()) favorites.push_back(id.str());
     librarySort = (*j)["librarySort"].str(librarySort);
     streamStats = (*j)["streamStats"].asBool(streamStats);
+    statsMask = static_cast<uint32_t>((*j)["statsMask"].asInt(static_cast<int64_t>(statsMask)));
     sharpness = static_cast<int>(std::clamp<int64_t>((*j)["sharpness"].asInt(sharpness), 0, 3));
     deband = static_cast<int>(std::clamp<int64_t>((*j)["deband"].asInt(deband), 0, 3));
     upscaler = static_cast<int>(std::clamp<int64_t>((*j)["upscaler"].asInt(upscaler), 0, 3));
@@ -209,6 +210,7 @@ bool Settings::save(const std::string& path) const {
     v.set("favorites", favIds);
     v.set("librarySort", librarySort);
     v.set("streamStats", streamStats);
+    v.set("statsMask", static_cast<int64_t>(statsMask));
     v.set("sharpness", sharpness);
     v.set("deband", deband);
     v.set("upscaler", upscaler);

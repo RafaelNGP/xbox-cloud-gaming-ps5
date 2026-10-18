@@ -301,6 +301,15 @@ enum class Str {
     TriggerProfileRacing,  // Racing (ABS)
     StorageNotWritable, // sign-in / notification: storage not writable (%s: path, %d: errno)
     StorageFixHint,     // sign-in: hint to fix folder permissions (%s: path)
+    StatsCustomize,     // in-game menu: customize stats indicators
+    StatsIndicatorFps,
+    StatsIndicatorBitrate,
+    StatsIndicatorLatency,
+    StatsIndicatorLoss,
+    StatsIndicatorGraph,
+    StatsIndicatorDelay,
+    StatsIndicatorQp,
+    StatsIndicatorMic,
     Count
 };
 

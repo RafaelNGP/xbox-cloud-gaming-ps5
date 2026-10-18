@@ -108,6 +108,12 @@ struct StreamPlayer::Impl {
     std::deque<stream::TextInputRequest> textRequests;
     std::set<std::string> textWithdrawn;
 
+    mutable std::mutex frametimesMutex;
+    static constexpr size_t kFrametimeRing = 60;
+    std::array<float, kFrametimeRing> frametimesRing{};
+    size_t frametimesCount = 0;
+    size_t frametimesHead = 0;
+
     media::AudioIn audioIn;
     media::AudioEncoder audioEncoder;
     std::atomic<bool> micEnabled{true};
@@ -201,8 +207,8 @@ struct StreamPlayer::Impl {
                     // Late or duplicate packet: skip to preserve timeline and prevent timestamp drift
                     continue;
                 }
-                // Detect packet loss from RTP timestamp gap (conceal up to 5 lost frames)
-                if (diff > static_cast<int32_t>(kOpusFrameSamples) && diff <= static_cast<int32_t>(kOpusFrameSamples * 6)) {
+                // Detect packet loss from RTP timestamp gap (conceal up to 10 lost frames = 200ms)
+                if (diff > static_cast<int32_t>(kOpusFrameSamples) && diff <= static_cast<int32_t>(kOpusFrameSamples * 10)) {
                     uint32_t lostCount = (static_cast<uint32_t>(diff) + kOpusFrameSamples / 2) / kOpusFrameSamples - 1;
                     for (uint32_t i = 0; i < lostCount; ++i) {
                         pcm.clear();
@@ -247,6 +253,7 @@ struct StreamPlayer::Impl {
         constexpr uint64_t kShownRing = 8;
         std::pair<uint64_t, uint64_t> inScreenQueue[kShownRing] = {};  // present id, arrival us
         uint64_t lastShownId = 0;
+        uint64_t lastFramePresentUs = 0;
         while (running) {
             size_t backlog;
             {
@@ -329,10 +336,9 @@ struct StreamPlayer::Impl {
             // When a burst of packets arrives after network jitter/retransmission,
             // fast-forward decode without drawing to drain the stale backlog in a few
             // milliseconds and present the newest live frame immediately.
-            // backlog is measured after popping the current frame: backlog >= 2 means
-            // >= 3 frames buffered (>= 33ms stale). Fast-forwarding flushes the queue
-            // without swapchain stall, keeping display latency around ~27ms.
-            if (backlog >= 2 && skippedInRow < 5) {
+            // Only drain if backlog is critically high (>= 4 frames buffered, >= 60ms stale),
+            // and drop at most 1 frame per cycle to prevent multi-frame visual hitches.
+            if (backlog >= 4 && skippedInRow < 1) {
                 ++skippedInRow;
                 ++droppedFrames;
                 continue;
@@ -355,6 +361,16 @@ struct StreamPlayer::Impl {
             }
             display::present();
             uint64_t t3 = platform::nowUs();
+            if (lastFramePresentUs > 0) {
+                float dt = static_cast<float>(t3 - lastFramePresentUs) / 1000.0f;
+                if (dt > 0.0f && dt < 250.0f) {
+                    std::lock_guard<std::mutex> lk(frametimesMutex);
+                    frametimesRing[frametimesHead % kFrametimeRing] = dt;
+                    ++frametimesHead;
+                    if (frametimesCount < kFrametimeRing) ++frametimesCount;
+                }
+            }
+            lastFramePresentUs = t3;
             // Display latency: network arrival to the TV, once the GPU says
             // the frame is on the screen (a frame or so later).
             if (uint64_t id = display::lastPresentId()) {
@@ -877,6 +893,22 @@ float StreamPlayer::micGain() const {
 
 float StreamPlayer::micLevel() const {
     return impl_ ? impl_->audioIn.level() : 0.0f;
+}
+
+void StreamPlayer::getRecentFrametimes(std::vector<float>& out) const {
+    if (!impl_) {
+        out.clear();
+        return;
+    }
+    std::lock_guard<std::mutex> lk(impl_->frametimesMutex);
+    out.clear();
+    out.reserve(impl_->frametimesCount);
+    size_t count = impl_->frametimesCount;
+    size_t head = impl_->frametimesHead;
+    size_t start = head >= count ? head - count : 0;
+    for (size_t i = 0; i < count; ++i) {
+        out.push_back(impl_->frametimesRing[(start + i) % Impl::kFrametimeRing]);
+    }
 }
 
 }  // namespace xc::app

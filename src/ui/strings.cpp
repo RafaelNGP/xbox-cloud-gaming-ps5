@@ -324,6 +324,15 @@ constexpr Column kEnglish = {
     "Racing (ABS)", // TriggerProfileRacing
     "Storage %s is not writable: sign-in and settings will not be saved", // StorageNotWritable
     "FTP: run 'chmod 777 %s' or delete the folder and relaunch", // StorageFixHint
+    "Customize indicators",                           // StatsCustomize
+    "FPS & Resolution",                               // StatsIndicatorFps
+    "Bitrate",                                        // StatsIndicatorBitrate
+    "Latency (RTT)",                                  // StatsIndicatorLatency
+    "Packet loss",                                    // StatsIndicatorLoss
+    "Frametime graph",                                // StatsIndicatorGraph
+    "Decode & display latency",                       // StatsIndicatorDelay
+    "Video quality (QP)",                             // StatsIndicatorQp
+    "Microphone status",                              // StatsIndicatorMic
 };
 
 constexpr Column kPortugueseBR = {
@@ -618,6 +627,15 @@ constexpr Column kPortugueseBR = {
     "Corrida (ABS)", // TriggerProfileRacing
     "Armazenamento %s não permite gravação: login e ajustes não serão salvos", // StorageNotWritable
     "FTP: use 'chmod 777 %s' ou exclua a pasta e reabra o app", // StorageFixHint
+    "Personalizar indicadores",                       // StatsCustomize
+    "FPS e resolução",                                // StatsIndicatorFps
+    "Taxa de bits (Bitrate)",                         // StatsIndicatorBitrate
+    "Latência (RTT)",                                 // StatsIndicatorLatency
+    "Perda de pacotes",                               // StatsIndicatorLoss
+    "Gráfico de frametime",                           // StatsIndicatorGraph
+    "Atraso de decodificação e exibição",             // StatsIndicatorDelay
+    "Qualidade do vídeo (QP)",                        // StatsIndicatorQp
+    "Status do microfone",                            // StatsIndicatorMic
 };
 
 constexpr Column kSpanish = {
@@ -912,6 +930,15 @@ constexpr Column kSpanish = {
     "Carreras (ABS)", // TriggerProfileRacing
     "El almacenamiento %s no permite escritura: la sesión y ajustes no se guardarán", // StorageNotWritable
     "FTP: usa 'chmod 777 %s' o borra la carpeta y reinicia la app", // StorageFixHint
+    "Personalizar indicadores",                       // StatsCustomize
+    "FPS y resolución",                               // StatsIndicatorFps
+    "Tasa de bits (Bitrate)",                         // StatsIndicatorBitrate
+    "Latencia (RTT)",                                 // StatsIndicatorLatency
+    "Pérdida de paquetes",                            // StatsIndicatorLoss
+    "Gráfico de frametime",                           // StatsIndicatorGraph
+    "Retardo de decodificación y pantalla",           // StatsIndicatorDelay
+    "Calidad de vídeo (QP)",                          // StatsIndicatorQp
+    "Estado del micrófono",                           // StatsIndicatorMic
 };
 
 constexpr Column kFrench = {
@@ -1206,6 +1233,15 @@ constexpr Column kFrench = {
     "Course (ABS)", // TriggerProfileRacing
     "Le stockage %s n'est pas accessible en écriture : connexion et réglages non enregistrés", // StorageNotWritable
     "FTP : faites 'chmod 777 %s' ou supprimez le dossier et relancez", // StorageFixHint
+    "Personnaliser les indicateurs",                  // StatsCustomize
+    "IPS et résolution",                              // StatsIndicatorFps
+    "Débit binaire (Bitrate)",                        // StatsIndicatorBitrate
+    "Latence (RTT)",                                  // StatsIndicatorLatency
+    "Perte de paquets",                               // StatsIndicatorLoss
+    "Graphique de frametime",                         // StatsIndicatorGraph
+    "Latence de décodage et d'affichage",             // StatsIndicatorDelay
+    "Qualité vidéo (QP)",                             // StatsIndicatorQp
+    "État du microphone",                             // StatsIndicatorMic
 };
 
 constexpr Column kGerman = {
@@ -1500,6 +1536,15 @@ constexpr Column kGerman = {
     "Rennen (ABS)", // TriggerProfileRacing
     "Speicher %s ist schreibgeschützt: Anmeldung und Einstellungen werden nicht gespeichert", // StorageNotWritable
     "FTP: 'chmod 777 %s' ausführen oder Ordner löschen und neu starten", // StorageFixHint
+    "Indikatoren anpassen",                           // StatsCustomize
+    "FPS und Auflösung",                              // StatsIndicatorFps
+    "Bitrate",                                        // StatsIndicatorBitrate
+    "Latenz (RTT)",                                   // StatsIndicatorLatency
+    "Paketverlust",                                   // StatsIndicatorLoss
+    "Frametime-Diagramm",                             // StatsIndicatorGraph
+    "Dekodier- und Anzeigelatenz",                    // StatsIndicatorDelay
+    "Videoqualität (QP)",                             // StatsIndicatorQp
+    "Mikrofonstatus",                                 // StatsIndicatorMic
 };
 
 constexpr Column kItalian = {
@@ -1794,6 +1839,15 @@ constexpr Column kItalian = {
     "Corsa (ABS)", // TriggerProfileRacing
     "La memoria %s non è scrivibile: accesso e impostazioni non verranno salvati", // StorageNotWritable
     "FTP: esegui 'chmod 777 %s' o elimina la cartella e riavvia", // StorageFixHint
+    "Personalizza indicatori",                        // StatsCustomize
+    "FPS e risoluzione",                              // StatsIndicatorFps
+    "Bitrate",                                        // StatsIndicatorBitrate
+    "Latenza (RTT)",                                  // StatsIndicatorLatency
+    "Perdita pacchetti",                              // StatsIndicatorLoss
+    "Grafico frametime",                              // StatsIndicatorGraph
+    "Latenza di decodifica e visualizzazione",        // StatsIndicatorDelay
+    "Qualità video (QP)",                             // StatsIndicatorQp
+    "Stato microfono",                                // StatsIndicatorMic
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

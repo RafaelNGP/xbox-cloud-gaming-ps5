@@ -126,6 +126,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
 
         streamResolution_ = prof.resolution;
         showStats_ = g_settings.streamStats;
+        menu_.setStatsMask(g_settings.statsMask);
         sharpness_ = g_autoplay.sharpness >= 0 ? g_autoplay.sharpness : prof.sharpness;
         display::setSharpness(kSharpAmount[std::clamp(sharpness_, 0, 3)]);
         deband_ = g_autoplay.deband >= 0 ? g_autoplay.deband : prof.deband;
@@ -192,6 +193,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             bool micMuted = g_player ? (g_player->micMuted() || g_player->isMicHardwareMuted()) : false;
             menu_.setDebandInUse(autoDeband_.level());
             menu_.setGyro(gyroMode_, gyroLevel_);
+            menu_.setStatsMask(g_settings.statsMask);
             menu_.open(streamResolution_, showStats_, sharpness_, deband_, upscaler_, g_playingHome, allow1440,
                        hasCustomProfile_, triggerStrength_, deadzone_, circleConfirms_, micLvl, micMuted);
             overlaySeq_ = 0;
@@ -367,6 +369,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 showStats_ = menu_.statsOn();
                 std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
                 g_settings.streamStats = showStats_;
+                g_settings.statsMask = menu_.statsMask();
                 g_settings.save(settingsPath());
                 break;
             }
@@ -549,8 +552,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             ui::Canvas c = ui::renderToastPanel(fonts_, shown);
             display::setOverlay(c.data(), (static_cast<int>(display::kWidth) - c.width()) / 2, 28, c.width(), c.height(), 235);
         } else if (showStats_ && seq) {
-            if (info.onScreenMs > 0) menu_.recordFrametime(static_cast<float>(info.onScreenMs));
-            else if (info.fps > 0) menu_.recordFrametime(static_cast<float>(1000.0 / info.fps));
+            if (!info.frametimes.empty()) menu_.setFrametimes(info.frametimes);
             ui::Canvas c = menu_.renderStats(info);
             display::setOverlay(c.data(), ui::StreamMenu::kStatsX, ui::StreamMenu::kStatsY, c.width(), c.height(), 200);
         } else if (info.degraded) {

@@ -62,6 +62,7 @@ struct Settings {
     std::string librarySort = "recent";
     // The statistics line over the game (in-game menu).
     bool streamStats = false;
+    uint32_t statsMask = 0x1F;  // StatsDefaultMask (Fps, Bitrate, Latency, Loss, Graph)
     // Sharpening of the game picture: 0 off, 1..3 low, medium (FSR RCAS), high.
     int sharpness = 2;
     // Smoothing of compression blocks (GPU display): 0 off, 1 low, 2 high,

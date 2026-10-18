@@ -95,6 +95,8 @@ public:
     // Before start(): also run every frame through the PS5's hardware
     // decoder and log how it does (the picture still comes from FFmpeg).
     void setHwDecodeProbe(bool on);
+    // Recent presentation frametimes (ms, up to 60 frames)
+    void getRecentFrametimes(std::vector<float>& out) const;
 
 private:
     struct Impl;

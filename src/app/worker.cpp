@@ -248,6 +248,7 @@ std::string stream(xcloud::GssvClient& gssv) {
                 if (s_playtimeRemainingSeconds >= 0) {
                     info.playtimeHours = static_cast<int>((s_playtimeRemainingSeconds + 3599) / 3600);
                 }
+                player.getRecentFrametimes(info.frametimes);
                 std::lock_guard<std::mutex> lock(g_infoMutex);
                 g_streamInfo = info;
                 ++g_infoSeq;

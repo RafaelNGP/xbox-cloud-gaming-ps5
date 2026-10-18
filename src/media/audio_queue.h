@@ -22,8 +22,8 @@ public:
     static constexpr int kRate = 48000;
     // Bounded to keep the sound close to the picture while absorbing normal
     // network jitter (20-40 ms bursts, up to 150 ms NACK recovery). Stereo frames.
-    static constexpr size_t kMaxQueued = kRate * 200 / 1000;  // 200 ms
-    static constexpr size_t kTrimTo = kRate * 100 / 1000;     // 100 ms
+    static constexpr size_t kMaxQueued = kRate * 250 / 1000;  // 250 ms
+    static constexpr size_t kTrimTo = kRate * 140 / 1000;     // 140 ms
 
     // Since the last log (reset by it).
     struct Stats {

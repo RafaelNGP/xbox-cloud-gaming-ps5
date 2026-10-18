@@ -540,6 +540,23 @@ static void testStreamMenu() {
     CHECK(menu.resolution() == 0);  // 720p -> 1080p
     press([](xc::ui::NavInput& n) { n.right = true; });
     CHECK(menu.resolution() == 2);  // 1080p -> Best (2)
+
+    // Test stats indicator customization
+    menu.open(0, true);
+    press([](xc::ui::NavInput& n) { n.down = true; });  // -> Profile
+    press([](xc::ui::NavInput& n) { n.down = true; });  // -> Stats
+    CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Stats);
+    CHECK(menu.isCustomizingStats());
+    // Indicator 0 (StatsFps) is on by default in StatsDefaultMask; toggle it off:
+    CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Stats);
+    CHECK((menu.statsMask() & xc::ui::StatsFps) == 0);
+    // Toggle it back on:
+    CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Stats);
+    CHECK((menu.statsMask() & xc::ui::StatsFps) != 0);
+    // Back returns to main menu:
+    press([](xc::ui::NavInput& n) { n.back = true; });
+    CHECK(!menu.isCustomizingStats());
+    CHECK(menu.isOpen());
 }
 
 // A zip archive of stored (uncompressed) files, as the test needs one.
@@ -1685,7 +1702,7 @@ static void testNullBackends() {
 
 // --- M1 input / audio backends (pure parts, null backends) ----------------
 
-// The audio queue: bounded at ~200 ms (cut back to 100 ms, oldest first),
+// The audio queue: bounded at ~250 ms (cut back to 140 ms, oldest first),
 // silence past its end, the volume, and what the periodic log counts.
 static void testAudioQueue() {
     media::AudioQueue q;
@@ -1693,22 +1710,22 @@ static void testAudioQueue() {
     q.push(in.data(), 480);
     CHECK(q.queuedFrames() == 0);  // closed: ignored
     q.open();
-    for (int i = 0; i < 19; ++i) q.push(in.data(), 480);  // 190 ms: under the bound
-    CHECK(q.queuedFrames() == 9120 && q.stats().trimmed == 0);
-    q.push(in.data(), 480);  // 200 ms
-    q.push(in.data(), 480);  // 210 ms: past 200, back to 100
-    CHECK(q.queuedFrames() == media::AudioQueue::kTrimTo && q.stats().trimmed == 10080 - 4800);
+    for (int i = 0; i < 24; ++i) q.push(in.data(), 480);  // 240 ms: under the bound
+    CHECK(q.queuedFrames() == 11520 && q.stats().trimmed == 0);
+    q.push(in.data(), 480);  // 250 ms
+    q.push(in.data(), 480);  // 260 ms: past 250, back to 140
+    CHECK(q.queuedFrames() == media::AudioQueue::kTrimTo && q.stats().trimmed == 12480 - 6720);
     // The oldest go first: mark the newest frame and find it last.
     float mark[2] = {0.5f, -0.5f};
     q.push(mark, 1);
-    std::vector<float> out(4801 * 2);
-    q.pull(out.data(), 4801);
-    CHECK(out[4800 * 2] == 0.5f && out[4800 * 2 + 1] == -0.5f && out[100 * 2] == 0.25f);
+    std::vector<float> out(6721 * 2);
+    q.pull(out.data(), 6721);
+    CHECK(out[6720 * 2] == 0.5f && out[6720 * 2 + 1] == -0.5f && out[100 * 2] == 0.25f);
     CHECK(q.queuedFrames() == 0);
     q.pull(out.data(), 256);  // empty: silence, counted
     CHECK(out[0] == 0.0f && out[511] == 0.0f);
     media::AudioQueue::Stats st = q.stats();
-    CHECK(st.pulls == 2 && st.empty == 1 && st.frames == 4801 + 256 && st.depthMax == 4801);
+    CHECK(st.pulls == 2 && st.empty == 1 && st.frames == 6721 + 256 && st.depthMax == 6721);
     // Volume: clamped to 0..2, applied and clipped at full scale.
     q.setVolume(5.0f);
     CHECK(q.volume() == 2.0f);
@@ -1720,9 +1737,9 @@ static void testAudioQueue() {
     CHECK(q.volume() == 0.0f);
     q.setVolume(1.0f);
     // ~10 s of sound pulled (480000 frames): logged, and the counts start
-    // again. 5059 frames so far, so the 1856th grain of 256 crosses it.
+    // again. 6979 frames so far, so the 1848th grain of 256 crosses it.
     for (int i = 0; i < 1875; ++i) q.pull(out.data(), 256);
-    CHECK(q.stats().pulls == 19 && q.stats().frames == 19 * 256 && q.stats().trimmed == 0);
+    CHECK(q.stats().pulls == 27 && q.stats().frames == 27 * 256 && q.stats().trimmed == 0);
     q.close();
     q.push(loud, 2);
     CHECK(q.queuedFrames() == 0);
@@ -1877,8 +1894,8 @@ static void testNullBackendsM1() {
     CHECK(!kbm.keyboard && !kbm.mouse && !kbm.moved && kbm.dx == 0);
     input::kbmSetCaptured(false);
     CHECK(media::audioStart() && media::audioStart());
-    std::vector<float> sound(48 * 2 * 210, 0.1f);  // 210 ms, never played: kept to the bound
-    media::audioPush(sound.data(), 48 * 210);
+    std::vector<float> sound(48 * 2 * 260, 0.1f);  // 260 ms, never played: kept to the bound
+    media::audioPush(sound.data(), 48 * 260);
     CHECK(media::audioQueue().queuedFrames() == media::AudioQueue::kTrimTo);
     media::audioStop();
     CHECK(media::audioQueue().queuedFrames() == 0);
