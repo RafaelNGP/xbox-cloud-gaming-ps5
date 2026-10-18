@@ -13,6 +13,7 @@
 #include <mutex>
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -110,6 +111,16 @@ private:
 void setTestTransport(std::function<Response(const Request&)> transport);
 // A chunked body decoded; false on malformed framing.
 bool dechunk(const std::string& in, std::string& out);
+// Where a chunked body that starts `in` ends (its last chunk, trailers and
+// the closing empty line included): its length once complete, 0 while more
+// must come, -1 when the framing is broken.
+long long chunkedLength(std::string_view in);
+// Whether a connection may carry another request after an answer: the
+// server keeps it open (HTTP/1.1 without "Connection: close", HTTP/1.0 only
+// with "keep-alive") and the body ended exactly where its framing says:
+// `bodyEnd` (Content-Length or chunkedLength(); -1 when only the server
+// closing ends it) equals the `received` bytes after the headers.
+bool keepAliveAfter(int status, bool http10, const std::string& connection, long long bodyEnd, size_t received);
 
 // Helpers.
 std::string urlEncode(const std::string& s);
