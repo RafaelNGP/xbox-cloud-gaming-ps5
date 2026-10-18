@@ -86,6 +86,7 @@ add_library(xcloud_ui STATIC
     src/ui/font.cpp
     src/ui/image_cache.cpp
     src/ui/app_ui.cpp
+    src/ui/settings_choice.cpp
     src/ui/stream_menu.cpp
     src/ui/toast_view.cpp
     src/ui/pad_icons.cpp

@@ -98,36 +98,13 @@ bool saveSettings(const ui::SettingsChoice& choice) {
     bool languageChanged, fullscreenChanged;
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
-        std::string code = ui::languageCode(static_cast<ui::Language>(choice.language));
-        languageChanged = code != g_settings.language;
-        g_settings.language = code;
-        g_settings.resolution = choice.resolution == 1 ? "720p" : choice.resolution == 2 ? "best" : "1080p";
-        g_settings.region = choice.region;
-        g_settings.loginCountry = choice.loginCountry;
-        g_settings.deadzoneLeft = choice.deadzone[0];
-        g_settings.deadzoneRight = choice.deadzone[1];
-        g_settings.triggerStrength = choice.triggerStrength;
-        g_settings.triggerHz = choice.triggerHz;
-        g_settings.triggerResistance = choice.triggerResistance;
-        g_settings.triggerPulses = choice.triggerPulses;
-        g_settings.circleConfirms = choice.circleConfirms;
-        g_settings.lightBarMode = choice.lightBarMode;
-        g_settings.lightBarColour = choice.lightBarColour;
-        g_settings.sharpness = choice.sharpness;
-        g_settings.deband = choice.deband;
-        g_settings.upscaler = choice.upscaler;
-        g_settings.highRefresh = choice.highRefresh;
-        g_settings.maxBitrateMbps = choice.maxBitrateMbps;
-        g_settings.gameVolume = choice.gameVolume;
-        g_settings.keyMap = choice.keyMap;
-        if (input::padMapValid(choice.padMap)) g_settings.padMap = choice.padMap;  // the screen only lets a complete one out
-        g_settings.gyroMode = choice.gyroMode;
-        g_settings.gyroLevel = choice.gyroLevel;
-        g_settings.touchpadMouse = choice.touchpadMouse;
-        fullscreenChanged = g_settings.desktopFullscreen != choice.fullscreen;
-        g_settings.desktopFullscreen = choice.fullscreen;
+        std::string language = g_settings.language;
+        bool fullscreen = g_settings.desktopFullscreen;
+        ui::applyChoice(choice, g_settings);
+        languageChanged = g_settings.language != language;
+        fullscreenChanged = g_settings.desktopFullscreen != fullscreen;
         g_settings.save(settingsPath());  // warns itself
-        XC_LOGI("settings saved: language %s, %s, region %s", code.c_str(), g_settings.resolution.c_str(),
+        XC_LOGI("settings saved: language %s, %s, region %s", g_settings.language.c_str(), g_settings.resolution.c_str(),
                 g_settings.region.empty() ? "auto" : g_settings.region.c_str());
     }
     applyControllerSettings();
@@ -304,35 +281,9 @@ bool coreStartup() {
     g_ui = std::make_unique<ui::AppUi>(fonts, *g_images);
     startPriceLoop();
     {
-        ui::SettingsChoice choice;
-        choice.language = static_cast<int>(ui::language());
-        choice.resolution = g_settings.resolution == "720p" ? 1 : (g_settings.resolution == "1440p" || g_settings.resolution == "best") ? 2 : 0;
-        choice.region = g_settings.region;
-        choice.loginCountry = g_settings.loginCountry;
-        choice.deadzone[0] = std::clamp(g_settings.deadzoneLeft, 0, ui::kMaxDeadzone);
-        choice.deadzone[1] = std::clamp(g_settings.deadzoneRight, 0, ui::kMaxDeadzone);
-        choice.triggerStrength = g_settings.triggerStrength;
-        choice.triggerHz = g_settings.triggerHz;
-        choice.triggerResistance = g_settings.triggerResistance;
-        choice.triggerPulses = g_settings.triggerPulses;
-        choice.circleConfirms = g_settings.circleConfirms;
-        choice.lightBarMode = g_settings.lightBarMode;
-        choice.lightBarColour = g_settings.lightBarColour;
-        choice.sharpness = g_settings.sharpness;
-        choice.deband = g_settings.deband;
-        choice.upscaler = g_settings.upscaler;
-        choice.highRefresh = g_settings.highRefresh;
-        choice.maxBitrateMbps = g_settings.maxBitrateMbps;
-        choice.gameVolume = g_settings.gameVolume;
-        choice.keyMap = g_settings.keyMap;
-        choice.padMap = g_settings.padMap;
-        choice.gyroMode = g_settings.gyroMode;
-        choice.gyroLevel = g_settings.gyroLevel;
-        choice.fullscreen = g_settings.desktopFullscreen;
-        choice.touchpadMouse = g_settings.touchpadMouse;
         g_ui->setAllow1440(allow1440Locked());
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
-        g_ui->setSettings(choice);
+        g_ui->setSettings(ui::choiceFromSettings(g_settings));
         g_ui->setPerGameSettings(g_settings.perGame);
         g_ui->setGyroDefaults(g_settings.gyroMode, g_settings.gyroLevel);
         applyControllerSettings();

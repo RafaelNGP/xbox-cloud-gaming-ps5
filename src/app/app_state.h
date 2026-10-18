@@ -29,6 +29,12 @@ extern Settings g_settings;
 std::string settingsPath();
 // Caller holds g_settingsMutex. 1440p is offered once a stream delivered it.
 bool allow1440Locked();
+// Settings' screen takes g_settings again (ui::choiceFromSettings) after
+// something outside it changed them (the game menu, a test putting them
+// back): else leaving Settings would save its older copy over them. Caller
+// holds g_settingsMutex (then AppUi's lock is taken: the usual order). Not
+// while Settings is open with changes of its own (it would drop them).
+void refreshSettingsUiLocked();
 
 // --- Worker commands (worker.cpp) ----------------------------------------------
 enum Command { kNone, kSignIn, kPlay, kSignOut, kReloadLibrary, kConsoles, kUpdate };

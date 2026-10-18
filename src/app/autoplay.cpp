@@ -297,6 +297,7 @@ void autoplayPad(input::ControllerState& pad) {
                 }
                 g_settings.save(settingsPath());
                 g_ui->setPerGameSettings(g_settings.perGame);
+                refreshSettingsUiLocked();
             }
             XC_LOGI("autoplay: the game's profile put back as it was");
             g_autoplay.gameSettingsTest = false;

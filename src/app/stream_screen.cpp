@@ -289,6 +289,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 if (hasCustomProfile_) g_settings.perGame[gameKey_].sharpness = sharpness_;
                 else g_settings.sharpness = sharpness_;
                 g_settings.save(settingsPath());
+                refreshSettingsUiLocked();  // else leaving Settings later would put the old value back
                 if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 break;
             }
@@ -299,6 +300,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 if (hasCustomProfile_) g_settings.perGame[gameKey_].upscaler = upscaler_;
                 else g_settings.upscaler = upscaler_;
                 g_settings.save(settingsPath());
+                refreshSettingsUiLocked();
                 if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 break;
             }
@@ -309,6 +311,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 if (hasCustomProfile_) g_settings.perGame[gameKey_].deband = deband_;
                 else g_settings.deband = deband_;
                 g_settings.save(settingsPath());
+                refreshSettingsUiLocked();
                 if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 break;
             }
@@ -319,6 +322,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 if (hasCustomProfile_) g_settings.perGame[gameKey_].triggerStrength = triggerStrength_;
                 else g_settings.triggerStrength = triggerStrength_;
                 g_settings.save(settingsPath());
+                refreshSettingsUiLocked();
                 if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 break;
             }
@@ -334,6 +338,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     g_settings.deadzoneRight = deadzone_;
                 }
                 g_settings.save(settingsPath());
+                refreshSettingsUiLocked();
                 if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 break;
             }
@@ -348,9 +353,9 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 } else {
                     g_settings.gyroMode = gyroMode_;
                     g_settings.gyroLevel = gyroLevel_;
-                    if (g_ui) g_ui->setGyroDefaults(gyroMode_, gyroLevel_);
                 }
                 g_settings.save(settingsPath());
+                refreshSettingsUiLocked();  // the gyro's defaults too
                 if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 break;
             }
@@ -362,6 +367,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 if (hasCustomProfile_) g_settings.perGame[gameKey_].circleConfirms = circleConfirms_;
                 else g_settings.circleConfirms = circleConfirms_;
                 g_settings.save(settingsPath());
+                refreshSettingsUiLocked();
                 if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 break;
             }
