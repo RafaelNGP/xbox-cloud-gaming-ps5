@@ -174,6 +174,9 @@ struct SettingsRowPos {
 // Settings' rows on screen with `caps`, in order: those it rules out are
 // hidden (their setting stays as it is in settings.json).
 std::vector<SettingsRowPos> visibleSettingsRows(const UiCaps& caps);
+// Where row `row` (its id) is among them: the presses of down from the top
+// that reach it; -1 when it is hidden with `caps`.
+int settingsRowPosition(const UiCaps& caps, int row);
 // The same for a game's settings (row ids as AppUi draws them); "Reset to
 // default" only with a profile of its own (`custom`); `mouseSupported` shows
 // the touchpad mouse option on pads with a touchpad.
@@ -315,6 +318,7 @@ public:
     // the Display mode row shows it.
     void setFullscreen(bool on);
     SettingsChoice settings() const;  // what Settings holds now (the autoplay tests put it back)
+    int settingsFocus() const;        // the Settings row focused (its id), for the autoplay tests' checks
     // Per-game settings
     void setPerGameSettings(const std::map<std::string, app::GameProfile>& perGame);
     // The general gyro aiming (set from the in-game menu): what a game

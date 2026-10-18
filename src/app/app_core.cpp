@@ -241,6 +241,7 @@ bool coreStartup() {
     crash::install(crashMarkerPath());
     loadAutoplay();
     shell::beforeSettings();  // the PS5: an update cut short rolled back, a store update's files brought back
+    guardSettingsForAutoplay(settingsPath());  // the tests never leave the user's settings changed
     struct stat settingsStat;
     if (!g_settings.load(settingsPath()) && ::stat(settingsPath().c_str(), &settingsStat) == 0) {
         // Unreadable (cut short?): kept aside, not overwritten by the defaults.

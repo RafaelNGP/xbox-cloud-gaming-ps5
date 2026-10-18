@@ -251,6 +251,13 @@ std::vector<SettingsRowPos> visibleSettingsRows(const UiCaps& caps) {
     });
 }
 
+int settingsRowPosition(const UiCaps& caps, int row) {
+    auto rows = visibleSettingsRows(caps);
+    for (size_t i = 0; i < rows.size(); ++i)
+        if (rows[i].row == row) return static_cast<int>(i);
+    return -1;
+}
+
 std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool custom, bool mouseSupported) {
     return filterRows(kGameRowOrder, kGameGroupStart, [&](int row) {
         switch (row) {
@@ -1377,6 +1384,11 @@ void AppUi::setFullscreen(bool on) {
 SettingsChoice AppUi::settings() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return settings_;
+}
+
+int AppUi::settingsFocus() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return settingsRow_;
 }
 
 void AppUi::setGyroDefaults(int mode, int level) {
