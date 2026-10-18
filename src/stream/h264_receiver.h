@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <vector>
 
 namespace xc::stream {
@@ -37,15 +38,30 @@ public:
     void setSimulatedLoss(int percent) { simulatedLoss_ = percent; }
 
 private:
-    struct Packet {
+    struct PacketSlot {
+        int64_t seq = -1;
         uint32_t timestamp = 0;
         bool marker = false;
-        std::vector<uint8_t> payload;
+        uint16_t length = 0;
+        uint8_t payload[1536];
     };
+    static constexpr size_t kRingSize = 2048;
+    static constexpr size_t kRingMask = kRingSize - 1;
+
     struct Missing {
         uint64_t sinceMs = 0, lastNackMs = 0;
         int nacks = 0;
     };
+
+    bool hasPacket(int64_t s) const { return s >= 0 && ring_[static_cast<size_t>(s) & kRingMask].seq == s; }
+    const PacketSlot* getPacket(int64_t s) const {
+        if (s >= 0 && ring_[static_cast<size_t>(s) & kRingMask].seq == s)
+            return &ring_[static_cast<size_t>(s) & kRingMask];
+        return nullptr;
+    }
+    void putPacket(int64_t s, uint32_t ts, bool marker, const uint8_t* data, size_t len);
+    void erasePacket(int64_t s);
+    void clearRing();
 
     void accept(const uint8_t* d, size_t n, uint64_t now, const rtc::message_callback& send);
     int64_t unwrap(uint16_t seq);
@@ -63,7 +79,8 @@ private:
     std::function<void()> onKeyframeNeeded_;
     VideoReceiveStats& stats_;
     uint64_t waitMs_ = 300;
-    std::map<int64_t, Packet> packets_;
+    std::unique_ptr<PacketSlot[]> ring_;
+    size_t packetCount_ = 0;
     std::map<int64_t, Missing> missing_;
     int64_t highest_ = -1;    // highest extended sequence number seen
     int64_t nextSeq_ = -1;    // first packet of the next frame to emit; -1 = resync

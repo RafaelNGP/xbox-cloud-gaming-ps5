@@ -630,7 +630,7 @@ bool Core::frame() {
     autoplayNav(nav, menuCombo, now);
     if (g_ui->screen() == ui::Screen::Streaming) {
         streamScreen->update(pad, nav, menuCombo);
-        display::idleWait(8);  // ~120 Hz input (the PS5 sleeps 8 ms; the desktop wakes for a frame)
+        display::idleWait(4);  // ~250 Hz input (the PS5 sleeps 4 ms; matching DualSense native 250 Hz rate)
         display::pump();       // the desktop shows the newest video frame here
         return true;
     }

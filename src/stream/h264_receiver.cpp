@@ -8,6 +8,7 @@
 #include "util/log.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace xc::stream {
 
@@ -17,7 +18,7 @@ namespace {
 // often a NACK is repeated, and how many times.
 constexpr uint64_t kRenackMs = 50;
 constexpr int kMaxNacks = 5;
-constexpr size_t kMaxBuffered = 4000;      // packets (about 4 MB)
+constexpr size_t kMaxBuffered = 1800;      // packets (within 2048-slot ring)
 
 constexpr uint8_t kStartCode[] = {0, 0, 0, 1};
 
@@ -37,7 +38,43 @@ const std::byte* asBytes(const std::vector<uint8_t>& v) { return reinterpret_cas
 }  // namespace
 
 H264Receiver::H264Receiver(std::function<void()> onKeyframeNeeded, VideoReceiveStats& stats, uint64_t waitMs)
-    : onKeyframeNeeded_(std::move(onKeyframeNeeded)), stats_(stats), waitMs_(waitMs) {}
+    : onKeyframeNeeded_(std::move(onKeyframeNeeded)),
+      stats_(stats),
+      waitMs_(waitMs),
+      ring_(std::make_unique<PacketSlot[]>(kRingSize)) {
+    clearRing();
+}
+
+void H264Receiver::putPacket(int64_t s, uint32_t ts, bool marker, const uint8_t* data, size_t len) {
+    size_t idx = static_cast<size_t>(s) & kRingMask;
+    if (ring_[idx].seq == -1) {
+        ++packetCount_;
+    }
+    ring_[idx].seq = s;
+    ring_[idx].timestamp = ts;
+    ring_[idx].marker = marker;
+    ring_[idx].length = static_cast<uint16_t>(std::min<size_t>(len, 1536));
+    if (ring_[idx].length > 0 && data) {
+        std::memcpy(ring_[idx].payload, data, ring_[idx].length);
+    }
+}
+
+void H264Receiver::erasePacket(int64_t s) {
+    size_t idx = static_cast<size_t>(s) & kRingMask;
+    if (ring_[idx].seq == s) {
+        ring_[idx].seq = -1;
+        ring_[idx].length = 0;
+        if (packetCount_ > 0) --packetCount_;
+    }
+}
+
+void H264Receiver::clearRing() {
+    for (size_t i = 0; i < kRingSize; ++i) {
+        ring_[i].seq = -1;
+        ring_[i].length = 0;
+    }
+    packetCount_ = 0;
+}
 
 int64_t H264Receiver::unwrap(uint16_t seq) {
     if (highest_ < 0) return seq;
@@ -135,34 +172,34 @@ bool H264Receiver::assemble(int64_t first, int64_t last, std::vector<uint8_t>& o
     out.clear();
     keyframe = false;
     for (int64_t s = first; s <= last; ++s) {
-        auto it = packets_.find(s);
-        if (it == packets_.end()) return false;
-        const auto& p = it->second.payload;
-        if (p.empty()) continue;
+        const auto* slot = getPacket(s);
+        if (!slot || slot->length == 0) return false;
+        const uint8_t* p = slot->payload;
+        size_t pLen = slot->length;
         uint8_t type = p[0] & 0x1F;
         if (type >= 1 && type <= 23) {  // single NAL unit
             out.insert(out.end(), kStartCode, kStartCode + 4);
-            out.insert(out.end(), p.begin(), p.end());
+            out.insert(out.end(), p, p + pLen);
             keyframe |= isKeyNal(type);
         } else if (type == 24) {  // STAP-A
             size_t i = 1;
-            while (i + 2 <= p.size()) {
+            while (i + 2 <= pLen) {
                 size_t n = (static_cast<size_t>(p[i]) << 8) | p[i + 1];
                 i += 2;
-                if (n == 0 || i + n > p.size()) break;
+                if (n == 0 || i + n > pLen) break;
                 out.insert(out.end(), kStartCode, kStartCode + 4);
-                out.insert(out.end(), p.begin() + static_cast<long>(i), p.begin() + static_cast<long>(i + n));
+                out.insert(out.end(), p + i, p + i + n);
                 keyframe |= isKeyNal(p[i] & 0x1F);
                 i += n;
             }
-        } else if (type == 28 && p.size() > 2) {  // FU-A
+        } else if (type == 28 && pLen > 2) {  // FU-A
             bool start = (p[1] & 0x80) != 0;
             if (start) {
                 out.insert(out.end(), kStartCode, kStartCode + 4);
                 out.push_back(static_cast<uint8_t>((p[0] & 0xE0) | (p[1] & 0x1F)));
                 keyframe |= isKeyNal(p[1] & 0x1F);
             }
-            out.insert(out.end(), p.begin() + 2, p.end());
+            out.insert(out.end(), p + 2, p + pLen);
         }
     }
     return !out.empty();
@@ -171,31 +208,36 @@ bool H264Receiver::assemble(int64_t first, int64_t last, std::vector<uint8_t>& o
 bool H264Receiver::resync(rtc::message_vector& out) {
     // Find a frame boundary (the packet before is present and is a marker, or
     // carries another timestamp) followed by a complete key frame.
-    for (auto it = packets_.begin(); it != packets_.end(); ++it) {
-        auto prev = packets_.find(it->first - 1);
-        if (prev == packets_.end()) continue;
-        if (!prev->second.marker && prev->second.timestamp == it->second.timestamp) continue;
-        // Walk to the marker.
-        int64_t s = it->first;
-        auto cur = it;
-        while (cur != packets_.end() && cur->first == s && !cur->second.marker) {
-            ++cur;
-            ++s;
+    int64_t startSeq = std::max<int64_t>(0, highest_ - static_cast<int64_t>(kRingSize - 1));
+    for (int64_t s = startSeq; s <= highest_; ++s) {
+        const auto* cur = getPacket(s);
+        if (!cur) continue;
+        const auto* prev = getPacket(s - 1);
+        if (!prev) continue;
+        if (!prev->marker && prev->timestamp == cur->timestamp) continue;
+
+        // Walk to the marker of this frame.
+        int64_t end = s;
+        bool complete = false;
+        while (end <= highest_) {
+            const auto* p = getPacket(end);
+            if (!p) break;
+            if (p->marker) {
+                complete = true;
+                break;
+            }
+            ++end;
         }
-        if (cur == packets_.end()) return false;  // the last frame isn't complete yet
-        if (cur->first != s) {
-            // A hole in this frame (lost for good, or not here yet): look on
-            // from the hole for a later key frame instead of waiting for this
-            // one, which was the freeze after a burst of loss.
-            it = std::prev(cur);
-            continue;
-        }
+        if (!complete) continue;
+
         std::vector<uint8_t> frame;
         bool key = false;
-        if (assemble(it->first, s, frame, key) && key) {
-            nextSeq_ = it->first;
-            packets_.erase(packets_.begin(), it);  // older junk
-            for (auto e = missing_.begin(); e != missing_.end() && e->first < nextSeq_;) e = missing_.erase(e);
+        if (assemble(s, end, frame, key) && key) {
+            nextSeq_ = s;
+            for (int64_t e = startSeq; e < nextSeq_; ++e) erasePacket(e);
+            for (auto e = missing_.begin(); e != missing_.end() && e->first < nextSeq_;) {
+                e = missing_.erase(e);
+            }
             (void)out;
             return true;
         }
@@ -210,18 +252,18 @@ void H264Receiver::drain(uint64_t now, rtc::message_vector& out, const rtc::mess
         }
         // Collect the frame starting at nextSeq_.
         int64_t s = nextSeq_;
-        auto it = packets_.find(s);
+        const auto* it = getPacket(s);
         int64_t hole = -1;
-        if (it == packets_.end()) {
+        if (!it) {
             hole = s;
         } else {
             while (true) {
-                auto p = packets_.find(s);
-                if (p == packets_.end()) {
+                const auto* p = getPacket(s);
+                if (!p) {
                     hole = s;
                     break;
                 }
-                if (p->second.marker) break;
+                if (p->marker) break;
                 ++s;
             }
         }
@@ -234,7 +276,7 @@ void H264Receiver::drain(uint64_t now, rtc::message_vector& out, const rtc::mess
             // Lost for good: drop what we have of this frame and resync on
             // the next key frame.
             ++stats_.framesDropped;
-            for (auto e = packets_.begin(); e != packets_.end() && e->first <= hole;) e = packets_.erase(e);
+            for (int64_t e = nextSeq_; e <= hole; ++e) erasePacket(e);
             for (auto e = missing_.begin(); e != missing_.end() && e->first <= hole;) e = missing_.erase(e);
             nextSeq_ = -1;
             askKeyframe(send);
@@ -243,8 +285,9 @@ void H264Receiver::drain(uint64_t now, rtc::message_vector& out, const rtc::mess
         std::vector<uint8_t> frame;
         bool key = false;
         bool ok = assemble(nextSeq_, s, frame, key);
-        uint32_t ts = packets_[s].timestamp;
-        for (auto e = packets_.begin(); e != packets_.end() && e->first <= s;) e = packets_.erase(e);
+        const auto* markerPkt = getPacket(s);
+        uint32_t ts = markerPkt ? markerPkt->timestamp : 0;
+        for (int64_t e = nextSeq_; e <= s; ++e) erasePacket(e);
         for (auto e = missing_.begin(); e != missing_.end() && e->first <= s;) e = missing_.erase(e);
         nextSeq_ = s + 1;
         if (!ok) continue;
@@ -285,14 +328,12 @@ void H264Receiver::accept(const uint8_t* d, size_t n, uint64_t now, const rtc::m
 
     int64_t seq = unwrap(rawSeq);
     if (nextSeq_ >= 0 && seq < nextSeq_) return;  // too late or duplicate
-    if (packets_.count(seq)) return;
+    if (hasPacket(seq)) return;
     if (missing_.erase(seq)) ++stats_.recovered;
 
-    Packet p;
-    p.timestamp = (uint32_t(d[4]) << 24) | (uint32_t(d[5]) << 16) | (uint32_t(d[6]) << 8) | d[7];
-    p.marker = (d[1] & 0x80) != 0;
-    p.payload.assign(d + off, d + end);
-    packets_.emplace(seq, std::move(p));
+    uint32_t ts = (uint32_t(d[4]) << 24) | (uint32_t(d[5]) << 16) | (uint32_t(d[6]) << 8) | d[7];
+    bool marker = (d[1] & 0x80) != 0;
+    putPacket(seq, ts, marker, d + off, end - off);
 
     if (highest_ >= 0 && seq > highest_ + 1) noteGap(highest_ + 1, seq, now, send);
     if (seq > highest_) highest_ = seq;
@@ -319,9 +360,9 @@ void H264Receiver::incoming(rtc::message_vector& messages, const rtc::message_ca
     // Still without a key frame: ask again (askKeyframe allows one every
     // 300 ms), as the request or the key frame itself may have been lost;
     // otherwise the picture stays frozen until the buffer overflows (seconds).
-    if (nextSeq_ < 0 && !packets_.empty()) askKeyframe(send);
-    if (packets_.size() > kMaxBuffered) {  // stuck: start over
-        packets_.clear();
+    if (nextSeq_ < 0 && packetCount_ > 0) askKeyframe(send);
+    if (packetCount_ > kMaxBuffered || (nextSeq_ >= 0 && highest_ - nextSeq_ > static_cast<int64_t>(kMaxBuffered))) {  // stuck: start over
+        clearRing();
         missing_.clear();
         nextSeq_ = -1;
         askKeyframe(send);
