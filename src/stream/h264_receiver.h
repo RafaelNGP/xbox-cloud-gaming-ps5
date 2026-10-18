@@ -38,12 +38,13 @@ public:
     void setSimulatedLoss(int percent) { simulatedLoss_ = percent; }
 
 private:
+    static constexpr size_t kMaxPayload = 1536;  // a larger payload is treated as lost (accept())
     struct PacketSlot {
         int64_t seq = -1;
         uint32_t timestamp = 0;
         bool marker = false;
-        uint16_t length = 0;
-        uint8_t payload[1536];
+        uint16_t length = 0;  // 0: padding only (kept: it fills its sequence number)
+        uint8_t payload[kMaxPayload];
     };
     static constexpr size_t kRingSize = 2048;
     static constexpr size_t kRingMask = kRingSize - 1;
@@ -87,6 +88,7 @@ private:
     bool waitingKeyframe_ = true;
     uint32_t mediaSsrc_ = 0;
     uint64_t lastKeyframeRequestMs_ = 0;
+    uint64_t oversized_ = 0;  // payloads too large for a slot, dropped
     int simulatedLoss_ = 0;
     uint32_t lossState_ = 12345;
     std::map<uint16_t, std::vector<uint8_t>> held_;                     // simulated loss

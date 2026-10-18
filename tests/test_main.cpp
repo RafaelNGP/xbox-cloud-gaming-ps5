@@ -1160,6 +1160,51 @@ static void testH264Resync() {
     CHECK(keyframeAsks >= 1);
 }
 
+// A padding-only RTP packet (payload all padding) inside a frame is skipped,
+// not a reason to fail that frame; a payload larger than a buffer slot is a
+// lost packet (NACKed, then the frame dropped), never a cut NAL unit.
+static void testH264PaddingPacket() {
+    xc::stream::VideoReceiveStats stats;
+    int keyframeAsks = 0;
+    xc::stream::H264Receiver rx([&] { ++keyframeAsks; }, stats, 60);
+    auto packet = [](uint16_t seq, uint32_t ts, bool marker, std::vector<uint8_t> payload, uint8_t padding = 0) {
+        std::vector<uint8_t> b = {static_cast<uint8_t>(0x80 | (padding ? 0x20 : 0)),
+                                  static_cast<uint8_t>((marker ? 0x80 : 0) | 102),
+                                  static_cast<uint8_t>(seq >> 8), static_cast<uint8_t>(seq),
+                                  static_cast<uint8_t>(ts >> 24), static_cast<uint8_t>(ts >> 16),
+                                  static_cast<uint8_t>(ts >> 8), static_cast<uint8_t>(ts), 0, 0, 0, 7};
+        b.insert(b.end(), payload.begin(), payload.end());
+        for (uint8_t i = 1; i <= padding; ++i) b.push_back(i == padding ? padding : 0);
+        return rtc::make_message(reinterpret_cast<const std::byte*>(b.data()),
+                                 reinterpret_cast<const std::byte*>(b.data()) + b.size());
+    };
+    auto nal = [](uint8_t type) { return std::vector<uint8_t>{type, 0xAA, 0xBB}; };
+    size_t framesOut = 0;
+    auto feed = [&](rtc::message_vector in) {
+        rx.incoming(in, [](rtc::message_ptr) { return true; });
+        framesOut += in.size();
+    };
+    // A boundary, a key frame, a P frame, then a padding-only packet opening
+    // the next P frame (same timestamp, no marker), that P frame and another.
+    feed({packet(0, 0, true, nal(0x41)), packet(1, 1500, true, nal(0x65)), packet(2, 3000, true, nal(0x41)),
+          packet(3, 4500, false, {}, 4), packet(4, 4500, true, nal(0x41)), packet(5, 6000, true, nal(0x41))});
+    CHECK(framesOut == 4);
+    CHECK(stats.framesDropped == 0 && keyframeAsks == 0);
+    // A payload too large for a slot: a hole (NACKed), then the frame dropped.
+    std::vector<uint8_t> big(2000, 0xCC);
+    big[0] = 0x41;
+    uint64_t nacksBefore = stats.nacks;
+    feed({packet(6, 7500, true, big), packet(7, 9000, true, nal(0x41))});
+    CHECK(framesOut == 4);  // waiting for the retransmission
+    CHECK(stats.nacks > nacksBefore && stats.lost >= 1);
+    xc::platform::sleepMs(100);
+    feed({});
+    CHECK(framesOut == 4 && stats.framesDropped >= 1 && keyframeAsks >= 1);
+    // The key frame asked for resumes the picture.
+    feed({packet(8, 10500, true, nal(0x65)), packet(9, 12000, true, nal(0x41))});
+    CHECK(framesOut == 6);
+}
+
 // An empty audio packet (seen after loss) must not end the sound.
 static void testAudioDecoderEmptyPacket() {
     xc::media::AudioEncoder enc;
@@ -2024,6 +2069,7 @@ int main() {
     testMicrosoftHost();
     testAudioEncoder();
     testH264Resync();
+    testH264PaddingPacket();
     testAudioDecoderEmptyPacket();
     testAudioDecoderPlc();
     testAudioGapLossConcealment();
