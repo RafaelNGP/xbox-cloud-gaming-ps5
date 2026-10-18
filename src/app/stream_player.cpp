@@ -5,6 +5,7 @@
 #include "display/display.h"
 #include "input/controller.h"
 #include "media/audio_out.h"
+#include "media/audio_queue.h"
 #include "media/audio_in.h"
 #include "media/audio_encoder.h"
 #include "media/decoder.h"
@@ -16,6 +17,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <cstdio>
 #include <condition_variable>
@@ -198,6 +200,26 @@ struct StreamPlayer::Impl {
                 std::unique_lock<std::mutex> lock(audioMutex_);
                 audioCv.wait(lock, [&] { return !running || !audioPackets_.empty(); });
                 if (!running) break;
+
+                // When an RTP timestamp gap appears, if the audio queue has comfortable headroom
+                // (>= 40 ms), wait briefly (up to 12 ms) to allow network jitter or reordering to
+                // deliver the missing packet before assuming it lost and synthesizing PLC.
+                if (lastRtpTimestamp != 0 && !audioPackets_.empty()) {
+                    int32_t frontDiff = static_cast<int32_t>(audioPackets_.front().rtpTimestamp - lastRtpTimestamp);
+                    if (frontDiff > static_cast<int32_t>(kOpusFrameSamples) &&
+                        frontDiff <= static_cast<int32_t>(kOpusFrameSamples * 5)) {
+                        size_t queued = media::audioQueue().queuedFrames();
+                        if (queued >= kOpusFrameSamples * 2) {
+                            audioCv.wait_for(lock, std::chrono::milliseconds(12), [&] {
+                                if (!running || audioPackets_.empty()) return true;
+                                int32_t d = static_cast<int32_t>(audioPackets_.front().rtpTimestamp - lastRtpTimestamp);
+                                return d <= static_cast<int32_t>(kOpusFrameSamples);
+                            });
+                            if (!running) break;
+                        }
+                    }
+                }
+
                 packet = std::move(audioPackets_.front());
                 audioPackets_.pop_front();
             }
@@ -207,18 +229,24 @@ struct StreamPlayer::Impl {
                     // Late or duplicate packet: skip to preserve timeline and prevent timestamp drift
                     continue;
                 }
-                // Detect packet loss from RTP timestamp gap (conceal up to 10 lost frames = 200ms)
+                // Detect packet loss from RTP timestamp gap
                 if (diff > static_cast<int32_t>(kOpusFrameSamples) && diff <= static_cast<int32_t>(kOpusFrameSamples * 10)) {
                     uint32_t lostCount = (static_cast<uint32_t>(diff) + kOpusFrameSamples / 2) / kOpusFrameSamples - 1;
-                    for (uint32_t i = 0; i < lostCount; ++i) {
+                    // Cap PLC frames to what can safely fit in AudioQueue without triggering trim cuts (max 3 frames = 60ms)
+                    size_t queued = media::audioQueue().queuedFrames();
+                    size_t maxPlcCanFit = (media::AudioQueue::kMaxQueued > queued + kOpusFrameSamples * 2)
+                                              ? (media::AudioQueue::kMaxQueued - queued - kOpusFrameSamples * 2) / kOpusFrameSamples
+                                              : 0;
+                    uint32_t plcToPush = std::min<uint32_t>({lostCount, static_cast<uint32_t>(maxPlcCanFit), 3u});
+                    for (uint32_t i = 0; i < plcToPush; ++i) {
                         pcm.clear();
                         audioDecoder.conceal(pcm, kOpusFrameSamples);
                         if (!pcm.empty()) media::audioPush(pcm.data(), pcm.size() / 2);
                         ++concealedPackets;
                     }
-                    if (concealedPackets <= 5 || concealedPackets % 50 == 0) {
-                        XC_LOGI("audio plc: concealed %u lost packet(s) (%llu total concealed)",
-                                lostCount, static_cast<unsigned long long>(concealedPackets));
+                    if (plcToPush > 0 && (concealedPackets <= 5 || concealedPackets % 50 == 0)) {
+                        XC_LOGI("audio plc: concealed %u/%u lost packet(s) (%llu total concealed)",
+                                plcToPush, lostCount, static_cast<unsigned long long>(concealedPackets));
                     }
                 }
             }
@@ -249,20 +277,17 @@ struct StreamPlayer::Impl {
         bool hwOk = hwProbe && hw.init(1920, 1088);
         if (hwProbe) XC_LOGI("hwdec: probe %s", hwOk ? "running" : "failed to start");
         uint64_t hwUs = 0, hwMaxUs = 0, hwPictures = 0, hwCalls = 0, hwLogAt = platform::nowMs() + 1000;
-        int skippedInRow = 0;
         constexpr uint64_t kShownRing = 8;
         std::pair<uint64_t, uint64_t> inScreenQueue[kShownRing] = {};  // present id, arrival us
         uint64_t lastShownId = 0;
         uint64_t lastFramePresentUs = 0;
         while (running) {
-            size_t backlog;
             {
                 std::unique_lock<std::mutex> lock(mutex);
                 cv.wait(lock, [&] { return !running || !frames.empty(); });
                 if (!running) break;
                 frame = std::move(frames.front());
                 frames.pop_front();
-                backlog = frames.size();
             }
             if (dumpFile) {
                 // 4-byte little-endian length, then the access unit as received.
@@ -333,17 +358,19 @@ struct StreamPlayer::Impl {
                 ++qpCount;
             }
             pictureSize = (static_cast<uint32_t>(pic.width) << 16) | static_cast<uint32_t>(pic.height);
-            // When a burst of packets arrives after network jitter/retransmission,
-            // fast-forward decode without drawing to drain the stale backlog in a few
-            // milliseconds and present the newest live frame immediately.
-            // Only drain if backlog is critically high (>= 4 frames buffered, >= 60ms stale),
-            // and drop at most 1 frame per cycle to prevent multi-frame visual hitches.
-            if (backlog >= 4 && skippedInRow < 1) {
-                ++skippedInRow;
+            // When a burst of frames arrives after network wait/jitter, fast-forward decode
+            // stale frames in FFmpeg without waiting for vblank present, keeping reference
+            // picture state intact while draining backlog in ~3.4ms per frame.
+            // Present only once caught up to the live edge (backlog <= 1).
+            size_t pendingFrames = 0;
+            {
+                std::lock_guard<std::mutex> lock(mutex);
+                pendingFrames = frames.size();
+            }
+            if (pendingFrames > 1) {
                 ++droppedFrames;
                 continue;
             }
-            skippedInRow = 0;
             bool screenshot = saveSnapshotIfAsked(pic);
             std::lock_guard<std::mutex> lock(display::frameMutex());
             if (decodedFrames == 1) XC_LOGI("first draw %dx%d", pic.width, pic.height);
@@ -441,7 +468,16 @@ struct StreamPlayer::Impl {
         cb.audio = [this](const uint8_t* d, size_t n, uint32_t rtpTimestamp) {
             if (++audioPackets == 1) XC_LOGI("first audio packet: %zu bytes (timestamp %u)", n, rtpTimestamp);
             std::lock_guard<std::mutex> lock(audioMutex_);
-            if (audioPackets_.size() < 50) audioPackets_.push_back({std::vector<uint8_t>(d, d + n), rtpTimestamp});
+            if (audioPackets_.size() < 50) {
+                auto it = audioPackets_.end();
+                while (it != audioPackets_.begin()) {
+                    auto prev = it - 1;
+                    int32_t diff = static_cast<int32_t>(rtpTimestamp - prev->rtpTimestamp);
+                    if (diff >= 0) break;
+                    it = prev;
+                }
+                audioPackets_.insert(it, {std::vector<uint8_t>(d, d + n), rtpTimestamp});
+            }
             audioCv.notify_one();
         };
         // xCloud's motors are 0..100 percent, like the web client's
@@ -499,8 +535,8 @@ struct StreamPlayer::Impl {
         }
         opts.maxBitrate = gssv.resolution() == xcloud::Resolution::P720    ? 12000000
                           : gssv.resolution() == xcloud::Resolution::P1440 ? 40000000
-                          : gssv.resolution() == xcloud::Resolution::P1080HQ ? 30000000
-                                                                           : 25000000;
+                          : gssv.resolution() == xcloud::Resolution::P1080HQ ? 25000000
+                                                                           : 20000000;
         if (maxBitrateMbps > 0)  // the user's cap (Wi-Fi): REMB never offers more
             opts.maxBitrate = std::min<uint32_t>(opts.maxBitrate, static_cast<uint32_t>(maxBitrateMbps) * 1000000u);
         opts.simulatedVideoLoss = simulatedLoss;

@@ -90,7 +90,7 @@ struct Settings {
     // Voice chat & Audio routing
     bool micEnabled = true;
     bool highRefresh = false;  // 119.88 Hz output (VRR where the console turns it on) while streaming
-    int maxBitrateMbps = 0;    // the stream's bitrate cap: 0 automatic (the tier's), else 20, 15, 10 or 5
+    int maxBitrateMbps = 0;    // the stream's bitrate cap: 0 automatic (the tier's), else 25, 22, 20, 15, 10 or 5
     int gameVolume = 100;      // percent: 25, 50, 75, 100 or 150
     input::KeyMap keyMap = input::defaultKeyMap();  // the keys when the keyboard is a player's controller
     // Which pad button plays which Xbox button in a game (input/pad_map.h;

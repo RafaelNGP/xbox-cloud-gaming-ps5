@@ -123,7 +123,7 @@ struct SettingsChoice {
     int deband = 3;
     int upscaler = 2;
     bool highRefresh = false;  // 120 Hz output while a game streams
-    int maxBitrateMbps = 0;    // 0 automatic, else 20 / 15 / 10 / 5
+    int maxBitrateMbps = 0;    // 0 automatic, else 25 / 22 / 20 / 15 / 10 / 5
     int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
     input::KeyMap keyMap = input::defaultKeyMap();  // the keyboard as a player's controller
     input::PadMap padMap = input::defaultPadMap();  // the controller's buttons toward the game (always complete)
