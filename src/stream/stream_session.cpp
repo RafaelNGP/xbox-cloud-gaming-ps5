@@ -162,13 +162,17 @@ struct StreamSession::Impl {
         }
     }
 
-    static void sendBinary(const std::shared_ptr<rtc::DataChannel>& ch, const std::vector<uint8_t>& data) {
-        if (!ch || !ch->isOpen()) return;
+    static void sendBinary(const std::shared_ptr<rtc::DataChannel>& ch, const uint8_t* data, size_t size) {
+        if (!ch || !ch->isOpen() || !data || size == 0) return;
         try {
-            ch->send(reinterpret_cast<const rtc::byte*>(data.data()), data.size());
+            ch->send(reinterpret_cast<const rtc::byte*>(data), size);
         } catch (const std::exception& e) {
             XC_LOGW("send on %s: %s", ch->label().c_str(), e.what());
         }
+    }
+
+    static void sendBinary(const std::shared_ptr<rtc::DataChannel>& ch, const std::vector<uint8_t>& data) {
+        sendBinary(ch, data.data(), data.size());
     }
 
     static std::string asText(const rtc::message_variant& m) {
@@ -780,7 +784,9 @@ void StreamSession::sendGamepad(const GamepadFrame& frame) {
         d.loggedFirstMenu = true;
         XC_LOGI("input: first kMenu sent (pad %u)", frame.index);
     }
-    Impl::sendBinary(d.input, gamepadReport(d.inputSequence++, d.nowMs(), frame));
+    uint8_t reportBuf[stream::kGamepadReportSize];
+    size_t reportLen = stream::writeGamepadReport(reportBuf, sizeof(reportBuf), d.inputSequence++, d.nowMs(), frame);
+    Impl::sendBinary(d.input, reportBuf, reportLen);
 }
 
 void StreamSession::sendAudio(const uint8_t* opus, size_t size, uint32_t timestamp) {

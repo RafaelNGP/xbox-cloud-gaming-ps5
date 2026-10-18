@@ -12,15 +12,18 @@ namespace {
 
 constexpr size_t kHeaderSize = 14;
 
-void put8(std::vector<uint8_t>& b, size_t at, uint8_t v) { b[at] = v; }
-void put16(std::vector<uint8_t>& b, size_t at, uint16_t v) {
+inline void put8(uint8_t* b, size_t at, uint8_t v) { b[at] = v; }
+inline void put16(uint8_t* b, size_t at, uint16_t v) {
     b[at] = static_cast<uint8_t>(v);
     b[at + 1] = static_cast<uint8_t>(v >> 8);
 }
-void put32(std::vector<uint8_t>& b, size_t at, uint32_t v) {
+inline void put32(uint8_t* b, size_t at, uint32_t v) {
     for (int i = 0; i < 4; ++i) b[at + i] = static_cast<uint8_t>(v >> (8 * i));
 }
-void put32be(std::vector<uint8_t>& b, size_t at, uint32_t v) {
+inline void put8(std::vector<uint8_t>& b, size_t at, uint8_t v) { put8(b.data(), at, v); }
+inline void put16(std::vector<uint8_t>& b, size_t at, uint16_t v) { put16(b.data(), at, v); }
+inline void put32(std::vector<uint8_t>& b, size_t at, uint32_t v) { put32(b.data(), at, v); }
+[[maybe_unused]] void put32be(std::vector<uint8_t>& b, size_t at, uint32_t v) {
     for (int i = 0; i < 4; ++i) b[at + i] = static_cast<uint8_t>(v >> (8 * (3 - i)));
 }
 
@@ -100,20 +103,33 @@ uint32_t gamepadPhysicality(const GamepadFrame& f) {
     return p;
 }
 
-std::vector<uint8_t> gamepadReport(uint32_t sequence, double timestampMs, const GamepadFrame& f) {
-    auto b = header(kReportGamepad, sequence, timestampMs, kHeaderSize + 1 + 23);
+size_t writeGamepadReport(uint8_t* out, size_t outSize, uint32_t sequence, double timestampMs, const GamepadFrame& f) {
+    if (!out || outSize < kGamepadReportSize) return 0;
+    std::memset(out, 0, kGamepadReportSize);
+    put16(out, 0, kReportGamepad);
+    put32(out, 2, sequence);
+    uint64_t bits;
+    std::memcpy(&bits, &timestampMs, sizeof bits);
+    for (int i = 0; i < 8; ++i) out[6 + i] = static_cast<uint8_t>(bits >> (8 * i));
+
     size_t o = kHeaderSize;
-    put8(b, o++, 1);  // frame count
-    put8(b, o++, f.index);
-    put16(b, o, f.buttons);
-    put16(b, o + 2, static_cast<uint16_t>(axis(f.leftX)));
-    put16(b, o + 4, static_cast<uint16_t>(axis(f.leftY)));
-    put16(b, o + 6, static_cast<uint16_t>(axis(f.rightX)));
-    put16(b, o + 8, static_cast<uint16_t>(axis(f.rightY)));
-    put16(b, o + 10, trigger(f.leftTrigger));
-    put16(b, o + 12, trigger(f.rightTrigger));
-    put32(b, o + 14, gamepadPhysicality(f));  // physical physicality (0 when idle)
-    put32(b, o + 18, 0);                      // virtual physicality (LE)
+    out[o++] = 1;  // frame count
+    out[o++] = f.index;
+    put16(out, o, f.buttons);
+    put16(out, o + 2, static_cast<uint16_t>(axis(f.leftX)));
+    put16(out, o + 4, static_cast<uint16_t>(axis(f.leftY)));
+    put16(out, o + 6, static_cast<uint16_t>(axis(f.rightX)));
+    put16(out, o + 8, static_cast<uint16_t>(axis(f.rightY)));
+    put16(out, o + 10, trigger(f.leftTrigger));
+    put16(out, o + 12, trigger(f.rightTrigger));
+    put32(out, o + 14, gamepadPhysicality(f));  // physical physicality (0 when idle)
+    put32(out, o + 18, 0);                      // virtual physicality (LE)
+    return kGamepadReportSize;
+}
+
+std::vector<uint8_t> gamepadReport(uint32_t sequence, double timestampMs, const GamepadFrame& f) {
+    std::vector<uint8_t> b(kGamepadReportSize);
+    writeGamepadReport(b.data(), b.size(), sequence, timestampMs, f);
     return b;
 }
 

@@ -89,6 +89,8 @@ std::vector<uint8_t> metadataReport(uint32_t sequence, double timestampMs, const
 // Bitmask of active controls for a gamepad frame (0 when idle, bits set for
 // pressed buttons, engaged triggers and deflected sticks).
 uint32_t gamepadPhysicality(const GamepadFrame& frame);
+constexpr size_t kGamepadReportSize = 38;
+size_t writeGamepadReport(uint8_t* out, size_t outSize, uint32_t sequence, double timestampMs, const GamepadFrame& frame);
 std::vector<uint8_t> gamepadReport(uint32_t sequence, double timestampMs, const GamepadFrame& frame);
 // Native mouse and keyboard, for the titles that take them (at most 30
 // frames per report).

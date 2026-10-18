@@ -264,13 +264,13 @@ struct StreamPlayer::Impl {
                 XC_LOGI("first audio packet decoded: %zu samples", pcm.size() / 2);
             }
             if (decoded) {
-                // When audio buffer builds up beyond healthy headroom (>= 80 ms) due to network bursts,
+                // When audio buffer builds up beyond healthy headroom (>= 100 ms) due to network bursts,
                 // decode stale packets in Opus to preserve continuous LPC/CELT filter history,
                 // but skip pushing into AudioQueue until queue drains to healthy target (~60 ms).
                 // This keeps audio latency at ~40-60 ms, perfectly in sync with 22-25 ms video,
                 // and completely eliminates 240-700 ms bufferbloat cuts.
                 size_t queued = media::audioQueue().queuedFrames();
-                if (queued >= kOpusFrameSamples * 4) {
+                if (queued >= kOpusFrameSamples * 5) {
                     continue;
                 }
                 media::audioPush(pcm.data(), pcm.size() / 2);
