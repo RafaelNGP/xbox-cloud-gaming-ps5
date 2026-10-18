@@ -1497,7 +1497,7 @@ void AppUi::setRegions(std::vector<std::string> regions, const std::string& defa
 }
 
 // Settings' bitrate caps (Mbps, after Automatic) and game volumes (percent).
-constexpr int kBitrateCaps[] = {25, 22, 20, 15, 10, 5};
+constexpr int kBitrateCaps[] = {30, 25, 22, 20, 15, 10, 5};
 constexpr int kVolumes[] = {25, 50, 75, 100, 150};
 
 std::vector<std::string> AppUi::settingOptions(int row) const {

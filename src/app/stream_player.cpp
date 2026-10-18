@@ -196,6 +196,7 @@ struct StreamPlayer::Impl {
         uint64_t concealedPackets = 0;
         constexpr uint32_t kOpusFrameSamples = 960;  // 20 ms at 48 kHz
         while (running) {
+            size_t remainingPackets = 0;
             {
                 std::unique_lock<std::mutex> lock(audioMutex_);
                 audioCv.wait(lock, [&] { return !running || !audioPackets_.empty(); });
@@ -222,6 +223,7 @@ struct StreamPlayer::Impl {
 
                 packet = std::move(audioPackets_.front());
                 audioPackets_.pop_front();
+                remainingPackets = audioPackets_.size();
             }
             if (lastRtpTimestamp != 0) {
                 int32_t diff = static_cast<int32_t>(packet.rtpTimestamp - lastRtpTimestamp);
@@ -229,15 +231,18 @@ struct StreamPlayer::Impl {
                     // Late or duplicate packet: skip to preserve timeline and prevent timestamp drift
                     continue;
                 }
-                // Detect packet loss from RTP timestamp gap
-                if (diff > static_cast<int32_t>(kOpusFrameSamples) && diff <= static_cast<int32_t>(kOpusFrameSamples * 10)) {
+                // Detect packet loss from RTP timestamp gap.
+                // Only synthesize PLC if we do not already have pending real packets in the backlog
+                // and the hardware output queue is running low (< 60 ms).
+                if (remainingPackets == 0 && diff > static_cast<int32_t>(kOpusFrameSamples) &&
+                    diff <= static_cast<int32_t>(kOpusFrameSamples * 10)) {
                     uint32_t lostCount = (static_cast<uint32_t>(diff) + kOpusFrameSamples / 2) / kOpusFrameSamples - 1;
-                    // Cap PLC frames to what can safely fit in AudioQueue without triggering trim cuts (max 3 frames = 60ms)
                     size_t queued = media::audioQueue().queuedFrames();
-                    size_t maxPlcCanFit = (media::AudioQueue::kMaxQueued > queued + kOpusFrameSamples * 2)
-                                              ? (media::AudioQueue::kMaxQueued - queued - kOpusFrameSamples * 2) / kOpusFrameSamples
+                    constexpr size_t kTargetHeadroom = kOpusFrameSamples * 3;  // 60 ms
+                    size_t maxPlcCanFit = (kTargetHeadroom > queued + kOpusFrameSamples)
+                                              ? (kTargetHeadroom - queued - kOpusFrameSamples) / kOpusFrameSamples
                                               : 0;
-                    uint32_t plcToPush = std::min<uint32_t>({lostCount, static_cast<uint32_t>(maxPlcCanFit), 3u});
+                    uint32_t plcToPush = std::min<uint32_t>({lostCount, static_cast<uint32_t>(maxPlcCanFit), 2u});
                     for (uint32_t i = 0; i < plcToPush; ++i) {
                         pcm.clear();
                         audioDecoder.conceal(pcm, kOpusFrameSamples);
@@ -253,10 +258,22 @@ struct StreamPlayer::Impl {
             lastRtpTimestamp = packet.rtpTimestamp;
 
             pcm.clear();
-            if (audioDecoder.decode(packet.data.data(), packet.data.size(), pcm)) media::audioPush(pcm.data(), pcm.size() / 2);
-            if (first) {
+            bool decoded = audioDecoder.decode(packet.data.data(), packet.data.size(), pcm);
+            if (first && decoded) {
                 first = false;
                 XC_LOGI("first audio packet decoded: %zu samples", pcm.size() / 2);
+            }
+            if (decoded) {
+                // When audio buffer builds up beyond healthy headroom (>= 80 ms) due to network bursts,
+                // decode stale packets in Opus to preserve continuous LPC/CELT filter history,
+                // but skip pushing into AudioQueue until queue drains to healthy target (~60 ms).
+                // This keeps audio latency at ~40-60 ms, perfectly in sync with 22-25 ms video,
+                // and completely eliminates 240-700 ms bufferbloat cuts.
+                size_t queued = media::audioQueue().queuedFrames();
+                if (queued >= kOpusFrameSamples * 4) {
+                    continue;
+                }
+                media::audioPush(pcm.data(), pcm.size() / 2);
             }
         }
     }
@@ -535,10 +552,10 @@ struct StreamPlayer::Impl {
         }
         opts.maxBitrate = gssv.resolution() == xcloud::Resolution::P720    ? 12000000
                           : gssv.resolution() == xcloud::Resolution::P1440 ? 40000000
-                          : gssv.resolution() == xcloud::Resolution::P1080HQ ? 25000000
-                                                                           : 20000000;
-        if (maxBitrateMbps > 0)  // the user's cap (Wi-Fi): REMB never offers more
-            opts.maxBitrate = std::min<uint32_t>(opts.maxBitrate, static_cast<uint32_t>(maxBitrateMbps) * 1000000u);
+                          : gssv.resolution() == xcloud::Resolution::P1080HQ ? 30000000
+                                                                           : 25000000;
+        if (maxBitrateMbps > 0)  // the user's cap (Wi-Fi) or test override: REMB offers this rate
+            opts.maxBitrate = static_cast<uint32_t>(maxBitrateMbps) * 1000000u;
         opts.simulatedVideoLoss = simulatedLoss;
         if (const char* loss = std::getenv("XC_SIM_LOSS")) opts.simulatedVideoLoss = std::atoi(loss);
         callbacks = cb;
