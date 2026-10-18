@@ -594,6 +594,36 @@ void loadConsoles(auth::AuthManager& am, xcloud::GssvClient& home) {
 
 namespace {
 std::string g_subscription;
+
+void tryInstantCachedBoot(auth::AuthManager& am) {
+    if (!am.hasStoredAccount()) return;
+    auto library = std::make_shared<app::Library>();
+    library->setCachePath(platform::dataDir() + "/library.json");
+    {
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        library->setFavorites(g_settings.favorites);
+    }
+    if (library->loadCache() && !library->rows().empty()) {
+        {
+            std::lock_guard<std::mutex> lock(s_libraryMutex);
+            s_library = library;
+        }
+        if (!am.profile().gamertag.empty()) {
+            g_ui->setProfile(am.profile().gamertag, am.profile().gamerpicUrl, am.profile().gamerscore);
+        }
+        if (!library->subscription().empty()) {
+            g_subscription = library->subscription();
+            g_ui->setSubscription(library->subscription());
+        }
+        g_ui->setRows(library->rows());
+        g_ui->setOwned(library->owned(), library->purchasable(), library->ownedKnown());
+        g_ui->setMembership(library->gamePassMember());
+        g_ui->setSearchPools(library->gamePassSearchPool(), library->librarySearchPool());
+        g_ui->setLoading(true, 0, 0);
+        g_ui->showHome();
+        XC_LOGI("startup: instant library hydration on frame 1 (<150 ms)");
+    }
+}
 }  // namespace
 
 void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
@@ -602,7 +632,11 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         platform::notify(ui::trf(ui::Str::StorageNotWritable, pathAndErr),
                          "storage not writable (notification)");
     }
-    g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
+    if (g_ui->screen() != ui::Screen::Home) {
+        g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
+    } else {
+        g_ui->setLoading(true, 0, 0);
+    }
     std::string err;
     auto onCode = [](const auth::DeviceCode& dc) { g_ui->showSignIn(dc.userCode, dc.verificationUri); };
     std::string country;
@@ -689,7 +723,11 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
 
 void loadLibrary(xcloud::GssvClient& gssv) {
     std::string err;
-    g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
+    if (g_ui->screen() != ui::Screen::Home) {
+        g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
+    } else {
+        g_ui->setLoading(true, 0, 0);
+    }
     stopHydration();
     auto library = std::make_shared<app::Library>();
     {
@@ -826,6 +864,7 @@ void worker() {
         return;
     }
     auth::AuthManager am(platform::dataDir() + "/account.json");
+    tryInstantCachedBoot(am);
     xcloud::GssvClient gssv, home("xhome");
     for (;;) {
         int cmd = g_command.exchange(kNone);

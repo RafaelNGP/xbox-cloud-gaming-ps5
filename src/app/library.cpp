@@ -306,7 +306,10 @@ bool Library::loadCache() {
     std::string text;
     if (cachePath_.empty() || !platform::readFile(cachePath_, text)) return false;
     auto j = json::parse(text);
-    if (!j || (*j)["version"].asInt() != kCacheVersion || (*j)["market"].str() != market_) return false;
+    if (!j || (*j)["version"].asInt() != kCacheVersion) return false;
+    if (market_.empty()) market_ = (*j)["market"].str();
+    else if ((*j)["market"].str() != market_) return false;
+    if (language_.empty()) language_ = (*j)["language"].str();
     // Names and descriptions in another language (the language changed):
     // still shown, so the lists stay whole, and fetched again in this one.
     bool sameLanguage = (*j)["language"].str() == language_;
@@ -335,10 +338,23 @@ bool Library::loadCache() {
         purchasable_.emplace_back(o["p"].str(), o["t"].str());
         purchasableSet_.insert(o["p"].str());
     }
-    ownershipKnown_ = !ownedTitles_.empty();
+    if (layout_.empty() && (*j)["layout"].size() > 0) {
+        for (const auto& rowObj : (*j)["layout"].items()) {
+            RowIds r;
+            r.title = rowObj["title"].str();
+            r.badges = rowObj["badges"].asBool(true);
+            r.isGrid = rowObj["isGrid"].asBool(false);
+            r.recent = rowObj["recent"].asBool(false);
+            for (const auto& it : rowObj["items"].items()) {
+                r.items.emplace_back(it["p"].str(), it["t"].str());
+            }
+            if (!r.items.empty()) layout_.push_back(std::move(r));
+        }
+    }
+    ownershipKnown_ = !ownedTitles_.empty() || !layout_.empty();
     sortOwned();
-    XC_LOGI("library: cache: %zu of the account's games, %zu to buy, %zu consoles known", owned_.size(),
-            purchasable_.size(), platform_.size());
+    XC_LOGI("library: cache: %zu of the account's games, %zu to buy, %zu layout rows, %zu consoles known",
+            owned_.size(), purchasable_.size(), layout_.size(), platform_.size());
     return ownershipKnown_;
 }
 
@@ -360,6 +376,17 @@ void Library::saveCache() const {
     for (const auto& id : allGames_) gamePass.push(id);
     root.set("gamePass", gamePass);  // the next start tells the games added since
     root.set("purchasable", itemsToJson(purchasable_));
+    json::Value layoutArr = json::Value::array();
+    for (const auto& r : layout_) {
+        json::Value rowObj = json::Value::object();
+        rowObj.set("title", r.title);
+        rowObj.set("badges", r.badges);
+        rowObj.set("isGrid", r.isGrid);
+        rowObj.set("recent", r.recent);
+        rowObj.set("items", itemsToJson(r.items));
+        layoutArr.push(std::move(rowObj));
+    }
+    root.set("layout", layoutArr);
     // Details of everything on the home screen, in "Your games" and in the
     // Game Pass search: the next launch shows them, hero art and all, before
     // the network answers, and the search's filters (play modes, languages)

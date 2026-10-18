@@ -20,6 +20,7 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <poll.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -29,6 +30,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <mutex>
 
 // From mbedtls/net_sockets.h; that module is not built for the PS5 (we bring
@@ -283,9 +285,83 @@ bool addTrustedCa(const std::string& pemPath) {
     return rc == 0;
 }
 
+namespace {
+
+struct PooledConn {
+    std::string host;
+    int port = 443;
+    int fd = -1;
+    mbedtls_ssl_context ssl;
+    mbedtls_ssl_config conf;
+    uint64_t lastUsedMs = 0;
+};
+
+class ConnectionPool {
+public:
+    std::unique_ptr<PooledConn> acquire(const std::string& host, int port) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        uint64_t now = platform::nowMs();
+        for (auto it = pool_.begin(); it != pool_.end();) {
+            if (now - (*it)->lastUsedMs > 15000) {
+                destroy(std::move(*it));
+                it = pool_.erase(it);
+                continue;
+            }
+            if ((*it)->host == host && (*it)->port == port) {
+                struct pollfd pfd{(*it)->fd, POLLIN, 0};
+                int r = ::poll(&pfd, 1, 0);
+                if (r != 0) {
+                    destroy(std::move(*it));
+                    it = pool_.erase(it);
+                    continue;
+                }
+                auto conn = std::move(*it);
+                pool_.erase(it);
+                return conn;
+            }
+            ++it;
+        }
+        return nullptr;
+    }
+
+    void release(std::unique_ptr<PooledConn> conn) {
+        if (!conn) return;
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (pool_.size() >= 8) {
+            destroy(std::move(conn));
+            return;
+        }
+        conn->lastUsedMs = platform::nowMs();
+        pool_.push_back(std::move(conn));
+    }
+
+    void clear() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto& conn : pool_) destroy(std::move(conn));
+        pool_.clear();
+    }
+
+    static void destroy(std::unique_ptr<PooledConn> conn) {
+        if (!conn) return;
+        mbedtls_ssl_close_notify(&conn->ssl);
+        mbedtls_ssl_free(&conn->ssl);
+        mbedtls_ssl_config_free(&conn->conf);
+        if (conn->fd >= 0) ::close(conn->fd);
+    }
+
+private:
+    std::mutex mutex_;
+    std::vector<std::unique_ptr<PooledConn>> pool_;
+};
+
+static ConnectionPool g_connPool;
+
+}  // namespace
+
 void shutdownTls() {
     std::lock_guard<std::mutex> lock(g.mutex);
     if (!g.ready) return;
+    g_connPool.clear();
     mbedtls_x509_crt_free(&g.ca);
     mbedtls_ctr_drbg_free(&g.drbg);
     mbedtls_entropy_free(&g.entropy);
@@ -311,16 +387,12 @@ Response performOnce(const Request& req) {
     }
 
     const uint64_t t0 = platform::nowMs();
-    int fd = connectTcp(url.host, url.port, req.timeoutMs, resp.error);
-    if (fd < 0) return resp;
-    const uint64_t tConnected = platform::nowMs();
-    uint64_t tHandshake = tConnected;
+    auto conn = g_connPool.acquire(url.host, url.port);
+    bool isReused = (conn != nullptr);
+    uint64_t tConnected = t0;
+    uint64_t tHandshake = t0;
 
-    mbedtls_ssl_context ssl;
-    mbedtls_ssl_config conf;
-    mbedtls_ssl_init(&ssl);
-    mbedtls_ssl_config_init(&conf);
-
+    bool canKeepAlive = false;
     auto finish = [&](std::string err) {
         if (!err.empty()) resp.error = std::move(err);
         uint64_t total = platform::nowMs() - t0;
@@ -328,47 +400,62 @@ Response performOnce(const Request& req) {
             XC_LOGI("slow request %s%s: connect %llu ms, TLS %llu ms, total %llu ms", url.host.c_str(),
                     url.path.substr(0, 40).c_str(), static_cast<unsigned long long>(tConnected - t0),
                     static_cast<unsigned long long>(tHandshake - tConnected), static_cast<unsigned long long>(total));
-        mbedtls_ssl_free(&ssl);
-        mbedtls_ssl_config_free(&conf);
-        ::close(fd);
+        if (conn) {
+            if (canKeepAlive) {
+                g_connPool.release(std::move(conn));
+            } else {
+                ConnectionPool::destroy(std::move(conn));
+            }
+        }
         return resp;
     };
 
-    int rc = mbedtls_ssl_config_defaults(&conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
-                                         MBEDTLS_SSL_PRESET_DEFAULT);
-    if (rc) return finish("ssl_config_defaults: " + tlsError(rc));
-    mbedtls_ssl_conf_authmode(&conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-    mbedtls_ssl_conf_ca_chain(&conf, &g.ca, nullptr);
-    mbedtls_ssl_conf_rng(&conf, mbedtls_ctr_drbg_random, &g.drbg);
-    if ((rc = mbedtls_ssl_setup(&ssl, &conf))) return finish("ssl_setup: " + tlsError(rc));
-    if ((rc = mbedtls_ssl_set_hostname(&ssl, url.host.c_str()))) return finish("set_hostname: " + tlsError(rc));
-    mbedtls_ssl_set_bio(&ssl, &fd, bioSend, bioRecv, nullptr);
+    if (!conn) {
+        conn = std::make_unique<PooledConn>();
+        conn->host = url.host;
+        conn->port = url.port;
+        conn->fd = connectTcp(url.host, url.port, req.timeoutMs, resp.error);
+        if (conn->fd < 0) return resp;
+        tConnected = platform::nowMs();
+        tHandshake = tConnected;
 
-    while ((rc = mbedtls_ssl_handshake(&ssl)) != 0) {
-        if (rc == MBEDTLS_ERR_SSL_WANT_READ || rc == MBEDTLS_ERR_SSL_WANT_WRITE) continue;
-        if (rc != MBEDTLS_ERR_X509_CERT_VERIFY_FAILED)
-            return finish("TLS handshake with " + url.host + ": " + tlsError(rc));
-        // The certificate was refused: why (a wrong clock is the usual cause
-        // on a console; "Certificate verification failed" alone says nothing).
-        uint32_t flags = mbedtls_ssl_get_verify_result(&ssl);
-        TlsProblem problem = flags & (MBEDTLS_X509_BADCERT_EXPIRED | MBEDTLS_X509_BADCERT_FUTURE)
-                                 ? TlsProblem::Clock
-                             : flags & MBEDTLS_X509_BADCERT_CN_MISMATCH ? TlsProblem::NameMismatch
-                             : flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED ? TlsProblem::Untrusted
-                                                                        : TlsProblem::Other;
-        g_tlsProblem = static_cast<int>(problem);
-        if (problem == TlsProblem::Clock && microsoftHost(url.host)) ++g_clockRefusals;
-        char info[512];
-        int n = mbedtls_x509_crt_verify_info(info, sizeof info, "", flags);
-        std::string why = n > 0 ? std::string(info, static_cast<size_t>(n)) : "flags " + std::to_string(flags);
-        for (auto& c : why)
-            if (c == '\n') c = ';';
-        while (!why.empty() && (why.back() == ';' || why.back() == ' ')) why.pop_back();
-        return finish("TLS handshake with " + url.host + ": certificate refused (" + why + "; console date " +
-                      todayText() + ") " + tlsError(rc));
+        mbedtls_ssl_init(&conn->ssl);
+        mbedtls_ssl_config_init(&conn->conf);
+
+        int rc = mbedtls_ssl_config_defaults(&conn->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
+                                             MBEDTLS_SSL_PRESET_DEFAULT);
+        if (rc) return finish("ssl_config_defaults: " + tlsError(rc));
+        mbedtls_ssl_conf_authmode(&conn->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+        mbedtls_ssl_conf_ca_chain(&conn->conf, &g.ca, nullptr);
+        mbedtls_ssl_conf_rng(&conn->conf, mbedtls_ctr_drbg_random, &g.drbg);
+        if ((rc = mbedtls_ssl_setup(&conn->ssl, &conn->conf))) return finish("ssl_setup: " + tlsError(rc));
+        if ((rc = mbedtls_ssl_set_hostname(&conn->ssl, url.host.c_str()))) return finish("set_hostname: " + tlsError(rc));
+        mbedtls_ssl_set_bio(&conn->ssl, &conn->fd, bioSend, bioRecv, nullptr);
+
+        while ((rc = mbedtls_ssl_handshake(&conn->ssl)) != 0) {
+            if (rc == MBEDTLS_ERR_SSL_WANT_READ || rc == MBEDTLS_ERR_SSL_WANT_WRITE) continue;
+            if (rc != MBEDTLS_ERR_X509_CERT_VERIFY_FAILED)
+                return finish("TLS handshake with " + url.host + ": " + tlsError(rc));
+            uint32_t flags = mbedtls_ssl_get_verify_result(&conn->ssl);
+            TlsProblem problem = flags & (MBEDTLS_X509_BADCERT_EXPIRED | MBEDTLS_X509_BADCERT_FUTURE)
+                                     ? TlsProblem::Clock
+                                 : flags & MBEDTLS_X509_BADCERT_CN_MISMATCH ? TlsProblem::NameMismatch
+                                 : flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED ? TlsProblem::Untrusted
+                                                                            : TlsProblem::Other;
+            g_tlsProblem = static_cast<int>(problem);
+            if (problem == TlsProblem::Clock && microsoftHost(url.host)) ++g_clockRefusals;
+            char info[512];
+            int n = mbedtls_x509_crt_verify_info(info, sizeof info, "", flags);
+            std::string why = n > 0 ? std::string(info, static_cast<size_t>(n)) : "flags " + std::to_string(flags);
+            for (auto& c : why)
+                if (c == '\n') c = ';';
+            while (!why.empty() && (why.back() == ';' || why.back() == ' ')) why.pop_back();
+            return finish("TLS handshake with " + url.host + ": certificate refused (" + why + "; console date " +
+                          todayText() + ") " + tlsError(rc));
+        }
+        g_tlsProblem = static_cast<int>(TlsProblem::None);
+        tHandshake = platform::nowMs();
     }
-    g_tlsProblem = static_cast<int>(TlsProblem::None);
-    tHandshake = platform::nowMs();
 
     // Request.
     std::string head = req.method + " " + url.path + " HTTP/1.1\r\n";
@@ -384,14 +471,21 @@ Response performOnce(const Request& req) {
     if (!hasAccept) head += "Accept: application/json\r\n";
     if (!req.body.empty() || req.method == "POST" || req.method == "PUT")
         head += "Content-Length: " + std::to_string(req.body.size()) + "\r\n";
-    head += "Connection: close\r\n\r\n";
+    head += "Connection: keep-alive\r\n\r\n";
     std::string out = head + req.body;
 
     size_t sent = 0;
     while (sent < out.size()) {
-        rc = mbedtls_ssl_write(&ssl, reinterpret_cast<const unsigned char*>(out.data() + sent), out.size() - sent);
+        int rc = mbedtls_ssl_write(&conn->ssl, reinterpret_cast<const unsigned char*>(out.data() + sent), out.size() - sent);
         if (rc == MBEDTLS_ERR_SSL_WANT_READ || rc == MBEDTLS_ERR_SSL_WANT_WRITE) continue;
-        if (rc < 0) return finish("TLS write: " + tlsError(rc));
+        if (rc < 0) {
+            if (isReused) {
+                // If a reused connection failed during initial write, drop it and retry once fresh
+                ConnectionPool::destroy(std::move(conn));
+                return performOnce(req);
+            }
+            return finish("TLS write: " + tlsError(rc));
+        }
         sent += static_cast<size_t>(rc);
     }
 
@@ -404,7 +498,7 @@ Response performOnce(const Request& req) {
     size_t streamed = 0;
     unsigned char buf[16384];
     for (;;) {
-        rc = mbedtls_ssl_read(&ssl, buf, sizeof buf);
+        int rc = mbedtls_ssl_read(&conn->ssl, buf, sizeof buf);
         if (rc == MBEDTLS_ERR_SSL_WANT_READ || rc == MBEDTLS_ERR_SSL_WANT_WRITE) continue;
 #if defined(MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET)
         if (rc == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) continue;
@@ -461,7 +555,6 @@ Response performOnce(const Request& req) {
         if (contentLength >= 0 && bodyLen >= static_cast<size_t>(contentLength)) break;
         if (chunked && raw.size() >= 5 && raw.compare(raw.size() - 5, 5, "0\r\n\r\n") == 0) break;
     }
-    mbedtls_ssl_close_notify(&ssl);
 
     if (headerEnd == std::string::npos) return finish("no HTTP response from " + url.host);
     if (streaming) {
@@ -469,6 +562,7 @@ Response performOnce(const Request& req) {
             resp.status = 0;
             return finish("download cut short");
         }
+        canKeepAlive = (contentLength >= 0) && lower(resp.header("connection")) != "close";
         return finish({});
     }
     std::string body = raw.substr(headerEnd + 4);
@@ -489,6 +583,9 @@ Response performOnce(const Request& req) {
         if (contentLength >= 0 && resp.body.size() > static_cast<size_t>(contentLength))
             resp.body.resize(static_cast<size_t>(contentLength));
     }
+    canKeepAlive = (resp.status > 0) &&
+                   lower(resp.header("connection")) != "close" &&
+                   (contentLength >= 0 || chunked);
     return finish({});
 }
 

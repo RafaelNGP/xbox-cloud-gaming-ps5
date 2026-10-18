@@ -86,6 +86,9 @@ public:
         size_t done = 0, total = 0;
     };
     Progress progress() const { return progress_; }
+    const std::string& subscription() const { return subscription_; }
+    bool loadCache();
+    void saveCache() const;
 
 private:
     using Item = std::pair<std::string, std::string>;  // productId, titleId
@@ -105,8 +108,6 @@ private:
     // titlehub for the products in `ids` whose console isn't known yet.
     void fetchPlatformsFor(const std::vector<std::string>& ids, const std::string& xblAuth);
     void sortOwned();
-    bool loadCache();
-    void saveCache() const;
 
     std::string cachePath_;
     std::string subscription_;

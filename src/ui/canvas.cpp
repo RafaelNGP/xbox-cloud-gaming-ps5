@@ -25,6 +25,35 @@ inline uint32_t clampCoverage(float v) {
     return static_cast<uint32_t>(v * 255.0f + 0.5f);
 }
 
+constexpr int kMaxLutRadius = 32;
+
+// Fast precomputed table for corner coverage: s_cornerLut.get(radius, ix, iy)
+struct CornerCoverageLut {
+    uint8_t table[kMaxLutRadius + 1][kMaxLutRadius * kMaxLutRadius];
+
+    void init() {
+        for (int r = 1; r <= kMaxLutRadius; ++r) {
+            for (int iy = 0; iy < r; ++iy) {
+                for (int ix = 0; ix < r; ++ix) {
+                    float dx = ix + 0.5f;
+                    float dy = iy + 0.5f;
+                    float d = std::sqrt(dx * dx + dy * dy);
+                    float v = r + 0.5f - d;
+                    uint8_t cov = v <= 0.0f ? 0 : v >= 1.0f ? 255 : static_cast<uint8_t>(v * 255.0f + 0.5f);
+                    table[r][iy * r + ix] = cov;
+                }
+            }
+        }
+    }
+
+    uint32_t get(int radius, int ix, int iy) const {
+        return table[radius][iy * radius + ix];
+    }
+};
+
+static CornerCoverageLut s_cornerLut;
+static bool s_lutInit = [] { s_cornerLut.init(); return true; }();
+
 }  // namespace
 
 void Canvas::setClip(Rect r) { clip_ = intersect(r, {0, 0, w_, h_}); }
@@ -45,15 +74,26 @@ inline void Canvas::blend(uint32_t& dst, Color src, uint32_t a) const {
 void Canvas::clear(Color c) { std::fill(px_.begin(), px_.end(), c | 0xFF000000u); }
 
 uint32_t Canvas::cornerCoverage(Rect r, int radius, int px, int py) {
-    // Distance from the pixel centre to the nearest corner circle centre.
-    float cx = px + 0.5f, cy = py + 0.5f;
-    float left = r.x + radius, right = r.x + r.w - radius;
-    float top = r.y + radius, bottom = r.y + r.h - radius;
-    float dx = cx < left ? left - cx : cx > right ? cx - right : 0;
-    float dy = cy < top ? top - cy : cy > bottom ? cy - bottom : 0;
-    if (dx == 0 || dy == 0) return 255;
-    float d = std::sqrt(dx * dx + dy * dy);
-    return clampCoverage(radius + 0.5f - d);
+    int left = r.x + radius, right = r.x + r.w - radius;
+    int top = r.y + radius, bottom = r.y + r.h - radius;
+
+    int ix = px < left ? (left - 1 - px) : px >= right ? (px - right) : -1;
+    int iy = py < top ? (top - 1 - py) : py >= bottom ? (py - bottom) : -1;
+
+    if (ix < 0 || iy < 0) return 255;
+
+    if (radius <= kMaxLutRadius) {
+        return s_cornerLut.get(radius, ix, iy);
+    }
+
+    float dx = ix + 0.5f, dy = iy + 0.5f;
+    float d2 = dx * dx + dy * dy;
+    float rInner = radius - 0.5f;
+    if (d2 <= rInner * rInner) return 255;
+    float rOuter = radius + 0.5f;
+    if (d2 >= rOuter * rOuter) return 0;
+
+    return clampCoverage(radius + 0.5f - std::sqrt(d2));
 }
 
 void Canvas::fillRect(Rect r, Color c, int radius) {
@@ -61,13 +101,24 @@ void Canvas::fillRect(Rect r, Color c, int radius) {
     uint32_t a = alphaOf(c);
     if (b.w <= 0 || b.h <= 0 || a == 0) return;
     radius = std::min(radius, std::min(r.w, r.h) / 2);
+    uint32_t opaqueVal = c | 0xFF000000u;
     for (int y = b.y; y < b.y + b.h; ++y) {
         uint32_t* row = &px_[static_cast<size_t>(y) * w_];
         bool cornerRow = radius > 0 && (y < r.y + radius || y >= r.y + r.h - radius);
-        for (int x = b.x; x < b.x + b.w; ++x) {
-            uint32_t cov = 255;
-            if (cornerRow && (x < r.x + radius || x >= r.x + r.w - radius)) cov = cornerCoverage(r, radius, x, y);
-            blend(row[x], c, (a * cov + 127) / 255);
+        if (!cornerRow) {
+            if (a >= 255) {
+                std::fill_n(&row[b.x], b.w, opaqueVal);
+            } else {
+                for (int x = b.x; x < b.x + b.w; ++x) blend(row[x], c, a);
+            }
+        } else {
+            int leftEnd = std::min(b.x + b.w, r.x + radius);
+            int rightStart = std::max(b.x, r.x + r.w - radius);
+            for (int x = b.x; x < b.x + b.w; ++x) {
+                uint32_t cov = 255;
+                if (x < leftEnd || x >= rightStart) cov = cornerCoverage(r, radius, x, y);
+                blend(row[x], c, (a * cov + 127) / 255);
+            }
         }
     }
 }
@@ -78,11 +129,22 @@ void Canvas::strokeRect(Rect r, Color c, int t, int radius) {
     if (b.w <= 0 || b.h <= 0 || a == 0) return;
     Rect inner{r.x + t, r.y + t, r.w - 2 * t, r.h - 2 * t};
     int innerRadius = std::max(0, radius - t);
+
+    int holeX0 = inner.x + innerRadius;
+    int holeX1 = inner.x + inner.w - innerRadius;
+    int holeY0 = inner.y + innerRadius;
+    int holeY1 = inner.y + inner.h - innerRadius;
+
     for (int y = b.y; y < b.y + b.h; ++y) {
         uint32_t* row = &px_[static_cast<size_t>(y) * w_];
+        bool inHoleY = (y >= holeY0 && y < holeY1 && holeX1 > holeX0);
+
         for (int x = b.x; x < b.x + b.w; ++x) {
-            uint32_t outer = cornerCoverage(r, radius, x, y);
-            if (radius == 0) outer = 255;
+            if (inHoleY && x == holeX0) {
+                x = holeX1 - 1;
+                continue;
+            }
+            uint32_t outer = radius == 0 ? 255 : cornerCoverage(r, radius, x, y);
             uint32_t in = 0;
             if (x >= inner.x && x < inner.x + inner.w && y >= inner.y && y < inner.y + inner.h)
                 in = innerRadius ? cornerCoverage(inner, innerRadius, x, y) : 255;
