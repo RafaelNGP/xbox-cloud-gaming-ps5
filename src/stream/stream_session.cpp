@@ -668,10 +668,15 @@ struct StreamSession::Impl {
         uint64_t now = platform::nowMs();
         if (now - lastKeepaliveMs >= 30000) {
             lastKeepaliveMs = now;
-            if (keepaliveThread.joinable() && !keepaliveInFlight.load()) {
-                keepaliveThread.join();
-            }
-            if (!keepaliveInFlight.exchange(true)) {
+            // Only this thread starts one. While the last one is still out
+            // (a slow network), none more; once it is done, its thread is
+            // joined before the next is started: never a new std::thread
+            // moved onto one still joinable (std::terminate), as checking
+            // and then exchanging the flag allowed when the thread ended in
+            // between.
+            if (!keepaliveInFlight.load()) {
+                if (keepaliveThread.joinable()) keepaliveThread.join();
+                keepaliveInFlight = true;
                 keepaliveThread = std::thread([this] {
                     std::string err;
                     if (!gssv.keepalive(err)) XC_LOGW("%s", err.c_str());
@@ -688,7 +693,7 @@ struct StreamSession::Impl {
     // Before the session goes: no callback of libdatachannel's (they hold
     // `this`) may run any more. Each reset waits for a call in progress.
     void detach() {
-        if (keepaliveThread.joinable()) {
+        if (keepaliveThread.joinable()) {  // after close(): tick() starts no other
             keepaliveThread.join();
         }
         {
