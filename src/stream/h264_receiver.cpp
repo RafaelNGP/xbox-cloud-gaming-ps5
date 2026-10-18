@@ -53,7 +53,7 @@ void H264Receiver::putPacket(int64_t s, uint32_t ts, bool marker, const uint8_t*
     ring_[idx].seq = s;
     ring_[idx].timestamp = ts;
     ring_[idx].marker = marker;
-    ring_[idx].length = static_cast<uint16_t>(std::min<size_t>(len, 1536));
+    ring_[idx].length = static_cast<uint16_t>(std::min(len, kMaxPayload));  // accept() refuses larger ones
     if (ring_[idx].length > 0 && data) {
         std::memcpy(ring_[idx].payload, data, ring_[idx].length);
     }
@@ -173,7 +173,8 @@ bool H264Receiver::assemble(int64_t first, int64_t last, std::vector<uint8_t>& o
     keyframe = false;
     for (int64_t s = first; s <= last; ++s) {
         const auto* slot = getPacket(s);
-        if (!slot || slot->length == 0) return false;
+        if (!slot) return false;
+        if (slot->length == 0) continue;  // padding only: nothing to add, the frame goes on
         const uint8_t* p = slot->payload;
         size_t pLen = slot->length;
         uint8_t type = p[0] & 0x1F;
@@ -329,6 +330,16 @@ void H264Receiver::accept(const uint8_t* d, size_t n, uint64_t now, const rtc::m
     int64_t seq = unwrap(rawSeq);
     if (nextSeq_ >= 0 && seq < nextSeq_) return;  // too late or duplicate
     if (hasPacket(seq)) return;
+    if (end - off > kMaxPayload) {
+        // Larger than a slot: cut short it would corrupt the NAL unit. Left
+        // as a hole instead, NACKed when the next packet shows it (and
+        // still missing if it was), then the frame dropped and a key frame
+        // asked for, like any loss.
+        if (oversized_++ % 100 == 0)
+            XC_LOGW("video: RTP payload of %zu bytes is larger than %zu, treated as lost (%llu so far)", end - off,
+                    kMaxPayload, static_cast<unsigned long long>(oversized_));
+        return;
+    }
     if (missing_.erase(seq)) ++stats_.recovered;
 
     uint32_t ts = (uint32_t(d[4]) << 24) | (uint32_t(d[5]) << 16) | (uint32_t(d[6]) << 8) | d[7];
