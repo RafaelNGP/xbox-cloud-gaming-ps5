@@ -4,6 +4,7 @@
 // token for a relying party (gssv for xCloud, xboxlive.com for profile data).
 #pragma once
 
+#include <cstdint>
 #include <string>
 
 namespace xc::auth {
@@ -31,5 +32,9 @@ bool xblUserToken(const std::string& msaAccessToken, const std::string& rpsPrefi
                   std::string& err);
 bool xstsToken(const XblToken& userToken, const std::string& relyingParty, XblToken& out,
                std::string& err);
+
+// An ISO-8601 UTC time ("2026-10-19T09:12:34.1234567Z", a token's NotAfter)
+// as unix seconds; 0 when it can't be read.
+int64_t parseIsoUtc(const std::string& iso);
 
 }  // namespace xc::auth

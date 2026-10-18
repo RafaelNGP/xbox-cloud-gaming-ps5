@@ -6,6 +6,8 @@
 #include "util/json.h"
 #include "util/log.h"
 
+#include <cstdio>
+
 namespace xc::auth {
 
 namespace {
@@ -70,6 +72,18 @@ bool xstsToken(const XblToken& userToken, const std::string& relyingParty, XblTo
     body.set("Properties", props);
     return readXbl(postJson("https://xsts.auth.xboxlive.com/xsts/authorize", body), out, err,
                    ("XSTS authorization for " + relyingParty).c_str());
+}
+
+int64_t parseIsoUtc(const std::string& iso) {
+    int y = 0, mo = 0, d = 0, h = 0, mi = 0, sec = 0;
+    if (std::sscanf(iso.c_str(), "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &sec) != 6) return 0;
+    if (y < 1970 || mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || sec > 60) return 0;
+    // Days since 1970-01-01 (the PS5's libc has no timegm).
+    y -= mo <= 2;
+    int64_t era = y / 400, yoe = y - era * 400;
+    int64_t doy = (153 * (mo + (mo > 2 ? -3 : 9)) + 2) / 5 + d - 1, doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    int64_t days = era * 146097 + doe - 719468;
+    return days * 86400 + h * 3600 + mi * 60 + sec;
 }
 
 }  // namespace xc::auth

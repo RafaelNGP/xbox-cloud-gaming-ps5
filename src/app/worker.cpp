@@ -314,6 +314,26 @@ std::string stream(xcloud::GssvClient& gssv) {
 // Queue -> /connect -> Provisioned -> stream. Returns a status line; sets
 // `failed` when the user should see an error rather than the home screen.
 // `regionName` overrides the settings' region (empty: as set).
+// Profile token for titlehub (memory only).
+std::string g_xblAuth;
+
+// The sign-in renewed when it is about to expire (AuthManager::ensureFresh;
+// `force`: a request was refused), before the xCloud calls. What other
+// threads hold follows a renewal: titlehub's token, and the copy of the
+// cloud client the queue estimates use.
+bool keepSignedIn(auth::AuthManager& am, xcloud::GssvClient& gssv, std::string& err, bool force = false) {
+    bool renewed = false;
+    if (!am.ensureFresh(&gssv, err, force, &renewed)) return false;
+    if (renewed) {
+        {
+            std::lock_guard<std::mutex> lock(g_argMutex);
+            g_xblAuth = am.profile().xblAuthorization;
+        }
+        if (!gssv.isHome()) setQueueClient(&gssv);
+    }
+    return true;
+}
+
 std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::GameTile& game, bool& failed,
                  const std::string& regionName = {}) {
     failed = true;
@@ -323,6 +343,10 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     g_ui->showLaunching(game, regionName.empty() ? ui::tr(ui::Str::Connecting)
                                                  : ui::trf(ui::Str::TryingRegion, ui::prettyRegion(regionName)));
     std::string err;
+    // A login about to expire is renewed first (its region kept); if that
+    // fails the start is tried all the same.
+    if (!keepSignedIn(am, gssv, err)) XC_LOGW("sign-in renewal: %s", err.c_str());
+    err.clear();
     std::string streamLocale = ui::gameLocale();
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
@@ -373,7 +397,16 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     // For a crash marker: what is being started (a console's id stays out).
     g_stageTitle = game.titleId;
     crash::setStage(gssv.isHome() ? "starting own Xbox" : ("starting " + game.titleId).c_str());
-    if (!gssv.startSession(game.titleId, streamLocale, err)) {
+    int status = 0;
+    bool started = gssv.startSession(game.titleId, streamLocale, err, &status);
+    if (!started && status == 401 && !g_cancel) {
+        // The token refused before its time: renewed once, asked again.
+        XC_LOGW("%s; renewing the sign-in and asking again", err.c_str());
+        std::string renewErr;
+        if (keepSignedIn(am, gssv, renewErr, true)) started = gssv.startSession(game.titleId, streamLocale, err, &status);
+        else XC_LOGW("sign-in renewal: %s", renewErr.c_str());
+    }
+    if (!started) {
         if (err.find("0x87DD043A") != std::string::npos || err.find("MonthlyLimitExceeded") != std::string::npos) {
             return std::string(ui::tr(ui::Str::MonthlyLimitExceeded));
         }
@@ -468,10 +501,7 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     return result;
 }
 
-void loadLibrary(xcloud::GssvClient& gssv);
-
-// Profile token for titlehub (memory only).
-std::string g_xblAuth;
+void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv);
 
 // --- Updates -------------------------------------------------------------------
 
@@ -578,8 +608,9 @@ std::string endedToast(const std::string& result) {
 void loadConsoles(auth::AuthManager& am, xcloud::GssvClient& home) {
     std::string err;
     std::vector<xcloud::Console> consoles;
-    bool fresh = home.session().expiresAt > auth::unixNow() + 120;
-    if ((!fresh && !am.loginOffering(home, err)) || !home.listConsoles(consoles, err)) {
+    // Logged in to the xhome offering with the same Xbox token (renewed
+    // first when it is about to expire).
+    if (!keepSignedIn(am, home, err) || !home.listConsoles(consoles, err)) {
         XC_LOGW("consoles: %s", err.c_str());
         g_ui->setConsoles({}, true);
         return;
@@ -718,11 +749,13 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     for (const auto& r : gssv.session().regions) regions.push_back(r.name);
     const xcloud::Region* def = gssv.session().defaultRegion();
     g_ui->setRegions(regions, def ? def->name : std::string());
-    loadLibrary(gssv);
+    loadLibrary(am, gssv);
 }
 
-void loadLibrary(xcloud::GssvClient& gssv) {
+void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     std::string err;
+    if (!keepSignedIn(am, gssv, err)) XC_LOGW("sign-in renewal: %s", err.c_str());
+    err.clear();
     if (g_ui->screen() != ui::Screen::Home) {
         g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
     } else {
@@ -877,7 +910,7 @@ void worker() {
                 break;
             case kConsoles: loadConsoles(am, home); break;
             case kUpdate: runUpdate(); break;
-            case kReloadLibrary: loadLibrary(gssv); break;  // e.g. after a language change
+            case kReloadLibrary: loadLibrary(am, gssv); break;  // e.g. after a language change
             case kSignOut:
                 // Nothing of this account stays for the next one: its library
                 // stops loading, its cache goes, the lists empty.
@@ -1000,7 +1033,21 @@ void worker() {
                 autoplayFinished(result);
                 break;
             }
-            default: platform::sleepMs(50); break;
+            default: {
+                // Idle and signed in: the sign-in renewed before it expires
+                // (a clock check once a minute, the network only when due),
+                // so the queue estimates and titlehub keep working.
+                static uint64_t nextCheckAt = 0;
+                uint64_t now = platform::nowMs();
+                if (am.signedIn() && now >= nextCheckAt) {
+                    std::string err;
+                    bool ok = keepSignedIn(am, gssv, err);
+                    if (!ok) XC_LOGW("sign-in renewal: %s", err.c_str());
+                    nextCheckAt = now + (ok ? 60000 : 300000);  // offline: not every minute
+                }
+                platform::sleepMs(50);
+                break;
+            }
         }
     }
     // Closing: the stream (if any) was stopped and its session closed by
