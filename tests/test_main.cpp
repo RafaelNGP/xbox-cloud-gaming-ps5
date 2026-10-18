@@ -351,6 +351,7 @@ static void testPerGameSettings() {
     CHECK(def.deadzoneLeft == 12 && def.deadzoneRight == 18 && def.triggerStrength == 3);
     CHECK(!def.circleConfirms);
     CHECK(!def.highRefresh);  // off unless chosen
+    CHECK(!def.touchpadMouse);
 
     // Unknown games return default profile with hasCustom = false.
     bool hasCustom = true;
@@ -368,24 +369,28 @@ static void testPerGameSettings() {
     p1.triggerStrength = 1;
     p1.circleConfirms = true;
     p1.highRefresh = true;
+    p1.touchpadMouse = true;
+    p1.locale = "pt-BR";
+    s.favorites = {"GAME1", "GAME3"};
     s.perGame["GAME1"] = p1;
 
     // Now GAME1 returns custom profile, while GAME2 still returns defaults.
     auto prof1Custom = s.profileForGame("GAME1", "", &hasCustom);
     CHECK(hasCustom);
     CHECK(prof1Custom.sharpness == 3 && prof1Custom.upscaler == 3 && prof1Custom.circleConfirms);
-    CHECK(prof1Custom.deadzoneLeft == 5 && prof1Custom.triggerStrength == 1);
+    CHECK(prof1Custom.deadzoneLeft == 5 && prof1Custom.triggerStrength == 1 && prof1Custom.touchpadMouse);
+    CHECK(prof1Custom.locale == "pt-BR");
 
     hasCustom = true;
     auto prof2 = s.profileForGame("GAME2", "", &hasCustom);
     CHECK(!hasCustom);
-    CHECK(prof2.sharpness == 1 && !prof2.circleConfirms);
+    CHECK(prof2.sharpness == 1 && !prof2.circleConfirms && !prof2.touchpadMouse && prof2.locale.empty());
 
     // Title ID fallback when productId is empty.
     s.perGame["CONSOLE_SERVER_1"] = p1;
     auto consoleProf = s.profileForGame("", "CONSOLE_SERVER_1", &hasCustom);
     CHECK(hasCustom);
-    CHECK(consoleProf.sharpness == 3 && consoleProf.circleConfirms);
+    CHECK(consoleProf.sharpness == 3 && consoleProf.circleConfirms && consoleProf.locale == "pt-BR");
 
     // Save to disk and reload.
     CHECK(s.desktopFullscreen);  // a desktop window starts fullscreen unless chosen otherwise
@@ -394,20 +399,49 @@ static void testPerGameSettings() {
     xc::app::Settings reloaded;
     CHECK(reloaded.load(path));
     CHECK(!reloaded.desktopFullscreen);
+    CHECK(reloaded.favorites.size() == 2 && reloaded.favorites[0] == "GAME1" && reloaded.favorites[1] == "GAME3");
     CHECK(reloaded.perGame.size() == 2);
     auto loadedP1 = reloaded.profileForGame("GAME1", "", &hasCustom);
     CHECK(hasCustom);
     CHECK(loadedP1.sharpness == 3 && loadedP1.upscaler == 3 && loadedP1.circleConfirms);
-    CHECK(loadedP1.highRefresh);
+    CHECK(loadedP1.highRefresh && loadedP1.touchpadMouse && loadedP1.locale == "pt-BR");
     CHECK(loadedP1.deadzoneLeft == 5 && loadedP1.deadzoneRight == 8 && loadedP1.triggerStrength == 1);
 
     // Remove game profile restores default.
     reloaded.perGame.erase("GAME1");
     auto afterErase = reloaded.profileForGame("GAME1", "", &hasCustom);
     CHECK(!hasCustom);
-    CHECK(afterErase.sharpness == reloaded.sharpness);
+    CHECK(afterErase.sharpness == reloaded.sharpness && afterErase.locale.empty());
 
     std::remove(path.c_str());
+}
+
+static void testPlaytimeLimit() {
+    int64_t rem = -1, max = -1;
+
+    // 1. Valid JSON format
+    std::string jsonStr = R"({"remainingGameplayTimeInSeconds": 36000, "maxGameplayTimeInSeconds": 54000})";
+    CHECK(auth::parsePlaytimeLimit(jsonStr, rem, max));
+    CHECK(rem == 36000 && max == 54000);
+
+    // 2. Nested JSON format
+    std::string nestedJson = R"({"user": {"limits": {"remainingGameplayTimeInSeconds": 7200, "maxGameplayTimeInSeconds": 18000}}})";
+    CHECK(auth::parsePlaytimeLimit(nestedJson, rem, max));
+    CHECK(rem == 7200 && max == 18000);
+
+    // 3. String-encoded numbers in JSON
+    std::string strJson = R"({"remainingGameplayTimeInSeconds": "18000", "maxGameplayTimeInSeconds": "36000"})";
+    CHECK(auth::parsePlaytimeLimit(strJson, rem, max));
+    CHECK(rem == 18000 && max == 36000);
+
+    // 4. Protobuf wire format (tag 1 varint 18000, tag 2 varint 54000)
+    std::string proto = std::string("\x08\xD0\x8C\x01\x10\xF0\xA5\x03", 8);
+    CHECK(auth::parsePlaytimeLimit(proto, rem, max));
+    CHECK(rem == 18000 && max == 54000);
+
+    // 5. Empty and invalid inputs
+    CHECK(!auth::parsePlaytimeLimit("", rem, max));
+    CHECK(!auth::parsePlaytimeLimit("not a valid payload", rem, max));
 }
 
 static void testStreamMenu() {
@@ -962,7 +996,7 @@ static void testAudioEncoder() {
 static void testH264Resync() {
     xc::stream::VideoReceiveStats stats;
     int keyframeAsks = 0;
-    xc::stream::H264Receiver rx([&] { ++keyframeAsks; }, stats);
+    xc::stream::H264Receiver rx([&] { ++keyframeAsks; }, stats, 150);
     auto packet = [](uint16_t seq, uint32_t ts, bool marker, uint8_t nal) {
         std::vector<uint8_t> b = {0x80, static_cast<uint8_t>((marker ? 0x80 : 0) | 102),
                                   static_cast<uint8_t>(seq >> 8), static_cast<uint8_t>(seq),
@@ -1012,6 +1046,84 @@ static void testAudioDecoderEmptyPacket() {
     CHECK(enc.encode(pcm.data(), pcm.size(), opus));
     CHECK(dec.decode(opus.data(), opus.size(), out));
     CHECK(!out.empty());
+}
+
+static void testAudioDecoderPlc() {
+    xc::media::AudioEncoder enc;
+    xc::media::AudioDecoder dec;
+    CHECK(enc.init(24000));
+    CHECK(dec.init());
+
+    // 1. Concealment without history produces silence (zeros)
+    std::vector<float> pcm;
+    dec.conceal(pcm, 960);
+    CHECK(pcm.size() == 960 * 2);
+    for (float sample : pcm) {
+        CHECK(sample == 0.0f);
+    }
+
+    // 2. Decode a known tone
+    std::vector<int16_t> tone(960);
+    for (size_t i = 0; i < tone.size(); ++i) tone[i] = static_cast<int16_t>(10000.0 * std::sin(i * 0.1));
+    std::vector<uint8_t> opus;
+    CHECK(enc.encode(tone.data(), tone.size(), opus));
+    pcm.clear();
+    CHECK(dec.decode(opus.data(), opus.size(), pcm));
+    CHECK(pcm.size() == 960 * 2);
+
+    // 3. Concealment after valid frame extrapolates non-zero samples
+    std::vector<float> concealed1;
+    dec.conceal(concealed1, 960);
+    CHECK(concealed1.size() == 960 * 2);
+    bool nonZero = false;
+    for (float sample : concealed1) {
+        if (std::abs(sample) > 0.001f) nonZero = true;
+    }
+    CHECK(nonZero);
+
+    // 4. Consecutive concealments decay amplitude
+    std::vector<float> concealed2;
+    dec.conceal(concealed2, 960);
+    CHECK(concealed2.size() == 960 * 2);
+    float max1 = 0.0f, max2 = 0.0f;
+    for (float s : concealed1) max1 = std::max(max1, std::abs(s));
+    for (float s : concealed2) max2 = std::max(max2, std::abs(s));
+    CHECK(max2 < max1);
+
+    // 5. Subsequent decode applies smooth ramp-in
+    pcm.clear();
+    CHECK(dec.decode(opus.data(), opus.size(), pcm));
+    CHECK(pcm.size() == 960 * 2);
+    CHECK(pcm[0] == 0.0f && pcm[1] == 0.0f);  // Ramped from 0 at sample 0
+
+    // 6. Reset PLC clears history
+    dec.resetPlc();
+    pcm.clear();
+    dec.conceal(pcm, 960);
+    CHECK(pcm.size() == 960 * 2);
+    for (float sample : pcm) {
+        CHECK(sample == 0.0f);
+    }
+}
+
+static void testAudioGapLossConcealment() {
+    constexpr uint32_t kOpusFrameSamples = 960;
+    auto detectLoss = [](uint32_t lastTs, uint32_t newTs) -> int {
+        int32_t diff = static_cast<int32_t>(newTs - lastTs);
+        if (diff <= 0) return -1; // duplicate or late out-of-order
+        if (diff > static_cast<int32_t>(kOpusFrameSamples) && diff <= static_cast<int32_t>(kOpusFrameSamples * 6)) {
+            return static_cast<int>((static_cast<uint32_t>(diff) + kOpusFrameSamples / 2) / kOpusFrameSamples - 1);
+        }
+        return 0; // normal step or huge stall
+    };
+
+    CHECK(detectLoss(1000, 1960) == 0);   // in-order 20ms step
+    CHECK(detectLoss(1960, 1960) == -1);  // duplicate packet
+    CHECK(detectLoss(2920, 1960) == -1);  // late packet from past
+    CHECK(detectLoss(1000, 2920) == 1);   // 1 lost packet
+    CHECK(detectLoss(1000, 3880) == 2);   // 2 lost packets
+    CHECK(detectLoss(1000, 6760) == 5);   // 5 lost packets
+    CHECK(detectLoss(1000, 100000) == 0); // huge stall: resync without concealing 100 frames
 }
 
 // Native mouse and keyboard reports: header, counts and fields.
@@ -1440,13 +1552,20 @@ static void testVisibleSettingsRows() {
     auto x = ids(ui::visibleSettingsRows(xbox));
     CHECK(std::find(x.begin(), x.end(), 4) != x.end() && std::find(x.begin(), x.end(), 6) == x.end());
     // A game's settings.
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, true)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, false)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, true)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 13, 9, 10}));
+    CHECK((groups(ui::visibleGameSettingsRows(ps5, true, true)) ==
+           std::vector<bool>{false, true, false, false, true, false, false, true, false, false, false, false, false, false, true}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
     CHECK((groups(ui::visibleGameSettingsRows(ps5, true)) ==
-           std::vector<bool>{false, true, false, true, false, false, true, false, false, false, false, false, true}));
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 1, 2, 3, 5, 6, 7, 12, 11, 9}));
+           std::vector<bool>{false, true, false, false, true, false, false, true, false, false, false, false, false, true}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9}));
+    ui::UiCaps noTouch = ps5;
+    noTouch.touchpad = false;
+    CHECK((ids(ui::visibleGameSettingsRows(noTouch, true, true)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
     auto game = ui::visibleGameSettingsRows(pc, false);
-    CHECK((ids(game) == std::vector<int>{0, 4, 5, 7, 11, 9}));
-    CHECK((groups(game) == std::vector<bool>{false, true, true, false, false, false}));
+    CHECK((ids(game) == std::vector<int>{0, 4, 14, 5, 7, 11, 9}));
+    CHECK((groups(game) == std::vector<bool>{false, true, false, true, false, false, false}));
 }
 
 // The controller's glyphs by pad kind (ui/pad_glyphs.h).
@@ -1540,7 +1659,7 @@ static void testNullBackends() {
 
 // --- M1 input / audio backends (pure parts, null backends) ----------------
 
-// The audio queue: bounded at ~60 ms (cut back to 40 ms, oldest first),
+// The audio queue: bounded at ~200 ms (cut back to 100 ms, oldest first),
 // silence past its end, the volume, and what the periodic log counts.
 static void testAudioQueue() {
     media::AudioQueue q;
@@ -1548,22 +1667,22 @@ static void testAudioQueue() {
     q.push(in.data(), 480);
     CHECK(q.queuedFrames() == 0);  // closed: ignored
     q.open();
-    for (int i = 0; i < 5; ++i) q.push(in.data(), 480);  // 50 ms: under the bound
-    CHECK(q.queuedFrames() == 2400 && q.stats().trimmed == 0);
-    q.push(in.data(), 480);
-    q.push(in.data(), 480);  // 70 ms: past 60, back to 40
-    CHECK(q.queuedFrames() == media::AudioQueue::kTrimTo && q.stats().trimmed == 3360 - 1920);
+    for (int i = 0; i < 19; ++i) q.push(in.data(), 480);  // 190 ms: under the bound
+    CHECK(q.queuedFrames() == 9120 && q.stats().trimmed == 0);
+    q.push(in.data(), 480);  // 200 ms
+    q.push(in.data(), 480);  // 210 ms: past 200, back to 100
+    CHECK(q.queuedFrames() == media::AudioQueue::kTrimTo && q.stats().trimmed == 10080 - 4800);
     // The oldest go first: mark the newest frame and find it last.
     float mark[2] = {0.5f, -0.5f};
     q.push(mark, 1);
-    std::vector<float> out(1921 * 2);
-    q.pull(out.data(), 1921);
-    CHECK(out[1920 * 2] == 0.5f && out[1920 * 2 + 1] == -0.5f && out[0] == 0.25f);
+    std::vector<float> out(4801 * 2);
+    q.pull(out.data(), 4801);
+    CHECK(out[4800 * 2] == 0.5f && out[4800 * 2 + 1] == -0.5f && out[100 * 2] == 0.25f);
     CHECK(q.queuedFrames() == 0);
     q.pull(out.data(), 256);  // empty: silence, counted
     CHECK(out[0] == 0.0f && out[511] == 0.0f);
     media::AudioQueue::Stats st = q.stats();
-    CHECK(st.pulls == 2 && st.empty == 1 && st.frames == 1921 + 256 && st.depthMax == 1921);
+    CHECK(st.pulls == 2 && st.empty == 1 && st.frames == 4801 + 256 && st.depthMax == 4801);
     // Volume: clamped to 0..2, applied and clipped at full scale.
     q.setVolume(5.0f);
     CHECK(q.volume() == 2.0f);
@@ -1575,9 +1694,9 @@ static void testAudioQueue() {
     CHECK(q.volume() == 0.0f);
     q.setVolume(1.0f);
     // ~10 s of sound pulled (480000 frames): logged, and the counts start
-    // again. 2179 frames so far, so the 1867th grain of 256 crosses it.
+    // again. 5059 frames so far, so the 1856th grain of 256 crosses it.
     for (int i = 0; i < 1875; ++i) q.pull(out.data(), 256);
-    CHECK(q.stats().pulls == 8 && q.stats().frames == 8 * 256 && q.stats().trimmed == 0);
+    CHECK(q.stats().pulls == 19 && q.stats().frames == 19 * 256 && q.stats().trimmed == 0);
     q.close();
     q.push(loud, 2);
     CHECK(q.queuedFrames() == 0);
@@ -1732,8 +1851,8 @@ static void testNullBackendsM1() {
     CHECK(!kbm.keyboard && !kbm.mouse && !kbm.moved && kbm.dx == 0);
     input::kbmSetCaptured(false);
     CHECK(media::audioStart() && media::audioStart());
-    std::vector<float> sound(48 * 2 * 100, 0.1f);  // 100 ms, never played: kept to the bound
-    media::audioPush(sound.data(), 4800);
+    std::vector<float> sound(48 * 2 * 210, 0.1f);  // 210 ms, never played: kept to the bound
+    media::audioPush(sound.data(), 48 * 210);
     CHECK(media::audioQueue().queuedFrames() == media::AudioQueue::kTrimTo);
     media::audioStop();
     CHECK(media::audioQueue().queuedFrames() == 0);
@@ -1774,6 +1893,8 @@ int main() {
     testAudioEncoder();
     testH264Resync();
     testAudioDecoderEmptyPacket();
+    testAudioDecoderPlc();
+    testAudioGapLossConcealment();
     testAutoDeband();
     testControllerTuning();
     testUpdater();
@@ -1783,6 +1904,7 @@ int main() {
     testSettingsMigration();
     testMicGain();
     testPerGameSettings();
+    testPlaytimeLimit();
     testStrings();
     testRegions();
     testPrices();

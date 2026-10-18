@@ -224,6 +224,36 @@ bool AudioDecoder::init() {
     return true;
 }
 
+void AudioDecoder::resetPlc() {
+    history_.clear();
+    plcDecay_ = 1.0f;
+    lastWasConcealed_ = false;
+}
+
+void AudioDecoder::conceal(std::vector<float>& out, size_t frames) {
+    if (frames == 0) return;
+    size_t base = out.size();
+    out.resize(base + frames * 2);
+    size_t histFrames = history_.size() / 2;
+    if (histFrames == 0) {
+        std::fill(out.begin() + static_cast<long>(base), out.end(), 0.0f);
+        return;
+    }
+    // Repeat recent waveform period with smooth decaying attenuation
+    size_t period = std::min(frames, histFrames);
+    size_t histStart = (histFrames - period) * 2;
+    for (size_t i = 0; i < frames; ++i) {
+        size_t srcIdx = histStart + (i % period) * 2;
+        float progress = static_cast<float>(i) / static_cast<float>(frames);
+        float decay = plcDecay_ * (1.0f - 0.4f * progress);
+        if (decay < 0.0f) decay = 0.0f;
+        out[base + 2 * i] = history_[srcIdx] * decay;
+        out[base + 2 * i + 1] = history_[srcIdx + 1] * decay;
+    }
+    plcDecay_ = std::max(0.0f, plcDecay_ * 0.6f);
+    lastWasConcealed_ = true;
+}
+
 bool AudioDecoder::decode(const uint8_t* data, size_t len, std::vector<float>& out) {
     // An empty packet is "end of stream" to libavcodec: every packet after
     // it would be refused (no sound for the rest of the session).
@@ -237,6 +267,7 @@ bool AudioDecoder::decode(const uint8_t* data, size_t len, std::vector<float>& o
     }
     if (rc < 0) return false;
     bool any = false;
+    size_t startSize = out.size();
     while (avcodec_receive_frame(ctx_, frame_) == 0) {
         int n = frame_->nb_samples;
         int ch = frame_->ch_layout.nb_channels;
@@ -251,6 +282,27 @@ bool AudioDecoder::decode(const uint8_t* data, size_t len, std::vector<float>& o
             out[base + 2 * i + 1] = r[i];
         }
         any = true;
+    }
+    if (any) {
+        size_t decodedFloats = out.size() - startSize;
+        if (lastWasConcealed_) {
+            // Smoothly ramp in newly decoded audio over the first ~2 ms (96 stereo frames)
+            // to eliminate DC step pops after concealed frames.
+            size_t rampFrames = std::min<size_t>(96, decodedFloats / 2);
+            for (size_t i = 0; i < rampFrames; ++i) {
+                float ramp = static_cast<float>(i) / static_cast<float>(rampFrames);
+                out[startSize + 2 * i] *= ramp;
+                out[startSize + 2 * i + 1] *= ramp;
+            }
+            lastWasConcealed_ = false;
+        }
+        plcDecay_ = 1.0f;
+        // Keep up to 100 ms of history for PLC synthesis
+        history_.insert(history_.end(), out.begin() + static_cast<long>(startSize), out.end());
+        constexpr size_t kMaxHistoryFloats = kSampleRate * 2 * 100 / 1000;
+        if (history_.size() > kMaxHistoryFloats) {
+            history_.erase(history_.begin(), history_.begin() + static_cast<long>(history_.size() - kMaxHistoryFloats));
+        }
     }
     return any;
 }

@@ -23,6 +23,9 @@ struct Profile {
     // The Game Pass plan: "Ultimate", "Premium", "Essential", "PC"; empty
     // when none or unknown (the store service didn't answer).
     std::string subscription;
+    // Cloud playtime remaining and max in seconds (-1 when uncapped/unknown).
+    int64_t playtimeRemainingSeconds = -1;
+    int64_t playtimeMaxSeconds = -1;
     // "XBL3.0 x=...;token" for services on http://xboxlive.com (titlehub...).
     // Memory only: never logged or saved.
     std::string xblAuthorization;
@@ -33,6 +36,8 @@ std::string subscriptionPlan(const std::string& entitlementsJson);
 // For the log: whether that plan renews, or in how many days it ends (no
 // date: the log may go into public reports). Empty when unknown.
 std::string subscriptionRenewal(const std::string& entitlementsJson, int64_t nowUnix);
+// Parses playtime limit from JSON or Protobuf response
+bool parsePlaytimeLimit(const std::string& body, int64_t& remaining, int64_t& max);
 
 class AuthManager {
 public:
@@ -70,7 +75,8 @@ private:
     bool deviceCodeSignIn(const DeviceCodeCallback& onCode, std::string& err, const std::atomic<bool>* cancel);
     bool xboxChain(xcloud::GssvClient& gssv, std::string& err);
     void fetchGamerpic(const XblToken& xsts);
-    void fetchSubscription(const XblToken& userToken);
+    void fetchSubscription(const XblToken& userToken, const std::string& market);
+    void fetchPlaytimeLimit(const XblToken& mp, const std::string& market);
 
     std::string storePath_;
     MsaClient msa_;

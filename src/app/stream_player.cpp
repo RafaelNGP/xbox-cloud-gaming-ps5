@@ -31,8 +31,7 @@ namespace {
 // Beyond this, start over from a key frame. Generous: the jitter buffer
 // hands over several frames at once after waiting for a retransmission, and
 // decoding without drawing catches up with those in a few milliseconds.
-constexpr size_t kMaxQueuedFrames = 30;
-constexpr int kMaxFullStreak = 30;  // frames shown one refresh late before dropping one
+constexpr size_t kMaxQueuedFrames = 90;
 }
 
 struct StreamPlayer::Impl {
@@ -69,7 +68,12 @@ struct StreamPlayer::Impl {
     std::atomic<bool> running{false};
     std::string endReason;
     platform::Thread videoThread, audioThread;
-    std::deque<std::vector<uint8_t>> audioPackets_;
+    struct QueuedAudioPacket {
+        std::vector<uint8_t> data;
+        uint32_t rtpTimestamp = 0;
+    };
+    std::mutex audioMutex_;
+    std::deque<QueuedAudioPacket> audioPackets_;
     std::condition_variable audioCv;
 
     media::AudioDecoder audioDecoder;
@@ -168,22 +172,52 @@ struct StreamPlayer::Impl {
         }
         running = false;
         cv.notify_all();
+        {
+            std::lock_guard<std::mutex> lock(audioMutex_);
+        }
         audioCv.notify_all();
     }
 
     void audioLoop() {
-        std::vector<uint8_t> packet;
+        audioDecoder.resetPlc();
+        QueuedAudioPacket packet;
         bool first = true;
+        uint32_t lastRtpTimestamp = 0;
+        uint64_t concealedPackets = 0;
+        constexpr uint32_t kOpusFrameSamples = 960;  // 20 ms at 48 kHz
         while (running) {
             {
-                std::unique_lock<std::mutex> lock(mutex);
+                std::unique_lock<std::mutex> lock(audioMutex_);
                 audioCv.wait(lock, [&] { return !running || !audioPackets_.empty(); });
                 if (!running) break;
                 packet = std::move(audioPackets_.front());
                 audioPackets_.pop_front();
             }
+            if (lastRtpTimestamp != 0) {
+                int32_t diff = static_cast<int32_t>(packet.rtpTimestamp - lastRtpTimestamp);
+                if (diff <= 0) {
+                    // Late or duplicate packet: skip to preserve timeline and prevent timestamp drift
+                    continue;
+                }
+                // Detect packet loss from RTP timestamp gap (conceal up to 5 lost frames)
+                if (diff > static_cast<int32_t>(kOpusFrameSamples) && diff <= static_cast<int32_t>(kOpusFrameSamples * 6)) {
+                    uint32_t lostCount = (static_cast<uint32_t>(diff) + kOpusFrameSamples / 2) / kOpusFrameSamples - 1;
+                    for (uint32_t i = 0; i < lostCount; ++i) {
+                        pcm.clear();
+                        audioDecoder.conceal(pcm, kOpusFrameSamples);
+                        if (!pcm.empty()) media::audioPush(pcm.data(), pcm.size() / 2);
+                        ++concealedPackets;
+                    }
+                    if (concealedPackets <= 5 || concealedPackets % 50 == 0) {
+                        XC_LOGI("audio plc: concealed %u lost packet(s) (%llu total concealed)",
+                                lostCount, static_cast<unsigned long long>(concealedPackets));
+                    }
+                }
+            }
+            lastRtpTimestamp = packet.rtpTimestamp;
+
             pcm.clear();
-            if (audioDecoder.decode(packet.data(), packet.size(), pcm)) media::audioPush(pcm.data(), pcm.size() / 2);
+            if (audioDecoder.decode(packet.data.data(), packet.data.size(), pcm)) media::audioPush(pcm.data(), pcm.size() / 2);
             if (first) {
                 first = false;
                 XC_LOGI("first audio packet decoded: %zu samples", pcm.size() / 2);
@@ -206,7 +240,6 @@ struct StreamPlayer::Impl {
         bool hwOk = hwProbe && hw.init(1920, 1088);
         if (hwProbe) XC_LOGI("hwdec: probe %s", hwOk ? "running" : "failed to start");
         uint64_t hwUs = 0, hwMaxUs = 0, hwPictures = 0, hwCalls = 0, hwLogAt = platform::nowMs() + 1000;
-        int fullStreak = 0;
         int skippedInRow = 0;
         constexpr uint64_t kShownRing = 8;
         std::pair<uint64_t, uint64_t> inScreenQueue[kShownRing] = {};  // present id, arrival us
@@ -290,33 +323,28 @@ struct StreamPlayer::Impl {
                 ++qpCount;
             }
             pictureSize = (static_cast<uint32_t>(pic.width) << 16) | static_cast<uint32_t>(pic.height);
-            bool screenshot = saveSnapshotIfAsked(pic);
-            // A newer frame already waits: decode this one (the next needs it)
-            // but show the newer one, a frame sooner. At most two in a row, so
-            // the picture keeps moving when decoding runs behind.
-            if (backlog > 0 && skippedInRow < 2) {
+            // When a burst of packets arrives after network jitter/retransmission,
+            // fast-forward decode without drawing to drain the stale backlog in a few
+            // milliseconds and present the newest live frame immediately.
+            // backlog is measured after popping the current frame: backlog >= 2 means
+            // >= 3 frames buffered (>= 33ms stale). Fast-forwarding flushes the queue
+            // without swapchain stall, keeping display latency around ~27ms.
+            if (backlog >= 2 && skippedInRow < 5) {
                 ++skippedInRow;
                 ++droppedFrames;
                 continue;
             }
             skippedInRow = 0;
+            bool screenshot = saveSnapshotIfAsked(pic);
             std::lock_guard<std::mutex> lock(display::frameMutex());
             if (decodedFrames == 1) XC_LOGI("first draw %dx%d", pic.width, pic.height);
             uint64_t t2 = platform::nowUs();
-            // Both flips queued means the picture shows a frame later than
-            // it could. Arrival jitter does that now and then; it is waited
-            // out (the queue then stays full: stream and display both run at
-            // 60 Hz). After half a second of that, a frame is dropped to get
-            // the latency back.
+            // Try acquire with zero wait first; if not ready, wait for swapchain image.
             bool drawn = display::drawYuv420(pic.y, pic.u, pic.v, pic.strideY, pic.strideU, pic.strideV,
                                              pic.width, pic.height, false);
-            if (drawn) {
-                fullStreak = 0;
-            } else if (++fullStreak < kMaxFullStreak) {
+            if (!drawn) {
                 drawn = display::drawYuv420(pic.y, pic.u, pic.v, pic.strideY, pic.strideU, pic.strideV,
                                             pic.width, pic.height, true);
-            } else {
-                fullStreak = 0;
             }
             if (!drawn) {
                 ++lateFrames;
@@ -365,9 +393,9 @@ struct StreamPlayer::Impl {
                 return;
             }
             if (++videoFrames == 1) XC_LOGI("first video frame received: %zu bytes", n);
-            {
-                // The H.264 profile the server encodes with (from each new SPS).
-                static int lastProfile = -1, lastLevel = -1;
+            static int lastProfile = -1, lastLevel = -1;
+            if (lastProfile == -1) {
+                // The H.264 profile the server encodes with (from the first SPS).
                 for (size_t i = 0; i + 6 < n; ++i)
                     if (d[i] == 0 && d[i + 1] == 0 && d[i + 2] == 1 && (d[i + 3] & 0x1F) == 7) {
                         int profile = d[i + 4], level = d[i + 6];
@@ -391,10 +419,10 @@ struct StreamPlayer::Impl {
             frames.push_back({std::vector<uint8_t>(d, d + n), rtpTimestamp, stream::clockMs(), platform::nowUs()});
             cv.notify_one();
         };
-        cb.audio = [this](const uint8_t* d, size_t n, uint32_t) {
-            if (++audioPackets == 1) XC_LOGI("first audio packet: %zu bytes", n);
-            std::lock_guard<std::mutex> lock(mutex);
-            if (audioPackets_.size() < 50) audioPackets_.emplace_back(d, d + n);
+        cb.audio = [this](const uint8_t* d, size_t n, uint32_t rtpTimestamp) {
+            if (++audioPackets == 1) XC_LOGI("first audio packet: %zu bytes (timestamp %u)", n, rtpTimestamp);
+            std::lock_guard<std::mutex> lock(audioMutex_);
+            if (audioPackets_.size() < 50) audioPackets_.push_back({std::vector<uint8_t>(d, d + n), rtpTimestamp});
             audioCv.notify_one();
         };
         // xCloud's motors are 0..100 percent, like the web client's
@@ -561,10 +589,12 @@ struct StreamPlayer::Impl {
                 o[1] = clamp((c - 218 * d - 546 * e + 512) >> 10);
                 o[2] = clamp((c + 2163 * d + 512) >> 10);
             }
-        std::string data = "P6\n" + std::to_string(w) + " " + std::to_string(h) + "\n255\n";
-        data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
-        bool ok = platform::writeFileAtomic(path, data);
-        XC_LOGI("snapshot %dx%d -> %s: %s", w, h, path.c_str(), ok ? "ok" : "failed");
+        std::thread([path, rgb = std::move(rgb), w, h]() mutable {
+            std::string data = "P6\n" + std::to_string(w) + " " + std::to_string(h) + "\n255\n";
+            data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
+            bool ok = platform::writeFileAtomic(path, data);
+            XC_LOGI("snapshot %dx%d -> %s: %s", w, h, path.c_str(), ok ? "ok" : "failed");
+        }).detach();
         return true;
     }
 
@@ -573,10 +603,13 @@ struct StreamPlayer::Impl {
         std::vector<uint8_t> rgb;
         int w = 0, h = 0;
         if (!display::readBackRgb(rgb, w, h)) return;
-        std::string data = "P6\n" + std::to_string(w) + " " + std::to_string(h) + "\n255\n";
-        data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
-        bool ok = platform::writeFileAtomic(screenPath, data);
-        XC_LOGI("screen -> %s: %s", screenPath.c_str(), ok ? "ok" : "failed");
+        std::string path = screenPath;
+        std::thread([path, rgb = std::move(rgb), w, h]() mutable {
+            std::string data = "P6\n" + std::to_string(w) + " " + std::to_string(h) + "\n255\n";
+            data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
+            bool ok = platform::writeFileAtomic(path, data);
+            XC_LOGI("screen -> %s: %s", path.c_str(), ok ? "ok" : "failed");
+        }).detach();
     }
 
     // Video thread only (data channel sends are thread-safe).

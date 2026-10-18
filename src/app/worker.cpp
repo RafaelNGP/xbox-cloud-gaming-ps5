@@ -58,6 +58,25 @@ bool g_gameClosedOnServer = false;
 // Titles that would not start in the automatic region, and where they did
 // (for the rest of this run).
 std::map<std::string, std::string> g_regionFallback;
+std::shared_ptr<app::Library> s_library;
+std::mutex s_libraryMutex;
+int64_t s_playtimeRemainingSeconds = -1;
+
+}  // namespace
+
+void updateLibraryFavorites(const std::vector<std::string>& favorites) {
+    std::shared_ptr<app::Library> lib;
+    {
+        std::lock_guard<std::mutex> lock(s_libraryMutex);
+        lib = s_library;
+    }
+    if (lib) {
+        lib->setFavorites(favorites);
+        g_ui->setRows(lib->rows());
+    }
+}
+
+namespace {
 
 // Streams until the player ends or the user leaves; returns a status line.
 // The cloud title being played, for crash markers (set by play()).
@@ -139,7 +158,9 @@ std::string stream(xcloud::GssvClient& gssv) {
                 snapshot1 = true;
                 player.requestSnapshot(platform::dataDir() + "/frame.ppm");
             }
-            bool press = !g_autoplay.idle && ((elapsed >= 15000 && elapsed < 15300) || (elapsed >= 20000 && elapsed < 20300));
+            bool press = !g_autoplay.idle && ((elapsed >= 15000 && elapsed < 15300) ||
+                                              (elapsed >= 20000 && elapsed < 20300) ||
+                                              (elapsed >= 25000 && (elapsed % 12000 < 300)));
             if (press != g_syntheticA.exchange(press)) XC_LOGI("autoplay: A %s", press ? "down" : "up");
             static bool dropped = false;
             if (g_autoplay.dropTest && !dropped && elapsed >= 20000) {
@@ -152,7 +173,9 @@ std::string stream(xcloud::GssvClient& gssv) {
             }
         }
         if (platform::nowMs() >= nextTick) {
-            nextTick += 1000;
+            uint64_t tickNow = platform::nowMs();
+            double dt = lastTickAt ? (tickNow - lastTickAt) / 1000.0 : 1.0;
+            nextTick = tickNow + 1000;
             player.tick();
             auto st = player.stats();
             XC_LOGI("stream: %llu frames, %llu decoded, %llu skipped, %llu failed, %llu resets, %llu kf req, "
@@ -180,7 +203,11 @@ std::string stream(xcloud::GssvClient& gssv) {
                 ui::StreamInfo info;
                 info.region = ui::prettyRegion(gssv.region().name);
                 info.rttMs = st.rttMs;
-                info.fps = static_cast<double>(st.decodedFrames - last.decodedFrames - (st.droppedFrames - last.droppedFrames));
+                info.fps = dt > 0.05
+                               ? std::max(0.0, static_cast<double>(st.decodedFrames - last.decodedFrames -
+                                                                   (st.droppedFrames - last.droppedFrames)) /
+                                                   dt)
+                               : 60.0;
                 info.mbps = st.rtpKbps / 1000.0;
                 uint64_t lost = st.rtpLost - last.rtpLost, got = st.rtpPackets - last.rtpPackets;
                 info.lossPct = got + lost ? 100.0 * lost / (got + lost) : 0;
@@ -210,10 +237,13 @@ std::string stream(xcloud::GssvClient& gssv) {
                         degradedLogged = false;
                     }
                     info.degraded = now < degradedUntil;
-                    lastTickAt = now;
+                    lastTickAt = tickNow;
                     ++session.seconds;
                     session.kbps += st.rtpKbps;
                     if (st.rttMs > 0) session.rttSum += static_cast<uint64_t>(st.rttMs), ++session.rttCount;
+                }
+                if (s_playtimeRemainingSeconds >= 0) {
+                    info.playtimeHours = static_cast<int>((s_playtimeRemainingSeconds + 3599) / 3600);
                 }
                 std::lock_guard<std::mutex> lock(g_infoMutex);
                 g_streamInfo = info;
@@ -279,10 +309,12 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     g_ui->showLaunching(game, regionName.empty() ? ui::tr(ui::Str::Connecting)
                                                  : ui::trf(ui::Str::TryingRegion, ui::prettyRegion(regionName)));
     std::string err;
+    std::string streamLocale = ui::gameLocale();
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         bool hasCustom = false;
         GameProfile prof = g_settings.profileForGame(game.productId, game.titleId, &hasCustom);
+        if (!prof.locale.empty()) streamLocale = prof.locale;
         std::string res;
         if (!g_autoplay.resolution.empty()) {
             res = g_autoplay.resolution;
@@ -303,15 +335,18 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
         xcloud::Resolution tier;
         if (!g_autoplay.resolution.empty())
             tier = res == "720p"       ? xcloud::Resolution::P720
-                   : isBest            ? xcloud::Resolution::P1440
+                   : res == "1440p"    ? xcloud::Resolution::P1440
                    : res == "1080p-hq" ? xcloud::Resolution::P1080HQ
-                                       : xcloud::Resolution::P1080;
+                   : isBest            ? (allow1440Locked() ? xcloud::Resolution::P1440 : xcloud::Resolution::P1080HQ)
+                                       : xcloud::Resolution::P1080HQ;
         else if (res == "720p")
             tier = xcloud::Resolution::P720;
-        else if (home || isBest)
+        else if (home)
+            tier = xcloud::Resolution::P1440;
+        else if (res == "1440p" || (isBest && allow1440Locked()))
             tier = xcloud::Resolution::P1440;
         else
-            tier = xcloud::Resolution::P1080;
+            tier = xcloud::Resolution::P1080HQ;
         gssv.setResolution(tier);
         const xcloud::Region* region = gssv.session().defaultRegion();
         const std::string& wanted = regionName.empty() ? g_settings.region : regionName;
@@ -319,12 +354,17 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
             if (r.name == wanted) region = &r;
         if (region) gssv.setRegion(*region);
         XC_LOGI("stream settings: %s%s, region %s, locale %s", res.c_str(),
-                hasCustom ? " (per-game)" : "", region ? region->name.c_str() : "?", ui::gameLocale());
+                hasCustom ? " (per-game)" : "", region ? region->name.c_str() : "?", streamLocale.c_str());
     }
     // For a crash marker: what is being started (a console's id stays out).
     g_stageTitle = game.titleId;
     crash::setStage(gssv.isHome() ? "starting own Xbox" : ("starting " + game.titleId).c_str());
-    if (!gssv.startSession(game.titleId, ui::gameLocale(), err)) return err;
+    if (!gssv.startSession(game.titleId, streamLocale, err)) {
+        if (err.find("0x87DD043A") != std::string::npos || err.find("MonthlyLimitExceeded") != std::string::npos) {
+            return std::string(ui::tr(ui::Str::MonthlyLimitExceeded));
+        }
+        return err;
+    }
     if (game.heroUrl.empty() && !game.productId.empty()) {
         // Picked before the background hydration reached it: fetch the hero
         // art for the loading screen while the session queues.
@@ -382,7 +422,12 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
         if (st.state == xcloud::SessionState::Provisioning && gssv.isHome())
             g_ui->setLaunchStatus(ui::tr(ui::Str::WakingConsole));  // a sleeping Xbox takes ~10 s
         if (st.state == xcloud::SessionState::Failed) {
-            result = "the session failed: " + st.errorCode + " " + st.errorMessage;
+            if (st.errorCode == "0x87DD043A" || st.errorCode == "MonthlyLimitExceeded" ||
+                st.raw.find("0x87DD043A") != std::string::npos || st.raw.find("MonthlyLimitExceeded") != std::string::npos) {
+                result = ui::tr(ui::Str::MonthlyLimitExceeded);
+            } else {
+                result = "the session failed: " + st.errorCode + " " + st.errorMessage;
+            }
             break;
         }
         if (st.state == xcloud::SessionState::ReadyToConnect && !connected) {
@@ -600,6 +645,8 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     g_ui->setProfile(am.profile().gamertag, am.profile().gamerpicUrl, am.profile().gamerscore);
     g_subscription = am.profile().subscription;
     if (!g_subscription.empty()) g_ui->setSubscription(g_subscription);
+    s_playtimeRemainingSeconds = am.profile().playtimeRemainingSeconds;
+    g_ui->setPlaytime(am.profile().playtimeRemainingSeconds, am.profile().playtimeMaxSeconds);
     {
         std::lock_guard<std::mutex> lock(g_argMutex);
         g_xblAuth = am.profile().xblAuthorization;
@@ -622,8 +669,16 @@ void loadLibrary(xcloud::GssvClient& gssv) {
     g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
     stopHydration();
     auto library = std::make_shared<app::Library>();
+    {
+        std::lock_guard<std::mutex> lock(s_libraryMutex);
+        s_library = library;
+    }
     library->setCachePath(platform::dataDir() + "/library.json");
     library->setSubscription(g_subscription);
+    {
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        library->setFavorites(g_settings.favorites);
+    }
     setPriceMarket(gssv.session().market.empty() ? "US" : gssv.session().market, ui::catalogLanguage());
     setQueueClient(&gssv);
     bool shown = false;
@@ -777,11 +832,14 @@ void worker() {
                 g_ui->setOwned({}, {}, false);
                 g_ui->setSearchPools({}, {});
                 g_ui->setSubscription("");
+                s_playtimeRemainingSeconds = -1;
+                g_ui->setPlaytime(-1, -1);
                 XC_LOGI("signed out: library and its cache cleared");
                 signInAndLoad(am, gssv);
                 if (!g_quit) loadConsoles(am, home);
                 break;
             case kPlay: {
+                stopHydration();
                 ui::GameTile tile;
                 {
                     std::lock_guard<std::mutex> lock(g_argMutex);

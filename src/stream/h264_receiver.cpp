@@ -15,9 +15,8 @@ namespace {
 
 // How long a hole may wait for its retransmission (a couple of RTTs), how
 // often a NACK is repeated, and how many times.
-constexpr uint64_t kWaitMs = 150;
-constexpr uint64_t kRenackMs = 40;
-constexpr int kMaxNacks = 3;
+constexpr uint64_t kRenackMs = 50;
+constexpr int kMaxNacks = 5;
 constexpr size_t kMaxBuffered = 4000;      // packets (about 4 MB)
 
 constexpr uint8_t kStartCode[] = {0, 0, 0, 1};
@@ -37,8 +36,8 @@ const std::byte* asBytes(const std::vector<uint8_t>& v) { return reinterpret_cas
 
 }  // namespace
 
-H264Receiver::H264Receiver(std::function<void()> onKeyframeNeeded, VideoReceiveStats& stats)
-    : onKeyframeNeeded_(std::move(onKeyframeNeeded)), stats_(stats) {}
+H264Receiver::H264Receiver(std::function<void()> onKeyframeNeeded, VideoReceiveStats& stats, uint64_t waitMs)
+    : onKeyframeNeeded_(std::move(onKeyframeNeeded)), stats_(stats), waitMs_(waitMs) {}
 
 int64_t H264Receiver::unwrap(uint16_t seq) {
     if (highest_ < 0) return seq;
@@ -231,7 +230,7 @@ void H264Receiver::drain(uint64_t now, rtc::message_vector& out, const rtc::mess
             auto m = missing_.find(hole);
             uint64_t since = m != missing_.end() ? m->second.sinceMs : now;
             if (m == missing_.end()) missing_[hole] = Missing{now, now, 0};
-            if (now - since < kWaitMs) return;  // give the retransmission time
+            if (now - since < waitMs_) return;  // give the retransmission time
             // Lost for good: drop what we have of this frame and resync on
             // the next key frame.
             ++stats_.framesDropped;

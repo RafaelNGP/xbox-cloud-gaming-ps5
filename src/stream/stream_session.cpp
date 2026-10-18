@@ -20,6 +20,7 @@
 #include <condition_variable>
 #include <cstdio>
 #include <mutex>
+#include <thread>
 #include <vector>
 
 namespace xc::stream {
@@ -104,6 +105,8 @@ struct StreamSession::Impl {
     std::atomic<bool> closedNotified{false};
     std::atomic<uint32_t> inputSequence{1};
     uint64_t lastKeepaliveMs = 0;
+    std::atomic<bool> keepaliveInFlight{false};
+    std::thread keepaliveThread;
     uint64_t lastKeyframeMs = 0;
     VideoReceiveStats videoStats;
     std::shared_ptr<RtcpReporter> videoReporter;
@@ -395,9 +398,13 @@ struct StreamSession::Impl {
 
     // --- set-up ---------------------------------------------------------------
 
-    std::shared_ptr<rtc::DataChannel> makeChannel(const char* label, const char* protocol) {
+    std::shared_ptr<rtc::DataChannel> makeChannel(const char* label, const char* protocol,
+                                                  bool unordered = false,
+                                                  std::optional<unsigned int> maxRetransmits = std::nullopt) {
         rtc::DataChannelInit init;
         init.protocol = protocol;
+        init.reliability.unordered = unordered;
+        init.reliability.maxRetransmits = maxRetransmits;
         auto ch = pc->createDataChannel(label, init);
         ch->onOpen([label] { XC_LOGI("data channel %s open", label); });
         ch->onClosed([this, label] {
@@ -433,10 +440,12 @@ struct StreamSession::Impl {
         });
 
         // Same channels, in the same order, as the web client.
+        // Input channel is configured unordered and unreliable (0 retransmissions)
+        // to eliminate Head-of-Line Blocking input latency under network jitter/loss.
         chat = makeChannel("chat", "chatV1");
         chat->onMessage([](rtc::message_variant m) { XC_LOGI("chat channel: %s", asText(m).c_str()); });
         control = makeChannel("control", "controlV1");
-        input = makeChannel("input", "1.0");
+        input = makeChannel("input", "1.0", /*unordered=*/true, /*maxRetransmits=*/0);
         message = makeChannel("message", "messageV1");
 
         message->onOpen([this] {
@@ -484,10 +493,13 @@ struct StreamSession::Impl {
             if (cb.audio) cb.audio(reinterpret_cast<const uint8_t*>(data.data()), data.size(), info.timestamp);
         });
 
-        // Video: H.264 only, Main before Constrained Baseline / Baseline.
+        // Video: H.264 only, High and Main before Constrained Baseline / Baseline.
         rtc::Description::Video v("1", rtc::Description::Direction::RecvOnly);
-        // Main profile at level 5.1 (0x33): the level that allows 1440p60; with
-        // 3.1 the service tops out at 1080p (it answers level 4.2).
+        // High profile (0x64): enables 8x8 integer transform and improved quantization matrices.
+        // Level 5.1 (0x33) allows 1440p60; level 4.2 (0x2a) is xCloud's standard 1080p60 ceiling.
+        v.addH264Codec(100, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640033");
+        v.addH264Codec(101, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=64002a");
+        // Main profile at level 5.1 (0x33): fallback if server doesn't negotiate High profile.
         v.addH264Codec(102, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=4d0033");
         v.addH264Codec(104, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f");
         v.addH264Codec(106, "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f");
@@ -647,8 +659,16 @@ struct StreamSession::Impl {
         uint64_t now = platform::nowMs();
         if (now - lastKeepaliveMs >= 30000) {
             lastKeepaliveMs = now;
-            std::string err;
-            if (!gssv.keepalive(err)) XC_LOGW("%s", err.c_str());
+            if (keepaliveThread.joinable() && !keepaliveInFlight.load()) {
+                keepaliveThread.join();
+            }
+            if (!keepaliveInFlight.exchange(true)) {
+                keepaliveThread = std::thread([this] {
+                    std::string err;
+                    if (!gssv.keepalive(err)) XC_LOGW("%s", err.c_str());
+                    keepaliveInFlight = false;
+                });
+            }
         }
         if (opt.keyframeIntervalSec > 0 && now - lastKeyframeMs >= static_cast<uint64_t>(opt.keyframeIntervalSec) * 1000u) {
             lastKeyframeMs = now;
@@ -659,6 +679,9 @@ struct StreamSession::Impl {
     // Before the session goes: no callback of libdatachannel's (they hold
     // `this`) may run any more. Each reset waits for a call in progress.
     void detach() {
+        if (keepaliveThread.joinable()) {
+            keepaliveThread.join();
+        }
         {
             std::lock_guard<std::mutex> lock(guard->mutex);
             guard->self = nullptr;
@@ -685,6 +708,12 @@ struct StreamSession::Impl {
             } catch (const std::exception& e) {
                 XC_LOGW("closing peer connection: %s", e.what());
             }
+        }
+    }
+
+    ~Impl() {
+        if (keepaliveThread.joinable()) {
+            keepaliveThread.join();
         }
     }
 };

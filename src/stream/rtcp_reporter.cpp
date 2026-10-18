@@ -11,7 +11,7 @@ namespace xc::stream {
 namespace {
 
 constexpr uint64_t kReportIntervalUs = 500000;
-constexpr uint32_t kMinBitrate = 1500000;
+constexpr uint32_t kMinBitrate = 6000000;
 
 uint64_t nowUs() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
@@ -135,7 +135,7 @@ void RtcpReporter::report(uint64_t now, const rtc::message_callback& send) {
         if (loss > 0.10)
             est = std::max<uint32_t>(kMinBitrate, static_cast<uint32_t>(rate * (1.0 - 0.5 * loss)));
         else if (loss < 0.02)
-            est = std::min<uint32_t>(maxBitrate_, std::max<uint32_t>(est, kMinBitrate) + maxBitrate_ / 20);
+            est = std::min<uint32_t>(maxBitrate_, std::max<uint32_t>(est, kMinBitrate) + maxBitrate_ / 10);
         estimate_ = est;
 
         uint8_t exp = 0;

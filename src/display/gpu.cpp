@@ -38,6 +38,7 @@ extern "C" VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL vk_icdGetInstanceProcAddr(Vk
     __attribute__((weak));
 // RADV with tools/ps5/patches (weak: absent from an unpatched RADV or desktop).
 extern "C" int wsi_videoout_set_high_refresh(bool on) __attribute__((weak));
+extern "C" int wsi_videoout_set_flip_rate(int rate) __attribute__((weak));
 
 namespace xc::display::gpu {
 
@@ -169,8 +170,8 @@ std::atomic<int> g_deband{1};
 std::atomic<int> g_upscaler{0};  // 0 FSR (EASU), 1 Anime4K
 std::atomic<bool> g_restore{false};  // Anime4K Restore before the upscale
 uint32_t g_frame = 0;
-uint32_t g_swapImages = 2;
-bool g_noPresentWait = false;
+uint32_t g_swapImages = 3;
+bool g_noPresentWait = true;
 PFN_vkWaitForPresentKHR vkWaitForPresentKHR = nullptr;
 // The last frame known on the screen: its present id and when (us).
 std::atomic<uint64_t> g_shownId{0}, g_shownAtUs{0};
@@ -1235,8 +1236,9 @@ bool lastShown(uint64_t& id, uint64_t& atUs) {
 
 bool setHighRefresh(bool on) {
     if (!wsi_videoout_set_high_refresh) return false;
+    if (on && wsi_videoout_set_flip_rate) wsi_videoout_set_flip_rate(0);
     int rc = wsi_videoout_set_high_refresh(on);
-    if (rc == 0) XC_LOGI("gpu: output at %s Hz", on ? "119.88" : "59.94");
+    if (rc == 0) XC_LOGI("gpu: output at %s Hz (VRR flip rate unpegged)", on ? "119.88" : "59.94");
     else XC_LOGW("gpu: %s Hz refused (%d)", on ? "119.88" : "59.94", rc);
     return rc == 0;
 }
