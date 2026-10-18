@@ -615,6 +615,10 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         } else if (net::lastTlsProblem() == net::TlsProblem::Untrusted ||
                    net::lastTlsProblem() == net::TlsProblem::NameMismatch) {
             g_ui->showError(ui::tr(ui::Str::ConnectionIntercepted));
+        } else if (err.find("user interaction is required") != std::string::npos ||
+                   err.find("invalid_grant") != std::string::npos ||
+                   err.find("authorization_declined") != std::string::npos) {
+            g_ui->showError(ui::tr(ui::Str::SignInInteractionRequired));
         } else {
             g_ui->showError(ui::trf(ui::Str::SignInFailed, err));
         }

@@ -73,6 +73,7 @@ constexpr Column kEnglish = {
     "Hold to sign out",                               // HoldSignOut
     "Keep holding to sign out (%s)",                  // SigningOutIn
     "Sign-in failed: %s",                             // SignInFailed
+    "Sign-in not completed in the browser. Use a personal Microsoft account, complete any security prompts/2FA, and grant access to the app.",  // SignInInteractionRequired
     "Could not load the game list: %s",               // LibraryFailed
     "Could not start the stream: %s",                 // StreamFailed
     "No input for a while: you will be disconnected in %s seconds",  // IdleWarning
@@ -366,6 +367,7 @@ constexpr Column kPortugueseBR = {
     "Segure para sair da conta",
     "Continue segurando para sair da conta (%s)",
     "Falha ao entrar: %s",
+    "O login no navegador não foi concluído. Use uma conta pessoal da Microsoft, conclua verificações de segurança/2FA e autorize o app.",
     "Não foi possível carregar a lista de jogos: %s",
     "Não foi possível iniciar o streaming: %s",
     "Sem atividade: você será desconectado em %s segundos",
@@ -659,6 +661,7 @@ constexpr Column kSpanish = {
     "Mantén para cerrar sesión",
     "Sigue manteniendo para cerrar sesión (%s)",
     "Error al iniciar sesión: %s",
+    "El inicio de sesión no se completó en el navegador. Usa una cuenta personal de Microsoft, completa la verificación/2FA y autoriza la app.",
     "No se pudo cargar la lista de juegos: %s",
     "No se pudo iniciar el streaming: %s",
     "Sin actividad: se te desconectará en %s segundos",
@@ -952,6 +955,7 @@ constexpr Column kFrench = {
     "Maintenez pour vous déconnecter",
     "Continuez à maintenir pour vous déconnecter (%s)",
     "Échec de la connexion : %s",
+    "La connexion dans le navigateur n'a pas été finalisée. Utilisez un compte Microsoft personnel, effectuez les vérifications/2FA et autorisez l'app.",
     "Impossible de charger la liste des jeux : %s",
     "Impossible de démarrer le streaming : %s",
     "Aucune activité : vous serez déconnecté dans %s secondes",
@@ -1245,6 +1249,7 @@ constexpr Column kGerman = {
     "Halten zum Abmelden",
     "Weiter halten zum Abmelden (%s)",
     "Anmeldung fehlgeschlagen: %s",
+    "Die Anmeldung im Browser wurde nicht abgeschlossen. Verwende ein persönliches Microsoft-Konto, schließe Sicherheitsabfragen/2FA ab und gewähre Zugriff.",
     "Die Spieleliste konnte nicht geladen werden: %s",
     "Das Streaming konnte nicht gestartet werden: %s",
     "Keine Aktivität: Die Verbindung wird in %s Sekunden getrennt",
@@ -1538,6 +1543,7 @@ constexpr Column kItalian = {
     "Tieni premuto per uscire",
     "Continua a tenere premuto per uscire (%s)",
     "Accesso non riuscito: %s",
+    "L'accesso nel browser non è stato completato. Utilizza un account Microsoft personale, completa le verifiche/2FA e autorizza l'app.",
     "Impossibile caricare l'elenco dei giochi: %s",
     "Impossibile avviare lo streaming: %s",
     "Nessuna attività: verrai disconnesso tra %s secondi",

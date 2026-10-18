@@ -369,6 +369,7 @@ bool AuthManager::signIn(xcloud::GssvClient& gssv, const DeviceCodeCallback& onC
         } else {
             XC_LOGW("stored sign-in no longer valid (%s); asking again", err.c_str());
             tokens_ = {};
+            std::remove(storePath_.c_str());
         }
     }
     if (tokens_.accessToken.empty()) {

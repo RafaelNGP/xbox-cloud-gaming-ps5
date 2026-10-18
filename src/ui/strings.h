@@ -50,6 +50,7 @@ enum class Str {
     HoldSignOut,
     SigningOutIn,     // "%s" = seconds left
     SignInFailed,     // "%s" = technical detail
+    SignInInteractionRequired,
     LibraryFailed,    // "%s" = technical detail
     StreamFailed,     // "%s" = technical detail
     IdleWarning,      // "%s" = seconds until the server disconnects
