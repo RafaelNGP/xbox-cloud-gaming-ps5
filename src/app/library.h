@@ -87,7 +87,10 @@ public:
     };
     Progress progress() const { return progress_; }
     const std::string& subscription() const { return subscription_; }
-    bool loadCache();
+    // Reads the previous run's cache; true when one was read. `withLayout`
+    // also brings back its home rows: only for the instant start (nothing
+    // loaded yet). load() reads it without them, as it builds the rows fresh.
+    bool loadCache(bool withLayout = false);
     void saveCache() const;
 
 private:
