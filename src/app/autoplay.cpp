@@ -92,6 +92,8 @@ void loadAutoplay() {
         if (opt.rfind("res=", 0) == 0) g_autoplay.resolution = opt.substr(4);
         if (opt.rfind("sharp=", 0) == 0) g_autoplay.sharpness = std::atoi(opt.c_str() + 6);
         if (opt.rfind("deband=", 0) == 0) g_autoplay.deband = std::atoi(opt.c_str() + 7);
+        if (opt.rfind("bitrate=", 0) == 0) g_autoplay.bitrateMbps = std::atoi(opt.c_str() + 8);
+        if (opt.rfind("mbps=", 0) == 0) g_autoplay.bitrateMbps = std::atoi(opt.c_str() + 5);
         if (opt.rfind("updatefeed=", 0) == 0) g_autoplay.updateFeed = opt.substr(11);
         if (opt == "testca") g_autoplay.testCa = true;
         if (opt == "updatetest") g_autoplay.updateTest = true;

@@ -24,6 +24,19 @@ struct StreamInfo {
     double qp = -1;             // the pictures' average quantiser (lower: finer); -1 unknown
     bool degraded = false;      // frames lost / video stalled / round trip far up, in the last seconds
     int playtimeHours = -1;     // cloud playtime remaining (-1 unknown/uncapped)
+    std::vector<float> frametimes;  // presentation frametimes (ms)
+};
+
+enum StatsIndicator : uint32_t {
+    StatsFps       = 1 << 0,  // "1080p 60 fps"
+    StatsBitrate   = 1 << 1,  // "12.5 Mbps"
+    StatsLatency   = 1 << 2,  // "18 ms"
+    StatsLoss      = 1 << 3,  // "0.0%"
+    StatsGraph     = 1 << 4,  // Frametime sparkline histogram
+    StatsDelay     = 1 << 5,  // "Screen 24.0 ms  Dec 5.3 ms"
+    StatsQp        = 1 << 6,  // "QP 29"
+    StatsMic       = 1 << 7,  // "MIC"
+    StatsDefaultMask = StatsFps | StatsBitrate | StatsLatency | StatsLoss | StatsGraph,
 };
 
 // Close: the menu went away (Circle, OPTIONS, or the Xbox button): a fresh key frame is asked for.
@@ -56,6 +69,10 @@ public:
     MenuAction handle(const NavInput& in);
     int resolution() const { return resolution_; }
     bool statsOn() const { return stats_; }
+    uint32_t statsMask() const { return statsMask_; }
+    void setStatsMask(uint32_t mask) { statsMask_ = mask; }
+    bool isCustomizingStats() const { return statsCustomizing_; }
+    void setFrametimes(const std::vector<float>& ft) const { frametimes_ = ft; }
     int sharpness() const { return sharpness_; }
     int deband() const { return deband_; }
     int upscaler() const { return upscaler_; }
@@ -93,6 +110,7 @@ public:
 
     Canvas renderMenu(const StreamInfo& info) const;
     Canvas renderStats(const StreamInfo& info) const;
+    void recordFrametime(float ms) const;
     // "Unstable connection", on its own (when the statistics line is off).
     Canvas renderWarning() const;
 
@@ -120,6 +138,9 @@ private:
     const Fonts& fonts_;
     UiCaps caps_;
     bool open_ = false, stats_ = false;
+    uint32_t statsMask_ = StatsDefaultMask;
+    bool statsCustomizing_ = false;
+    int statsCustomIndex_ = 0;
     int selected_ = XboxButton;
     int resolution_ = 0, applied_ = 0;
     int sharpness_ = 0, deband_ = 1, upscaler_ = 0, debandInUse_ = 1;
@@ -133,6 +154,7 @@ private:
     bool micMuted_ = false;
     float micLevel_ = 0.0f;
     PadSlots pads_{};
+    mutable std::vector<float> frametimes_;
 };
 
 }  // namespace xc::ui

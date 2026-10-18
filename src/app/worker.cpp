@@ -60,6 +60,9 @@ bool g_gameClosedOnServer = false;
 std::map<std::string, std::string> g_regionFallback;
 std::shared_ptr<app::Library> s_library;
 std::mutex s_libraryMutex;
+// Cloud playtime telemetry in seconds (-1 unknown/uncapped).
+// STRICTLY INFORMATIVE: The client never blocks gameplay, streams, or launches
+// based on playtime telemetry, as Microsoft does not enforce client-side blocking.
 int64_t s_playtimeRemainingSeconds = -1;
 
 }  // namespace
@@ -94,10 +97,11 @@ std::string stream(xcloud::GssvClient& gssv) {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         player.setMicGain(g_settings.micGainFactor());
         player.setMicEnabled(g_settings.micEnabled);
-        player.setMaxBitrate(g_settings.maxBitrateMbps);
+        int cap = g_autoplay.bitrateMbps > 0 ? g_autoplay.bitrateMbps : g_settings.maxBitrateMbps;
+        player.setMaxBitrate(cap);
         media::audioSetVolume(g_settings.gameVolume / 100.0f);
         XC_LOGI("stream: bitrate cap %s, game volume %d%%",
-                g_settings.maxBitrateMbps ? (std::to_string(g_settings.maxBitrateMbps) + " Mbps").c_str() : "automatic",
+                cap ? (std::to_string(cap) + " Mbps").c_str() : "automatic",
                 g_settings.gameVolume);
         media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
     }
@@ -121,7 +125,7 @@ std::string stream(xcloud::GssvClient& gssv) {
 
     const uint64_t started = platform::nowMs();
     uint64_t nextTick = started;
-    bool snapshot1 = false, snapshot2 = false;
+    bool snapshot1 = false, snapshot2 = false, snapshot3 = false, snapshot4 = false;
     bool autoplayDone = false;
     int bestRtt = -1;  // lowest round trip seen: the region's latency
     int tallest = 0;   // the tallest picture seen (the probe's measure)
@@ -158,18 +162,27 @@ std::string stream(xcloud::GssvClient& gssv) {
                 snapshot1 = true;
                 player.requestSnapshot(platform::dataDir() + "/frame.ppm");
             }
-            bool press = !g_autoplay.idle && ((elapsed >= 15000 && elapsed < 15300) ||
-                                              (elapsed >= 20000 && elapsed < 20300) ||
-                                              (elapsed >= 25000 && (elapsed % 12000 < 300)));
+            bool press = !g_autoplay.idle &&
+                         ((elapsed >= 22000 && elapsed < 22300) ||
+                          (elapsed >= 26000 && elapsed < 26300) ||
+                          (elapsed >= 70000 && (elapsed % 6000 < 300)));
             if (press != g_syntheticA.exchange(press)) XC_LOGI("autoplay: A %s", press ? "down" : "up");
             static bool dropped = false;
             if (g_autoplay.dropTest && !dropped && elapsed >= 20000) {
                 dropped = true;
                 player.simulateDrop();
             }
-            if (!snapshot2 && elapsed >= 26000) {
+            if (!snapshot2 && elapsed >= 28000) {
                 snapshot2 = true;
                 player.requestSnapshot(platform::dataDir() + "/frame2.ppm");
+            }
+            if (!snapshot3 && elapsed >= 70000) {
+                snapshot3 = true;
+                player.requestSnapshot(platform::dataDir() + "/frame3.ppm");
+            }
+            if (!snapshot4 && elapsed >= 110000) {
+                snapshot4 = true;
+                player.requestSnapshot(platform::dataDir() + "/frame4.ppm");
             }
         }
         if (platform::nowMs() >= nextTick) {
@@ -245,6 +258,7 @@ std::string stream(xcloud::GssvClient& gssv) {
                 if (s_playtimeRemainingSeconds >= 0) {
                     info.playtimeHours = static_cast<int>((s_playtimeRemainingSeconds + 3599) / 3600);
                 }
+                player.getRecentFrametimes(info.frametimes);
                 std::lock_guard<std::mutex> lock(g_infoMutex);
                 g_streamInfo = info;
                 ++g_infoSeq;
@@ -583,6 +597,11 @@ std::string g_subscription;
 }  // namespace
 
 void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
+    if (!platform::dataDirWritable()) {
+        std::string pathAndErr = platform::dataDir() + " (errno " + std::to_string(platform::dataDirErrno()) + ")";
+        platform::notify(ui::trf(ui::Str::StorageNotWritable, pathAndErr),
+                         "storage not writable (notification)");
+    }
     g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
     std::string err;
     auto onCode = [](const auth::DeviceCode& dc) { g_ui->showSignIn(dc.userCode, dc.verificationUri); };
@@ -607,6 +626,10 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         } else if (net::lastTlsProblem() == net::TlsProblem::Untrusted ||
                    net::lastTlsProblem() == net::TlsProblem::NameMismatch) {
             g_ui->showError(ui::tr(ui::Str::ConnectionIntercepted));
+        } else if (err.find("user interaction is required") != std::string::npos ||
+                   err.find("invalid_grant") != std::string::npos ||
+                   err.find("authorization_declined") != std::string::npos) {
+            g_ui->showError(ui::tr(ui::Str::SignInInteractionRequired));
         } else {
             g_ui->showError(ui::trf(ui::Str::SignInFailed, err));
         }
@@ -715,6 +738,7 @@ void loadLibrary(xcloud::GssvClient& gssv) {
         xblAuth = g_xblAuth;
     }
     platform::startThread(g_hydrationThread, [library, publish, owned = gssv, xblAuth] {
+        platform::setThreadAffinity(platform::ThreadRole::Worker, "xcloud_hydr");
         auto changed = [&] { publish(*library); };
         library->loadFirstScreen(xblAuth, changed, &g_stopHydration);
         library->loadFriends(xblAuth, changed, &g_stopHydration);

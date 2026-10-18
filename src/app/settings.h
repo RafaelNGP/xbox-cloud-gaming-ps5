@@ -25,6 +25,7 @@ struct GameProfile {
     int triggerHz = 1;           // 0..2
     int triggerResistance = 0;   // 0 off .. 3 strong
     bool triggerPulses = false;
+    int triggerProfile = 0;      // 0 Standard, 1 Shooter, 2 Racing
     bool circleConfirms = false;
     // Display
     bool highRefresh = false;    // 120 Hz output (VRR) while streaming
@@ -61,6 +62,7 @@ struct Settings {
     std::string librarySort = "recent";
     // The statistics line over the game (in-game menu).
     bool streamStats = false;
+    uint32_t statsMask = 0x1F;  // StatsDefaultMask (Fps, Bitrate, Latency, Loss, Graph)
     // Sharpening of the game picture: 0 off, 1..3 low, medium (FSR RCAS), high.
     int sharpness = 2;
     // Smoothing of compression blocks (GPU display): 0 off, 1 low, 2 high,
@@ -78,6 +80,7 @@ struct Settings {
     int triggerHz = 1;
     int triggerResistance = 0;   // 0 off .. 3 strong (the triggers' weight)
     bool triggerPulses = false;  // pulses of the resistance instead of the motor vibrating
+    int triggerProfile = 0;      // 0 Standard, 1 Shooter, 2 Racing
     bool circleConfirms = false;
     // The DualSense light bar: 0 the colour of the game in focus, 1
     // lightBarColour, 2 off.
@@ -87,7 +90,7 @@ struct Settings {
     // Voice chat & Audio routing
     bool micEnabled = true;
     bool highRefresh = false;  // 119.88 Hz output (VRR where the console turns it on) while streaming
-    int maxBitrateMbps = 0;    // the stream's bitrate cap: 0 automatic (the tier's), else 20, 15, 10 or 5
+    int maxBitrateMbps = 0;    // the stream's bitrate cap: 0 automatic (the tier's), else 30, 25, 22, 20, 15, 10 or 5
     int gameVolume = 100;      // percent: 25, 50, 75, 100 or 150
     input::KeyMap keyMap = input::defaultKeyMap();  // the keys when the keyboard is a player's controller
     // Which pad button plays which Xbox button in a game (input/pad_map.h;

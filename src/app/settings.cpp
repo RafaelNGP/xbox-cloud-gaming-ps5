@@ -61,6 +61,7 @@ bool Settings::load(const std::string& path) {
         if (!id.str().empty()) favorites.push_back(id.str());
     librarySort = (*j)["librarySort"].str(librarySort);
     streamStats = (*j)["streamStats"].asBool(streamStats);
+    statsMask = static_cast<uint32_t>((*j)["statsMask"].asInt(static_cast<int64_t>(statsMask)));
     sharpness = static_cast<int>(std::clamp<int64_t>((*j)["sharpness"].asInt(sharpness), 0, 3));
     deband = static_cast<int>(std::clamp<int64_t>((*j)["deband"].asInt(deband), 0, 3));
     upscaler = static_cast<int>(std::clamp<int64_t>((*j)["upscaler"].asInt(upscaler), 0, 3));
@@ -74,6 +75,7 @@ bool Settings::load(const std::string& path) {
     triggerHz = static_cast<int>(std::clamp<int64_t>((*j)["triggerHz"].asInt(triggerHz), 0, 2));
     triggerResistance = static_cast<int>(std::clamp<int64_t>((*j)["triggerResistance"].asInt(0), 0, 3));
     triggerPulses = (*j)["triggerPulses"].asBool(false);
+    triggerProfile = static_cast<int>(std::clamp<int64_t>((*j)["triggerProfile"].asInt(0), 0, 2));
     circleConfirms = (*j)["circleConfirms"].asBool(circleConfirms);
     // "lightBar" (on/off) until the colour could be chosen.
     lightBarMode = (*j)["lightBar"].asBool(true) ? 0 : 2;
@@ -130,6 +132,7 @@ bool Settings::load(const std::string& path) {
         p.triggerHz = static_cast<int>(std::clamp<int64_t>(obj["triggerHz"].asInt(triggerHz), 0, 2));
         p.triggerResistance = static_cast<int>(std::clamp<int64_t>(obj["triggerResistance"].asInt(triggerResistance), 0, 3));
         p.triggerPulses = obj["triggerPulses"].asBool(triggerPulses);
+        p.triggerProfile = static_cast<int>(std::clamp<int64_t>(obj["triggerProfile"].asInt(triggerProfile), 0, 2));
         p.circleConfirms = obj["circleConfirms"].asBool(circleConfirms);
         p.highRefresh = obj["highRefresh"].asBool(highRefresh);
         p.keyMap = readKeyMap(obj["keyMap"], keyMap);
@@ -160,6 +163,7 @@ GameProfile Settings::defaultProfile() const {
     p.triggerHz = triggerHz;
     p.triggerResistance = triggerResistance;
     p.triggerPulses = triggerPulses;
+    p.triggerProfile = triggerProfile;
     p.circleConfirms = circleConfirms;
     p.highRefresh = highRefresh;
     p.keyMap = keyMap;
@@ -206,6 +210,7 @@ bool Settings::save(const std::string& path) const {
     v.set("favorites", favIds);
     v.set("librarySort", librarySort);
     v.set("streamStats", streamStats);
+    v.set("statsMask", static_cast<int64_t>(statsMask));
     v.set("sharpness", sharpness);
     v.set("deband", deband);
     v.set("upscaler", upscaler);
@@ -215,6 +220,7 @@ bool Settings::save(const std::string& path) const {
     v.set("triggerHz", triggerHz);
     v.set("triggerResistance", triggerResistance);
     v.set("triggerPulses", triggerPulses);
+    v.set("triggerProfile", triggerProfile);
     v.set("circleConfirms", circleConfirms);
     v.set("lightBarMode", lightBarMode);
     char hex[8];
@@ -253,6 +259,7 @@ bool Settings::save(const std::string& path) const {
         obj.set("triggerHz", p.triggerHz);
         obj.set("triggerResistance", p.triggerResistance);
         obj.set("triggerPulses", p.triggerPulses);
+        obj.set("triggerProfile", p.triggerProfile);
         obj.set("circleConfirms", p.circleConfirms);
         obj.set("highRefresh", p.highRefresh);
         obj.set("keyMap", keyMapJson(p.keyMap));

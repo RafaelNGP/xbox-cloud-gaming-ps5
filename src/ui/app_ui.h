@@ -115,6 +115,7 @@ struct SettingsChoice {
     int triggerHz = 1;           // index into input::kTriggerHz
     int triggerResistance = 0;   // 0 off .. 3 strong
     bool triggerPulses = false;  // force pulses instead of the motor vibrating
+    int triggerProfile = 0;      // 0 Standard, 1 Shooter, 2 Racing
     bool circleConfirms = false;  // Circle is Xbox A (and Cross is B)
     int lightBarMode = 0;         // 0 the game's colour, 1 lightBarColour, 2 off
     Color lightBarColour = rgba(0, 112, 220);
@@ -122,7 +123,7 @@ struct SettingsChoice {
     int deband = 3;
     int upscaler = 2;
     bool highRefresh = false;  // 120 Hz output while a game streams
-    int maxBitrateMbps = 0;    // 0 automatic, else 20 / 15 / 10 / 5
+    int maxBitrateMbps = 0;    // 0 automatic, else 30 / 25 / 22 / 20 / 15 / 10 / 5
     int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
     input::KeyMap keyMap = input::defaultKeyMap();  // the keyboard as a player's controller
     input::PadMap padMap = input::defaultPadMap();  // the controller's buttons toward the game (always complete)
@@ -257,7 +258,8 @@ public:
     void setSearchPools(std::vector<GameTile> gamePass, std::vector<GameTile> library);
     // Measured round trip to each region, ms (shown in Settings).
     void setRegionLatency(std::map<std::string, int> ms);
-    // Cloud playtime limit telemetry (remaining and max in seconds, -1 unknown)
+    // Cloud playtime limit telemetry (remaining and max in seconds, -1 unknown).
+    // Purely informative; never blocks launch or gameplay.
     void setPlaytime(int64_t remainingSeconds, int64_t maxSeconds);
     // Store prices, formatted: productId -> {now, regular (empty unless on sale)}.
     void setPrices(const std::map<std::string, PriceInfo>& prices);
@@ -329,10 +331,14 @@ public:
     // While Settings is open: the light bar being chosen there (the colour
     // picker's colour as it moves), so the pad shows it at once.
     bool settingsLightBar(int& mode, Color& colour) const;
-    // The same for the trigger vibration (strength, frequency index), and,
+    // The same for the trigger vibration (strength, frequency index, profile), and,
     // while its tester is open, how far each trigger is pressed: the app
     // makes them vibrate as a game asking that much would.
-    bool settingsTriggerFeel(int& strength, int& hzIndex, int& resistance, bool& pulses) const;
+    bool settingsTriggerFeel(int& strength, int& hzIndex, int& resistance, bool& pulses, int& profile) const;
+    bool settingsTriggerFeel(int& strength, int& hzIndex, int& resistance, bool& pulses) const {
+        int prof = 0;
+        return settingsTriggerFeel(strength, hzIndex, resistance, pulses, prof);
+    }
     bool triggerTest(float& l2, float& r2) const;
     // Regions offered by the account's xCloud login; `defaultRegion` is the
     // one "Automatic" picks.
@@ -494,9 +500,9 @@ private:
     void drawCentered(Canvas& c, const Font& f, const std::string& text, int y, int px, Color color);
     // The sign-in country's "off" choice, worded for the platform (caller holds mutex_).
     const char* loginCountryOffText() const;
-    // The trigger tester's rows: intensity and frequency, then resistance
-    // and style with adaptive triggers.
-    int triggerTesterRows() const { return caps_.adaptiveTriggers ? 4 : 2; }
+    // The trigger tester's rows: intensity and frequency, then resistance,
+    // style, and feel profile with adaptive triggers.
+    int triggerTesterRows() const { return caps_.adaptiveTriggers ? 5 : 2; }
 
     const Fonts& fonts_;
     ImageCache& images_;

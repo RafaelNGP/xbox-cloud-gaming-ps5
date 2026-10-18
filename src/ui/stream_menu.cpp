@@ -82,10 +82,35 @@ void StreamMenu::open(int resolution, bool stats, int sharpness, int deband, int
     selected_ = XboxButton;
     resolution_ = applied_ = resolution;
     resolutionAsked_ = false;
+    statsCustomizing_ = false;
+    statsCustomIndex_ = 0;
 }
 
 MenuAction StreamMenu::handle(const NavInput& in) {
     if (!open_) return MenuAction::None;
+    if (statsCustomizing_) {
+        if (in.back) {
+            statsCustomizing_ = false;
+            return MenuAction::Stats;
+        }
+        if (in.options) {
+            statsCustomizing_ = false;
+            open_ = false;
+            return MenuAction::Close;
+        }
+        constexpr int kCount = 8;
+        if (in.up) statsCustomIndex_ = (statsCustomIndex_ + kCount - 1) % kCount;
+        if (in.down) statsCustomIndex_ = (statsCustomIndex_ + 1) % kCount;
+        if (in.accept || in.left || in.right) {
+            static constexpr uint32_t kMasks[kCount] = {
+                StatsFps, StatsBitrate, StatsLatency, StatsLoss,
+                StatsGraph, StatsDelay, StatsQp, StatsMic
+            };
+            statsMask_ ^= kMasks[statsCustomIndex_];
+            return MenuAction::Stats;
+        }
+        return MenuAction::None;
+    }
     if (in.back || in.options) {
         open_ = false;
         return MenuAction::Close;
@@ -150,10 +175,14 @@ MenuAction StreamMenu::handle(const NavInput& in) {
         stats_ = !stats_;
         return MenuAction::Stats;
     }
+    if (selected_ == Stats && (in.square || in.accept)) {
+        statsCustomizing_ = true;
+        stats_ = true;
+        return MenuAction::Stats;
+    }
     if (!in.accept) return MenuAction::None;
     switch (selected_) {
     case XboxButton: open_ = false; return MenuAction::XboxButton;
-    case Stats: stats_ = !stats_; return MenuAction::Stats;
     case Resolution:
         applied_ = resolution_;
         resolutionAsked_ = true;
@@ -168,6 +197,89 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     c.clear(kPanel);
     c.fillRect({0, 0, kMenuW, 6}, kGreen);
     constexpr int kPad = 40;
+
+    auto icon = [&](bool cross, int x, int hy) {
+        if (g_glyphStyle == GlyphStyle::Xbox) {  // A / B
+            drawFaceButton(c, fonts_.bold, GlyphStyle::Xbox, cross ? PadButton::Cross : PadButton::Circle, x + 13.0f,
+                           hy + 12.0f, 13);
+            return;
+        }
+        c.fillCircle(x + 13, hy + 12, 13, rgba(255, 255, 255, 40));
+        if (cross) {
+            c.line(x + 7, hy + 6, x + 19, hy + 18, 2.5f, rgba(124, 178, 232));
+            c.line(x + 19, hy + 6, x + 7, hy + 18, 2.5f, rgba(124, 178, 232));
+        } else {
+            c.strokeArc(x + 13, hy + 12, 6.0f, 2.5f, 0, 6.2832f, rgba(255, 102, 102));
+        }
+    };
+
+    if (statsCustomizing_) {
+        fonts_.bold.draw(c, tr(Str::StatsCustomize), kPad, 38, 28, kWhite);
+        fonts_.regular.draw(c, tr(Str::MenuStats), kPad, 74, 16, kDim);
+
+        struct IndicatorDef {
+            uint32_t mask;
+            Str label;
+        };
+        static constexpr IndicatorDef kIndicators[8] = {
+            {StatsFps, Str::StatsIndicatorFps},
+            {StatsBitrate, Str::StatsIndicatorBitrate},
+            {StatsLatency, Str::StatsIndicatorLatency},
+            {StatsLoss, Str::StatsIndicatorLoss},
+            {StatsGraph, Str::StatsIndicatorGraph},
+            {StatsDelay, Str::StatsIndicatorDelay},
+            {StatsQp, Str::StatsIndicatorQp},
+            {StatsMic, Str::StatsIndicatorMic},
+        };
+
+        constexpr int kRowH = 46, kTop = 108, kPx = 20;
+        for (int i = 0; i < 8; ++i) {
+            Rect row{kPad - 16, kTop + i * kRowH, kMenuW - 2 * (kPad - 16), kRowH - 4};
+            bool sel = i == statsCustomIndex_;
+            if (sel) c.fillRect(row, kWhite, 8);
+            Color fg = sel ? kDark : kWhite;
+            bool on = (statsMask_ & kIndicators[i].mask) != 0;
+
+            int boxX = row.x + 16;
+            int boxY = row.y + (row.h - 22) / 2;
+            if (on) {
+                c.fillRect({boxX, boxY, 22, 22}, sel ? rgba(16, 124, 16) : rgba(30, 215, 96), 5);
+                c.line(boxX + 5, boxY + 11, boxX + 9, boxY + 16, 2.5f, kWhite);
+                c.line(boxX + 9, boxY + 16, boxX + 17, boxY + 7, 2.5f, kWhite);
+            } else {
+                c.strokeRect({boxX, boxY, 22, 22}, sel ? kDark : kDim, 2, 5);
+            }
+
+            int ty = fonts_.semibold.centeredY(row.y, row.h, kPx);
+            fonts_.semibold.draw(c, tr(kIndicators[i].label), boxX + 34, ty, kPx, fg);
+
+            const char* st = tr(on ? Str::On : Str::Off);
+            int sw = fonts_.semibold.measure(st, 18);
+            fonts_.semibold.draw(c, st, row.x + row.w - 16 - sw, ty, 18, sel ? kDark : kGray);
+        }
+
+        int hy = kMenuH - 50, x = kPad;
+        if (g_keyboardHints) {
+            auto cap = [&](const char* key) {
+                int kw = fonts_.bold.measure(key, 15) + 18;
+                c.fillRect({x, hy, kw, 26}, rgba(255, 255, 255, 30), 6);
+                c.strokeRect({x, hy, kw, 26}, kGray, 2, 6);
+                fonts_.bold.draw(c, key, x + 9, fonts_.bold.centeredY(hy, 26, 15), 15, kWhite);
+                return kw;
+            };
+            int kw = cap("Enter");
+            x = fonts_.semibold.draw(c, tr(Str::Select), x + kw + 8, hy, 20, kGray) + 32;
+            kw = cap("Esc");
+            fonts_.semibold.draw(c, tr(Str::Back), x + kw + 8, hy, 20, kGray);
+        } else {
+            icon(!circleConfirms_, x, hy);
+            x = fonts_.semibold.draw(c, tr(Str::Select), x + 34, hy, 20, kGray) + 32;
+            icon(circleConfirms_, x, hy);
+            fonts_.semibold.draw(c, tr(Str::Back), x + 34, hy, 20, kGray);
+        }
+        return c;
+    }
+
     fonts_.bold.draw(c, tr(Str::MenuTitle), kPad, 38, 32, kWhite);
 
     // The items: the selected one white, like the Xbox guide.
@@ -200,7 +312,10 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
             value = tr(hasCustomProfile_ ? Str::ProfileCustom : Str::ProfileDefault);
             if (sel) value = "< " + value + " >";
         }
-        if (i == Stats) value = tr(stats_ ? Str::On : Str::Off);
+        if (i == Stats) {
+            value = tr(stats_ ? Str::On : Str::Off);
+            if (sel) value = "< " + value + " >";
+        }
         if (i == Sharpness) {
             static constexpr Str kLevels[] = {Str::SharpOff, Str::SharpLow, Str::SharpMedium, Str::SharpHigh};
             value = tr(kLevels[sharpness_]);
@@ -276,7 +391,11 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     line(Str::StatLoss, fmt("%.1f %%", info.lossPct));
     line(Str::StatDecode, info.decodeMs > 0 ? fmt("%.1f ms", info.decodeMs) : none);
     line(Str::StatOnScreen, info.onScreenMs > 0 ? fmt("%.1f ms", info.onScreenMs) : none);
-    if (info.playtimeHours >= 0) line(Str::PlaytimeRemaining, trf(Str::HoursRemaining, std::to_string(info.playtimeHours)));
+    // Cloud playtime is purely informative and hidden from the UI for now.
+    constexpr bool kShowPlaytimeInMenu = false;
+    if (kShowPlaytimeInMenu && info.playtimeHours >= 0) {
+        line(Str::PlaytimeRemaining, trf(Str::HoursRemaining, std::to_string(info.playtimeHours)));
+    }
 
     // The controllers: numbered pads, each connected one with its user.
     y += 8;
@@ -352,20 +471,6 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
             gy += 22;
         }
     }
-    auto icon = [&](bool cross) {
-        if (g_glyphStyle == GlyphStyle::Xbox) {  // A / B
-            drawFaceButton(c, fonts_.bold, GlyphStyle::Xbox, cross ? PadButton::Cross : PadButton::Circle, x + 13.0f,
-                           hy + 12.0f, 13);
-            return;
-        }
-        c.fillCircle(x + 13, hy + 12, 13, rgba(255, 255, 255, 40));
-        if (cross) {
-            c.line(x + 7, hy + 6, x + 19, hy + 18, 2.5f, rgba(124, 178, 232));
-            c.line(x + 19, hy + 6, x + 7, hy + 18, 2.5f, rgba(124, 178, 232));
-        } else {
-            c.strokeArc(x + 13, hy + 12, 6.0f, 2.5f, 0, 6.2832f, rgba(255, 102, 102));
-        }
-    };
     if (g_keyboardHints) {  // Enter / Esc as key caps
         auto cap = [&](const char* key) {
             int kw = fonts_.bold.measure(key, 15) + 18;
@@ -375,34 +480,100 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
             return kw;
         };
         int kw = cap("Enter");
-        x = fonts_.semibold.draw(c, tr(Str::Select), x + kw + 8, hy, 20, kGray) + 32;
+        x = fonts_.semibold.draw(c, selected_ == Stats ? tr(Str::StatsCustomize) : tr(Str::Select), x + kw + 8, hy, 20, kGray) + 32;
         kw = cap("Esc");
         fonts_.semibold.draw(c, tr(Str::Back), x + kw + 8, hy, 20, kGray);
         return c;
     }
-    icon(!circleConfirms_);
-    x = fonts_.semibold.draw(c, tr(Str::Select), x + 34, hy, 20, kGray) + 32;
-    icon(circleConfirms_);
+    icon(!circleConfirms_, x, hy);
+    x = fonts_.semibold.draw(c, selected_ == Stats ? tr(Str::StatsCustomize) : tr(Str::Select), x + 34, hy, 20, kGray) + 32;
+    icon(circleConfirms_, x, hy);
     fonts_.semibold.draw(c, tr(Str::Back), x + 34, hy, 20, kGray);
     return c;
 }
 
+void StreamMenu::recordFrametime(float ms) const {
+    if (ms <= 0.0f || ms > 250.0f) return;
+    frametimes_.push_back(ms);
+    if (frametimes_.size() > 60) frametimes_.erase(frametimes_.begin());
+}
+
 Canvas StreamMenu::renderStats(const StreamInfo& info) const {
     std::string text;
-    if (info.height > 0) text += std::to_string(info.height) + "p  ";
-    text += fmt("%.0f fps", info.fps) + "  " + fmt("%.1f Mbps", info.mbps);
-    if (info.rttMs > 0) text += "  " + std::to_string(info.rttMs) + " ms";
-    text += "  " + fmt("%.1f%%", info.lossPct);
-    if (info.qp >= 0) text += "  QP " + fmt("%.0f", info.qp);  // the encoder's quantiser: lower is finer
-    if (!micMuted_) text += "  MIC";
-    constexpr int kPx = 20, kH = 36;
+    if (statsMask_ & StatsFps) {
+        if (info.height > 0) text += std::to_string(info.height) + "p  ";
+        text += fmt("%.0f fps", info.fps);
+    }
+    if (statsMask_ & StatsBitrate) {
+        if (!text.empty()) text += "  ";
+        text += fmt("%.1f Mbps", info.mbps);
+    }
+    if (statsMask_ & StatsLatency) {
+        if (!text.empty()) text += "  ";
+        text += info.rttMs > 0 ? std::to_string(info.rttMs) + " ms" : "- ms";
+    }
+    if (statsMask_ & StatsLoss) {
+        if (!text.empty()) text += "  ";
+        text += fmt("%.1f%%", info.lossPct);
+    }
+    if ((statsMask_ & StatsQp) && info.qp >= 0) {
+        if (!text.empty()) text += "  ";
+        text += "QP " + fmt("%.0f", info.qp);
+    }
+    if (statsMask_ & StatsDelay) {
+        if (info.onScreenMs > 0) {
+            if (!text.empty()) text += "  ";
+            text += "Screen " + fmt("%.1f ms", info.onScreenMs);
+        }
+        if (info.decodeMs > 0) {
+            if (!text.empty()) text += "  ";
+            text += "Dec " + fmt("%.1f ms", info.decodeMs);
+        }
+    }
+    if ((statsMask_ & StatsMic) && !micMuted_) {
+        if (!text.empty()) text += "  ";
+        text += "MIC";
+    }
+    constexpr int kPx = 18;
     std::string warn = info.degraded ? std::string("  ") + tr(Str::ConnectionUnstable) : std::string();
     int tw = fonts_.semibold.measure(text, kPx);
     int w = tw + fonts_.semibold.measure(warn, kPx) + 28;
+    w = std::max(w, 200);
+
+    bool showGraph = (statsMask_ & StatsGraph) != 0;
+    int kH = showGraph ? 62 : 36;
     Canvas c(w, kH);
     c.clear(kPanel);
-    fonts_.semibold.draw(c, text, 14, fonts_.semibold.centeredY(0, kH, kPx), kPx, kWhite);
-    if (!warn.empty()) fonts_.semibold.draw(c, warn, 14 + tw, fonts_.semibold.centeredY(0, kH, kPx), kPx, kWarnColor);
+    if (!text.empty()) fonts_.semibold.draw(c, text, 14, 8, kPx, kWhite);
+    if (!warn.empty()) fonts_.semibold.draw(c, warn, 14 + tw, 8, kPx, kWarnColor);
+
+    if (showGraph) {
+        // Row 2: Frametime sparkline bars (last 60 frames)
+        int graphX = 14;
+        int graphY = 32;
+        int graphH = 22;
+        int graphW = w - 28;
+        // Draw subtle baseline
+        c.line(graphX, graphY + graphH, graphX + graphW, graphY + graphH, 1.0f, rgba(80, 80, 80, 160));
+        // Target 60fps line (16.7ms out of 40ms scale = ~9px above baseline)
+        float targetLineY = (graphY + graphH) - (16.7f / 40.0f) * graphH;
+        c.line(graphX, targetLineY, graphX + graphW, targetLineY, 1.0f, rgba(60, 160, 90, 120));
+
+        if (!frametimes_.empty()) {
+            size_t count = frametimes_.size();
+            float barW = std::max(2.0f, static_cast<float>(graphW) / 60.0f - 1.0f);
+            float step = barW + 1.0f;
+            for (size_t i = 0; i < count; ++i) {
+                float ms = frametimes_[i];
+                float norm = std::clamp(ms / 40.0f, 0.08f, 1.0f);
+                float bh = norm * graphH;
+                float bx = graphX + i * step;
+                if (bx + barW > graphX + graphW) break;
+                Color barColor = ms <= 17.5f ? rgba(40, 200, 60) : ms <= 33.3f ? rgba(255, 190, 40) : rgba(255, 60, 60);
+                c.fillRect({static_cast<int>(bx), static_cast<int>(graphY + graphH - bh), static_cast<int>(barW), static_cast<int>(bh)}, barColor);
+            }
+        }
+    }
     return c;
 }
 

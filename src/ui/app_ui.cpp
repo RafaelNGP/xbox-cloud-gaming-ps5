@@ -8,6 +8,7 @@
 #include "xcloud/catalog.h"
 #include "ui/accent_color.h"
 
+#include "platform/platform.h"
 #include "platform/toasts.h"
 #include "ui/brand.h"
 #include "ui/strings.h"
@@ -1063,13 +1064,14 @@ bool AppUi::settingsLightBar(int& mode, Color& colour) const {
     return true;
 }
 
-bool AppUi::settingsTriggerFeel(int& strength, int& hzIndex, int& resistance, bool& pulses) const {
+bool AppUi::settingsTriggerFeel(int& strength, int& hzIndex, int& resistance, bool& pulses, int& profile) const {
     std::lock_guard<std::mutex> lock(mutex_);
     if (screen_ != Screen::Settings && !gameSettingsOpen_) return false;
     strength = settings_.triggerStrength;
     hzIndex = settings_.triggerHz;
     resistance = settings_.triggerResistance;
     pulses = settings_.triggerPulses;
+    profile = settings_.triggerProfile;
     return true;
 }
 
@@ -1242,6 +1244,7 @@ void AppUi::handleTester(const NavInput& in) {
         if (delta && testerRow_ == 2)
             settings_.triggerResistance = std::clamp(settings_.triggerResistance + delta, 0, input::kTriggerResistances - 1);
         if (delta && testerRow_ == 3) settings_.triggerPulses = !settings_.triggerPulses;
+        if (delta && testerRow_ == 4) settings_.triggerProfile = std::clamp(settings_.triggerProfile + delta, 0, input::kTriggerProfiles - 1);
         if (delta) dirty_ = true;
         if (in.l2Analog != testL2_ || in.r2Analog != testR2_) testL2_ = in.l2Analog, testR2_ = in.r2Analog, dirty_ = true;
     }
@@ -1249,6 +1252,7 @@ void AppUi::handleTester(const NavInput& in) {
         settings_.deadzone[0] = testerBackup_.deadzone[0], settings_.deadzone[1] = testerBackup_.deadzone[1];
         settings_.triggerStrength = testerBackup_.triggerStrength, settings_.triggerHz = testerBackup_.triggerHz;
         settings_.triggerResistance = testerBackup_.triggerResistance, settings_.triggerPulses = testerBackup_.triggerPulses;
+        settings_.triggerProfile = testerBackup_.triggerProfile;
     }
     if (in.accept || in.back) {
         if (gameSettingsOpen_) {
@@ -1259,6 +1263,7 @@ void AppUi::handleTester(const NavInput& in) {
                 activeGameProfile_.triggerHz = settings_.triggerHz;
                 activeGameProfile_.triggerResistance = settings_.triggerResistance;
                 activeGameProfile_.triggerPulses = settings_.triggerPulses;
+                activeGameProfile_.triggerProfile = settings_.triggerProfile;
                 activeGameHasCustom_ = true;
             }
             settings_ = testerBackup_;
@@ -1492,7 +1497,7 @@ void AppUi::setRegions(std::vector<std::string> regions, const std::string& defa
 }
 
 // Settings' bitrate caps (Mbps, after Automatic) and game volumes (percent).
-constexpr int kBitrateCaps[] = {20, 15, 10, 5};
+constexpr int kBitrateCaps[] = {30, 25, 22, 20, 15, 10, 5};
 constexpr int kVolumes[] = {25, 50, 75, 100, 150};
 
 std::vector<std::string> AppUi::settingOptions(int row) const {
@@ -2378,6 +2383,7 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             settings_.triggerHz = activeGameProfile_.triggerHz;
             settings_.triggerResistance = activeGameProfile_.triggerResistance;
             settings_.triggerPulses = activeGameProfile_.triggerPulses;
+            settings_.triggerProfile = activeGameProfile_.triggerProfile;
             testerRow_ = 0;
             dirty_ = true;
             break;
@@ -2437,6 +2443,7 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             activeGameProfile_.triggerHz = settings_.triggerHz;
             activeGameProfile_.triggerResistance = settings_.triggerResistance;
             activeGameProfile_.triggerPulses = settings_.triggerPulses;
+            activeGameProfile_.triggerProfile = settings_.triggerProfile;
             activeGameProfile_.circleConfirms = settings_.circleConfirms;
             activeGameProfile_.highRefresh = settings_.highRefresh;
             activeGameProfile_.gyroMode = gyroMode_;
@@ -2718,6 +2725,18 @@ void AppUi::drawGamerscoreBadge(Canvas& c, float cx, float cy, float r) {
 void AppUi::drawTopBar(Canvas& c) {
     drawLogo(c, kMargin + 22, 72, 22);
     fonts_.semibold.draw(c, tr(Str::CloudGaming), kMargin + 64, 60, 22, kWhite);
+
+    // Cloud playtime remaining badge positioned under the "PSBox Cloud Gaming" brand mark.
+    // Purely informative; hidden from the active UI for now until Xbox Cloud Gaming enforces limits.
+    constexpr bool kShowPlaytimeBadge = false;
+    if (kShowPlaytimeBadge && playtimeRemaining_ >= 0) {
+        int hours = static_cast<int>((playtimeRemaining_ + 3599) / 3600);
+        std::string pt = trf(Str::HoursRemaining, std::to_string(hours));
+        bool warn = playtimeRemaining_ <= 7200;
+        Color col = warn ? rgba(255, 160, 40) : kGray;
+        fonts_.semibold.draw(c, pt, kMargin + 64, 86, 14, col);
+    }
+
     int x = kW - kMargin;
     constexpr int kAvatar = 52;
     x -= kAvatar;
@@ -2766,16 +2785,6 @@ void AppUi::drawTopBar(Canvas& c) {
             fonts_.semibold.draw(c, n, nx, fonts_.semibold.centeredY(kLineY, kLineH, kLinePx), kLinePx, kGray);
             drawGamerscoreBadge(c, nx - 13.0f, midY, 8.5f);
             right = nx - 26;
-        }
-        if (playtimeRemaining_ >= 0) {
-            int hours = static_cast<int>((playtimeRemaining_ + 3599) / 3600);
-            std::string pt = trf(Str::HoursRemaining, std::to_string(hours));
-            int pw = fonts_.semibold.measure(pt, kLinePx);
-            int px = right - pw;
-            bool warn = playtimeRemaining_ <= 7200;
-            Color col = warn ? rgba(255, 160, 40) : kGray;
-            fonts_.semibold.draw(c, pt, px, fonts_.semibold.centeredY(kLineY, kLineH, kLinePx), kLinePx, col);
-            right = px - 16;
         }
     }
 }
@@ -2942,6 +2951,14 @@ void AppUi::drawSignIn(Canvas& c, uint64_t nowMs) {
     }
     drawSpinner(c, left + 18, 830, 14, nowMs);
     fonts_.regular.draw(c, tr(Str::SignInWaiting), left + 48, 815, 26, kDim);
+
+    if (!platform::dataDirWritable()) {
+        std::string pathAndErr = platform::dataDir() + " (errno " + std::to_string(platform::dataDirErrno()) + ")";
+        std::string warn1 = trf(Str::StorageNotWritable, pathAndErr);
+        std::string warn2 = trf(Str::StorageFixHint, platform::dataDir());
+        fonts_.semibold.draw(c, warn1, left, 875, 22, rgba(255, 160, 40));
+        fonts_.regular.draw(c, warn2, left, 905, 20, kGray);
+    }
 
     // QR code for the sign-in page. Not "?otc=<code>": that prefilled link
     // goes through a consent flow that rejects this client id ("first party
@@ -4083,21 +4100,24 @@ void AppUi::drawStickTester(Canvas& c) {
 }
 
 void AppUi::drawTriggerTester(Canvas& c) {
-    // Without adaptive triggers, no resistance or style rows: the panel shorter by them.
-    const int rows = triggerTesterRows(), lessY = (4 - rows) * 84;
-    Rect panel = drawModal(c, 1100, 830 - lessY, tr(Str::TriggerRumble));
-    // The two choices, as Settings' rows: up / down picks one, left / right changes it.
+    // Without adaptive triggers, no resistance, style or profile rows: the panel shorter by them.
+    const int rows = triggerTesterRows(), lessY = (5 - rows) * 84;
+    Rect panel = drawModal(c, 1100, 890 - lessY, tr(Str::TriggerRumble));
+    // The choices, as Settings' rows: up / down picks one, left / right changes it.
     const char* strengths[] = {tr(Str::Deactivated), tr(Str::TriggerLight), tr(Str::TriggerMedium), tr(Str::TriggerStrong),
                                tr(Str::TriggerMax)};
     const char* freqs[] = {tr(Str::FrequencyLow), tr(Str::TriggerMedium), tr(Str::FrequencyHigh)};
+    static constexpr Str kProfileStrs[] = {Str::TriggerProfileStd, Str::TriggerProfileShooter, Str::TriggerProfileRacing};
     const char* labels[] = {tr(Str::TriggerIntensity), tr(Str::TriggerFrequency), tr(Str::TriggerResistance),
-                            tr(Str::TriggerStyle)};
+                            tr(Str::TriggerStyle), tr(Str::TriggerProfile)};
     // Pulses go at their own, slower rates.
     int hz = settings_.triggerPulses ? input::kTriggerPulseHz[settings_.triggerHz] : input::kTriggerHz[settings_.triggerHz];
+    int prof = std::clamp(settings_.triggerProfile, 0, 2);
     const std::string values[] = {strengths[settings_.triggerStrength],
                                   std::string(freqs[settings_.triggerHz]) + "  (" + std::to_string(hz) + " Hz)",
                                   strengths[settings_.triggerResistance],  // off, light, medium, strong
-                                  tr(settings_.triggerPulses ? Str::StylePulses : Str::StyleVibration)};
+                                  tr(settings_.triggerPulses ? Str::StylePulses : Str::StyleVibration),
+                                  tr(kProfileStrs[prof])};
     for (int i = 0; i < rows; ++i) {
         Rect r{panel.x + 56, panel.y + 120 + i * 84, panel.w - 112, 70};
         bool on = i == testerRow_;
@@ -4111,8 +4131,8 @@ void AppUi::drawTriggerTester(Canvas& c) {
     // L2 and R2: how far each is pressed, and the level it sends to the trigger.
     const float pressed[2] = {testL2_, testR2_};
     for (int t = 0; t < 2; ++t) {
-        constexpr int kBarW = 90, kBarH = 170;
-        int bx = panel.x + panel.w / 2 + (t ? 80 : -80 - kBarW), by = panel.y + 490 - lessY;
+        constexpr int kBarW = 90, kBarH = 150;
+        int bx = panel.x + panel.w / 2 + (t ? 80 : -80 - kBarW), by = panel.y + 560 - lessY;
         c.fillRect({bx, by, kBarW, kBarH}, rgba(255, 255, 255, 20), 16);
         int fill = static_cast<int>(kBarH * std::clamp(pressed[t], 0.0f, 1.0f));
         int level = input::triggerAmplitude(static_cast<uint8_t>(std::lround(pressed[t] * 255)), settings_.triggerStrength);

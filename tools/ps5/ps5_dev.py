@@ -185,13 +185,14 @@ def cmd_test(args):
         "tunetest", "confirmtest", "pickertest", "menutest", "regiontest",
         "friendstest", "publishertest", "scrolltest", "quicktest", "tlscheck",
     }
+    bitrate_opt = f" bitrate={args.bitrate}" if getattr(args, "bitrate", 0) > 0 else ""
     if target.startswith("AUTOTEST") or target.startswith("BENCH") or " " in target:
-        autoplay_cmd = target
+        autoplay_cmd = target + bitrate_opt
     elif target in KNOWN_UI_TESTS:
-        autoplay_cmd = f"AUTOTEST {duration} {target}"
+        autoplay_cmd = f"AUTOTEST {duration} {target}{bitrate_opt}"
     else:
         # Real game streaming test (e.g. FORTNITE, BALATRO)
-        autoplay_cmd = f"{target} {duration}"
+        autoplay_cmd = f"{target} {duration}{bitrate_opt}"
 
     print("  1. Stopping app on console...")
     console_ctl("kill", TITLE_ID, host)
@@ -217,7 +218,7 @@ def cmd_test(args):
         ftp.cwd("/data/psbox")
 
     # Delete old artifacts on PS5
-    for name in ("xcloud.log", "frame.ppm", "frame2.ppm", "screen.ppm", "ui.ppm", "launch.ppm", "detail.ppm",
+    for name in ("xcloud.log", "frame.ppm", "frame2.ppm", "frame3.ppm", "frame4.ppm", "screen.ppm", "ui.ppm", "launch.ppm", "detail.ppm",
                  "detail_after.ppm", "settings.ppm", "game_settings.ppm", "game_settings_custom.ppm", "library.ppm"):
         try:
             ftp.sendcmd(f"DELE {name}")
@@ -252,7 +253,7 @@ def cmd_test(args):
 
     print(f"  6. Test finished: {'SUCCESS' if finished else 'TIMEOUT'}. Downloading results...")
     # Fetch all PPMs and log
-    ppm_names = ["ui.ppm", "launch.ppm", "frame.ppm", "frame2.ppm", "screen.ppm", "detail.ppm",
+    ppm_names = ["ui.ppm", "launch.ppm", "frame.ppm", "frame2.ppm", "frame3.ppm", "frame4.ppm", "screen.ppm", "detail.ppm",
                  "detail_after.ppm", "settings.ppm", "game_settings.ppm", "game_settings_custom.ppm",
                  "library.ppm", "error.ppm"]
     ftp = get_ftp(host, port)
@@ -351,6 +352,7 @@ def main():
     test_p = subparsers.add_parser("test", help="Run autonomous UI or streaming test and capture shots/metrics")
     test_p.add_argument("target", help="Test name (e.g. gamesettingstest, settingstest, crashtest, or game title BALATRO)")
     test_p.add_argument("--duration", type=int, default=30, help="Test duration in seconds (default 30)")
+    test_p.add_argument("--bitrate", type=int, default=0, help="Bitrate override in Mbps (e.g. 25, 28, 30)")
     test_p.add_argument("--interactive", action="store_true", default=True, help="Relaunch app interactively after test")
     test_p.add_argument("--no-interactive", dest="interactive", action="store_false", help="Leave app closed after test")
 

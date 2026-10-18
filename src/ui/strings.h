@@ -50,6 +50,7 @@ enum class Str {
     HoldSignOut,
     SigningOutIn,     // "%s" = seconds left
     SignInFailed,     // "%s" = technical detail
+    SignInInteractionRequired,
     LibraryFailed,    // "%s" = technical detail
     StreamFailed,     // "%s" = technical detail
     IdleWarning,      // "%s" = seconds until the server disconnects
@@ -294,6 +295,21 @@ enum class Str {
     PlaytimeRemaining,  // telemetry / top bar: playtime remaining
     HoursRemaining,     // "%s h remaining" / "%s h restantes"
     PlaytimeWarning,    // warning when < 2 hours remaining
+    TriggerProfile,     // trigger profile row
+    TriggerProfileStd,  // Standard
+    TriggerProfileShooter, // Shooter (Hair Trigger)
+    TriggerProfileRacing,  // Racing (ABS)
+    StorageNotWritable, // sign-in / notification: storage not writable (%s: path, %d: errno)
+    StorageFixHint,     // sign-in: hint to fix folder permissions (%s: path)
+    StatsCustomize,     // in-game menu: customize stats indicators
+    StatsIndicatorFps,
+    StatsIndicatorBitrate,
+    StatsIndicatorLatency,
+    StatsIndicatorLoss,
+    StatsIndicatorGraph,
+    StatsIndicatorDelay,
+    StatsIndicatorQp,
+    StatsIndicatorMic,
     Count
 };
 

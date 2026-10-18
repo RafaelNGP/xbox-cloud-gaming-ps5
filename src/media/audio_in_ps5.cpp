@@ -7,6 +7,7 @@
 #include "media/audio_in.h"
 #include "input/controller.h"
 #include "media/audio_in_common.h"
+#include "platform/platform.h"
 #include "util/log.h"
 
 #include <thread>
@@ -87,6 +88,7 @@ bool AudioIn::open(AudioCallback cb) {
     impl_->mic.reset();
 
     impl_->thread = std::thread([this]() {
+        platform::setThreadAffinity(platform::ThreadRole::Audio, "ps5_audio_in");
         std::vector<int16_t> grain(kGrain);
         unsigned lastStatus = 0xFFFFFFFF;
         uint64_t loopCount = 0;

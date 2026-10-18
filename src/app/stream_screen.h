@@ -75,6 +75,7 @@ private:
     bool hasCustomProfile_ = false;
     std::string gameKey_;
     int triggerStrength_ = 2;
+    int triggerProfile_ = 0;
     int deadzone_ = 15;
     bool circleConfirms_ = false;
     input::KeyMap keyMap_ = input::defaultKeyMap();  // this game's keys (the keyboard as a controller)
@@ -93,6 +94,7 @@ private:
     uint64_t lastMenuRedrawMs_ = 0;
     uint64_t toastsShown_ = 0;    // platform::toasts()'s version in the overlay
     bool mouseCaptured_ = false;  // as last asked of input::kbmSetCaptured
+    bool prevL3R3_ = false;       // L3 + R3 HUD telemetry shortcut
 };
 
 }  // namespace xc::app

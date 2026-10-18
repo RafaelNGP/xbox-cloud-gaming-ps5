@@ -80,6 +80,10 @@ std::string padDeviceName(int index);
 // Rumble, 0..255 per motor (large = low frequency, small = high frequency),
 // for `durationMs` (0 = until changed). Any thread; polling applies it.
 void setRumble(uint8_t large, uint8_t small, uint32_t durationMs, int pad = 0);
+// Sub-bass audio-to-haptics pulse (when no active game rumble is running)
+void setAudioHaptics(uint8_t kick, uint32_t durationMs = 60, int pad = 0);
+void setAudioHapticsEnabled(bool on);
+bool audioHapticsEnabled();
 // Vibration in the triggers (Xbox impulse triggers), 0..255 each; the
 // DualSense's adaptive triggers vibrate along their whole travel.
 void setTriggerRumble(uint8_t left, uint8_t right, uint32_t durationMs, int pad = 0);
@@ -93,8 +97,10 @@ bool circleConfirms();
 // How the triggers feel (input/tuning.h): vibration strength 0 (off:
 // setTriggerRumble() is ignored) to kTriggerStrengths - 1, the frequency
 // choice (index), the resistance (weight) and the style (pulses of the
-// resistance instead of the motor vibrating).
-void setTriggerFeel(int strength, int hzIndex, int resistance, bool pulses);
+// resistance instead of the motor vibrating). Profile: 0 Standard, 1 Shooter, 2 Racing.
+void setTriggerFeel(int strength, int hzIndex, int resistance, bool pulses, int profile = 0);
+void setTriggerProfile(int profile);
+int triggerProfile();
 // Logs each time a trigger starts or stops vibrating (the Settings tester).
 void setTriggerLogging(bool on);
 // The resistance (setTriggerFeel) only weighs the triggers while this is on:

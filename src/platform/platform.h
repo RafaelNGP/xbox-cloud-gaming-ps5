@@ -24,6 +24,10 @@ std::string dataDir();
 // What start-up did about the data folder (moved from the app's folder,
 // fell back...), for the log once it is open; empty when nothing.
 std::string dataDirNote();
+// Whether the data folder is writable (false when permission or filesystem error occurred).
+bool dataDirWritable();
+// If dataDirWritable() is false, the errno from the write probe.
+int dataDirErrno();
 // The folder the app runs from (updates are installed there).
 std::string appDir();
 // Read-only directory with the bundled assets (fonts, certificates).
@@ -52,6 +56,17 @@ struct Thread {
     void join();
 };
 bool startThread(Thread& t, std::function<void()> fn, size_t stackBytes = 8u << 20);
+
+// Hardware core pinning and real-time scheduling for low latency and zero stutter.
+enum class ThreadRole {
+    Main,        // Core 0: Main thread, UI, Vulkan command submission
+    Network,     // Core 1: WebRTC I/O, SRTP decryption, Jitter buffer
+    VideoDecode, // Core 2: Video decoder (FFmpeg / libavcodec)
+    Audio,       // Core 3: Audio decode & libSceAudioOut playback (Realtime priority)
+    Worker,      // Core 4..7: Background tasks, library hydration, image decoding
+};
+void setThreadAffinity(ThreadRole role, const char* name = nullptr);
+void setThreadRealtimePriority();
 
 // Short on-screen message: the PS5's system notification; in the desktop
 // app a toast in the window (platform/toasts.h); stdout for the tools.

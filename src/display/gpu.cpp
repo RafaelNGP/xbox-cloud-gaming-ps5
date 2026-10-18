@@ -72,7 +72,7 @@ namespace {
     X(CreateComputePipelines) X(DestroyPipeline)                                                             \
     X(CreateDescriptorPool) X(DestroyDescriptorPool) X(AllocateDescriptorSets) X(UpdateDescriptorSets)       \
     X(CmdBindPipeline) X(CmdBindDescriptorSets) X(CmdPushConstants) X(CmdDispatch)                           \
-    X(CmdCopyBufferToImage) X(CmdCopyImageToBuffer)
+    X(CmdCopyBufferToImage) X(CmdCopyImageToBuffer) X(CmdCopyImage)
 
 #define XC_VK_DECLARE(name) PFN_vk##name vk##name = nullptr;
 XC_VK_GLOBAL(XC_VK_DECLARE)
@@ -751,10 +751,10 @@ bool createPipelines() {
 
     // The images every frame uses; the video's come with its first picture.
     const VkImageUsageFlags upload = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    if (!createImage(g.ui, VK_FORMAT_R8G8B8A8_UNORM, kUiW, kUiH, upload) ||
+    if (!createImage(g.ui, VK_FORMAT_R8G8B8A8_UNORM, kUiW, kUiH, upload | VK_IMAGE_USAGE_TRANSFER_SRC_BIT) ||
         !createImage(g.overlay, VK_FORMAT_R8G8B8A8_UNORM, kUiW, kUiH, upload) ||
         !createImage(g.upscaled, VK_FORMAT_R8G8B8A8_UNORM, g.boxW, g.boxH,
-                     VK_IMAGE_USAGE_STORAGE_BIT) ||
+                     VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT) ||
         !createBuffer(g.staging, kUiW * kUiH * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT) ||
         !createBuffer(g.overlayStaging, kUiW * kUiH * 4, VK_BUFFER_USAGE_TRANSFER_SRC_BIT)) {
         XC_LOGE("gpu: images and buffers");
@@ -793,7 +793,8 @@ bool recreateSwapchain() {
     destroyImage(g.upscaled);
     destroyBuffer(g.readback);
     if (!buildSwapchain(false)) return false;
-    if (!createImage(g.upscaled, VK_FORMAT_R8G8B8A8_UNORM, g.boxW, g.boxH, VK_IMAGE_USAGE_STORAGE_BIT)) return false;
+    if (!createImage(g.upscaled, VK_FORMAT_R8G8B8A8_UNORM, g.boxW, g.boxH,
+                     VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)) return false;
     bindSwapchainSets();
     return true;
 }
@@ -814,7 +815,8 @@ bool videoImages(uint32_t w, uint32_t h) {
     if (!createImage(g.luma, VK_FORMAT_R8_UNORM, w, h, upload) ||
         !createImage(g.chromaU, VK_FORMAT_R8_UNORM, cw, ch, upload) ||
         !createImage(g.chromaV, VK_FORMAT_R8_UNORM, cw, ch, upload) ||
-        !createImage(g.rgb, VK_FORMAT_R8G8B8A8_UNORM, w, h, VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)) {
+        !createImage(g.rgb, VK_FORMAT_R8G8B8A8_UNORM, w, h,
+                     VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)) {
         XC_LOGE("gpu: video images %ux%u", w, h);
         return false;
     }
@@ -1015,19 +1017,32 @@ void recordUpscale(VkDescriptorSet easuSet, uint32_t w, uint32_t h, int sharpnes
         }
     }
     if (!direct) {
-        // EASU constants (FsrEasuCon), the picture filling the 16:9 display box.
-        float ow = static_cast<float>(g.boxW), oh = static_cast<float>(g.boxH);
-        float iw = static_cast<float>(w), ih = static_cast<float>(h);
-        uint32_t easu[16] = {asBits(iw / ow), asBits(ih / oh), asBits(0.5f * iw / ow - 0.5f), asBits(0.5f * ih / oh - 0.5f),
-                             asBits(1.0f / iw), asBits(1.0f / ih), asBits(1.0f / iw), asBits(-1.0f / ih),
-                             asBits(-1.0f / iw), asBits(2.0f / ih), asBits(1.0f / iw), asBits(2.0f / ih),
-                             asBits(0.0f / iw), asBits(4.0f / ih), 0, 0};
-        barrier(g.upscaled.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-        vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.pipeline);
-        vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.layout, 0, 1, &easuSet, 0, nullptr);
-        vkCmdPushConstants(g.cmd, g.easu.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof easu, easu);
-        vkCmdDispatch(g.cmd, (g.boxW + 7) / 8, (g.boxH + 7) / 8, 1);
-        memoryBarrier();
+        if (w == g.boxW && h == g.boxH) {
+            // 1:1 match: copy RGB/UI directly to upscaled, bypassing EASU computation.
+            VkImage srcImage = (easuSet == g.easuUiSet) ? g.ui.image : g.rgb.image;
+            barrier(g.upscaled.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+            VkImageCopy copyRegion{};
+            copyRegion.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            copyRegion.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            copyRegion.extent = {w, h, 1};
+            vkCmdCopyImage(g.cmd, srcImage, VK_IMAGE_LAYOUT_GENERAL,
+                           g.upscaled.image, VK_IMAGE_LAYOUT_GENERAL, 1, &copyRegion);
+            memoryBarrier();
+        } else {
+            // EASU constants (FsrEasuCon), the picture filling the 16:9 display box.
+            float ow = static_cast<float>(g.boxW), oh = static_cast<float>(g.boxH);
+            float iw = static_cast<float>(w), ih = static_cast<float>(h);
+            uint32_t easu[16] = {asBits(iw / ow), asBits(ih / oh), asBits(0.5f * iw / ow - 0.5f), asBits(0.5f * ih / oh - 0.5f),
+                                 asBits(1.0f / iw), asBits(1.0f / ih), asBits(1.0f / iw), asBits(-1.0f / ih),
+                                 asBits(-1.0f / iw), asBits(2.0f / ih), asBits(1.0f / iw), asBits(2.0f / ih),
+                                 asBits(0.0f / iw), asBits(4.0f / ih), 0, 0};
+            barrier(g.upscaled.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+            vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.pipeline);
+            vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.easu.layout, 0, 1, &easuSet, 0, nullptr);
+            vkCmdPushConstants(g.cmd, g.easu.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof easu, easu);
+            vkCmdDispatch(g.cmd, (g.boxW + 7) / 8, (g.boxH + 7) / 8, 1);
+            memoryBarrier();
+        }
     }
 
     // RCAS (FsrRcasCon): sharpness in stops, 0 = the most.

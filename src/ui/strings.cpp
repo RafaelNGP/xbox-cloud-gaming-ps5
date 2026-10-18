@@ -73,6 +73,7 @@ constexpr Column kEnglish = {
     "Hold to sign out",                               // HoldSignOut
     "Keep holding to sign out (%s)",                  // SigningOutIn
     "Sign-in failed: %s",                             // SignInFailed
+    "Sign-in not completed in the browser. Use a personal Microsoft account, complete any security prompts/2FA, and grant access to the app.",  // SignInInteractionRequired
     "Could not load the game list: %s",               // LibraryFailed
     "Could not start the stream: %s",                 // StreamFailed
     "No input for a while: you will be disconnected in %s seconds",  // IdleWarning
@@ -317,6 +318,21 @@ constexpr Column kEnglish = {
     "Playtime remaining", // PlaytimeRemaining
     "%s h remaining", // HoursRemaining
     "Less than 2 h remaining", // PlaytimeWarning
+    "Trigger profile", // TriggerProfile
+    "Standard", // TriggerProfileStd
+    "Shooter (Hair Trigger)", // TriggerProfileShooter
+    "Racing (ABS)", // TriggerProfileRacing
+    "Storage %s is not writable: sign-in and settings will not be saved", // StorageNotWritable
+    "FTP: run 'chmod 777 %s' or delete the folder and relaunch", // StorageFixHint
+    "Customize indicators",                           // StatsCustomize
+    "FPS & Resolution",                               // StatsIndicatorFps
+    "Bitrate",                                        // StatsIndicatorBitrate
+    "Latency (RTT)",                                  // StatsIndicatorLatency
+    "Packet loss",                                    // StatsIndicatorLoss
+    "Frametime graph",                                // StatsIndicatorGraph
+    "Decode & display latency",                       // StatsIndicatorDelay
+    "Video quality (QP)",                             // StatsIndicatorQp
+    "Microphone status",                              // StatsIndicatorMic
 };
 
 constexpr Column kPortugueseBR = {
@@ -360,6 +376,7 @@ constexpr Column kPortugueseBR = {
     "Segure para sair da conta",
     "Continue segurando para sair da conta (%s)",
     "Falha ao entrar: %s",
+    "O login no navegador não foi concluído. Use uma conta pessoal da Microsoft, conclua verificações de segurança/2FA e autorize o app.",
     "Não foi possível carregar a lista de jogos: %s",
     "Não foi possível iniciar o streaming: %s",
     "Sem atividade: você será desconectado em %s segundos",
@@ -604,6 +621,21 @@ constexpr Column kPortugueseBR = {
     "Tempo de jogo restante", // PlaytimeRemaining
     "%s h restantes", // HoursRemaining
     "Menos de 2 h restantes", // PlaytimeWarning
+    "Perfil de gatilho", // TriggerProfile
+    "Padrão", // TriggerProfileStd
+    "Tiroteio (Hair Trigger)", // TriggerProfileShooter
+    "Corrida (ABS)", // TriggerProfileRacing
+    "Armazenamento %s não permite gravação: login e ajustes não serão salvos", // StorageNotWritable
+    "FTP: use 'chmod 777 %s' ou exclua a pasta e reabra o app", // StorageFixHint
+    "Personalizar indicadores",                       // StatsCustomize
+    "FPS e resolução",                                // StatsIndicatorFps
+    "Taxa de bits (Bitrate)",                         // StatsIndicatorBitrate
+    "Latência (RTT)",                                 // StatsIndicatorLatency
+    "Perda de pacotes",                               // StatsIndicatorLoss
+    "Gráfico de frametime",                           // StatsIndicatorGraph
+    "Atraso de decodificação e exibição",             // StatsIndicatorDelay
+    "Qualidade do vídeo (QP)",                        // StatsIndicatorQp
+    "Status do microfone",                            // StatsIndicatorMic
 };
 
 constexpr Column kSpanish = {
@@ -647,6 +679,7 @@ constexpr Column kSpanish = {
     "Mantén para cerrar sesión",
     "Sigue manteniendo para cerrar sesión (%s)",
     "Error al iniciar sesión: %s",
+    "El inicio de sesión no se completó en el navegador. Usa una cuenta personal de Microsoft, completa la verificación/2FA y autoriza la app.",
     "No se pudo cargar la lista de juegos: %s",
     "No se pudo iniciar el streaming: %s",
     "Sin actividad: se te desconectará en %s segundos",
@@ -891,6 +924,21 @@ constexpr Column kSpanish = {
     "Tiempo de juego restante", // PlaytimeRemaining
     "%s h restantes", // HoursRemaining
     "Menos de 2 h restantes", // PlaytimeWarning
+    "Perfil de gatillos", // TriggerProfile
+    "Estándar", // TriggerProfileStd
+    "Disparos (Hair Trigger)", // TriggerProfileShooter
+    "Carreras (ABS)", // TriggerProfileRacing
+    "El almacenamiento %s no permite escritura: la sesión y ajustes no se guardarán", // StorageNotWritable
+    "FTP: usa 'chmod 777 %s' o borra la carpeta y reinicia la app", // StorageFixHint
+    "Personalizar indicadores",                       // StatsCustomize
+    "FPS y resolución",                               // StatsIndicatorFps
+    "Tasa de bits (Bitrate)",                         // StatsIndicatorBitrate
+    "Latencia (RTT)",                                 // StatsIndicatorLatency
+    "Pérdida de paquetes",                            // StatsIndicatorLoss
+    "Gráfico de frametime",                           // StatsIndicatorGraph
+    "Retardo de decodificación y pantalla",           // StatsIndicatorDelay
+    "Calidad de vídeo (QP)",                          // StatsIndicatorQp
+    "Estado del micrófono",                           // StatsIndicatorMic
 };
 
 constexpr Column kFrench = {
@@ -934,6 +982,7 @@ constexpr Column kFrench = {
     "Maintenez pour vous déconnecter",
     "Continuez à maintenir pour vous déconnecter (%s)",
     "Échec de la connexion : %s",
+    "La connexion dans le navigateur n'a pas été finalisée. Utilisez un compte Microsoft personnel, effectuez les vérifications/2FA et autorisez l'app.",
     "Impossible de charger la liste des jeux : %s",
     "Impossible de démarrer le streaming : %s",
     "Aucune activité : vous serez déconnecté dans %s secondes",
@@ -1178,6 +1227,21 @@ constexpr Column kFrench = {
     "Temps de jeu restant", // PlaytimeRemaining
     "%s h restantes", // HoursRemaining
     "Moins de 2 h restantes", // PlaytimeWarning
+    "Profil de gâchettes", // TriggerProfile
+    "Standard", // TriggerProfileStd
+    "Tir (Hair Trigger)", // TriggerProfileShooter
+    "Course (ABS)", // TriggerProfileRacing
+    "Le stockage %s n'est pas accessible en écriture : connexion et réglages non enregistrés", // StorageNotWritable
+    "FTP : faites 'chmod 777 %s' ou supprimez le dossier et relancez", // StorageFixHint
+    "Personnaliser les indicateurs",                  // StatsCustomize
+    "IPS et résolution",                              // StatsIndicatorFps
+    "Débit binaire (Bitrate)",                        // StatsIndicatorBitrate
+    "Latence (RTT)",                                  // StatsIndicatorLatency
+    "Perte de paquets",                               // StatsIndicatorLoss
+    "Graphique de frametime",                         // StatsIndicatorGraph
+    "Latence de décodage et d'affichage",             // StatsIndicatorDelay
+    "Qualité vidéo (QP)",                             // StatsIndicatorQp
+    "État du microphone",                             // StatsIndicatorMic
 };
 
 constexpr Column kGerman = {
@@ -1221,6 +1285,7 @@ constexpr Column kGerman = {
     "Halten zum Abmelden",
     "Weiter halten zum Abmelden (%s)",
     "Anmeldung fehlgeschlagen: %s",
+    "Die Anmeldung im Browser wurde nicht abgeschlossen. Verwende ein persönliches Microsoft-Konto, schließe Sicherheitsabfragen/2FA ab und gewähre Zugriff.",
     "Die Spieleliste konnte nicht geladen werden: %s",
     "Das Streaming konnte nicht gestartet werden: %s",
     "Keine Aktivität: Die Verbindung wird in %s Sekunden getrennt",
@@ -1465,6 +1530,21 @@ constexpr Column kGerman = {
     "Verbleibende Spielzeit", // PlaytimeRemaining
     "%s Std. verbleibend", // HoursRemaining
     "Weniger als 2 Std. verbleibend", // PlaytimeWarning
+    "Trigger-Profil", // TriggerProfile
+    "Standard", // TriggerProfileStd
+    "Shooter (Hair Trigger)", // TriggerProfileShooter
+    "Rennen (ABS)", // TriggerProfileRacing
+    "Speicher %s ist schreibgeschützt: Anmeldung und Einstellungen werden nicht gespeichert", // StorageNotWritable
+    "FTP: 'chmod 777 %s' ausführen oder Ordner löschen und neu starten", // StorageFixHint
+    "Indikatoren anpassen",                           // StatsCustomize
+    "FPS und Auflösung",                              // StatsIndicatorFps
+    "Bitrate",                                        // StatsIndicatorBitrate
+    "Latenz (RTT)",                                   // StatsIndicatorLatency
+    "Paketverlust",                                   // StatsIndicatorLoss
+    "Frametime-Diagramm",                             // StatsIndicatorGraph
+    "Dekodier- und Anzeigelatenz",                    // StatsIndicatorDelay
+    "Videoqualität (QP)",                             // StatsIndicatorQp
+    "Mikrofonstatus",                                 // StatsIndicatorMic
 };
 
 constexpr Column kItalian = {
@@ -1508,6 +1588,7 @@ constexpr Column kItalian = {
     "Tieni premuto per uscire",
     "Continua a tenere premuto per uscire (%s)",
     "Accesso non riuscito: %s",
+    "L'accesso nel browser non è stato completato. Utilizza un account Microsoft personale, completa le verifiche/2FA e autorizza l'app.",
     "Impossibile caricare l'elenco dei giochi: %s",
     "Impossibile avviare lo streaming: %s",
     "Nessuna attività: verrai disconnesso tra %s secondi",
@@ -1752,6 +1833,21 @@ constexpr Column kItalian = {
     "Tempo di gioco rimanente", // PlaytimeRemaining
     "%s ore rimanenti", // HoursRemaining
     "Meno di 2 ore rimanenti", // PlaytimeWarning
+    "Profilo grilletti", // TriggerProfile
+    "Standard", // TriggerProfileStd
+    "Sparatutto (Hair Trigger)", // TriggerProfileShooter
+    "Corsa (ABS)", // TriggerProfileRacing
+    "La memoria %s non è scrivibile: accesso e impostazioni non verranno salvati", // StorageNotWritable
+    "FTP: esegui 'chmod 777 %s' o elimina la cartella e riavvia", // StorageFixHint
+    "Personalizza indicatori",                        // StatsCustomize
+    "FPS e risoluzione",                              // StatsIndicatorFps
+    "Bitrate",                                        // StatsIndicatorBitrate
+    "Latenza (RTT)",                                  // StatsIndicatorLatency
+    "Perdita pacchetti",                              // StatsIndicatorLoss
+    "Grafico frametime",                              // StatsIndicatorGraph
+    "Latenza di decodifica e visualizzazione",        // StatsIndicatorDelay
+    "Qualità video (QP)",                             // StatsIndicatorQp
+    "Stato microfono",                                // StatsIndicatorMic
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,
