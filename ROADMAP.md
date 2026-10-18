@@ -239,7 +239,11 @@ is rolled back at the next start), then the app restarts itself
 | **Achievements on the game page** | Progress and gamerscore for the game, the unlocked / locked list; maybe a toast when one unlocks during a stream | medium |
 | **Store wishlist** | The account's Xbox wishlist shown in the app; an alert when a wished game goes on sale or joins the plan (the price loop exists) | small–medium |
 | **Playtime per game on the card** | The time played (the app already measures it) shown on each card and on the game page | small |
-| Ideas to weigh (no decision yet) | A first-run guide (sign-in, region, controls); Steam Deck (the Linux build packaged as AppImage/Flatpak, gamescope, screen scale); clicking the UI with a mouse on desktop; Discord Rich Presence on desktop | — |
+| **Steam Deck + AppImage** | The Linux build as an AppImage (one file, runs on SteamOS and most distributions; glibc baseline from CI's ubuntu-24.04), attached to each release by the Linux workflow; on the Deck: gamescope / Game Mode, the 1280x800 screen (UI scale), the Deck's own controls and gyro through SDL, added to Steam as a non-Steam game | small–medium |
+| **Discord Rich Presence (desktop)** | "Playing Fortnite on PSBox" with the game's art and elapsed time, through the local Discord client's IPC (no account data sent); an on/off in Settings; desktop only (capability-gated, a no-op on the PS5) | small |
+| **Mouse in the desktop UI** | Today the mouse only goes to the game (native MKB / mouse as a stick); on desktop menus, hover moves the focus and a click presses (cards, rows, buttons, dropdowns, the search keys), the wheel scrolls; never on the PS5, never during a game | small–medium |
+| **Windows (M2)** | The desktop app for Windows, cross-built with llvm-mingw, tested under wine (`docs/multiplatform.md`) | medium |
+| Ideas to weigh (no decision yet) | A first-run guide (sign-in, region, controls) | — |
 
 ## Dropped (and why)
 
