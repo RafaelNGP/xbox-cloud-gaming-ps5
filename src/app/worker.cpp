@@ -756,7 +756,8 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     std::string err;
     if (!keepSignedIn(am, gssv, err)) XC_LOGW("sign-in renewal: %s", err.c_str());
     err.clear();
-    if (g_ui->screen() != ui::Screen::Home) {
+    bool onSplash = (g_ui->screen() == ui::Screen::Splash);
+    if (onSplash) {
         g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
     } else {
         g_ui->setLoading(true, 0, 0);
@@ -775,7 +776,7 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     }
     setPriceMarket(gssv.session().market.empty() ? "US" : gssv.session().market, ui::catalogLanguage());
     setQueueClient(&gssv);
-    bool shown = false;
+    bool shown = !onSplash;
     // Hands the library's current state to the UI (copies).
     auto publish = [](const app::Library& lib) {
         g_ui->setRows(lib.rows());
@@ -790,7 +791,9 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv) {
                                 publish(*library);
                                 if (!shown) {
                                     shown = true;
-                                    g_ui->showHome();
+                                    if (g_ui->screen() == ui::Screen::Splash) {
+                                        g_ui->showHome();
+                                    }
                                 }
                             },
                             err);

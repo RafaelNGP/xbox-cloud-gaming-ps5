@@ -1,5 +1,5 @@
 # Build trees (CMake, FFmpeg install, linked eboot, packaged app) and unstripped ELFs
-/build-*/
+/build-*
 /symbols/
 # Never commit: sign-in tokens, logs, autotest captures and stream dumps
 account.json
