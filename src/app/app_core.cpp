@@ -523,6 +523,7 @@ bool Core::frame() {
     nav.square = pad.btnX && !prev.btnX;    // Square (Xbox X)
     nav.triangle = pad.btnY && !prev.btnY;  // Triangle (Xbox Y)
     nav.r3 = pad.btnR3 && !prev.btnR3;
+    nav.l3 = pad.btnL3 && !prev.btnL3;
     nav.l2 = pad.triggerL2 > 0.5f && prev.triggerL2 <= 0.5f;
     nav.r2 = pad.triggerR2 > 0.5f && prev.triggerR2 <= 0.5f;
     nav.touchpad = pad.btnTouchpad;
@@ -686,6 +687,12 @@ bool Core::frame() {
             // A desktop: the sign-in page, the report form, the release page.
             bool ok = shell::openUrl(ev.url);
             XC_LOGI("browser: %s (a link of %zu characters)", ok ? "opened" : "could not be opened", ev.url.size());
+            break;
+        }
+        case ui::Action::RefreshLibrary: {
+            XC_LOGI("library: manual refresh requested");
+            g_command = kReloadLibrary;
+            platform::notify(ui::tr(ui::Str::RefreshingLibrary));
             break;
         }
         case ui::Action::None: break;

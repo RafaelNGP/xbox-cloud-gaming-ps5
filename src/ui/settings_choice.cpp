@@ -30,12 +30,14 @@ SettingsChoice choiceFromSettings(const app::Settings& s) {
     c.highRefresh = s.highRefresh;
     c.maxBitrateMbps = s.maxBitrateMbps;
     c.gameVolume = s.gameVolume;
+    c.queueReadyAlert = s.queueReadyAlert;
     c.keyMap = s.keyMap;
     c.padMap = s.padMap;
     c.gyroMode = s.gyroMode;
     c.gyroLevel = s.gyroLevel;
     c.fullscreen = s.desktopFullscreen;
     c.touchpadMouse = s.touchpadMouse;
+    c.titlePlaytime = s.titlePlaytime;
     return c;
 }
 
@@ -60,12 +62,14 @@ void applyChoice(const SettingsChoice& c, app::Settings& s) {
     s.highRefresh = c.highRefresh;
     s.maxBitrateMbps = c.maxBitrateMbps;
     s.gameVolume = c.gameVolume;
+    s.queueReadyAlert = c.queueReadyAlert;
     s.keyMap = c.keyMap;
     if (input::padMapValid(c.padMap)) s.padMap = c.padMap;  // the screen only lets a complete one out
     s.gyroMode = c.gyroMode;
     s.gyroLevel = c.gyroLevel;
     s.desktopFullscreen = c.fullscreen;
     s.touchpadMouse = c.touchpadMouse;
+    s.titlePlaytime = c.titlePlaytime;
 }
 
 }  // namespace xc::ui

@@ -12,6 +12,7 @@
 #include "app/update_check.h"
 #include "app/updater.h"
 #include "auth/auth_manager.h"
+#include "input/controller.h"
 #include "media/audio_out.h"
 #include "net/http.h"
 #include "platform/platform.h"
@@ -21,6 +22,8 @@
 #include "xcloud/gssv.h"
 #include "xcloud/regions.h"
 #include "xcloud/purchase.h"
+
+#include <cmath>
 
 #include <chrono>
 #include <condition_variable>
@@ -54,6 +57,48 @@ std::string formatWait(int seconds) {
     return std::to_string((seconds + 59) / 60) + " min";
 }
 
+void playQueueReadyAlert() {
+    // 1. DualSense rumble pulse
+    input::setRumble(180, 180, 500, 0);
+
+    // 2. Synthesize a pleasant 3-tone harmonic chime (E5 -> G#5 -> B5, E Major triad)
+    constexpr int kRate = 48000;
+    constexpr float kPi = 3.14159265358979323846f;
+    struct Tone {
+        float freq;
+        int ms;
+    };
+    const Tone tones[3] = {
+        {659.25f, 100}, // E5
+        {830.61f, 100}, // G#5
+        {987.77f, 220}  // B5
+    };
+
+    std::vector<float> pcm;
+    pcm.reserve(kRate * 2);
+    for (int t = 0; t < 3; ++t) {
+        int frames = (kRate * tones[t].ms) / 1000;
+        float freq = tones[t].freq;
+        float decayRate = (t == 2) ? 6.0f : 4.0f;
+        for (int i = 0; i < frames; ++i) {
+            float sec = static_cast<float>(i) / static_cast<float>(kRate);
+            float attack = std::min(1.0f, sec / 0.005f);
+            float decay = std::exp(-decayRate * sec);
+            float env = attack * decay * 0.45f;
+            float s = std::sin(2.0f * kPi * freq * sec) + 0.25f * std::sin(4.0f * kPi * freq * sec);
+            float sample = s * env;
+            pcm.push_back(sample); // Left
+            pcm.push_back(sample); // Right
+        }
+    }
+
+    media::audioStart();
+    media::audioPush(pcm.data(), pcm.size() / 2);
+
+    // 3. System notification toast
+    platform::notify(ui::tr(ui::Str::QueueReadyAlert));
+}
+
 // Set by stream(): the game quit on the server before its first frame.
 bool g_gameClosedOnServer = false;
 // Titles that would not start in the automatic region, and where they did
@@ -85,6 +130,7 @@ namespace {
 // Streams until the player ends or the user leaves; returns a status line.
 // The cloud title being played, for crash markers (set by play()).
 std::string g_stageTitle;
+std::string g_stageProduct;
 
 std::string stream(xcloud::GssvClient& gssv) {
     crash::setStage(gssv.isHome() ? "streaming own Xbox" : ("streaming " + g_stageTitle).c_str());
@@ -140,6 +186,11 @@ std::string stream(xcloud::GssvClient& gssv) {
     struct {
         uint64_t seconds = 0, badSeconds = 0, kbps = 0, rttSum = 0, rttCount = 0;
     } session;
+    uint64_t prevPlaytime = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        prevPlaytime = g_settings.playtimeForGame(g_stageProduct, g_stageTitle);
+    }
     bool probeDone = !g_probing;
     auto recordProbe = [&] {
         probeDone = true;
@@ -259,6 +310,7 @@ std::string stream(xcloud::GssvClient& gssv) {
                 if (s_playtimeRemainingSeconds >= 0) {
                     info.playtimeHours = static_cast<int>((s_playtimeRemainingSeconds + 3599) / 3600);
                 }
+                info.playtimeSeconds = prevPlaytime + session.seconds;
                 player.getRecentFrametimes(info.frametimes);
                 std::lock_guard<std::mutex> lock(g_infoMutex);
                 g_streamInfo = info;
@@ -275,6 +327,17 @@ std::string stream(xcloud::GssvClient& gssv) {
     if (!probeDone && player.stats().decodedFrames > 0) recordProbe();  // a short stream still measured
     std::string reason = g_cancel ? "left the game" : autoplayDone ? "autoplay finished" : player.endReason();
     player.stop();
+    if (session.seconds >= 5 && (!g_stageTitle.empty() || !g_stageProduct.empty())) {
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        uint64_t newTotal = prevPlaytime + session.seconds;
+        if (!g_stageTitle.empty()) g_settings.titlePlaytime[g_stageTitle] = newTotal;
+        if (!g_stageProduct.empty()) g_settings.titlePlaytime[g_stageProduct] = newTotal;
+        g_settings.save(settingsPath());
+        if (g_ui) g_ui->setSettings(ui::choiceFromSettings(g_settings));
+        XC_LOGI("playtime: updated for %s (%s) to %llu seconds (%s)", g_stageTitle.c_str(),
+                g_stageProduct.c_str(), static_cast<unsigned long long>(newTotal),
+                ui::formatPlaytime(newTotal).c_str());
+    }
     if (bestRtt > 0) {
         // Remembered per region: Settings shows it, the region fallback uses it.
         std::map<std::string, int> rtt;
@@ -397,6 +460,7 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     }
     // For a crash marker: what is being started (a console's id stays out).
     g_stageTitle = game.titleId;
+    g_stageProduct = game.productId;
     crash::setStage(gssv.isHome() ? "starting own Xbox" : ("starting " + game.titleId).c_str());
     int status = 0;
     bool started = gssv.startSession(game.titleId, streamLocale, err, &status);
@@ -428,6 +492,7 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
         }
     }
     bool connected = false;
+    bool wasInQueue = false;
     std::string result = "timed out waiting for the session";
     // A console that is off for good (not asleep) never comes out of
     // Provisioning: give up after a minute (the cloud's queue may take long).
@@ -456,6 +521,7 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
         pollErrors = 0;
         XC_LOGI("session state: %s", st.raw.c_str());
         if (st.state == xcloud::SessionState::WaitingForResources) {
+            wasInQueue = true;
             uint64_t now = platform::nowMs();
             if (!queueAskedAt || now - queueAskedAt >= 15000) {
                 int s = gssv.titleWaitSeconds(game.titleId);
@@ -487,6 +553,15 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
             connected = true;
         }
         if (st.state == xcloud::SessionState::Provisioned) {
+            bool alertOn = false;
+            {
+                std::lock_guard<std::mutex> lock(g_settingsMutex);
+                alertOn = g_settings.queueReadyAlert;
+            }
+            if (alertOn && wasInQueue) {
+                XC_LOGI("session: queue completed and provisioned; triggering queue-ready chime and rumble");
+                playQueueReadyAlert();
+            }
             g_ui->setLaunchStatus(ui::tr(ui::Str::StartingStream));
             result = stream(gssv);
             failed = result.rfind("ERROR", 0) == 0;

@@ -351,6 +351,8 @@ static void testSettingsChoiceRoundTrip() {
     s.gyroMode = 2, s.gyroLevel = 9;
     s.desktopFullscreen = false;
     s.touchpadMouse = true;
+    s.queueReadyAlert = false;
+    s.titlePlaytime = {{"game1", 3600}};
     // Not carried by the screen: must survive applyChoice untouched.
     s.keyboardPlayer = 3;
     s.streamStats = true;
@@ -359,6 +361,7 @@ static void testSettingsChoiceRoundTrip() {
     ui::SettingsChoice c = ui::choiceFromSettings(s);
     CHECK(c.language == static_cast<int>(ui::Language::PortugueseBR));
     CHECK(c.resolution == 1 && c.triggerProfile == 2 && c.lightBarColour == 0xFF112233u && !c.fullscreen);
+    CHECK(!c.queueReadyAlert && c.titlePlaytime.at("game1") == 3600);
 
     xc::app::Settings back;  // defaults, then what the screen carries
     back.keyboardPlayer = 3;
@@ -377,10 +380,18 @@ static void testSettingsChoiceRoundTrip() {
     CHECK(back.sharpness == s.sharpness && back.deband == s.deband && back.upscaler == s.upscaler);
     CHECK(back.highRefresh == s.highRefresh);
     CHECK(back.maxBitrateMbps == s.maxBitrateMbps && back.gameVolume == s.gameVolume);
+    CHECK(back.queueReadyAlert == s.queueReadyAlert && back.titlePlaytime == s.titlePlaytime);
     CHECK(back.keyMap == s.keyMap && back.padMap == s.padMap);
     CHECK(back.gyroMode == s.gyroMode && back.gyroLevel == s.gyroLevel);
     CHECK(back.desktopFullscreen == s.desktopFullscreen && back.touchpadMouse == s.touchpadMouse);
     CHECK(back.keyboardPlayer == 3 && back.streamStats && back.favorites.size() == 1);
+    CHECK(ui::formatPlaytime(0) == "< 1 min");
+    CHECK(ui::formatPlaytime(45) == "< 1 min");
+    CHECK(ui::formatPlaytime(60) == "1 min");
+    CHECK(ui::formatPlaytime(2700) == "45 min");
+    CHECK(ui::formatPlaytime(3600) == "1 h");
+    CHECK(ui::formatPlaytime(3660) == "1 h 1 min");
+    CHECK(ui::formatPlaytime(8100) == "2 h 15 min");
     // Every resolution, both ways ("1440p" from older versions reads as the top tier).
     for (const char* res : {"1080p", "720p", "best"}) {
         xc::app::Settings r;
@@ -2002,21 +2013,21 @@ static void testVisibleSettingsRows() {
     };
     const ui::UiCaps ps5;
     auto all = ui::visibleSettingsRows(ps5);
-    CHECK((ids(all) == std::vector<int>{0, 8, 1, 9, 10, 2, 11, 3, 4, 5, 6, 15, 14, 12, 7}));
-    CHECK((groups(all) == std::vector<bool>{false, false, true, false, false, false, true, true, false, false, false, false, false, false, true}));
+    CHECK((ids(all) == std::vector<int>{0, 8, 1, 9, 10, 2, 11, 16, 3, 4, 5, 6, 15, 14, 12, 7}));
+    CHECK((groups(all) == std::vector<bool>{false, false, true, false, false, false, true, false, true, false, false, false, false, false, false, true}));
     ui::UiCaps pc;
     pc.lightBar = pc.triggerRumble = pc.adaptiveTriggers = pc.gyro = pc.touchpad = false;
     pc.upscalers = pc.sharpen = pc.deband = pc.highRefresh = pc.console = pc.selfUpdate = false;
     pc.openUrl = true;
     auto desk = ui::visibleSettingsRows(pc);
-    CHECK((ids(desk) == std::vector<int>{0, 8, 1, 10, 2, 11, 3, 5, 14, 12, 7}));
-    CHECK((groups(desk) == std::vector<bool>{false, false, true, false, false, true, true, false, false, false, true}));
+    CHECK((ids(desk) == std::vector<int>{0, 8, 1, 10, 2, 11, 16, 3, 5, 14, 12, 7}));
+    CHECK((groups(desk) == std::vector<bool>{false, false, true, false, false, true, false, true, false, false, false, true}));
     // The desktop app's window: Display mode after the resolution, in the stream's group.
     ui::UiCaps win = pc;
     win.desktopWindow = true;
     auto w = ui::visibleSettingsRows(win);
-    CHECK((ids(w) == std::vector<int>{0, 8, 1, 13, 10, 2, 11, 3, 5, 14, 12, 7}));
-    CHECK((groups(w) == std::vector<bool>{false, false, true, false, false, false, true, true, false, false, false, true}));
+    CHECK((ids(w) == std::vector<int>{0, 8, 1, 13, 10, 2, 11, 16, 3, 5, 14, 12, 7}));
+    CHECK((groups(w) == std::vector<bool>{false, false, true, false, false, false, true, false, true, false, false, false, true}));
     ui::UiCaps xbox = pc;  // an Xbox pad: impulse triggers, no light bar
     xbox.triggerRumble = true;
     auto x = ids(ui::visibleSettingsRows(xbox));
@@ -2037,13 +2048,14 @@ static void testVisibleSettingsRows() {
     CHECK((ids(game) == std::vector<int>{0, 4, 14, 5, 7, 11, 9}));
     CHECK((groups(game) == std::vector<bool>{false, true, false, true, false, false, false}));
     // How far down the autoplay tests walk to each row (autoplay.cpp's
-    // downsTo): on the PS5 the confirm button is 9 down (5 is the region),
-    // the keyboard keys 13 (12 is the controller buttons).
-    CHECK(ui::settingsRowPosition(ps5, 1) == 2 && ui::settingsRowPosition(ps5, 3) == 7);
-    CHECK(ui::settingsRowPosition(ps5, 5) == 9 && ui::settingsRowPosition(ps5, 6) == 10);
-    CHECK(ui::settingsRowPosition(ps5, 12) == 13 && ui::settingsRowPosition(ps5, 14) == 12);
-    CHECK(ui::settingsRowPosition(ps5, 7) == 14 && ui::settingsRowPosition(ps5, 2) == 5);
-    CHECK(ui::settingsRowPosition(pc, 5) == 7 && ui::settingsRowPosition(pc, 6) == -1 && ui::settingsRowPosition(pc, 4) == -1);
+    // downsTo): on the PS5 the confirm button is 10 down (5 is the region),
+    // the keyboard keys 14 (13 is the controller buttons).
+    CHECK(ui::settingsRowPosition(ps5, 1) == 2 && ui::settingsRowPosition(ps5, 3) == 8);
+    CHECK(ui::settingsRowPosition(ps5, 16) == 7);
+    CHECK(ui::settingsRowPosition(ps5, 5) == 10 && ui::settingsRowPosition(ps5, 6) == 11);
+    CHECK(ui::settingsRowPosition(ps5, 12) == 14 && ui::settingsRowPosition(ps5, 14) == 13);
+    CHECK(ui::settingsRowPosition(ps5, 7) == 15 && ui::settingsRowPosition(ps5, 2) == 5);
+    CHECK(ui::settingsRowPosition(pc, 5) == 8 && ui::settingsRowPosition(pc, 6) == -1 && ui::settingsRowPosition(pc, 4) == -1);
 }
 
 // The controller's glyphs by pad kind (ui/pad_glyphs.h).

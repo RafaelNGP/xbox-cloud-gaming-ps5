@@ -118,6 +118,10 @@ bool Settings::load(const std::string& path) {
     regionRtt.clear();
     for (const auto& [name, ms] : (*j)["regionRtt"].members())
         if (ms.asInt() > 0) regionRtt[name] = static_cast<int>(ms.asInt());
+    queueReadyAlert = (*j)["queueReadyAlert"].asBool(queueReadyAlert);
+    titlePlaytime.clear();
+    for (const auto& [id, sec] : (*j)["titlePlaytime"].members())
+        if (sec.asInt() > 0) titlePlaytime[id] = static_cast<uint64_t>(sec.asInt());
     perGame.clear();
     for (const auto& [id, obj] : (*j)["perGame"].members()) {
         GameProfile p;
@@ -241,6 +245,11 @@ bool Settings::save(const std::string& path) const {
     v.set("touchpadMouse", touchpadMouse);
     v.set("micGain", micGain);
     v.set("audioRoute", audioRoute);
+    v.set("queueReadyAlert", queueReadyAlert);
+    json::Value pt = json::Value::object();
+    for (const auto& [id, sec] : titlePlaytime)
+        if (sec > 0) pt.set(id, static_cast<int64_t>(sec));
+    v.set("titlePlaytime", pt);
     v.set("skippedUpdate", skippedUpdate);
     v.set("maxHeightCloud", maxHeightCloud);
     v.set("maxHeightHome", maxHeightHome);

@@ -319,6 +319,11 @@ enum class Str {
     FreeAcquireHint,    // details: "Free game. Press Cross to add to your account and start playing"
     DnsBlockedNanoDns,  // error: DNS lookup failed; advice to run NanoDNS with local Primary DNS
     XboxProfileMissing, // error: Microsoft account has no Xbox profile yet; advice to sign in at xbox.com
+    QueueReadyAlert,    // toast / alert: "Queue ready! Starting game..."
+    QueueReadyNotification, // settings: "Queue ready chime"
+    PlaytimePlayed,     // details / menu: "Played: %s"
+    RefreshLibrary,     // hint: "Refresh"
+    RefreshingLibrary,  // toast: "Refreshing library..."
     Count
 };
 

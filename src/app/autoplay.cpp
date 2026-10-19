@@ -883,8 +883,12 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         // page must fill in on its own. Or the game named, when known.
         static uint64_t openedAt = 0;
         ui::GameTile tile;
-        if (!openedAt && (g_ui->findTile(g_autoplay.title, tile) || g_ui->purchasableAt(40, tile))) {
+        if (!openedAt && (g_ui->findTile("FORTNITE", tile) || g_ui->firstTile(tile) || g_ui->purchasableAt(40, tile))) {
             XC_LOGI("autoplay: opening %s (%s)", tile.name.c_str(), tile.productId.c_str());
+            ui::SettingsChoice c = g_ui->settings();
+            if (!tile.productId.empty()) c.titlePlaytime[tile.productId] = 5520;
+            if (!tile.titleId.empty()) c.titlePlaytime[tile.titleId] = 5520;
+            g_ui->setSettings(c);
             g_ui->showDetails(tile);
             openedAt = now;
         } else if (openedAt && now - openedAt > 8000) {

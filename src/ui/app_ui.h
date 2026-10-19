@@ -85,7 +85,7 @@ enum class Tab { GamePass, Library, Consoles };
 struct NavInput {
     bool up = false, down = false, left = false, right = false;
     bool accept = false, back = false, options = false;
-    bool l1 = false, r1 = false, square = false, triangle = false, r3 = false;
+    bool l1 = false, r1 = false, square = false, triangle = false, r3 = false, l3 = false;
     bool l2 = false, r2 = false;  // pressed (triggers past halfway)
     bool touchpad = false;  // held right now (sign out needs a 5 s hold)
     float stickX = 0, stickY = 0;  // the left stick, -1..1 (the colour picker)
@@ -125,12 +125,14 @@ struct SettingsChoice {
     bool highRefresh = false;  // 120 Hz output while a game streams
     int maxBitrateMbps = 0;    // 0 automatic, else 30 / 25 / 22 / 20 / 15 / 10 / 5
     int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
+    bool queueReadyAlert = true; // Queue-ready chime and rumble alert
     input::KeyMap keyMap = input::defaultKeyMap();  // the keyboard as a player's controller
     input::PadMap padMap = input::defaultPadMap();  // the controller's buttons toward the game (always complete)
     int gyroMode = 0;   // gyro aiming (input/gyro.h): 0 off, 1 always, 2 while L2 is held
     int gyroLevel = 5;  // intensity, 1..10
     bool fullscreen = true;    // a desktop's window fullscreen (UiCaps::desktopWindow; F11 switches it too)
     bool touchpadMouse = false;
+    std::map<std::string, uint64_t> titlePlaytime; // accumulated playtime in seconds
 };
 
 // Settings' screen and settings.json, one mapping both ways: what the screen
@@ -184,9 +186,9 @@ std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool cus
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 16;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+constexpr int kSettingRows = 17;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
                                   // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys,
-                                  // display mode (a desktop's window), controller buttons, gyro aiming
+                                  // display mode (a desktop's window), controller buttons, gyro aiming, queue chime
 
 // The countries "Sign in as another country" offers (xcloud::loginCountryAddress).
 constexpr const char* kLoginCountries[] = {"br", "jp", "kr", "pl", "us"};
@@ -203,7 +205,8 @@ enum class Action {
     LoginCountry,  // the sign-in country changed (settings): save them and sign in again
     OpenUrl,  // a link on screen to open in the browser (UiCaps::openUrl): `url`
     Quit,     // desktop: the user closed the app from the home screen
-    ClaimFreeGame  // claim a free-to-play game license directly
+    ClaimFreeGame, // claim a free-to-play game license directly
+    RefreshLibrary // manual library refresh
 };
 
 // How "Your games" is sorted (R3).
@@ -231,6 +234,9 @@ struct UiEvent {
 
 // "SOUTHCENTRALUS" -> "South Central US".
 std::string prettyRegion(const std::string& name);
+
+// Format playtime in seconds into a friendly string (e.g. "14 h 32 min", "45 min", "< 1 min").
+std::string formatPlaytime(uint64_t seconds);
 
 class AppUi {
 public:

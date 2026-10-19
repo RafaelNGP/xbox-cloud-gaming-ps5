@@ -102,6 +102,21 @@ struct Settings {
     bool touchpadMouse = false; // touchpad as mouse in games with native MKB support
     int micGain = 1;        // 0: 50%, 1: 100%, 2: 150%
     int audioRoute = 0;     // 0: TV/HDMI (Main), 1: DualSense Speaker / Headset (Pad)
+    bool queueReadyAlert = true; // Queue-ready chime and rumble alert
+    std::map<std::string, uint64_t> titlePlaytime; // accumulated playtime in seconds (productId or titleId -> seconds)
+
+    uint64_t playtimeForGame(const std::string& productId, const std::string& titleId) const {
+        if (!productId.empty()) {
+            auto it = titlePlaytime.find(productId);
+            if (it != titlePlaytime.end()) return it->second;
+        }
+        if (!titleId.empty()) {
+            auto it = titlePlaytime.find(titleId);
+            if (it != titlePlaytime.end()) return it->second;
+        }
+        return 0;
+    }
+
     // The release the user said "Not now" to: not offered again on start.
     std::string skippedUpdate;
     // The tallest picture each kind of stream delivered when asked for its

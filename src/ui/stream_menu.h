@@ -24,6 +24,7 @@ struct StreamInfo {
     double qp = -1;             // the pictures' average quantiser (lower: finer); -1 unknown
     bool degraded = false;      // frames lost / video stalled / round trip far up, in the last seconds
     int playtimeHours = -1;     // cloud playtime remaining (-1 unknown/uncapped)
+    uint64_t playtimeSeconds = 0; // total playtime for this title in seconds
     std::vector<float> frametimes;  // presentation frametimes (ms)
 };
 
