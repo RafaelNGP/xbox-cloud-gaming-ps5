@@ -985,6 +985,24 @@ void AppUi::showHome(const std::string& toast) {
     dirty_ = true;
 }
 
+void AppUi::showToast(const std::string& toast) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!toast.empty()) {
+        toast_ = toast;
+        toastUntil_ = 0;
+        dirty_ = true;
+    }
+}
+
+void AppUi::markTileOwned(const std::string& productId, const std::string& titleId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (detail_.productId == productId || (!titleId.empty() && detail_.titleId == titleId)) {
+        detail_.playable = true;
+        detail_.purchasable = false;
+        dirty_ = true;
+    }
+}
+
 void AppUi::showLaunching(const GameTile& game, const std::string& status) {
     std::lock_guard<std::mutex> lock(mutex_);
     screen_ = Screen::Launching;
@@ -2624,11 +2642,15 @@ UiEvent AppUi::handle(const NavInput& in) {
                 dirty_ = true;
                 break;
             }
-            // A free game not on the account yet may already be (got on the
-            // phone a moment ago): Play tries, and the server says.
+            // A free game not on the account yet triggers direct claim.
             if (in.accept && (detail_.playable || detail_.freeInStore) && !detail_.titleId.empty()) {
-                ev.action = Action::Play;
-                ev.game = detail_;
+                if (detail_.playable) {
+                    ev.action = Action::Play;
+                    ev.game = detail_;
+                } else if (detail_.freeInStore) {
+                    ev.action = Action::ClaimFreeGame;
+                    ev.game = detail_;
+                }
             }
             if (in.square) toggleHidden(detail_, ev);  // the page stays open
             if (in.triangle) toggleFavorite(detail_, ev);
@@ -2643,8 +2665,13 @@ UiEvent AppUi::handle(const NavInput& in) {
         case Screen::Error:
             if (!errorGame_.titleId.empty()) {
                 if (in.accept) {
-                    ev.action = Action::Play;
-                    ev.game = errorGame_;
+                    if (errorGame_.freeInStore && !errorGame_.playable) {
+                        ev.action = Action::ClaimFreeGame;
+                        ev.game = errorGame_;
+                    } else {
+                        ev.action = Action::Play;
+                        ev.game = errorGame_;
+                    }
                 } else if (in.back && errorGame_.homeConsole) {
                     screen_ = Screen::Home;  // back to My consoles
                     tab_ = Tab::Consoles;
@@ -3651,7 +3678,7 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     if (!drawHero(c, nowMs, g->heroUrl, true)) {
         // No hero art (yet): the cover, until the art arrives and fades in.
         drawBackground(c);
-        if (!g->purchasable) {  // a game to buy has its QR code there instead
+        if (!g->purchasable || g->freeInStore) {  // paid games show their QR code there instead
             if (auto img = images_.get(g->tileUrl, kCover, kCover)) c.drawImage(*img, cover.x, cover.y, 255, 16);
             else c.fillRect(cover, kPlaceholder, 16);
         }
@@ -3694,23 +3721,22 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         int ty = y + 30;
         auto price = prices_.find(g->productId);
         if (g->freeInStore) {
-            // Free to play: got once in the store (the QR code), then Play.
+            // Free to play: "Get Free" button to claim license directly.
             fonts_.bold.draw(c, tr(Str::Free), kMargin, ty, 52, kWhite);
             ty += 84;
             fonts_.semibold.draw(c, tr(Str::FreeToPlay), kMargin, ty, 28, kWhite);
             ty += 48;
-            for (const auto& line : fonts_.regular.wrap(tr(Str::FreeHint), 24, 820, 3)) {
+            for (const auto& line : fonts_.regular.wrap(tr(Str::FreeAcquireHint), 24, 820, 3)) {
                 fonts_.regular.draw(c, line, kMargin, ty, 24, kGray);
                 ty += 34;
             }
-            Rect play{kMargin, ty + 30, 300, 76};
-            c.strokeRect({play.x - 7, play.y - 7, play.w + 14, play.h + 14}, kWhite, 4, 45);
-            c.fillRect(play, kGreen, 38);
-            float tx = play.x + 70, my = play.y + play.h / 2.0f;
-            c.line(tx - 8, my - 13, tx - 8, my + 13, 4, kWhite);
-            c.line(tx - 8, my - 13, tx + 13, my, 4, kWhite);
-            c.line(tx - 8, my + 13, tx + 13, my, 4, kWhite);
-            fonts_.semibold.draw(c, tr(Str::Play), play.x + 108, play.y + 20, 32, kWhite);
+            const char* label = tr(Str::ClaimFree);
+            int tw = fonts_.semibold.measure(label, 30);
+            int btnW = std::max(320, tw + 64);
+            Rect claimBtn{kMargin, ty + 30, btnW, 76};
+            c.strokeRect({claimBtn.x - 7, claimBtn.y - 7, claimBtn.w + 14, claimBtn.h + 14}, kWhite, 4, 45);
+            c.fillRect(claimBtn, kGreen, 38);
+            fonts_.semibold.draw(c, label, claimBtn.x + (claimBtn.w - tw) / 2, claimBtn.y + 22, 30, kWhite);
         } else if (price != prices_.end()) {
             // The price, and the regular one crossed out while on sale.
             int px = kMargin;
@@ -3732,15 +3758,15 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
                 fonts_.regular.draw(c, line, kMargin, ty, 24, kGray);
                 ty += 34;
             }
-        }
-        Rect box = drawQr(c, "https://www.xbox.com/games/store/p/" + g->productId, kW - kMargin, 190, 440);
-        if (box.w > 0) {
-            const char* scan = tr(g->freeInStore ? Str::ScanToGet : Str::ScanToBuy);
-            int w = fonts_.semibold.measure(scan, 26);
-            fonts_.semibold.draw(c, scan, box.x + (box.w - w) / 2, box.y + box.h + 22, 26, kWhite);
+            Rect box = drawQr(c, "https://www.xbox.com/games/store/p/" + g->productId, kW - kMargin, 190, 440);
+            if (box.w > 0) {
+                const char* scan = tr(Str::ScanToBuy);
+                int w = fonts_.semibold.measure(scan, 26);
+                fonts_.semibold.draw(c, scan, box.x + (box.w - w) / 2, box.y + box.h + 22, 26, kWhite);
+            }
         }
         if (g->freeInStore)
-            drawHints(c, {{kIconCross, tr(Str::Play)},
+            drawHints(c, {{kIconCross, tr(Str::ClaimFree)},
                           {kIconOptions, tr(Str::GameSettings)},
                           {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
                           {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},

@@ -202,7 +202,8 @@ enum class Action {
     Report,  // "Report a problem" (Triangle on an error or in Settings): reportWhat is the error shown
     LoginCountry,  // the sign-in country changed (settings): save them and sign in again
     OpenUrl,  // a link on screen to open in the browser (UiCaps::openUrl): `url`
-    Quit      // desktop: the user closed the app from the home screen
+    Quit,     // desktop: the user closed the app from the home screen
+    ClaimFreeGame  // claim a free-to-play game license directly
 };
 
 // How "Your games" is sorted (R3).
@@ -303,6 +304,8 @@ public:
     // The game with this xCloud title id on the home screen or in Your games.
     bool findTile(const std::string& titleId, GameTile& out) const;
     void showHome(const std::string& toast = {});
+    void showToast(const std::string& toast);
+    void markTileOwned(const std::string& productId, const std::string& titleId = {});
     void showLaunching(const GameTile& game, const std::string& status);
     void setLaunchStatus(const std::string& status);
     void showStreaming();

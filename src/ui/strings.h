@@ -311,6 +311,12 @@ enum class Str {
     StatsIndicatorQp,
     StatsIndicatorMic,
     ScanQrToResolve,    // Error screen with redirect URL: scan QR to fix account
+    ClaimFree,          // details: "Get Free"
+    Claiming,           // toast: "Claiming license..."
+    ClaimSuccess,       // toast: "Game added to your account!"
+    ClaimFailed,        // error: "Failed to claim free game: %s"
+    ProductNotFree,     // error: "This game is not free in the store"
+    FreeAcquireHint,    // details: "Free game. Press Cross to add to your account and start playing"
     Count
 };
 

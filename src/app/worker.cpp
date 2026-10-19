@@ -20,6 +20,7 @@
 #include "xcloud/catalog.h"
 #include "xcloud/gssv.h"
 #include "xcloud/regions.h"
+#include "xcloud/purchase.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -1034,6 +1035,63 @@ void worker() {
                 else
                     g_ui->showHome(endedToast(result));
                 autoplayFinished(result);
+                break;
+            }
+            case kClaimFree: {
+                ui::GameTile tile;
+                {
+                    std::lock_guard<std::mutex> lock(g_argMutex);
+                    tile = g_playTile;
+                }
+                g_ui->showToast(ui::tr(ui::Str::Claiming));
+                platform::notify(ui::tr(ui::Str::Claiming));
+                XC_LOGI("claiming free game: %s (productId=%s, titleId=%s)",
+                        tile.name.c_str(), tile.productId.c_str(), tile.titleId.c_str());
+
+                std::string err;
+                xcloud::PurchaseOffer offer;
+                std::string market = gssv.session().market.empty() ? "US" : gssv.session().market;
+                std::string lang = ui::catalogLanguage();
+                if (!xcloud::fetchPurchaseOffer(tile.productId, market, lang, offer, err)) {
+                    XC_LOGW("claim: fetch offer failed: %s", err.c_str());
+                    g_ui->showPlayError(ui::trf(ui::Str::ClaimFailed, err), tile);
+                    break;
+                }
+                if (!offer.isFree) {
+                    XC_LOGW("claim refused: product %s is not free (list=%.2f, msrp=%.2f)",
+                            tile.productId.c_str(), offer.listPrice, offer.msrp);
+                    g_ui->showPlayError(ui::tr(ui::Str::ProductNotFree), tile);
+                    break;
+                }
+                std::string authHeader;
+                if (!am.marketplaceAuthorization(authHeader, err)) {
+                    XC_LOGW("claim: marketplace auth failed: %s", err.c_str());
+                    g_ui->showPlayError(ui::trf(ui::Str::ClaimFailed, err), tile);
+                    break;
+                }
+                if (!xcloud::claimFreeProduct(authHeader, offer, market, err)) {
+                    XC_LOGW("claim: order failed: %s", err.c_str());
+                    g_ui->showPlayError(ui::trf(ui::Str::ClaimFailed, err), tile);
+                    break;
+                }
+                XC_LOGI("claim: successfully acquired %s (%s)", tile.productId.c_str(), tile.name.c_str());
+                std::shared_ptr<app::Library> lib;
+                {
+                    std::lock_guard<std::mutex> lock(s_libraryMutex);
+                    lib = s_library;
+                }
+                if (lib) {
+                    lib->markAsOwned(tile.productId, tile.titleId);
+                    g_ui->markTileOwned(tile.productId, tile.titleId);
+                    g_ui->showToast(ui::tr(ui::Str::ClaimSuccess));
+                    platform::notify(ui::tr(ui::Str::ClaimSuccess));
+
+                    // Re-sync owned titles in background
+                    lib->loadOwned(gssv, [lib]() {
+                        g_ui->setRows(lib->rows());
+                        g_ui->setOwned(lib->owned(), lib->purchasable(), lib->ownedKnown());
+                    });
+                }
                 break;
             }
             default: {

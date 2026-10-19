@@ -87,6 +87,8 @@ public:
     void signOut();
     const Profile& profile() const { return profile_; }
     const std::string& redirectUrl() const { return redirectUrl_; }
+    // Returns Authorization header ("XBL3.0 x=...;token") for Microsoft Store calls (rp::kMarketplace).
+    bool marketplaceAuthorization(std::string& outAuthHeader, std::string& err);
 
 private:
     bool load();
@@ -104,6 +106,7 @@ private:
     MsaTokens tokens_;
     Profile profile_;
     XblToken gssvXsts_;  // in memory only, for loginOffering()
+    XblToken marketplaceXsts_;  // in memory only, for Microsoft Store operations
     std::string redirectUrl_;
     bool signedIn_ = false;
 };

@@ -35,6 +35,7 @@ add_library(xcloud_core STATIC
     src/xcloud/titlehub.cpp
     src/xcloud/regions.cpp
     src/xcloud/prices.cpp
+    src/xcloud/purchase.cpp
     src/input/controller_common.cpp
     src/input/kbm_map.cpp
     src/input/key_map.cpp

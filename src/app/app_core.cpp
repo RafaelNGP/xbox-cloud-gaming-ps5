@@ -620,6 +620,12 @@ bool Core::frame() {
             g_command = kPlay;
             break;
         }
+        case ui::Action::ClaimFreeGame: {
+            std::lock_guard<std::mutex> lock(g_argMutex);
+            g_playTile = ev.game;
+            g_command = kClaimFree;
+            break;
+        }
         case ui::Action::SignOut:
             g_cancel = true;
             g_command = kSignOut;

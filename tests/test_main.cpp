@@ -44,6 +44,7 @@
 #include "xcloud/gssv.h"
 #include "xcloud/titlehub.h"
 #include "xcloud/prices.h"
+#include "xcloud/purchase.h"
 #include "xcloud/regions.h"
 
 #include <algorithm>
@@ -2343,7 +2344,126 @@ static void testNullBackendsM1() {
     CHECK(!mic.isRecording() && !called);
 }
 
+static void testPurchase() {
+    using namespace xcloud;
+    std::string err;
+    int status = 200;
+    std::string body;
+    net::Request lastReq;
+
+    net::setTestTransport([&](const net::Request& req) {
+        lastReq = req;
+        net::Response r;
+        r.status = status;
+        r.body = body;
+        return r;
+    });
+
+    // 1. fetchPurchaseOffer for a free product
+    body = R"({
+        "Products": [
+            {
+                "ProductId": "FREE123",
+                "DisplaySkuAvailabilities": [
+                    {
+                        "Sku": {"SkuId": "0001"},
+                        "Availabilities": [
+                            {
+                                "AvailabilityId": "AVAIL_FREE",
+                                "Actions": ["Details", "Purchase"],
+                                "OrderManagementData": {
+                                    "Price": {
+                                        "ListPrice": 0.0,
+                                        "MSRP": 0.0,
+                                        "CurrencyCode": "USD"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    })";
+
+    PurchaseOffer offer;
+    CHECK(fetchPurchaseOffer("FREE123", "US", "en-us", offer, err));
+    CHECK(offer.productId == "FREE123");
+    CHECK(offer.skuId == "0001");
+    CHECK(offer.availabilityId == "AVAIL_FREE");
+    CHECK(offer.isFree);
+    CHECK(offer.listPrice == 0.0);
+    CHECK(lastReq.url.find("displaycatalog.mp.microsoft.com") != std::string::npos);
+
+    // 2. fetchPurchaseOffer for a paid product: isFree must be false
+    body = R"({
+        "Products": [
+            {
+                "ProductId": "PAID123",
+                "DisplaySkuAvailabilities": [
+                    {
+                        "Sku": {"SkuId": "0002"},
+                        "Availabilities": [
+                            {
+                                "AvailabilityId": "AVAIL_PAID",
+                                "Actions": ["Purchase"],
+                                "OrderManagementData": {
+                                    "Price": {
+                                        "ListPrice": 69.99,
+                                        "MSRP": 69.99,
+                                        "CurrencyCode": "USD"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    })";
+    PurchaseOffer paidOffer;
+    CHECK(fetchPurchaseOffer("PAID123", "US", "en-us", paidOffer, err));
+    CHECK(!paidOffer.isFree);
+    CHECK(paidOffer.listPrice == 69.99);
+
+    // 3. Safety check: claimFreeProduct MUST refuse paid products
+    CHECK(!claimFreeProduct("XBL3.0 x=test;token", paidOffer, "US", err));
+    CHECK(err.find("safety block") != std::string::npos);
+
+    // 4. claimFreeProduct with empty auth or incomplete offer
+    PurchaseOffer invalidOffer = offer;
+    invalidOffer.availabilityId.clear();
+    CHECK(!claimFreeProduct("XBL3.0 x=test;token", invalidOffer, "US", err));
+    CHECK(!claimFreeProduct("", offer, "US", err));
+
+    // 5. Successful claim of free product
+    status = 200;
+    body = R"({"orderId":"ORDER-12345","status":"Purchased"})";
+    CHECK(claimFreeProduct("XBL3.0 x=test;token", offer, "US", err));
+    CHECK(lastReq.url.find("purchase.mp.microsoft.com/v7.0/users/me/orders") != std::string::npos);
+    std::string authVal;
+    for (const auto& h : lastReq.headers) {
+        if (h.first == "Authorization") authVal = h.second;
+    }
+    CHECK(authVal == "XBL3.0 x=test;token");
+    auto j = json::parse(lastReq.body);
+    CHECK(j && (*j)["orderItems"].isArray());
+    CHECK((*j)["orderItems"][0]["productId"].str() == "FREE123");
+    CHECK((*j)["orderItems"][0]["skuId"].str() == "0001");
+    CHECK((*j)["orderItems"][0]["availabilityId"].str() == "AVAIL_FREE");
+    CHECK((*j)["orderItems"][0]["price"].asNumber() == 0.0);
+
+    // 6. claimFreeProduct error handling
+    status = 400;
+    body = R"({"code":"PaymentRequired","message":"Payment method needed"})";
+    CHECK(!claimFreeProduct("XBL3.0 x=test;token", offer, "US", err));
+    CHECK(err.find("Payment method needed") != std::string::npos);
+
+    net::setTestTransport({});
+}
+
 int main() {
+    testPurchase();
     testNullBackends();
     testPadGlyphs();
     testToasts();

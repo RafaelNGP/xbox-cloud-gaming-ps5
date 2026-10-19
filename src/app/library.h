@@ -92,6 +92,8 @@ public:
     // loaded yet). load() reads it without them, as it builds the rows fresh.
     bool loadCache(bool withLayout = false);
     void saveCache() const;
+    // Marks a product/title as owned immediately upon successful purchase/claim.
+    void markAsOwned(const std::string& productId, const std::string& titleId = {});
 
 private:
     using Item = std::pair<std::string, std::string>;  // productId, titleId

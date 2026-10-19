@@ -73,6 +73,7 @@ void AuthManager::signOut() {
     tokens_ = {};
     profile_ = {};
     gssvXsts_ = {};
+    marketplaceXsts_ = {};
     std::remove(storePath_.c_str());
 }
 
@@ -320,6 +321,7 @@ void AuthManager::fetchSubscription(const XblToken& userToken, const std::string
         XC_LOGW("subscription: store XSTS: %s", err.c_str());
         return;
     }
+    marketplaceXsts_ = mp;
     net::Request req;
     req.method = "POST";
     req.url = "https://emerald.xboxservices.com/xboxcomfd/entitlements/bulk?locale=en-US";
@@ -445,6 +447,28 @@ bool AuthManager::consoleTransferToken(std::string& out, std::string& err) {
         save();
     }
     out = t.accessToken;
+    return true;
+}
+
+bool AuthManager::marketplaceAuthorization(std::string& outAuthHeader, std::string& err) {
+    if (!marketplaceXsts_.token.empty() && !refreshDue(parseIsoUtc(marketplaceXsts_.notAfter), unixNow())) {
+        outAuthHeader = marketplaceXsts_.authorizationHeader();
+        return true;
+    }
+    if (tokens_.accessToken.empty()) {
+        err = "not signed in";
+        return false;
+    }
+    XblToken userToken;
+    if (!xblUserToken(tokens_.accessToken, "t=", userToken, err, &redirectUrl_)) {
+        std::string err2;
+        if (!xblUserToken(tokens_.accessToken, "d=", userToken, err2, &redirectUrl_)) return false;
+        err.clear();
+    }
+    if (!xstsToken(userToken, rp::kMarketplace, marketplaceXsts_, err, &redirectUrl_)) {
+        return false;
+    }
+    outAuthHeader = marketplaceXsts_.authorizationHeader();
     return true;
 }
 

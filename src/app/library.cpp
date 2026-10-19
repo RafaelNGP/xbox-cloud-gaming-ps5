@@ -425,6 +425,13 @@ void Library::saveCache() const {
     if (!platform::writeFileAtomic(cachePath_, root.dump())) XC_LOGW("library: could not write %s", cachePath_.c_str());
 }
 
+void Library::markAsOwned(const std::string& productId, const std::string& titleId) {
+    if (!productId.empty()) ownedProducts_.insert(productId);
+    if (!titleId.empty()) ownedTitles_.insert(titleId);
+    ownershipKnown_ = true;
+    saveCache();
+}
+
 bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const Changed& changed, std::string& err) {
     market_ = gssv.session().market.empty() ? "US" : gssv.session().market;
     language_ = language;

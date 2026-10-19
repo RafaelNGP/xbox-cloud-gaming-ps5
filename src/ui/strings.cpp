@@ -334,6 +334,12 @@ constexpr Column kEnglish = {
     "Video quality (QP)",                             // StatsIndicatorQp
     "Microphone status",                              // StatsIndicatorMic
     "Scan the QR code on your phone to resolve this with Microsoft, then press Cross to try again",  // ScanQrToResolve
+    "Get Free",                                       // ClaimFree
+    "Claiming free license...",                       // Claiming
+    "Game added to your account!",                    // ClaimSuccess
+    "Failed to claim free game: %s",                  // ClaimFailed
+    "This game is not free in the store",             // ProductNotFree
+    "Free game. Press Cross to add to your account and start playing",  // FreeAcquireHint
 };
 
 constexpr Column kPortugueseBR = {
@@ -638,6 +644,12 @@ constexpr Column kPortugueseBR = {
     "Qualidade do vídeo (QP)",                        // StatsIndicatorQp
     "Status do microfone",                            // StatsIndicatorMic
     "Use seu celular para ler o código QR ao lado e resolver na Microsoft, depois pressione Cruz para tentar novamente",  // ScanQrToResolve
+    "Adquirir Grátis",                                // ClaimFree
+    "Adquirindo licença gratuita...",                 // Claiming
+    "Jogo adicionado à sua conta com sucesso!",       // ClaimSuccess
+    "Falha ao adquirir o jogo gratuito: %s",          // ClaimFailed
+    "Este jogo não é gratuito na loja",               // ProductNotFree
+    "Jogo gratuito. Pressione Cruz para adicionar à sua conta e começar a jogar",  // FreeAcquireHint
 };
 
 constexpr Column kSpanish = {
@@ -942,6 +954,12 @@ constexpr Column kSpanish = {
     "Calidad de vídeo (QP)",                          // StatsIndicatorQp
     "Estado del micrófono",                           // StatsIndicatorMic
     "Usa tu teléfono para escanear el código QR y resolver con Microsoft, luego presiona Cruz para reintentar",  // ScanQrToResolve
+    "Obtener Gratis",                                 // ClaimFree
+    "Obteniendo licencia gratuita...",                // Claiming
+    "¡Juego añadido a tu cuenta con éxito!",          // ClaimSuccess
+    "Error al adquirir el juego gratuito: %s",        // ClaimFailed
+    "Este juego no es gratuito en la tienda",         // ProductNotFree
+    "Juego gratuito. Presiona Cruz para añadirlo a tu cuenta y empezar a jugar",  // FreeAcquireHint
 };
 
 constexpr Column kFrench = {
@@ -1246,6 +1264,12 @@ constexpr Column kFrench = {
     "Qualité vidéo (QP)",                             // StatsIndicatorQp
     "État du microphone",                             // StatsIndicatorMic
     "Scannez le code QR avec votre téléphone pour résoudre ceci chez Microsoft, puis appuyez sur Croix pour réessayer",  // ScanQrToResolve
+    "Obtenir gratuitement",                           // ClaimFree
+    "Obtention de la licence gratuite...",            // Claiming
+    "Jeu ajouté à votre compte avec succès !",        // ClaimSuccess
+    "Échec de l'obtention du jeu gratuit : %s",       // ClaimFailed
+    "Ce jeu n'est pas gratuit sur le store",          // ProductNotFree
+    "Jeu gratuit. Appuyez sur Croix pour l'ajouter à votre compte et jouer",  // FreeAcquireHint
 };
 
 constexpr Column kGerman = {
@@ -1550,6 +1574,12 @@ constexpr Column kGerman = {
     "Videoqualität (QP)",                             // StatsIndicatorQp
     "Mikrofonstatus",                                 // StatsIndicatorMic
     "Scannen Sie den QR-Code mit dem Smartphone, um dies bei Microsoft zu beheben, und drücken Sie dann Kreuz zum Wiederholen",  // ScanQrToResolve
+    "Kostenlos holen",                                // ClaimFree
+    "Kostenlose Lizenz wird angefordert...",          // Claiming
+    "Spiel erfolgreich zu Ihrem Konto hinzugefügt!", // ClaimSuccess
+    "Kostenloses Spiel konnte nicht angefordert werden: %s",  // ClaimFailed
+    "Dieses Spiel ist im Store nicht kostenlos",      // ProductNotFree
+    "Kostenloses Spiel. Drücken Sie Kreuz, um es zu Ihrem Konto hinzuzufügen und zu spielen",  // FreeAcquireHint
 };
 
 constexpr Column kItalian = {
@@ -1854,6 +1884,12 @@ constexpr Column kItalian = {
     "Qualità video (QP)",                             // StatsIndicatorQp
     "Stato microfono",                                // StatsIndicatorMic
     "Inquadra il codice QR con lo smartphone per risolvere con Microsoft, poi premi Croce per riprovare",  // ScanQrToResolve
+    "Ottieni gratis",                                 // ClaimFree
+    "Acquisizione licenza gratuita in corso...",      // Claiming
+    "Gioco aggiunto al tuo account con successo!",    // ClaimSuccess
+    "Impossibile ottenere il gioco gratuito: %s",     // ClaimFailed
+    "Questo gioco non è gratuito nello store",        // ProductNotFree
+    "Gioco gratuito. Premi Croce per aggiungerlo al tuo account e iniziare a giocare",  // FreeAcquireHint
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,
