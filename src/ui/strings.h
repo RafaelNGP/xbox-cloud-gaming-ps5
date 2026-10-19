@@ -317,6 +317,8 @@ enum class Str {
     ClaimFailed,        // error: "Failed to claim free game: %s"
     ProductNotFree,     // error: "This game is not free in the store"
     FreeAcquireHint,    // details: "Free game. Press Cross to add to your account and start playing"
+    DnsBlockedNanoDns,  // error: DNS lookup failed; advice to run NanoDNS with local Primary DNS
+    XboxProfileMissing, // error: Microsoft account has no Xbox profile yet; advice to sign in at xbox.com
     Count
 };
 

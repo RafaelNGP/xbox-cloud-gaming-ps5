@@ -340,6 +340,8 @@ constexpr Column kEnglish = {
     "Failed to claim free game: %s",                  // ClaimFailed
     "This game is not free in the store",             // ProductNotFree
     "Free game. Press Cross to add to your account and start playing",  // FreeAcquireHint
+    "DNS lookup failed for Microsoft servers. If you are blocking Sony updates on PS5, make sure you are running NanoDNS with Primary DNS set to your local IP to keep internet access.", // DnsBlockedNanoDns
+    "This Microsoft account has no Xbox profile yet. Sign in to xbox.com on your phone or PC to set up your Gamertag, then try again.", // XboxProfileMissing
 };
 
 constexpr Column kPortugueseBR = {
@@ -650,6 +652,8 @@ constexpr Column kPortugueseBR = {
     "Falha ao adquirir o jogo gratuito: %s",          // ClaimFailed
     "Este jogo não é gratuito na loja",               // ProductNotFree
     "Jogo gratuito. Pressione Cruz para adicionar à sua conta e começar a jogar",  // FreeAcquireHint
+    "Falha de conexão DNS com os servidores da Microsoft. No PS5, certifique-se de estar rodando o NanoDNS com o DNS Primário configurado para o IP local para manter acesso à internet enquanto bloqueia a Sony.", // DnsBlockedNanoDns
+    "Esta conta Microsoft ainda não possui um perfil Xbox. Entre em xbox.com pelo celular ou computador para criar sua Gamertag e tente novamente.", // XboxProfileMissing
 };
 
 constexpr Column kSpanish = {
@@ -960,6 +964,8 @@ constexpr Column kSpanish = {
     "Error al adquirir el juego gratuito: %s",        // ClaimFailed
     "Este juego no es gratuito en la tienda",         // ProductNotFree
     "Juego gratuito. Presiona Cruz para añadirlo a tu cuenta y empezar a jugar",  // FreeAcquireHint
+    "Fallo de conexión DNS con los servidores de Microsoft. En PS5, asegúrate de ejecutar NanoDNS con el DNS primario configurado en tu IP local para mantener acceso a internet bloqueando a Sony.", // DnsBlockedNanoDns
+    "Esta cuenta Microsoft aún no tiene un perfil de Xbox. Inicia sesión en xbox.com en tu móvil o PC para crear tu Gamertag y vuelve a intentarlo.", // XboxProfileMissing
 };
 
 constexpr Column kFrench = {
@@ -1270,6 +1276,8 @@ constexpr Column kFrench = {
     "Échec de l'obtention du jeu gratuit : %s",       // ClaimFailed
     "Ce jeu n'est pas gratuit sur le store",          // ProductNotFree
     "Jeu gratuit. Appuyez sur Croix pour l'ajouter à votre compte et jouer",  // FreeAcquireHint
+    "Échec de résolution DNS pour les serveurs Microsoft. Sur PS5, veillez à exécuter NanoDNS et à définir le DNS primaire sur votre IP locale pour garder l'accès Internet tout en bloquant Sony.", // DnsBlockedNanoDns
+    "Ce compte Microsoft n'a pas encore de profil Xbox. Connectez-vous sur xbox.com sur mobile ou PC pour créer votre Gamertag, puis réessayez.", // XboxProfileMissing
 };
 
 constexpr Column kGerman = {
@@ -1580,6 +1588,8 @@ constexpr Column kGerman = {
     "Kostenloses Spiel konnte nicht angefordert werden: %s",  // ClaimFailed
     "Dieses Spiel ist im Store nicht kostenlos",      // ProductNotFree
     "Kostenloses Spiel. Drücken Sie Kreuz, um es zu Ihrem Konto hinzuzufügen und zu spielen",  // FreeAcquireHint
+    "DNS-Auflösung für Microsoft-Server fehlgeschlagen. Stelle auf der PS5 sicher, dass NanoDNS läuft und der primäre DNS auf die lokale IP gesetzt ist, um Internetzugriff zu behalten.", // DnsBlockedNanoDns
+    "Dieses Microsoft-Konto hat noch kein Xbox-Profil. Melde dich auf xbox.com auf dem Smartphone oder PC an, um deinen Gamertag zu erstellen, und versuche es erneut.", // XboxProfileMissing
 };
 
 constexpr Column kItalian = {
@@ -1890,6 +1900,8 @@ constexpr Column kItalian = {
     "Impossibile ottenere il gioco gratuito: %s",     // ClaimFailed
     "Questo gioco non è gratuito nello store",        // ProductNotFree
     "Gioco gratuito. Premi Croce per aggiungerlo al tuo account e iniziare a giocare",  // FreeAcquireHint
+    "Risoluzione DNS non riuscita per i server Microsoft. Su PS5, assicurati di eseguire NanoDNS e impostare il DNS primario sull'IP locale per bloccare Sony mantenendo l'accesso a Internet.", // DnsBlockedNanoDns
+    "Questo account Microsoft non ha ancora un profilo Xbox. Accedi a xbox.com su smartphone o PC per creare il tuo Gamertag, quindi riprova.", // XboxProfileMissing
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

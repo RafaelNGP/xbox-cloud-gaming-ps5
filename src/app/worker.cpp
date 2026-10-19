@@ -692,6 +692,12 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         } else if (net::lastTlsProblem() == net::TlsProblem::Untrusted ||
                    net::lastTlsProblem() == net::TlsProblem::NameMismatch) {
             g_ui->showError(ui::tr(ui::Str::ConnectionIntercepted));
+        } else if (err.find("DNS lookup failed") != std::string::npos ||
+                   err.find("0x8041013d") != std::string::npos) {
+            g_ui->showError(ui::tr(ui::Str::DnsBlockedNanoDns));
+        } else if (err.find("2148916233") != std::string::npos ||
+                   err.find("no Xbox profile") != std::string::npos) {
+            g_ui->showError(ui::tr(ui::Str::XboxProfileMissing), "https://www.xbox.com");
         } else if (err.find("user interaction is required") != std::string::npos ||
                    err.find("invalid_grant") != std::string::npos ||
                    err.find("authorization_declined") != std::string::npos) {
@@ -799,7 +805,12 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv) {
                             },
                             err);
     if (!ok) {
-        g_ui->showError(ui::trf(ui::Str::LibraryFailed, err));
+        if (err.find("DNS lookup failed") != std::string::npos ||
+            err.find("0x8041013d") != std::string::npos) {
+            g_ui->showError(ui::tr(ui::Str::DnsBlockedNanoDns));
+        } else {
+            g_ui->showError(ui::trf(ui::Str::LibraryFailed, err));
+        }
         return;
     }
     std::vector<ui::GameRow> rows = library->rows();
@@ -1030,7 +1041,12 @@ void worker() {
                                                 tile.name),
                                         tile);
                 } else if (failed) {
-                    g_ui->showError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result);
+                    if (result.find("DNS lookup failed") != std::string::npos ||
+                        result.find("0x8041013d") != std::string::npos) {
+                        g_ui->showError(ui::tr(ui::Str::DnsBlockedNanoDns));
+                    } else {
+                        g_ui->showError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result);
+                    }
                 }
                 else
                     g_ui->showHome(endedToast(result));
