@@ -69,6 +69,7 @@ bool AuthManager::save() const {
 
 void AuthManager::signOut() {
     signedIn_ = false;
+    redirectUrl_.clear();
     tokens_ = {};
     profile_ = {};
     gssvXsts_ = {};
@@ -116,15 +117,15 @@ bool AuthManager::xboxChain(xcloud::GssvClient* gssv, std::string& err, bool ful
     XblToken user;
     // login.live.com tokens for a custom client id use the "t=" ticket form;
     // fall back to "d=" in case the service expects the MSAL form.
-    if (!xblUserToken(tokens_.accessToken, "t=", user, err)) {
+    if (!xblUserToken(tokens_.accessToken, "t=", user, err, &redirectUrl_)) {
         std::string err2;
-        if (!xblUserToken(tokens_.accessToken, "d=", user, err2)) return false;
+        if (!xblUserToken(tokens_.accessToken, "d=", user, err2, &redirectUrl_)) return false;
         err.clear();
     }
 
     XblToken profileXsts;
     std::string perr;
-    if (xstsToken(user, rp::kXboxLive, profileXsts, perr)) {
+    if (xstsToken(user, rp::kXboxLive, profileXsts, perr, &redirectUrl_)) {
         profile_.gamertag = profileXsts.gamertag;
         profile_.xuid = profileXsts.xuid;
         profile_.xblAuthorization = profileXsts.authorizationHeader();
@@ -133,7 +134,7 @@ bool AuthManager::xboxChain(xcloud::GssvClient* gssv, std::string& err, bool ful
         XC_LOGW("profile XSTS: %s", perr.c_str());
     }
 
-    if (!xstsToken(user, rp::kGssv, gssvXsts_, err)) return false;
+    if (!xstsToken(user, rp::kGssv, gssvXsts_, err, &redirectUrl_)) return false;
     if (gssv && !gssv->login(gssvXsts_, err)) return false;
     if (full) fetchSubscription(user, gssv ? gssv->session().market : std::string());
     return true;
@@ -391,21 +392,25 @@ void AuthManager::fetchGamerpic(const XblToken& xsts) {
 bool AuthManager::signIn(xcloud::GssvClient& gssv, const DeviceCodeCallback& onCode, std::string& err,
                          const std::atomic<bool>* cancel) {
     signedIn_ = false;
+    redirectUrl_.clear();
     bool fresh = false;
     if (!tokens_.refreshToken.empty()) {
         MsaTokens t;
         bool networkError = false;
-        if (msa_.refresh(tokens_.refreshToken, t, err, {}, &networkError)) {
+        bool invalidGrant = false;
+        if (msa_.refresh(tokens_.refreshToken, t, err, {}, &networkError, &invalidGrant)) {
             tokens_ = t;
             // Microsoft hands out a new refresh token each time: saved at
             // once, so an app closed before the Xbox sign-in ends still
             // starts with the newest one.
             if (!save()) XC_LOGW("the renewed sign-in could not be saved");
-        } else if (networkError) {
-            // Offline or the service is down: keep the stored account.
+        } else if (!invalidGrant) {
+            // Offline, 5xx, or transient error: keep the stored account.
+            XC_LOGW("sign-in refresh failed: %s; keeping stored account", err.c_str());
             return false;
         } else {
-            XC_LOGW("stored sign-in no longer valid (%s); asking again", err.c_str());
+            // Only when Microsoft explicitly returns invalid_grant (revoked or expired).
+            XC_LOGW("stored sign-in no longer valid (invalid_grant: %s); asking again", err.c_str());
             tokens_ = {};
             std::remove(storePath_.c_str());
         }

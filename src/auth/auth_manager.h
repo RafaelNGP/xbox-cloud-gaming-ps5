@@ -86,6 +86,7 @@ public:
 
     void signOut();
     const Profile& profile() const { return profile_; }
+    const std::string& redirectUrl() const { return redirectUrl_; }
 
 private:
     bool load();
@@ -103,6 +104,7 @@ private:
     MsaTokens tokens_;
     Profile profile_;
     XblToken gssvXsts_;  // in memory only, for loginOffering()
+    std::string redirectUrl_;
     bool signedIn_ = false;
 };
 

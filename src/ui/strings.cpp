@@ -333,6 +333,7 @@ constexpr Column kEnglish = {
     "Decode & display latency",                       // StatsIndicatorDelay
     "Video quality (QP)",                             // StatsIndicatorQp
     "Microphone status",                              // StatsIndicatorMic
+    "Scan the QR code on your phone to resolve this with Microsoft, then press Cross to try again",  // ScanQrToResolve
 };
 
 constexpr Column kPortugueseBR = {
@@ -636,6 +637,7 @@ constexpr Column kPortugueseBR = {
     "Atraso de decodificação e exibição",             // StatsIndicatorDelay
     "Qualidade do vídeo (QP)",                        // StatsIndicatorQp
     "Status do microfone",                            // StatsIndicatorMic
+    "Use seu celular para ler o código QR ao lado e resolver na Microsoft, depois pressione Cruz para tentar novamente",  // ScanQrToResolve
 };
 
 constexpr Column kSpanish = {
@@ -939,6 +941,7 @@ constexpr Column kSpanish = {
     "Retardo de decodificación y pantalla",           // StatsIndicatorDelay
     "Calidad de vídeo (QP)",                          // StatsIndicatorQp
     "Estado del micrófono",                           // StatsIndicatorMic
+    "Usa tu teléfono para escanear el código QR y resolver con Microsoft, luego presiona Cruz para reintentar",  // ScanQrToResolve
 };
 
 constexpr Column kFrench = {
@@ -1242,6 +1245,7 @@ constexpr Column kFrench = {
     "Latence de décodage et d'affichage",             // StatsIndicatorDelay
     "Qualité vidéo (QP)",                             // StatsIndicatorQp
     "État du microphone",                             // StatsIndicatorMic
+    "Scannez le code QR avec votre téléphone pour résoudre ceci chez Microsoft, puis appuyez sur Croix pour réessayer",  // ScanQrToResolve
 };
 
 constexpr Column kGerman = {
@@ -1545,6 +1549,7 @@ constexpr Column kGerman = {
     "Dekodier- und Anzeigelatenz",                    // StatsIndicatorDelay
     "Videoqualität (QP)",                             // StatsIndicatorQp
     "Mikrofonstatus",                                 // StatsIndicatorMic
+    "Scannen Sie den QR-Code mit dem Smartphone, um dies bei Microsoft zu beheben, und drücken Sie dann Kreuz zum Wiederholen",  // ScanQrToResolve
 };
 
 constexpr Column kItalian = {
@@ -1848,6 +1853,7 @@ constexpr Column kItalian = {
     "Latenza di decodifica e visualizzazione",        // StatsIndicatorDelay
     "Qualità video (QP)",                             // StatsIndicatorQp
     "Stato microfono",                                // StatsIndicatorMic
+    "Inquadra il codice QR con lo smartphone per risolvere con Microsoft, poi premi Croce per riprovare",  // ScanQrToResolve
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

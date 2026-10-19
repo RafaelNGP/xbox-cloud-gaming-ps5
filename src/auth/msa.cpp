@@ -3,6 +3,7 @@
 #include "auth/msa.h"
 
 #include "net/http.h"
+#include "platform/platform.h"
 #include "util/json.h"
 #include "util/log.h"
 
@@ -23,6 +24,7 @@ net::Response postForm(const char* url, const std::vector<std::pair<std::string,
     req.body = net::formEncode(fields);
     return net::perform(req);
 }
+
 
 bool readTokens(const json::Value& v, MsaTokens& out) {
     // The console-transfer purpose answers with "lpt" instead of access_token.
@@ -92,14 +94,26 @@ PollResult MsaClient::pollDeviceCode(const DeviceCode& dc, MsaTokens& out, std::
 }
 
 bool MsaClient::refresh(const std::string& refreshToken, MsaTokens& out, std::string& err,
-                        const std::string& scope, bool* networkError) const {
-    auto r = postForm(kTokenUrl, {{"client_id", cfg_.clientId},
-                                  {"grant_type", "refresh_token"},
-                                  {"refresh_token", refreshToken},
-                                  {"scope", scope.empty() ? cfg_.scope : scope}});
+                        const std::string& scope, bool* networkError, bool* invalidGrant) const {
+    net::Response r;
+    constexpr int kTries = 3;
+    for (int attempt = 1; attempt <= kTries; ++attempt) {
+        r = postForm(kTokenUrl, {{"client_id", cfg_.clientId},
+                                 {"grant_type", "refresh_token"},
+                                 {"refresh_token", refreshToken},
+                                 {"scope", scope.empty() ? cfg_.scope : scope}});
+        bool transient = r.status == 0 || r.status == 408 || r.status == 429 || r.status >= 500;
+        if (!transient || attempt == kTries) break;
+        XC_LOGW("token refresh: %s, trying again (%d/%d)", describe(r).c_str(), attempt + 1, kTries);
+        platform::sleepMs(1000u << (attempt - 1));
+    }
     // Throttled or timed out isn't a sign-in gone bad: the stored one stays.
     if (networkError) *networkError = r.status == 0 || r.status >= 500 || r.status == 429 || r.status == 408;
     auto j = json::parse(r.body);
+    if (invalidGrant) {
+        std::string e = j ? (*j)["error"].str() : std::string();
+        *invalidGrant = (e == "invalid_grant");
+    }
     if (!r.ok() || !j || !readTokens(*j, out)) {
         err = "token refresh failed: " + describe(r);
         return false;

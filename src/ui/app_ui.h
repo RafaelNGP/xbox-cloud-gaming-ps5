@@ -306,7 +306,7 @@ public:
     void showLaunching(const GameTile& game, const std::string& status);
     void setLaunchStatus(const std::string& status);
     void showStreaming();
-    void showError(const std::string& message);
+    void showError(const std::string& message, const std::string& url = {});
     // A game that could not start but may on another try (a free game got
     // on the phone meanwhile): Cross plays it again, Circle opens its page.
     void showPlayError(const std::string& message, const GameTile& game);
@@ -570,6 +570,7 @@ private:
     GameTile detail_;  // the game the details page shows
     GameTile launching_;
     std::string error_;
+    std::string errorUrl_;
     GameTile errorGame_;  // showPlayError()'s game; empty for other errors
     SettingsChoice settings_;
     bool displayModeChanged_ = false;  // the Display mode row changed: handle() sends the settings

@@ -310,6 +310,7 @@ enum class Str {
     StatsIndicatorDelay,
     StatsIndicatorQp,
     StatsIndicatorMic,
+    ScanQrToResolve,    // Error screen with redirect URL: scan QR to fix account
     Count
 };
 

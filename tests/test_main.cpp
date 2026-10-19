@@ -38,6 +38,7 @@
 #include "input/sdl_mapping.h"
 #include "platform/platform.h"
 #include "auth/msa.h"
+#include "auth/xbox_live.h"
 #include "ui/image_cache.h"
 #include "xcloud/catalog.h"
 #include "xcloud/gssv.h"
@@ -886,10 +887,26 @@ static void testPrivacyAndRobustness() {
     status = 400, answer = R"({"error":"authorization_pending"})";
     CHECK(msa.pollDeviceCode(dc, tokens, err) == auth::PollResult::Pending);
     bool networkError = false;
+    bool isInvalidGrant = false;
     status = 429, answer = "";
-    CHECK(!msa.refresh("r", tokens, err, {}, &networkError) && networkError);
+    CHECK(!msa.refresh("r", tokens, err, {}, &networkError, &isInvalidGrant) && networkError && !isInvalidGrant);
     status = 400, answer = R"({"error":"invalid_grant"})";
-    CHECK(!msa.refresh("r", tokens, err, {}, &networkError) && !networkError);
+    isInvalidGrant = false;
+    CHECK(!msa.refresh("r", tokens, err, {}, &networkError, &isInvalidGrant) && !networkError && isInvalidGrant);
+    status = 500, answer = "Internal Server Error";
+    isInvalidGrant = false;
+    CHECK(!msa.refresh("r", tokens, err, {}, &networkError, &isInvalidGrant) && !isInvalidGrant);
+
+    // XSTS Redirect URL parsing test
+    auth::XblToken userToken{"user_token", "uhs"};
+    auth::XblToken xstsOut;
+    std::string redir;
+    status = 401;
+    answer = R"({"Identity":"0","XErr":2148916238,"Message":"","Redirect":"https://start.ui.xboxlive.com/AddChild"})";
+    CHECK(!auth::xstsToken(userToken, auth::rp::kGssv, xstsOut, err, &redir));
+    CHECK(redir == "https://start.ui.xboxlive.com/AddChild");
+    CHECK(err.find("Redirect: https://start.ui.xboxlive.com/AddChild") != std::string::npos);
+    CHECK(err.find("child account") != std::string::npos);
 
     // A title list whose server always says "more" with the same token ends.
     status = 200, answer = R"({"results":[{"titleId":"GAME1","details":{"productId":"P1"}}],"continuationToken":"same"})";
@@ -1058,6 +1075,28 @@ static void testTokenRefresh() {
         CHECK(err.find("token refresh failed") != std::string::npos);
         CHECK(storedRefresh() == before && am.hasStoredAccount());
         CHECK(err.find(before) == std::string::npos);  // no token in the message
+
+        // signIn failure: 500 error preserves account.json; invalid_grant deletes it
+        {
+            AuthManager amTransient(store);
+            net::setTestTransport([&](const net::Request&) {
+                net::Response r;
+                r.status = 500;
+                r.body = "Internal Server Error";
+                return r;
+            });
+            CHECK(!amTransient.signIn(gssv, {}, err));
+            CHECK(storedRefresh() == before && amTransient.hasStoredAccount());
+
+            net::setTestTransport([&](const net::Request&) {
+                net::Response r;
+                r.status = 400;
+                r.body = R"({"error":"invalid_grant"})";
+                return r;
+            });
+            CHECK(!amTransient.signIn(gssv, {}, err));
+            CHECK(storedRefresh().empty() && !amTransient.hasStoredAccount());
+        }
     }
     net::setTestTransport({});
     std::system(("rm -rf " + dir).c_str());

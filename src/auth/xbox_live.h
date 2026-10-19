@@ -27,11 +27,11 @@ constexpr const char* kMarketplace = "http://mp.microsoft.com/";  // store / sub
 }  // namespace rp
 
 // `rpsPrefix` is "t=" for login.live.com tokens issued to a custom client id,
-// "d=" for MSAL/v2.0 tokens.
+// "d=" for MSAL/v2.0 tokens. `redirectUrl` (optional) extracts Microsoft's Redirect URL on refusal.
 bool xblUserToken(const std::string& msaAccessToken, const std::string& rpsPrefix, XblToken& out,
-                  std::string& err);
+                  std::string& err, std::string* redirectUrl = nullptr);
 bool xstsToken(const XblToken& userToken, const std::string& relyingParty, XblToken& out,
-               std::string& err);
+               std::string& err, std::string* redirectUrl = nullptr);
 
 // An ISO-8601 UTC time ("2026-10-19T09:12:34.1234567Z", a token's NotAfter)
 // as unix seconds; 0 when it can't be read.

@@ -18,6 +18,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <poll.h>
@@ -131,11 +132,38 @@ int connectTcp(const std::string& host, int port, int timeoutMs, std::string& er
     // A larger window: catalog responses are hundreds of KB from far away.
     int buf = 1 << 20;
     ::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buf, sizeof buf);
-    if (::connect(fd, reinterpret_cast<sockaddr*>(&sa), sizeof sa) != 0) {
-        err = "connect failed to " + host + ":" + std::to_string(port) + " (errno " + std::to_string(errno) + ")";
-        ::close(fd);
-        return -1;
+
+    int on = 1;
+    ::ioctl(fd, FIONBIO, &on);
+    int rc = ::connect(fd, reinterpret_cast<sockaddr*>(&sa), sizeof sa);
+    if (rc != 0) {
+        if (errno == EINPROGRESS || errno == EWOULDBLOCK) {
+            struct pollfd pfd{};
+            pfd.fd = fd;
+            pfd.events = POLLOUT;
+            int connectTimeout = (timeoutMs > 0) ? std::min(timeoutMs, 10000) : 10000;
+            int pr = ::poll(&pfd, 1, connectTimeout);
+            if (pr <= 0) {
+                err = (pr == 0) ? "connect timed out to " + host + ":" + std::to_string(port)
+                                : "poll failed connecting to " + host + ":" + std::to_string(port) + " (errno " + std::to_string(errno) + ")";
+                ::close(fd);
+                return -1;
+            }
+            int so_error = 0;
+            socklen_t len = sizeof so_error;
+            if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &len) < 0 || so_error != 0) {
+                err = "connect failed to " + host + ":" + std::to_string(port) + " (errno " + std::to_string(so_error ? so_error : errno) + ")";
+                ::close(fd);
+                return -1;
+            }
+        } else {
+            err = "connect failed to " + host + ":" + std::to_string(port) + " (errno " + std::to_string(errno) + ")";
+            ::close(fd);
+            return -1;
+        }
     }
+    on = 0;
+    ::ioctl(fd, FIONBIO, &on);
     return fd;
 }
 

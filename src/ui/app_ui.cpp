@@ -1004,10 +1004,11 @@ void AppUi::showStreaming() {
     screen_ = Screen::Streaming;
 }
 
-void AppUi::showError(const std::string& message) {
+void AppUi::showError(const std::string& message, const std::string& url) {
     std::lock_guard<std::mutex> lock(mutex_);
     screen_ = Screen::Error;
     error_ = message;
+    errorUrl_ = url;
     errorGame_ = {};
     regionRefused_ = countryPickerOpen_ = false;
     dirty_ = true;
@@ -1017,6 +1018,7 @@ void AppUi::showRegionRefused(const std::string& message) {
     std::lock_guard<std::mutex> lock(mutex_);
     screen_ = Screen::Error;
     error_ = message;
+    errorUrl_.clear();
     errorGame_ = {};
     regionRefused_ = true;
     countryPickerOpen_ = false;
@@ -1027,6 +1029,7 @@ void AppUi::showPlayError(const std::string& message, const GameTile& game) {
     std::lock_guard<std::mutex> lock(mutex_);
     screen_ = Screen::Error;
     error_ = message;
+    errorUrl_.clear();
     errorGame_ = game;
     regionRefused_ = countryPickerOpen_ = false;
     dirty_ = true;
@@ -3806,15 +3809,26 @@ void AppUi::drawLaunching(Canvas& c, uint64_t nowMs) {
 
 void AppUi::drawError(Canvas& c) {
     drawBackground(c);
-    auto lines = fonts_.regular.wrap(error_, 26, 1040 - 112, 6);
+    int panelW = errorUrl_.empty() ? 1040 : 1300;
+    int maxTextW = errorUrl_.empty() ? (panelW - 112) : (panelW - 460);
+    auto lines = fonts_.regular.wrap(error_, 26, maxTextW, 8);
     int h = 132 + static_cast<int>(lines.size()) * 38 + 56;
-    Rect panel{(kW - 1040) / 2, (kH - h) / 2 - 40, 1040, h};
+    if (!errorUrl_.empty() && h < 460) h = 460;
+    Rect panel{(kW - panelW) / 2, (kH - h) / 2 - 40, panelW, h};
     c.fillRect(panel, kPanel, 24);
     fonts_.bold.draw(c, tr(Str::ErrorTitle), panel.x + 56, panel.y + 52, 44, kWhite);
     int y = panel.y + 132;
     for (const auto& line : lines) {
         fonts_.regular.draw(c, line, panel.x + 56, y, 26, kGray);
         y += 38;
+    }
+    if (!errorUrl_.empty()) {
+        y += 16;
+        for (const auto& line : fonts_.regular.wrap(tr(Str::ScanQrToResolve), 24, maxTextW, 4)) {
+            fonts_.regular.draw(c, line, panel.x + 56, y, 24, rgba(220, 220, 255));
+            y += 34;
+        }
+        drawQr(c, errorUrl_, panel.x + panel.w - 56, panel.y + 56, 320, qrcodegen_Ecc_LOW);
     }
     if (!errorGame_.titleId.empty())
         drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});

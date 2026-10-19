@@ -187,8 +187,8 @@ bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err) {
         return false;
     }
     uint32_t a = 0;
-    // timeout/retry 0: the library defaults.
-    int rc = sceNetResolverStartNtoa(rid, host.c_str(), &a, 0, 0, 0);
+    // timeout 5s (5000000 us), 2 retries (prevents 20-30s DNS freezes).
+    int rc = sceNetResolverStartNtoa(rid, host.c_str(), &a, 5000000, 2, 0);
     sceNetResolverDestroy(rid);
     if (rc < 0) {
         char buf[64];

@@ -41,9 +41,11 @@ public:
     bool startDeviceCode(DeviceCode& out, std::string& err) const;
     PollResult pollDeviceCode(const DeviceCode& dc, MsaTokens& out, std::string& err) const;
     // `scope` empty = the configured sign-in scope. `networkError` (optional)
-    // tells a transport failure apart from a rejected token.
+    // tells a transport failure apart from a rejected token. `invalidGrant`
+    // (optional) is true only when Microsoft explicitly returned "invalid_grant".
     bool refresh(const std::string& refreshToken, MsaTokens& out, std::string& err,
-                 const std::string& scope = {}, bool* networkError = nullptr) const;
+                 const std::string& scope = {}, bool* networkError = nullptr,
+                 bool* invalidGrant = nullptr) const;
 
     const MsaConfig& config() const { return cfg_; }
 

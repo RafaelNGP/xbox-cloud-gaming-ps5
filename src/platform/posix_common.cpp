@@ -3,6 +3,7 @@
 // File helpers shared by both platforms (the PS5 libc is POSIX enough).
 #include "platform/platform.h"
 
+#include <cerrno>
 #include <cstdio>
 #include <pthread.h>
 #include <time.h>
@@ -27,9 +28,15 @@ bool writeFileAtomic(const std::string& path, const std::string& data) {
     if (!f) return false;
     bool ok = std::fwrite(data.data(), 1, data.size(), f) == data.size();
     ok = (std::fflush(f) == 0) && ok;
+    int fd = ::fileno(f);
+    if (fd >= 0) {
+        ok = (::fsync(fd) == 0) && ok;
+    }
     ok = (std::fclose(f) == 0) && ok;
     if (!ok || std::rename(tmp.c_str(), path.c_str()) != 0) {
+        int err = errno;
         std::remove(tmp.c_str());
+        errno = err;
         return false;
     }
     return true;

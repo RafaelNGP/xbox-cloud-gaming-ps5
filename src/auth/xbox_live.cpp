@@ -3,6 +3,7 @@
 #include "auth/xbox_live.h"
 
 #include "net/http.h"
+#include "platform/platform.h"
 #include "util/json.h"
 #include "util/log.h"
 
@@ -17,10 +18,22 @@ net::Response postJson(const std::string& url, const json::Value& body) {
     req.url = url;
     req.headers = {{"Content-Type", "application/json"}, {"x-xbl-contract-version", "1"}};
     req.body = body.dump();
-    return net::perform(req);
+    net::Response r;
+    constexpr int kTries = 3;
+    for (int attempt = 1; attempt <= kTries; ++attempt) {
+        r = net::perform(req);
+        bool transient = r.status == 0 || r.status == 408 || r.status == 429 || r.status >= 500;
+        if (!transient || attempt == kTries) break;
+        XC_LOGW("%s: %s, trying again (%d/%d)", url.c_str(),
+                r.status ? ("HTTP " + std::to_string(r.status)).c_str() : r.error.c_str(),
+                attempt + 1, kTries);
+        platform::sleepMs(1000u << (attempt - 1));
+    }
+    return r;
 }
 
-bool readXbl(const net::Response& r, XblToken& out, std::string& err, const char* what) {
+bool readXbl(const net::Response& r, XblToken& out, std::string& err, const char* what,
+             std::string* redirectUrl = nullptr) {
     auto j = json::parse(r.body);
     if (!r.ok() || !j || !(*j)["Token"].isString()) {
         err = std::string(what) + " failed: ";
@@ -32,6 +45,11 @@ bool readXbl(const net::Response& r, XblToken& out, std::string& err, const char
             if (x == 2148916233) err += " (this Microsoft account has no Xbox profile yet)";
             if (x == 2148916235) err += " (Xbox Live is not available in this account's country)";
             if (x == 2148916238) err += " (child account: needs to be added to a family by an adult)";
+        }
+        if (j && (*j)["Redirect"].isString()) {
+            std::string red = (*j)["Redirect"].str();
+            if (redirectUrl) *redirectUrl = red;
+            if (!red.empty()) err += " [Redirect: " + red + "]";
         }
         return false;
     }
@@ -46,7 +64,7 @@ bool readXbl(const net::Response& r, XblToken& out, std::string& err, const char
 }  // namespace
 
 bool xblUserToken(const std::string& msaAccessToken, const std::string& rpsPrefix, XblToken& out,
-                  std::string& err) {
+                  std::string& err, std::string* redirectUrl) {
     json::Value props = json::Value::object();
     props.set("AuthMethod", "RPS");
     props.set("SiteName", "user.auth.xboxlive.com");
@@ -56,11 +74,11 @@ bool xblUserToken(const std::string& msaAccessToken, const std::string& rpsPrefi
     body.set("TokenType", "JWT");
     body.set("Properties", props);
     return readXbl(postJson("https://user.auth.xboxlive.com/user/authenticate", body), out, err,
-                   "Xbox user authentication");
+                   "Xbox user authentication", redirectUrl);
 }
 
 bool xstsToken(const XblToken& userToken, const std::string& relyingParty, XblToken& out,
-               std::string& err) {
+               std::string& err, std::string* redirectUrl) {
     json::Value users = json::Value::array();
     users.push(userToken.token);
     json::Value props = json::Value::object();
@@ -71,7 +89,7 @@ bool xstsToken(const XblToken& userToken, const std::string& relyingParty, XblTo
     body.set("TokenType", "JWT");
     body.set("Properties", props);
     return readXbl(postJson("https://xsts.auth.xboxlive.com/xsts/authorize", body), out, err,
-                   ("XSTS authorization for " + relyingParty).c_str());
+                   ("XSTS authorization for " + relyingParty).c_str(), redirectUrl);
 }
 
 int64_t parseIsoUtc(const std::string& iso) {

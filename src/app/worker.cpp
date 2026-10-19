@@ -694,9 +694,9 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         } else if (err.find("user interaction is required") != std::string::npos ||
                    err.find("invalid_grant") != std::string::npos ||
                    err.find("authorization_declined") != std::string::npos) {
-            g_ui->showError(ui::tr(ui::Str::SignInInteractionRequired));
+            g_ui->showError(ui::tr(ui::Str::SignInInteractionRequired), am.redirectUrl());
         } else {
-            g_ui->showError(ui::trf(ui::Str::SignInFailed, err));
+            g_ui->showError(ui::trf(ui::Str::SignInFailed, err), am.redirectUrl());
         }
         if (!g_autoplay.title.empty()) XC_LOGI("AUTOPLAY END: sign-in failed");
         return;
