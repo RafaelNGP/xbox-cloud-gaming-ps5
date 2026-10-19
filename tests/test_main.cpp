@@ -984,7 +984,7 @@ static void testTokenRefresh() {
     std::string dir = "/tmp/xcloud-auth-test";
     std::system(("rm -rf " + dir + " && mkdir -p " + dir).c_str());
     std::string store = dir + "/account.json";
-    xc::platform::writeFileAtomic(store, R"({"version":1,"clientId":"000000004c20a908","refreshToken":"rt-0"})");
+    xc::platform::writeFileAtomic(store, R"({"version":1,"clientId":"000000004c20a908","refreshToken":"_rt-0"})");
     int64_t xstsLife = 16 * 3600, loginLife = 300;
     int serial = 0, logins = 0;
     bool refuseRefresh = false;
@@ -1007,7 +1007,7 @@ static void testTokenRefresh() {
                 r.status = 400;
                 r.body = R"({"error":"invalid_grant"})";
             } else {
-                r.body = R"({"access_token":"at","expires_in":3600,"refresh_token":"rt-)" + std::to_string(++serial) + R"("})";
+                r.body = R"({"access_token":"at","expires_in":3600,"refresh_token":"_rt-)" + std::to_string(++serial) + R"("})";
             }
         } else if (u.find("user.auth.xboxlive.com") != std::string::npos) {
             ++hits["user"];
@@ -1042,7 +1042,7 @@ static void testTokenRefresh() {
         xcloud::GssvClient gssv;
         CHECK(!am.ensureFresh(&gssv, err, false, &renewed) && !renewed && hits.empty());  // not signed in: nothing sent
         CHECK(am.signIn(gssv, {}, err) && am.signedIn());
-        CHECK(storedRefresh() == "rt-1");
+        CHECK(storedRefresh() == "_rt-1");
         // The xCloud login expires in 5 minutes: only it is renewed, in the region chosen.
         gssv.setRegion(gssv.session().regions[1]);
         std::string token = gssv.session().gsToken;
@@ -1059,7 +1059,7 @@ static void testTokenRefresh() {
         // the rotated refresh token saved at once.
         CHECK(am.ensureFresh(&gssv, err, true, &renewed) && renewed);
         CHECK(hits["msa"] == 1 && hits["user"] == 1 && hits["xsts"] == 2 && hits["login"] == 1 && hits["other"] == 0);
-        CHECK(storedRefresh() == "rt-2" && !am.profile().xblAuthorization.empty());
+        CHECK(storedRefresh() == "_rt-2" && !am.profile().xblAuthorization.empty());
         CHECK(gssv.region().name == "BrazilSouth");
         // The XSTS about to expire: renewed without being asked.
         xstsLife = 120;
