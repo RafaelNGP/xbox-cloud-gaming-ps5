@@ -3,6 +3,7 @@
 #include "xcloud/purchase.h"
 
 #include "net/http.h"
+#include "platform/platform.h"
 #include "util/json.h"
 #include "util/log.h"
 
@@ -64,8 +65,41 @@ bool fetchPurchaseOffer(const std::string& productId, const std::string& market,
     return false;
 }
 
+namespace {
+std::string uuid4() {
+    uint8_t b[16];
+    platform::randomBytes(b, sizeof b);
+    b[6] = static_cast<uint8_t>((b[6] & 0x0f) | 0x40);
+    b[8] = static_cast<uint8_t>((b[8] & 0x3f) | 0x80);
+    char s[37];
+    std::snprintf(s, sizeof s, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x", b[0], b[1],
+                  b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]);
+    return s;
+}
+
+std::string extractErrorDetail(const net::Response& r) {
+    auto j = json::parse(r.body);
+    if (!j) return r.error.empty() ? ("HTTP " + std::to_string(r.status)) : r.error;
+    if ((*j)["innererror"]["data"].isArray() && (*j)["innererror"]["data"].size() > 0 &&
+        (*j)["innererror"]["data"][0].isString()) {
+        return (*j)["innererror"]["data"][0].str();
+    }
+    if ((*j)["innererror"]["details"].isArray() && (*j)["innererror"]["details"].size() > 0 &&
+        (*j)["innererror"]["details"][0]["message"].isString()) {
+        return (*j)["innererror"]["details"][0]["message"].str();
+    }
+    if ((*j)["innererror"]["message"].isString()) {
+        return (*j)["innererror"]["message"].str();
+    }
+    if ((*j)["message"].isString()) {
+        return (*j)["message"].str();
+    }
+    return "HTTP " + std::to_string(r.status);
+}
+}  // namespace
+
 bool claimFreeProduct(const std::string& marketplaceAuthHeader, const PurchaseOffer& offer,
-                      const std::string& market, std::string& err) {
+                      const std::string& market, const std::string& language, std::string& err) {
     // Rigid safety check: NEVER allow purchases that cost money.
     if (!offer.isFree || offer.listPrice > 0.005 || offer.msrp > 0.005) {
         err = "safety block: product is not free (price > 0)";
@@ -82,6 +116,9 @@ bool claimFreeProduct(const std::string& marketplaceAuthHeader, const PurchaseOf
         return false;
     }
 
+    std::string orderId = uuid4();
+
+    // 1. Create order in Microsoft Store
     json::Value item = json::Value::object();
     item.set("productId", offer.productId);
     item.set("skuId", offer.skuId);
@@ -93,8 +130,15 @@ bool claimFreeProduct(const std::string& marketplaceAuthHeader, const PurchaseOf
     json::Value items = json::Value::array();
     items.push(item);
 
-    json::Value body = json::Value::object();
-    body.set("orderItems", items);
+    json::Value clientCtx = json::Value::object();
+    clientCtx.set("client", "Xbox");
+
+    json::Value createBody = json::Value::object();
+    createBody.set("orderId", orderId);
+    createBody.set("items", items);
+    createBody.set("clientContext", clientCtx);
+    createBody.set("language", language.empty() ? "en-US" : language);
+    createBody.set("market", market.empty() ? "US" : market);
 
     net::Request req;
     req.method = "POST";
@@ -105,21 +149,37 @@ bool claimFreeProduct(const std::string& marketplaceAuthHeader, const PurchaseOf
         {"Content-Type", "application/json"},
         {"MS-CV", "PSBoxPurchase.1"}
     };
-    req.body = body.dump();
+    req.body = createBody.dump();
 
     auto r = net::perform(req);
     if (!r.ok()) {
-        auto j = json::parse(r.body);
-        std::string detail;
-        if (j) {
-            if ((*j)["message"].isString()) detail = (*j)["message"].str();
-            else if ((*j)["innererror"]["message"].isString()) detail = (*j)["innererror"]["message"].str();
-        }
-        err = detail.empty() ? ("HTTP " + std::to_string(r.status) + ": " + r.error) : detail;
-        XC_LOGW("claimFreeProduct failed for %s: %s (status %d)", offer.productId.c_str(), err.c_str(), r.status);
+        err = extractErrorDetail(r);
+        XC_LOGW("claimFreeProduct: create order failed for %s: %s (status %d)",
+                offer.productId.c_str(), err.c_str(), r.status);
         return false;
     }
-    XC_LOGI("claimFreeProduct succeeded for %s (%s/%s)", offer.productId.c_str(), offer.skuId.c_str(), offer.availabilityId.c_str());
+
+    // 2. Finalize order (transition from Editing to Purchased)
+    json::Value finalizeBody = json::Value::object();
+    finalizeBody.set("orderState", "Purchased");
+    finalizeBody.set("clientContext", clientCtx);
+
+    net::Request finReq;
+    finReq.method = "PUT";
+    finReq.url = "https://purchase.mp.microsoft.com/v7.0/users/me/orders/" + orderId;
+    finReq.headers = req.headers;
+    finReq.body = finalizeBody.dump();
+
+    auto finRes = net::perform(finReq);
+    if (!finRes.ok()) {
+        err = extractErrorDetail(finRes);
+        XC_LOGW("claimFreeProduct: finalize order failed for %s (order %s): %s (status %d)",
+                offer.productId.c_str(), orderId.c_str(), err.c_str(), finRes.status);
+        return false;
+    }
+
+    XC_LOGI("claimFreeProduct succeeded for %s (%s/%s) order %s",
+            offer.productId.c_str(), offer.skuId.c_str(), offer.availabilityId.c_str(), orderId.c_str());
     return true;
 }
 

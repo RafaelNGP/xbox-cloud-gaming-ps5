@@ -1069,7 +1069,7 @@ void worker() {
                     g_ui->showPlayError(ui::trf(ui::Str::ClaimFailed, err), tile);
                     break;
                 }
-                if (!xcloud::claimFreeProduct(authHeader, offer, market, err)) {
+                if (!xcloud::claimFreeProduct(authHeader, offer, market, ui::catalogLanguage(), err)) {
                     XC_LOGW("claim: order failed: %s", err.c_str());
                     g_ui->showPlayError(ui::trf(ui::Str::ClaimFailed, err), tile);
                     break;

@@ -24,6 +24,6 @@ bool fetchPurchaseOffer(const std::string& productId, const std::string& market,
 // Claims a 100% free product (price == 0.00) via https://purchase.mp.microsoft.com/v7.0/users/me/orders.
 // Rejects immediately if offer.isFree is false or listPrice > 0.005.
 bool claimFreeProduct(const std::string& marketplaceAuthHeader, const PurchaseOffer& offer,
-                      const std::string& market, std::string& err);
+                      const std::string& market, const std::string& language, std::string& err);
 
 }  // namespace xc::xcloud

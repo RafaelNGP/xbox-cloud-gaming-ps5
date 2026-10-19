@@ -2427,36 +2427,59 @@ static void testPurchase() {
     CHECK(paidOffer.listPrice == 69.99);
 
     // 3. Safety check: claimFreeProduct MUST refuse paid products
-    CHECK(!claimFreeProduct("XBL3.0 x=test;token", paidOffer, "US", err));
+    CHECK(!claimFreeProduct("XBL3.0 x=test;token", paidOffer, "US", "en-US", err));
     CHECK(err.find("safety block") != std::string::npos);
 
     // 4. claimFreeProduct with empty auth or incomplete offer
     PurchaseOffer invalidOffer = offer;
     invalidOffer.availabilityId.clear();
-    CHECK(!claimFreeProduct("XBL3.0 x=test;token", invalidOffer, "US", err));
-    CHECK(!claimFreeProduct("", offer, "US", err));
+    CHECK(!claimFreeProduct("XBL3.0 x=test;token", invalidOffer, "US", "en-US", err));
+    CHECK(!claimFreeProduct("", offer, "US", "en-US", err));
 
-    // 5. Successful claim of free product
-    status = 200;
-    body = R"({"orderId":"ORDER-12345","status":"Purchased"})";
-    CHECK(claimFreeProduct("XBL3.0 x=test;token", offer, "US", err));
-    CHECK(lastReq.url.find("purchase.mp.microsoft.com/v7.0/users/me/orders") != std::string::npos);
+    // 5. Successful claim of free product (2-step POST create and PUT finalize)
+    net::Request lastPostReq, lastPutReq;
+    net::setTestTransport([&](const net::Request& req) {
+        net::Response r;
+        if (req.method == "POST") {
+            lastPostReq = req;
+            r.status = 201;
+            r.body = R"({"orderId":"ORDER-12345","orderState":"Editing"})";
+        } else if (req.method == "PUT") {
+            lastPutReq = req;
+            r.status = 200;
+            r.body = R"({"orderId":"ORDER-12345","orderState":"Purchased"})";
+        }
+        return r;
+    });
+
+    CHECK(claimFreeProduct("XBL3.0 x=test;token", offer, "US", "en-US", err));
+    CHECK(lastPostReq.url.find("purchase.mp.microsoft.com/v7.0/users/me/orders") != std::string::npos);
     std::string authVal;
-    for (const auto& h : lastReq.headers) {
+    for (const auto& h : lastPostReq.headers) {
         if (h.first == "Authorization") authVal = h.second;
     }
     CHECK(authVal == "XBL3.0 x=test;token");
-    auto j = json::parse(lastReq.body);
-    CHECK(j && (*j)["orderItems"].isArray());
-    CHECK((*j)["orderItems"][0]["productId"].str() == "FREE123");
-    CHECK((*j)["orderItems"][0]["skuId"].str() == "0001");
-    CHECK((*j)["orderItems"][0]["availabilityId"].str() == "AVAIL_FREE");
-    CHECK((*j)["orderItems"][0]["price"].asNumber() == 0.0);
+    auto postJson = json::parse(lastPostReq.body);
+    CHECK(postJson && (*postJson)["items"].isArray());
+    CHECK((*postJson)["items"][0]["productId"].str() == "FREE123");
+    CHECK((*postJson)["items"][0]["skuId"].str() == "0001");
+    CHECK((*postJson)["items"][0]["availabilityId"].str() == "AVAIL_FREE");
+    CHECK((*postJson)["items"][0]["price"].asNumber() == 0.0);
+    CHECK((*postJson)["clientContext"]["client"].str() == "Xbox");
+    CHECK(!(*postJson)["orderId"].str().empty());
+
+    CHECK(lastPutReq.method == "PUT");
+    auto putJson = json::parse(lastPutReq.body);
+    CHECK(putJson && (*putJson)["orderState"].str() == "Purchased");
 
     // 6. claimFreeProduct error handling
-    status = 400;
-    body = R"({"code":"PaymentRequired","message":"Payment method needed"})";
-    CHECK(!claimFreeProduct("XBL3.0 x=test;token", offer, "US", err));
+    net::setTestTransport([&](const net::Request&) {
+        net::Response r;
+        r.status = 400;
+        r.body = R"({"code":"PaymentRequired","innererror":{"message":"Payment method needed"}})";
+        return r;
+    });
+    CHECK(!claimFreeProduct("XBL3.0 x=test;token", offer, "US", "en-US", err));
     CHECK(err.find("Payment method needed") != std::string::npos);
 
     net::setTestTransport({});
