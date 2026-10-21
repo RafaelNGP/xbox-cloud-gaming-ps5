@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-16, v1.0.0.
+Last update: 2026-10-21, v1.3.2.
 
 ## Now
 
@@ -214,24 +214,32 @@ is rolled back at the next start), then the app restarts itself
 - Linux tarball built and attached by CI on each release (ubuntu-24.04); signed on the release machine (`tools/desktop/sign-linux-release.sh`).
 - PS5: microphone gain fixed (50 % muted it, 150 % gave 200 %); the autoplay tests put the user's settings back; development links keep their symbols apart from a release's.
 
+### Plan filter, remapping, desktop Vulkan, 1-click F2P claim, smart triggers & low-latency pipeline — done (v1.2.0–v1.3.2)
+- Catalog by Game Pass plan (Essential / Premium / Ultimate / All filter, plan badges, `PassMetadataByPassProductId` hydration) and a Favourites row at the top of the library (Triangle on the game page).
+- Per-game stream language selector (`GameProfile::locale`), passed to `gssv.startSession(...)`.
+- 1-click free-to-play acquisition (`claimFreeProduct`): claims free Store licenses directly from the game details page without a QR code or external browser, refreshing the library in place.
+- Input & DualSense: full DualSense button remapping (including Edge back paddles), touchpad as mouse for MKB games, accurate `physicalPhysicality` bitmask, unreliable/unordered input channel (protocol v9), 250 Hz DualSense polling, Smart Trigger profiles (*Standard*, *Shooter*, *Racing*) and sub-bass Audio-to-Haptics.
+- Audio & video: PCM waveform extrapolation PLC (`AudioDecoder::conceal`) with 12 ms RTP gap detection, desktop Vulkan display (`display/gpu.cpp` shared with SDL3 Linux for FSR 1, Anime4K, RCAS, deband), PS5 swapchain flip-rate unpegging (`wsi_videoout_set_flip_rate(0)`), and an in-game performance HUD with a 60-frame frametime sparkline (`L3 + R3`).
+- Performance & resilience: dynamic Zen 2 thread pinning, zero-allocation RTP ring buffer, instant frame-1 boot, HTTP keep-alive connection pooling, out-of-order X.509 TLS chain sorting, NanoDNS / missing-Gamertag diagnostics, and client support for Microsoft's monthly cloud playtime cap (`fetchPlaytimeLimit`, waiting for Microsoft to enable the quota).
+
 ## Next
 
 | Item | Why | Size |
 | --- | --- | --- |
-| VRR for the stream | `sceVideoOutVrrUnpegFromFixedRate` would absorb the 60 fps stream's jitter (ProsperoLight's "Paced + VRR"); needs an extended libSceVideoOut stub | medium |
-| Cloud playtime left (built; waiting for Microsoft) | From November 2026 cloud play is capped each month (Ultimate 15 h, Premium 10 h, Essential 5 h). Informational only: no lock in the app (more time can be bought); to build once Microsoft turns it on. Source found (xbox.com/play): `GET contentaccess.exp.xboxservices.com/all/v1?market=..&offering=xgpuweb` with the `http://mp.microsoft.com/` XSTS (already used for the plan), protobuf answer: `remainingGameplayTimeInSeconds` / `maxGameplayTimeInSeconds` / monthly reset. A minimal protobuf reader, the hours left on Home and in the game menu, a warning near the end; and GSSV's `MonthlyLimitExceeded` (0x87DD043A) shown as such | small–medium |
+| VRR for the stream (flip rate unpegged; `libSceVideoOut` stub optional) | `wsi_videoout_set_flip_rate(0)` + 120 Hz mode switch is in place (`v1.2.0`); direct `sceVideoOutVrrUnpegFromFixedRate` call needs an extended `libSceVideoOut` stub if further unpegging is needed | medium |
+| Cloud playtime left (done in client; waiting for Microsoft) | From November 2026 cloud play is capped each month (Ultimate 15 h, Premium 10 h, Essential 5 h). Informational only: no lock in the app (more time can be bought); built in `AuthManager::fetchPlaytimeLimit` (`contentaccess.exp.xboxservices.com/all/v1`) + `MonthlyLimitExceeded` (`0x87DD043A`) handling, stays hidden until Microsoft turns the quota on | small–medium |
 | Catalog by Game Pass plan (done) | Rows and tabs show only what the account's plan plays; the search gets a **Plan** filter (My plan / Ultimate / Premium / Essential / All) to see what an upgrade or downgrade changes; other plans' games marked (badge, "Included with Game Pass Ultimate" on the page). Data already downloaded: catalog.gamepass.com v3 `PassMetadataByPassProductId` (full hydration): Essential `CFQ7TTC0K5DJ`, Premium `CFQ7TTC0P85B`, otherwise Ultimate (EA Play `CFQ7TTC0K5DH`, Ubisoft+ Classics, PC, day-one); Ultimate plays all, Premium plays Premium + Essential, Essential only Essential. The free-to-play list (87 games, BR) is open to every plan and to no plan, even the 34 also tagged with a plan (partly free: Halo Infinite, the Call of Duty launchers, Warzone; "Fortnite" tagged Ultimate next to the untagged "Fortnite Battle Royale"). Audit 2026-10-15, 894 cloud games: 126 Essential, 440 Premium, 328 Ultimate only. The plan itself comes from the store (v0.9.7). A non-Ultimate account is needed to check the default view | medium |
 | Free play with ads (careful, low priority) | Microsoft's ad-supported offering (`xgpuwebf2p` login and sessions, its own list). Risk: users would soon ask for a way to skip or block the ads, which would worry Microsoft/Xbox; if ever built, the ads are never skipped and nothing in the app helps hide them | medium |
 | Game Pass trial badge (later) | The store's answer says `isTrial`; a TRIAL mark next to the plan. Not now | small |
-| Unreliable input channel (protocol v9) | The official client sends input on an unordered channel, so a lost packet doesn't hold the ones after it; needs a capture of its frames | medium |
+| Unreliable input channel (protocol v9, done) | The official client sends input on an unordered channel (`unordered = true`, `maxRetransmits = 0`), so a lost packet doesn't hold the ones after it | medium |
 | DualSense button remapping, touchpad mouse (done) | Full DualSense button customization in Settings and each game's settings (Edge back buttons/paddles too), with its own remapping screen like keyboard keys; touchpad as a mouse for MKB games (done) | medium |
 | Gamepad report physicality & touchpad click robustness (#39, done) | In `src/stream/input_packet.cpp`: compute accurate `physicalPhysicality` bitmask (0 when idle) and send 0 for `virtualPhysicality` (LE), preventing idle secondary controllers/bridges from continuously reporting active physical input to xCloud. In `src/app/stream_screen.cpp`: suppress touchpad swipe gesture detection while `btnTouchpad` is physically pressed. Add one-time diagnostic log on first `kView` / `kMenu` sent per stream session | small |
 | Gyro in Settings (done) | Gyro aiming in Settings and the game settings too (done); an inverted / separate horizontal sensitivity if asked | small |
 | Desktop Vulkan display (done) | `display/gpu.cpp` shared with the SDL3 desktop window (`SDL_Vulkan_*`): FSR 1, Anime4K x2, Anime4K Restore, CAS sharpening and block smoothing on Linux, with `SDL_Renderer` kept as fallback | medium |
-| Lost audio filled | Opus concealment / in-band FEC for lost audio packets: needs libopus (FFmpeg's own Opus decoder has neither) | small–medium |
+| Lost audio filled (done via PCM PLC) | Waveform-extrapolation PLC (`AudioDecoder::conceal`) with 12 ms RTP gap detection in `StreamPlayer::audioLoop` fills lost packets without external dependencies; `libopus` in-band FEC optional later | small–medium |
 | Home-screen tile per game | The PS5 Forwarder Format (ProsperoLight): a tile that starts one cloud game directly | small |
 | Dedicated voice chat output routing | Route voice chat audio independently to DualSense controller speaker or headset while keeping game audio on TV (if xCloud exposes separate voice track) | medium |
-| Game language (later) | The game's language apart from the app's (favourites are done) | small |
+| Game language & Favourites row (done) | Per-game language selector (`GameProfile::locale`) and Favourites row on Home | small |
 | **Queue-ready chime** | When the queue ends and the game starts, a short "success" sound from the DualSense speaker (plus a light rumble), so a player who put the pad down knows it's ready; a global on/off in Settings. Desktop: the pad's speaker where SDL allows, else the PC's sound | small |
 | **Refresh the library by hand** | A button / shortcut on Home that looks only for differences: the title list and entitlements fetched again, new and removed games found by id, details fetched only for the new ones, rows rebuilt in place (users add games on the Xbox app and don't see them) | small |
 | **Sign-in diagnostics** | Each sign-in failure explained in the app with what to do: XSTS errors (#95, #96: no Xbox profile, region, child account, needs the browser), 2FA / browser steps, clock, network, a sign-in that isn't kept (#91); a "check my sign-in" step in Settings that runs each stage and shows where it stops | small–medium |
