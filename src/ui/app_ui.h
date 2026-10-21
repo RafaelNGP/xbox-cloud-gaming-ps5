@@ -13,6 +13,7 @@
 #include "ui/font.h"
 #include "ui/image_cache.h"
 #include "ui/pad_icons.h"
+#include "xcloud/achievements.h"
 
 #include <cstdint>
 #include <map>
@@ -50,6 +51,7 @@ struct GameTile {
     // Console it was made for: "360", "ONE", "XS" (xcloud/titlehub.h); empty
     // while unknown.
     std::string platform;
+    std::string xboxTitleId;
     // Not a game: the user's own Xbox (Remote Play); titleId is its serverId.
     bool homeConsole = false;
     // Once the store's full details are in (`detailed`): how it can be
@@ -254,6 +256,7 @@ struct UiEvent {
     // PrefsChanged: hidden games (product ids), favorites, and the "Your games" order.
     std::vector<std::string> hidden;
     std::vector<std::string> favorites;
+    std::vector<std::string> wishlist;
     LibrarySort librarySort = LibrarySort::Recent;
     std::string reportWhat;  // Report: the error on screen (empty from Settings)
     std::string url;         // OpenUrl
@@ -308,8 +311,13 @@ public:
     void setPlaytime(int64_t remainingSeconds, int64_t maxSeconds);
     // Store prices, formatted: productId -> {now, regular (empty unless on sale)}.
     void setPrices(const std::map<std::string, PriceInfo>& prices);
-    // Saved preferences: hidden games, the "Your games" order, and favorites.
-    void setPrefs(const std::vector<std::string>& hidden, LibrarySort sort, const std::vector<std::string>& favorites = {});
+    // Saved preferences: hidden games, the "Your games" order, favorites, and wishlist.
+    void setPrefs(const std::vector<std::string>& hidden, LibrarySort sort, const std::vector<std::string>& favorites = {}, const std::vector<std::string>& wishlist = {});
+    // Asks for achievements of the open details page game; empty if not wanted
+    std::string achievementsWanted(uint64_t nowMs);
+    void setTitleAchievements(const std::string& xboxTitleId, const xcloud::TitleAchievements& ach);
+    std::string tileName(const std::string& productId) const;
+    void toggleWishlist(const GameTile& tile, UiEvent& ev);
     // Games to buy on screen (or about to be) whose price hasn't been asked
     // for yet; with `background`, any other game to buy once those are done
     // (never while streaming). Marks them asked.
@@ -456,7 +464,8 @@ private:
     void drawTopBar(Canvas& c);
     void drawLogo(Canvas& c, float cx, float cy, float r);
     void drawGamerscoreBadge(Canvas& c, float cx, float cy, float r);
-    void drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>& hints);
+    using Hint = std::pair<int, const char*>;
+    void drawHints(Canvas& c, const std::vector<Hint>& hints);
     void drawSpinner(Canvas& c, float cx, float cy, float r, uint64_t nowMs);
     void drawToast(Canvas& c, uint64_t nowMs);
     void drawPads(Canvas& c);
@@ -543,6 +552,8 @@ private:
     void drawPadTester(Canvas& c);
     void drawSignInCheck(Canvas& c, uint64_t nowMs);
     void drawNetworkTest(Canvas& c, uint64_t nowMs);
+    void openAchievements();
+    void drawAchievementsModal(Canvas& c, uint64_t nowMs);
     // A modal panel over Settings with its title; returns its rectangle.
     Rect drawModal(Canvas& c, int w, int h, const std::string& title);
     void drawUpdating(Canvas& c, uint64_t nowMs);
@@ -698,6 +709,12 @@ private:
     bool activeGameHasCustom_ = false;
     void handleGameSettings(const NavInput& in, UiEvent& ev);
     void drawGameSettings(Canvas& c);
+    std::set<std::string> wishlist_;
+    std::map<std::string, xcloud::TitleAchievements> achievements_;
+    std::string achievementsAskedFor_;
+    uint64_t achievementsAskedAt_ = 0;
+    bool achievementsOpen_ = false;
+    int achScroll_ = 0;
 };
 
 }  // namespace xc::ui

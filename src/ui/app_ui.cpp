@@ -598,10 +598,11 @@ void AppUi::drawLoadingBar(Canvas& c, int x, int y, int w, uint64_t nowMs) {
     animating_ = true;
 }
 
-void AppUi::setPrefs(const std::vector<std::string>& hidden, LibrarySort sort, const std::vector<std::string>& favorites) {
+void AppUi::setPrefs(const std::vector<std::string>& hidden, LibrarySort sort, const std::vector<std::string>& favorites, const std::vector<std::string>& wishlist) {
     std::lock_guard<std::mutex> lock(mutex_);
     hidden_ = std::set<std::string>(hidden.begin(), hidden.end());
     favorites_ = std::set<std::string>(favorites.begin(), favorites.end());
+    wishlist_ = std::set<std::string>(wishlist.begin(), wishlist.end());
     librarySort_ = sort;
     rebuild();
 }
@@ -618,6 +619,7 @@ void AppUi::prefsEvent(UiEvent& ev) const {
     ev.action = Action::PrefsChanged;
     ev.hidden.assign(hidden_.begin(), hidden_.end());
     ev.favorites.assign(favorites_.begin(), favorites_.end());
+    ev.wishlist.assign(wishlist_.begin(), wishlist_.end());
     ev.librarySort = librarySort_;
 }
 
@@ -640,6 +642,18 @@ void AppUi::toggleFavorite(const GameTile& tile, UiEvent& ev) {
     if (fav) favorites_.insert(tile.productId);
     else favorites_.erase(tile.productId);
     toast_ = tr(fav ? Str::AddedToFavorites : Str::RemovedFromFavorites);
+    toastUntil_ = 0;
+    prefsEvent(ev);
+    dirty_ = true;
+}
+
+void AppUi::toggleWishlist(const GameTile& tile, UiEvent& ev) {
+    // Caller holds mutex_.
+    if (tile.productId.empty()) return;
+    bool wish = !wishlist_.count(tile.productId);
+    if (wish) wishlist_.insert(tile.productId);
+    else wishlist_.erase(tile.productId);
+    toast_ = tr(wish ? Str::AddedToWishlist : Str::RemovedFromWishlist);
     toastUntil_ = 0;
     prefsEvent(ev);
     dirty_ = true;
@@ -727,6 +741,43 @@ void AppUi::setQueueTime(const std::string& titleId, int seconds) {
     queueTitle_ = titleId;
     queueSeconds_ = seconds;
     if (detail_.titleId == titleId) dirty_ = true;
+}
+
+std::string AppUi::achievementsWanted(uint64_t nowMs) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (screen_ != Screen::Details || detail_.xboxTitleId.empty()) return {};
+    if (detail_.xboxTitleId == achievementsAskedFor_ && nowMs - achievementsAskedAt_ < 60000) return {};
+    achievementsAskedFor_ = detail_.xboxTitleId;
+    achievementsAskedAt_ = nowMs;
+    return detail_.xboxTitleId;
+}
+
+void AppUi::setTitleAchievements(const std::string& xboxTitleId, const xcloud::TitleAchievements& ach) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    achievements_[xboxTitleId] = ach;
+    if (detail_.xboxTitleId == xboxTitleId) dirty_ = true;
+}
+
+void AppUi::openAchievements() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    achievementsOpen_ = true;
+    achScroll_ = 0;
+    dirty_ = true;
+}
+
+std::string AppUi::tileName(const std::string& productId) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& row : rows_) {
+        for (const auto& t : row.tiles) {
+            if (t.productId == productId) return t.name;
+        }
+    }
+    for (const auto* list : {&owned_, &purchasable_, &gamePassPool_, &libraryPool_}) {
+        for (const auto& t : *list) {
+            if (t.productId == productId) return t.name;
+        }
+    }
+    return {};
 }
 
 void AppUi::setDetailInfo(const std::string& productId, const std::string& description, const std::string& publisher,
@@ -2700,6 +2751,25 @@ UiEvent AppUi::handle(const NavInput& in) {
             }
             break;
         case Screen::Details:
+            if (achievementsOpen_) {
+                if (in.up && achScroll_ > 0) {
+                    achScroll_--;
+                    dirty_ = true;
+                }
+                int maxScroll = 0;
+                if (auto it = achievements_.find(detail_.xboxTitleId); it != achievements_.end()) {
+                    maxScroll = std::max(0, static_cast<int>(it->second.items.size()) - 5);
+                }
+                if (in.down && achScroll_ < maxScroll) {
+                    achScroll_++;
+                    dirty_ = true;
+                }
+                if (in.back || in.l3) {
+                    achievementsOpen_ = false;
+                    dirty_ = true;
+                }
+                break;
+            }
             if (gameSettingsOpen_) {
                 handleGameSettings(in, ev);
                 break;
@@ -2721,6 +2791,8 @@ UiEvent AppUi::handle(const NavInput& in) {
             }
             if (in.square) toggleHidden(detail_, ev);  // the page stays open
             if (in.triangle) toggleFavorite(detail_, ev);
+            if (in.r3) toggleWishlist(detail_, ev);
+            if (in.l3 && !detail_.xboxTitleId.empty()) openAchievements();
             if (in.back) {
                 screen_ = Screen::Home;
                 dirty_ = true;
@@ -3853,17 +3925,15 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
                 fonts_.semibold.draw(c, scan, box.x + (box.w - w) / 2, box.y + box.h + 22, 26, kWhite);
             }
         }
-        if (g->freeInStore)
-            drawHints(c, {{kIconCross, tr(Str::ClaimFree)},
-                          {kIconOptions, tr(Str::GameSettings)},
-                          {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
-                          {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
-                          {kIconCircle, tr(Str::Back)}});
-        else
-            drawHints(c, {{kIconOptions, tr(Str::GameSettings)},
-                          {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
-                          {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
-                          {kIconCircle, tr(Str::Back)}});
+        std::vector<Hint> hints;
+        if (g->freeInStore) hints.push_back({kIconCross, tr(Str::ClaimFree)});
+        hints.push_back({kIconOptions, tr(Str::GameSettings)});
+        hints.push_back({kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)});
+        hints.push_back({kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)});
+        hints.push_back({kIconR3, tr(wishlist_.count(g->productId) ? Str::RemoveWishlist : Str::AddWishlist)});
+        if (!g->xboxTitleId.empty()) hints.push_back({kIconL3, tr(Str::Achievements)});
+        hints.push_back({kIconCircle, tr(Str::Back)});
+        drawHints(c, hints);
         drawToast(c, nowMs);
         return;
     }
@@ -3875,10 +3945,15 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         c.fillRect(note, rgba(255, 255, 255, 40), 38);
         drawLock(c, note.x + 52, note.y + note.h / 2);
         fonts_.semibold.draw(c, msg, note.x + 90, note.y + 22, 28, kGray);
-        drawHints(c, {{kIconOptions, tr(Str::GameSettings)},
-                      {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
-                      {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
-                      {kIconCircle, tr(Str::Back)}});
+        std::vector<Hint> hints = {
+            {kIconOptions, tr(Str::GameSettings)},
+            {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
+            {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
+            {kIconR3, tr(wishlist_.count(g->productId) ? Str::RemoveWishlist : Str::AddWishlist)}
+        };
+        if (!g->xboxTitleId.empty()) hints.push_back({kIconL3, tr(Str::Achievements)});
+        hints.push_back({kIconCircle, tr(Str::Back)});
+        drawHints(c, hints);
         drawToast(c, nowMs);
         return;
     }
@@ -3917,12 +3992,31 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         Rect pill{nextBadgeX, play.y + 14, w + 44, 48};
         c.fillRect(pill, rgba(0, 0, 0, 150), 24);
         fonts_.semibold.draw(c, playedText, pill.x + 22, pill.y + 12, 24, kWhite);
+        nextBadgeX += pill.w + 16;
     }
-    drawHints(c, {{kIconCross, tr(Str::Play)},
-                  {kIconOptions, tr(Str::GameSettings)},
-                  {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
-                  {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
-                  {kIconCircle, tr(Str::Back)}});
+    if (!g->xboxTitleId.empty()) {
+        auto it = achievements_.find(g->xboxTitleId);
+        if (it != achievements_.end() && it->second.totalCount > 0) {
+            const auto& ach = it->second;
+            std::string achText = "🏆 " + std::to_string(ach.unlockedCount) + "/" + std::to_string(ach.totalCount) +
+                                  " (" + std::to_string(ach.unlockedGamerscore) + "/" + std::to_string(ach.totalGamerscore) + " G)";
+            int w = fonts_.semibold.measure(achText, 24);
+            Rect pill{nextBadgeX, play.y + 14, w + 44, 48};
+            c.fillRect(pill, rgba(0, 0, 0, 150), 24);
+            fonts_.semibold.draw(c, achText, pill.x + 22, pill.y + 12, 24, kWhite);
+            nextBadgeX += pill.w + 16;
+        }
+    }
+    std::vector<Hint> hints = {
+        {kIconCross, tr(Str::Play)},
+        {kIconOptions, tr(Str::GameSettings)},
+        {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
+        {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
+        {kIconR3, tr(wishlist_.count(g->productId) ? Str::RemoveWishlist : Str::AddWishlist)}
+    };
+    if (!g->xboxTitleId.empty()) hints.push_back({kIconL3, tr(Str::Achievements)});
+    hints.push_back({kIconCircle, tr(Str::Back)});
+    drawHints(c, hints);
     drawToast(c, nowMs);
 }
 
@@ -4488,6 +4582,105 @@ void AppUi::drawNetworkTest(Canvas& c, uint64_t nowMs) {
         drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconCircle, tr(Str::Back)}});
 }
 
+void AppUi::drawAchievementsModal(Canvas& c, uint64_t nowMs) {
+    Rect panel = drawModal(c, 1180, 720, tr(Str::Achievements));
+
+    auto it = achievements_.find(detail_.xboxTitleId);
+    if (it == achievements_.end()) {
+        drawSpinner(c, static_cast<float>(panel.x + panel.w / 2), static_cast<float>(panel.y + panel.h / 2), 24.0f, nowMs);
+        animating_ = true;
+        c.fillRect({0, kH - 80, kW, 80}, kBg);
+        drawHints(c, {{kIconCircle, tr(Str::Back)}});
+        return;
+    }
+
+    const auto& ach = it->second;
+    if (ach.totalCount == 0) {
+        std::string emptyStr = tr(Str::NoAchievements);
+        int tw = fonts_.regular.measure(emptyStr, 28);
+        fonts_.regular.draw(c, emptyStr, panel.x + (panel.w - tw) / 2, panel.y + panel.h / 2, 28, kDim);
+        c.fillRect({0, kH - 80, kW, 80}, kBg);
+        drawHints(c, {{kIconCircle, tr(Str::Back)}});
+        return;
+    }
+
+    std::string summary = std::to_string(ach.unlockedCount) + " / " + std::to_string(ach.totalCount) +
+                          " (" + std::to_string(ach.unlockedGamerscore) + " / " + std::to_string(ach.totalGamerscore) + " G)";
+    int sw = fonts_.semibold.measure(summary, 24);
+    fonts_.semibold.draw(c, summary, panel.x + panel.w - 56 - sw, panel.y + 56, 24, kWhite);
+
+    int barX = panel.x + 56;
+    int barY = panel.y + 104;
+    int barW = panel.w - 112;
+    int barH = 10;
+    c.fillRect({barX, barY, barW, barH}, rgba(255, 255, 255, 30), 5);
+    if (ach.totalCount > 0 && ach.unlockedCount > 0) {
+        int fillW = std::clamp(static_cast<int>(barW * static_cast<float>(ach.unlockedCount) / ach.totalCount), 10, barW);
+        c.fillRect({barX, barY, fillW, barH}, kGreen, 5);
+    }
+
+    constexpr int kRowH = 80;
+    constexpr int kGap = 8;
+    constexpr int kVisibleCount = 5;
+    int y = barY + 22;
+
+    int total = static_cast<int>(ach.items.size());
+    int startIdx = std::clamp(achScroll_, 0, std::max(0, total - kVisibleCount));
+
+    for (int i = startIdx; i < total && i < startIdx + kVisibleCount; ++i) {
+        const auto& item = ach.items[i];
+        Rect r{panel.x + 56, y, panel.w - 112, kRowH};
+        c.fillRect(r, rgba(255, 255, 255, 14), 14);
+
+        float cx = static_cast<float>(r.x + 36), cy = static_cast<float>(r.y + r.h / 2);
+        if (item.unlocked) {
+            c.fillCircle(cx, cy, 18.0f, kGreen);
+            c.line(cx - 7, cy, cx - 2, cy + 6, 3.0f, kWhite);
+            c.line(cx - 2, cy + 6, cx + 9, cy - 6, 3.0f, kWhite);
+        } else {
+            c.fillCircle(cx, cy, 18.0f, rgba(255, 255, 255, 20));
+            c.strokeCircle(cx, cy - 3.0f, 4.0f, 2.0f, kDim);
+            c.fillRect({static_cast<int>(cx) - 6, static_cast<int>(cy) - 2, 12, 10}, kDim, 2);
+        }
+
+        int textX = r.x + 72;
+        int maxTextW = r.w - 200;
+        if (item.unlocked) {
+            fonts_.semibold.draw(c, item.name, textX, r.y + 14, 24, kWhite);
+            std::string desc = fonts_.regular.fit(item.description, 20, maxTextW);
+            fonts_.regular.draw(c, desc, textX, r.y + 44, 20, kGray);
+        } else if (item.isSecret) {
+            fonts_.semibold.draw(c, tr(Str::SecretAchievement), textX, r.y + 14, 24, kDim);
+            fonts_.regular.draw(c, tr(Str::AchievementLocked), textX, r.y + 44, 20, rgba(255, 255, 255, 90));
+        } else {
+            fonts_.semibold.draw(c, item.name, textX, r.y + 14, 24, rgba(230, 230, 230));
+            std::string desc = item.lockedDescription.empty() ? item.description : item.lockedDescription;
+            desc = fonts_.regular.fit(desc, 20, maxTextW);
+            fonts_.regular.draw(c, desc, textX, r.y + 44, 20, kDim);
+        }
+
+        std::string score = std::to_string(item.gamerscore) + " G";
+        int scw = fonts_.semibold.measure(score, 22);
+        Color scCol = item.unlocked ? rgba(110, 225, 120) : kDim;
+        fonts_.semibold.draw(c, score, r.x + r.w - 28 - scw, fonts_.semibold.centeredY(r.y, r.h, 22), 22, scCol);
+
+        y += kRowH + kGap;
+    }
+
+    if (total > kVisibleCount) {
+        int trackH = kVisibleCount * (kRowH + kGap) - kGap;
+        int trackY = barY + 22;
+        int trackX = panel.x + panel.w - 40;
+        c.fillRect({trackX, trackY, 4, trackH}, rgba(255, 255, 255, 20), 2);
+        int thumbH = std::max(20, trackH * kVisibleCount / total);
+        int thumbY = trackY + (trackH - thumbH) * startIdx / (total - kVisibleCount);
+        c.fillRect({trackX, thumbY, 4, thumbH}, rgba(255, 255, 255, 120), 2);
+    }
+
+    c.fillRect({0, kH - 80, kW, 80}, kBg);
+    drawHints(c, {{kIconCircle, tr(Str::Back)}});
+}
+
 void AppUi::drawKeysTester(Canvas& c) {
     Rect panel = drawModal(c, 1500, 860, tr(Str::KeyboardKeys));
     // Each input: its name (the PlayStation button, the Xbox one beside),
@@ -4865,6 +5058,7 @@ void AppUi::render(Canvas& c, uint64_t nowMs) {
         case Screen::Details:
             drawDetails(c, nowMs);
             if (gameSettingsOpen_) drawGameSettings(c);
+            if (achievementsOpen_) drawAchievementsModal(c, nowMs);
             break;
         case Screen::Launching: drawLaunching(c, nowMs); break;
         case Screen::Error: drawError(c); break;

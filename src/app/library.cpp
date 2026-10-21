@@ -180,6 +180,7 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
     }
     auto x = xboxTitleOf_.find(productId);
     std::string xbox = x != xboxTitleOf_.end() ? x->second : p.xboxTitleId;
+    t.xboxTitleId = xbox;
     auto pl = platform_.find(xbox);
     if (pl != platform_.end()) t.platform = pl->second;
     // Cross-gen pairs ("Call of Duty: Vanguard" and "... - Xbox Series X|S")
@@ -264,6 +265,25 @@ std::vector<ui::GameRow> Library::rows() const {
         }
         if (!favRow.tiles.empty()) {
             rows.insert(rows.begin(), std::move(favRow));
+        }
+    }
+
+    // Insert "Wishlist" row right after Favorites (or at top) if any are marked
+    if (!wishlist_.empty()) {
+        ui::GameRow wishRow;
+        wishRow.title = ui::tr(ui::Str::Wishlist);
+        wishRow.gamePassBadges = false;
+        wishRow.isGrid = false;
+        for (const auto& pid : wishlist_) {
+            ui::GameTile t = tile(pid);
+            if (!t.productId.empty()) {
+                wishRow.tiles.push_back(std::move(t));
+            }
+        }
+        if (!wishRow.tiles.empty()) {
+            size_t insertIdx = !favorites_.empty() ? 1 : 0;
+            if (insertIdx <= rows.size()) rows.insert(rows.begin() + static_cast<long>(insertIdx), std::move(wishRow));
+            else rows.push_back(std::move(wishRow));
         }
     }
 

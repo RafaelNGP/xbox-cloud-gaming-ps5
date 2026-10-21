@@ -43,6 +43,7 @@ add_library(xcloud_core STATIC
     src/input/keyboard_nav.cpp
     src/input/sdl_mapping.cpp
     src/xcloud/social.cpp
+    src/xcloud/achievements.cpp
     src/platform/posix_common.cpp
     src/platform/toasts.cpp
     src/input/gyro.cpp

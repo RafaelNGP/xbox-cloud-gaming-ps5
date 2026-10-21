@@ -47,6 +47,8 @@ public:
     void setSubscription(std::string sub) { subscription_ = std::move(sub); }
     // Games marked as favourite (product IDs)
     void setFavorites(std::vector<std::string> favs) { favorites_ = std::move(favs); }
+    // Games marked on the wishlist (product IDs)
+    void setWishlist(std::vector<std::string> wish) { wishlist_ = std::move(wish); }
 
     // Calls `changed` after each row arrives; false only when nothing loaded.
     bool load(xcloud::GssvClient& gssv, const std::string& language, const Changed& changed, std::string& err);
@@ -146,6 +148,7 @@ private:
     mutable size_t siblingsFor_ = 0;
     std::vector<ui::GameTile> friendsTiles_;
     std::vector<std::string> favorites_;
+    std::vector<std::string> wishlist_;
 };
 
 }  // namespace xc::app

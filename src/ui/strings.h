@@ -332,6 +332,17 @@ enum class Str {
     RunCheck,           // settings option: "Run check"
     NetworkTest,        // settings: "Network test"
     RunTest,            // settings option: "Run test"
+    Achievements,       // "Achievements"
+    NoAchievements,     // "No achievements"
+    AchievementLocked,  // "Locked"
+    SecretAchievement,  // "Secret achievement"
+    Wishlist,           // "Wishlist"
+    AddWishlist,        // "Add to wishlist"
+    RemoveWishlist,     // "Remove from wishlist"
+    AddedToWishlist,    // "Added to wishlist"
+    RemovedFromWishlist,// "Removed from wishlist"
+    WishlistOnSale,     // "%s is on sale!"
+    WishlistInGamePass, // "%s joined Game Pass!"
     Count
 };
 

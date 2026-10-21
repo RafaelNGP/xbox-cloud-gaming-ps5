@@ -355,6 +355,17 @@ constexpr Column kEnglish = {
     "Run check",                                      // RunCheck
     "Network test",                                   // NetworkTest
     "Run test",                                       // RunTest
+    "Achievements",                                   // Achievements
+    "No achievements",                                // NoAchievements
+    "Locked",                                         // AchievementLocked
+    "Secret achievement",                             // SecretAchievement
+    "Wishlist",                                       // Wishlist
+    "Add to wishlist",                                // AddWishlist
+    "Remove from wishlist",                           // RemoveWishlist
+    "Added to wishlist",                              // AddedToWishlist
+    "Removed from wishlist",                          // RemovedFromWishlist
+    "%s is on sale!",                                 // WishlistOnSale
+    "%s joined Game Pass!",                           // WishlistInGamePass
 };
 
 constexpr Column kPortugueseBR = {
@@ -680,6 +691,17 @@ constexpr Column kPortugueseBR = {
     "Verificar",                                      // RunCheck
     "Teste de rede",                                  // NetworkTest
     "Testar",                                         // RunTest
+    "Conquistas",                                     // Achievements
+    "Nenhuma conquista",                              // NoAchievements
+    "Bloqueada",                                      // AchievementLocked
+    "Conquista secreta",                              // SecretAchievement
+    "Lista de desejos",                               // Wishlist
+    "Adicionar à lista de desejos",                   // AddWishlist
+    "Remover da lista de desejos",                    // RemoveWishlist
+    "Adicionado à lista de desejos",                  // AddedToWishlist
+    "Removido da lista de desejos",                   // RemovedFromWishlist
+    "%s está em promoção!",                           // WishlistOnSale
+    "%s entrou no Game Pass!",                        // WishlistInGamePass
 };
 
 constexpr Column kSpanish = {
@@ -1005,6 +1027,17 @@ constexpr Column kSpanish = {
     "Comprobar",                                      // RunCheck
     "Prueba de red",                                  // NetworkTest
     "Probar",                                         // RunTest
+    "Logros",                                         // Achievements
+    "Sin logros",                                     // NoAchievements
+    "Bloqueado",                                      // AchievementLocked
+    "Logro secreto",                                  // SecretAchievement
+    "Lista de deseos",                                // Wishlist
+    "Añadir a lista de deseos",                       // AddWishlist
+    "Quitar de lista de deseos",                      // RemoveWishlist
+    "Añadido a lista de deseos",                      // AddedToWishlist
+    "Quitado de lista de deseos",                     // RemovedFromWishlist
+    "¡%s está en oferta!",                            // WishlistOnSale
+    "¡%s llegó a Game Pass!",                         // WishlistInGamePass
 };
 
 constexpr Column kFrench = {
@@ -1330,6 +1363,17 @@ constexpr Column kFrench = {
     "Vérifier",                                       // RunCheck
     "Test réseau",                                    // NetworkTest
     "Tester",                                         // RunTest
+    "Succès",                                         // Achievements
+    "Aucun succès",                                   // NoAchievements
+    "Verrouillé",                                     // AchievementLocked
+    "Succès secret",                                  // SecretAchievement
+    "Liste d'envies",                                 // Wishlist
+    "Ajouter aux envies",                             // AddWishlist
+    "Retirer des envies",                             // RemoveWishlist
+    "Ajouté aux envies",                              // AddedToWishlist
+    "Retiré des envies",                              // RemovedFromWishlist
+    "%s est en promotion !",                          // WishlistOnSale
+    "%s a rejoint le Game Pass !",                    // WishlistInGamePass
 };
 
 constexpr Column kGerman = {
@@ -1655,6 +1699,17 @@ constexpr Column kGerman = {
     "Prüfen",                                         // RunCheck
     "Netzwerktest",                                   // NetworkTest
     "Testen",                                         // RunTest
+    "Erfolge",                                        // Achievements
+    "Keine Erfolge",                                  // NoAchievements
+    "Gesperrt",                                       // AchievementLocked
+    "Geheimer Erfolg",                                // SecretAchievement
+    "Wunschliste",                                    // Wishlist
+    "Zur Wunschliste hinzufügen",                     // AddWishlist
+    "Von Wunschliste entfernen",                      // RemoveWishlist
+    "Zur Wunschliste hinzugefügt",                    // AddedToWishlist
+    "Von Wunschliste entfernt",                       // RemovedFromWishlist
+    "%s ist im Angebot!",                             // WishlistOnSale
+    "%s ist jetzt im Game Pass!",                     // WishlistInGamePass
 };
 
 constexpr Column kItalian = {
@@ -1980,6 +2035,17 @@ constexpr Column kItalian = {
     "Verifica",                                       // RunCheck
     "Test di rete",                                   // NetworkTest
     "Testa",                                          // RunTest
+    "Obiettivi",                                      // Achievements
+    "Nessun obiettivo",                               // NoAchievements
+    "Bloccato",                                       // AchievementLocked
+    "Obiettivo segreto",                              // SecretAchievement
+    "Lista dei desideri",                             // Wishlist
+    "Aggiungi ai desideri",                           // AddWishlist
+    "Rimuovi dai desideri",                           // RemoveWishlist
+    "Aggiunto ai desideri",                           // AddedToWishlist
+    "Rimosso dai desideri",                           // RemovedFromWishlist
+    "%s è in saldo!",                                 // WishlistOnSale
+    "%s è arrivato su Game Pass!",                    // WishlistInGamePass
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

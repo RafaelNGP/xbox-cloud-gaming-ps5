@@ -46,6 +46,7 @@
 #include "xcloud/prices.h"
 #include "xcloud/purchase.h"
 #include "xcloud/regions.h"
+#include "xcloud/achievements.h"
 
 #include <algorithm>
 #include <atomic>
@@ -2544,7 +2545,41 @@ static void testPurchase() {
     net::setTestTransport({});
 }
 
+static void testWishlist() {
+    using namespace xc::app;
+    std::string tmp = "/tmp/xcloud-tests-wishlist.json";
+    Settings s;
+    s.wishlist = {"PROD_A", "PROD_B"};
+    CHECK(s.save(tmp));
+
+    Settings loaded;
+    CHECK(loaded.load(tmp));
+    CHECK(loaded.wishlist.size() == 2);
+    if (loaded.wishlist.size() == 2) {
+        CHECK(loaded.wishlist[0] == "PROD_A");
+        CHECK(loaded.wishlist[1] == "PROD_B");
+    }
+    ::unlink(tmp.c_str());
+
+    Library lib;
+    lib.setWishlist({"PROD_WISH"});
+    auto rows = lib.rows();
+    (void)rows;
+}
+
+static void testAchievements() {
+    using namespace xc::xcloud;
+    TitleAchievements ach;
+    std::string err;
+    CHECK(!fetchTitleAchievements("", "123", "TITLE1", ach, err));
+    CHECK(err == "xblAuth empty");
+    CHECK(!fetchTitleAchievements("XBL3.0 x=1;tok", "123", "", ach, err));
+    CHECK(err == "xboxTitleId empty");
+}
+
 int main() {
+    testWishlist();
+    testAchievements();
     testPurchase();
     testNullBackends();
     testPadGlyphs();

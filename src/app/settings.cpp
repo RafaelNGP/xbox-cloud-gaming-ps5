@@ -59,6 +59,9 @@ bool Settings::load(const std::string& path) {
     favorites.clear();
     for (const auto& id : (*j)["favorites"].items())
         if (!id.str().empty()) favorites.push_back(id.str());
+    wishlist.clear();
+    for (const auto& id : (*j)["wishlist"].items())
+        if (!id.str().empty()) wishlist.push_back(id.str());
     librarySort = (*j)["librarySort"].str(librarySort);
     streamStats = (*j)["streamStats"].asBool(streamStats);
     statsMask = static_cast<uint32_t>((*j)["statsMask"].asInt(static_cast<int64_t>(statsMask)));
@@ -212,6 +215,9 @@ bool Settings::save(const std::string& path) const {
     json::Value favIds = json::Value::array();
     for (const auto& id : favorites) favIds.push(id);
     v.set("favorites", favIds);
+    json::Value wishIds = json::Value::array();
+    for (const auto& id : wishlist) wishIds.push(id);
+    v.set("wishlist", wishIds);
     v.set("librarySort", librarySort);
     v.set("streamStats", streamStats);
     v.set("statsMask", static_cast<int64_t>(statsMask));

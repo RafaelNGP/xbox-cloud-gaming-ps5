@@ -140,6 +140,18 @@ void updateLibraryFavorites(const std::vector<std::string>& favorites) {
     }
 }
 
+void updateLibraryWishlist(const std::vector<std::string>& wishlist) {
+    std::shared_ptr<app::Library> lib;
+    {
+        std::lock_guard<std::mutex> lock(s_libraryMutex);
+        lib = s_library;
+    }
+    if (lib) {
+        lib->setWishlist(wishlist);
+        g_ui->setRows(lib->rows());
+    }
+}
+
 namespace {
 
 // Streams until the player ends or the user leaves; returns a status line.
@@ -395,6 +407,7 @@ std::string stream(xcloud::GssvClient& gssv) {
 // `regionName` overrides the settings' region (empty: as set).
 // Profile token for titlehub (memory only).
 std::string g_xblAuth;
+std::string g_xuid;
 
 // The sign-in renewed when it is about to expire (AuthManager::ensureFresh;
 // `force`: a request was refused), before the xCloud calls. What other
@@ -407,7 +420,9 @@ bool keepSignedIn(auth::AuthManager& am, xcloud::GssvClient& gssv, std::string& 
         {
             std::lock_guard<std::mutex> lock(g_argMutex);
             g_xblAuth = am.profile().xblAuthorization;
+            g_xuid = am.profile().xuid;
         }
+        setPriceAuth(g_xblAuth, g_xuid);
         if (!gssv.isHome()) setQueueClient(&gssv);
     }
     return true;
@@ -724,6 +739,7 @@ void tryInstantCachedBoot(auth::AuthManager& am) {
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         library->setFavorites(g_settings.favorites);
+        library->setWishlist(g_settings.wishlist);
     }
     if (library->loadCache(true) && !library->rows().empty()) {
         {
@@ -855,7 +871,9 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     {
         std::lock_guard<std::mutex> lock(g_argMutex);
         g_xblAuth = am.profile().xblAuthorization;
+        g_xuid = am.profile().xuid;
     }
+    setPriceAuth(g_xblAuth, g_xuid);
     platform::notify(ui::trf(ui::Str::SignedInAs, am.profile().gamertag), "signed in (notification)");
     static bool updateChecked = false;
     if (!updateChecked && (g_autoplay.title.empty() || !g_autoplay.updateFeed.empty())) {
@@ -890,6 +908,7 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         library->setFavorites(g_settings.favorites);
+        library->setWishlist(g_settings.wishlist);
     }
     setPriceMarket(gssv.session().market.empty() ? "US" : gssv.session().market, ui::catalogLanguage());
     setQueueClient(&gssv);
@@ -923,6 +942,22 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         return;
     }
     std::vector<ui::GameRow> rows = library->rows();
+    {
+        std::set<std::string> wishSet;
+        {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            wishSet.insert(g_settings.wishlist.begin(), g_settings.wishlist.end());
+        }
+        if (!wishSet.empty()) {
+            static std::set<std::string> notifiedGp;
+            for (const auto& tile : library->gamePassSearchPool()) {
+                if (wishSet.count(tile.productId) && !notifiedGp.count(tile.productId)) {
+                    notifiedGp.insert(tile.productId);
+                    platform::notify(ui::trf(ui::Str::WishlistInGamePass, tile.name));
+                }
+            }
+        }
+    }
     // The account's own games, the catalog names for the search, then hero
     // art and descriptions keep arriving while the user browses/plays. The
     // thread gets its own GssvClient copy.
@@ -1248,7 +1283,9 @@ void worker() {
                 {
                     std::lock_guard<std::mutex> lock(g_argMutex);
                     g_xblAuth.clear();
+                    g_xuid.clear();
                 }
+                setPriceAuth({}, {});
                 g_ui->setProfile({}, {});
                 g_ui->setConsoles({}, false);
                 g_ui->setRows({});

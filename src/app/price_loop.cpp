@@ -4,10 +4,12 @@
 // <dataDir>/prices.json; the same thread fetches the description of an
 // opened game that has none yet.
 #include "app/app_state.h"
-#include "platform/platform.h"
+#include "app/settings.h"
+#include "platform/toasts.h"
 #include "ui/strings.h"
 #include "util/json.h"
 #include "util/log.h"
+#include "xcloud/achievements.h"
 #include "xcloud/catalog.h"
 #include "xcloud/prices.h"
 
@@ -15,12 +17,15 @@
 #include <ctime>
 #include <map>
 #include <memory>
+#include <set>
 
 namespace xc::app {
 namespace {
 
 std::mutex g_priceMutex;
 std::string g_priceMarket, g_priceLanguage;  // set by setPriceMarket() (empty: not yet)
+std::string g_priceXblAuth, g_priceXuid;      // g_priceMutex
+std::set<std::string> g_notifiedSale;
 std::unique_ptr<xcloud::GssvClient> g_queueClient;  // g_priceMutex
 platform::Thread g_priceThread;
 std::atomic<bool> g_stopPrices{false};
@@ -63,6 +68,12 @@ void setPriceMarket(const std::string& market, const std::string& language) {
     std::lock_guard<std::mutex> lock(g_priceMutex);
     g_priceMarket = market;
     g_priceLanguage = language;
+}
+
+void setPriceAuth(const std::string& xblAuth, const std::string& xuid) {
+    std::lock_guard<std::mutex> lock(g_priceMutex);
+    g_priceXblAuth = xblAuth;
+    g_priceXuid = xuid;
 }
 
 void setQueueClient(const xcloud::GssvClient* gssv) {
@@ -123,6 +134,27 @@ void priceLoop() {
             XC_LOGI("queue estimate for %s: %d s", title.c_str(), seconds);
             g_ui->setQueueTime(title, seconds);
         }
+        // The open page's achievements (if it has an xboxTitleId).
+        if (std::string achTitle = g_ui->achievementsWanted(platform::nowMs()); !achTitle.empty()) {
+            std::string xblAuth, xuid, lang;
+            {
+                std::lock_guard<std::mutex> lock(g_priceMutex);
+                xblAuth = g_priceXblAuth;
+                xuid = g_priceXuid;
+                lang = g_priceLanguage;
+            }
+            if (!xblAuth.empty()) {
+                xcloud::TitleAchievements ach;
+                std::string err;
+                if (xcloud::fetchTitleAchievements(xblAuth, xuid, achTitle, ach, err, lang)) {
+                    g_ui->setTitleAchievements(achTitle, ach);
+                    XC_LOGI("achievements for %s: %d/%d (%d/%d G)", achTitle.c_str(), ach.unlockedCount,
+                            ach.totalCount, ach.unlockedGamerscore, ach.totalGamerscore);
+                } else {
+                    XC_LOGW("achievements for %s: %s", achTitle.c_str(), err.c_str());
+                }
+            }
+        }
         std::vector<std::string> ids = market.empty() ? std::vector<std::string>() : g_ui->pricesWanted(20, true);
         if (ids.empty()) {
             platform::sleepMs(300);
@@ -152,6 +184,20 @@ void priceLoop() {
             v.set("cur", p.currency);
             v.set("t", now);
             cache.set(id, v);
+            if (p.msrp > p.list + 0.005) {
+                bool isWish = false;
+                {
+                    std::lock_guard<std::mutex> lock(g_settingsMutex);
+                    isWish = std::find(g_settings.wishlist.begin(), g_settings.wishlist.end(), id) != g_settings.wishlist.end();
+                }
+                if (isWish && !g_notifiedSale.count(id)) {
+                    g_notifiedSale.insert(id);
+                    std::string name = g_ui->tileName(id);
+                    if (!name.empty()) {
+                        platform::notify(ui::trf(ui::Str::WishlistOnSale, name));
+                    }
+                }
+            }
         }
         if (!texts.empty()) {
             g_ui->setPrices(texts);

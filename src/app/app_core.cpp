@@ -292,7 +292,7 @@ bool coreStartup() {
         g_ui->setPrefs(g_settings.hidden, g_settings.librarySort == "az"        ? ui::LibrarySort::AZ
                                           : g_settings.librarySort == "console" ? ui::LibrarySort::Console
                                                                                 : ui::LibrarySort::Recent,
-                       g_settings.favorites);
+                       g_settings.favorites, g_settings.wishlist);
     }
     g_ui->setCaps(uiCaps());
     g_core->canvas.emplace(display::kWidth, display::kHeight);
@@ -642,12 +642,15 @@ bool Core::frame() {
             std::lock_guard<std::mutex> lock(g_settingsMutex);
             g_settings.hidden = ev.hidden;
             g_settings.favorites = ev.favorites;
+            g_settings.wishlist = ev.wishlist;
             g_settings.librarySort = ev.librarySort == ui::LibrarySort::AZ        ? "az"
                                      : ev.librarySort == ui::LibrarySort::Console ? "console"
                                                                                    : "recent";
             g_settings.save(settingsPath());  // warns itself
-            XC_LOGI("prefs saved: %zu hidden, %zu favorites, sort %s", g_settings.hidden.size(), g_settings.favorites.size(), g_settings.librarySort.c_str());
+            XC_LOGI("prefs saved: %zu hidden, %zu favorites, %zu wishlist, sort %s", g_settings.hidden.size(),
+                    g_settings.favorites.size(), g_settings.wishlist.size(), g_settings.librarySort.c_str());
             updateLibraryFavorites(g_settings.favorites);
+            updateLibraryWishlist(g_settings.wishlist);
             break;
         }
         case ui::Action::GameSettingsChanged: {

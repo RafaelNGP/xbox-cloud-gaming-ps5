@@ -59,6 +59,7 @@ struct Settings {
     // ("recent", "az", "console").
     std::vector<std::string> hidden;
     std::vector<std::string> favorites;  // Games marked as favourite (product ids)
+    std::vector<std::string> wishlist;   // Games marked on the wishlist (product ids)
     std::string librarySort = "recent";
     // The statistics line over the game (in-game menu).
     bool streamStats = false;

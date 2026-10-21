@@ -49,6 +49,8 @@ void startWorker();
 void skipOfferedUpdate();
 // Updates the running library's favorites list and refreshes UI rows.
 void updateLibraryFavorites(const std::vector<std::string>& favorites);
+// Updates the running library's wishlist and refreshes UI rows.
+void updateLibraryWishlist(const std::vector<std::string>& wishlist);
 
 // The running stream, for the input thread.
 extern std::mutex g_playerMutex;
@@ -82,6 +84,8 @@ void startPriceLoop();
 // `ms`, else it is left to the process's exit.
 bool stopPriceLoop(uint32_t ms);
 void setPriceMarket(const std::string& market, const std::string& language);
+// Auth tokens for title achievements and store features.
+void setPriceAuth(const std::string& xblAuth, const std::string& xuid);
 // The signed-in xCloud client (a copy), for the open game page's queue
 // estimate; nullptr after signing out.
 void setQueueClient(const xcloud::GssvClient* gssv);
