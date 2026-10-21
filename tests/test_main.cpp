@@ -2598,7 +2598,7 @@ static void testAchievements() {
     std::string err;
     CHECK(!fetchTitleAchievements("", "123", "TITLE1", ach, err));
     CHECK(err == "xblAuth empty");
-    CHECK(!fetchTitleAchievements("XBL3.0 x=1;tok", "123", "", ach, err));
+    CHECK(!fetchTitleAchievements("XBL3.0 x=test;tok", "123", "", ach, err));
     CHECK(err == "xboxTitleId empty");
 }
 
