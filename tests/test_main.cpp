@@ -559,6 +559,31 @@ static void testPlaytimeLimit() {
     CHECK(ev.game.titleId == "TEST_TITLE_1");
 }
 
+static void testSplashInputBlocking() {
+    ui::Fonts fonts;
+    ui::ImageCache images([] {});
+    ui::AppUi app(fonts, images);
+    CHECK(app.screen() == ui::Screen::Splash);
+
+    ui::NavInput in;
+    in.accept = true;
+    in.down = true;
+    in.options = true;
+    in.triangle = true;
+    in.r1 = true;
+    ui::UiEvent ev = app.handle(in);
+    CHECK(ev.action == ui::Action::None);
+    CHECK(app.screen() == ui::Screen::Splash);
+
+    app.showSplash("Signing in...");
+    CHECK(app.screen() == ui::Screen::Splash);
+    ev = app.handle(in);
+    CHECK(ev.action == ui::Action::None);
+
+    app.showHome();
+    CHECK(app.screen() == ui::Screen::Home);
+}
+
 static void testStreamMenu() {
     using xc::ui::MenuAction;
     xc::ui::Fonts fonts;  // not loaded: handle() never draws
@@ -2619,6 +2644,7 @@ int main() {
     testAccentColor();
     testVersions();
     testStreamMenu();
+    testSplashInputBlocking();
     testSettingsMigration();
     testSettingsChoiceRoundTrip();
     testMicGain();

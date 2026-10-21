@@ -280,6 +280,7 @@ bool coreStartup() {
         },
         160u << 20, platform::dataDir() + "/imgcache");
     g_ui = std::make_unique<ui::AppUi>(fonts, *g_images);
+    g_ui->showSplash(ui::tr(ui::Str::SigningIn));
     startPriceLoop();
     {
         g_ui->setAllow1440(allow1440Locked());
@@ -588,6 +589,11 @@ bool Core::frame() {
         return true;
     }
     streamScreen->idle();
+
+    if (g_ui->screen() == ui::Screen::Splash) {
+        // Discard controller navigation input while the loading/splash screen is active.
+        nav = ui::NavInput{};
+    }
 
     ui::UiEvent ev = g_ui->handle(nav);
     int strength, hz, resistance, profile = 0;

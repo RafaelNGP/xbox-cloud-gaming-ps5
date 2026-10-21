@@ -2601,6 +2601,9 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
 UiEvent AppUi::handle(const NavInput& in) {
     std::lock_guard<std::mutex> lock(mutex_);
     UiEvent ev;
+    if (screen_ == Screen::Splash) {
+        return ev;
+    }
     if (reportOpen_) {  // the report's QR code: Circle (or Cross) closes it
         if (in.accept && caps_.openUrl) {
             // A desktop: Cross opens the form in the browser (the panel stays).

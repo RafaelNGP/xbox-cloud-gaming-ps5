@@ -816,6 +816,15 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             saveCanvas("launch.ppm");
         }
     }
+    static bool splashSaved = false;
+    if (!g_autoplay.title.empty() && !splashSaved && g_ui->screen() == ui::Screen::Splash) {
+        static uint64_t splashSince = 0;
+        if (!splashSince) splashSince = now;
+        if (now - splashSince > 200) {
+            splashSaved = true;
+            saveCanvas("splash.ppm");
+        }
+    }
     if (g_autoplay.libraryTest && uiSaved) {
         static uint64_t openedAt = 0;
         static int saved = 0;
