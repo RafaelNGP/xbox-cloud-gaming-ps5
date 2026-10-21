@@ -6,15 +6,16 @@
 Reads the bug form's fields (What happened?, App release, PS5 firmware,
 xcloud.log), matches rules.json's known problems, and then on the issue:
 adds labels (never removes one), and writes or updates ONE comment (marked
-with MARKER) saying what is known, asking to update when the release is
-older than the fix or the latest, and asking for what is missing.
+with MARKER) in the reporter's language (English, Portuguese, or Spanish)
+saying what is known, asking to update when the release is older than the
+fix or the latest, and asking for what is missing.
 
 The issue's text is someone else's: it is only matched with regular
 expressions here, never run or put in a command.
 
   GitHub Actions: triage.py            (GITHUB_EVENT_PATH, GITHUB_TOKEN, GITHUB_REPOSITORY;
                                         TRIAGE_ISSUE=<number> for one already there)
-  Locally:        triage.py --dry-run issue.json --latest 0.9.6
+  Locally:        triage.py --dry-run issue.json --latest 1.3.2
                   (issue.json: {"title": ..., "body": ...}, e.g. from `gh issue view N --json title,body`)
 """
 import json
@@ -35,6 +36,87 @@ LABEL_COLOURS = {
 }
 AREA_COLOUR = "1d76db"
 FIRMWARE_COLOUR = "ededed"
+
+STRINGS = {
+    "en": {
+        "header": "Automatic triage (rules, not a person; the maintainer will read this too):",
+        "update_rule": " You're on v{current}: please update to v{fixed} or newer.",
+        "outdated_latest": (
+            "- This was reported on v{current}; the latest is **v{latest}** "
+            "(the app offers it after sign-in, or Settings > Updates). Does it still happen there?"
+        ),
+        "ask_release": "the **app release** (Settings > Updates shows it, e.g. v1.3.2)",
+        "ask_log": (
+            "the **xcloud.log** (`/data/psbox/xcloud.log` over FTP; before v0.9.7 in `/data/homebrew/PPSA99810/`, "
+            "or use *Report a problem* (△ in Settings or on the error) to fill this form from the app)"
+        ),
+        "ask_join": " and ",
+        "ask_line": "- To look into it, please add {asks}.",
+    },
+    "pt": {
+        "header": "Triagem automática (regras automáticas; o mantenedor também lerá esta issue):",
+        "update_rule": " Você está na v{current}: por favor, atualize para a v{fixed} ou mais recente.",
+        "outdated_latest": (
+            "- Este relato foi enviado na v{current}; a versão mais recente é a **v{latest}** "
+            "(o app oferece a atualização após o login ou em Configurações > Atualizações). O problema ainda ocorre nela?"
+        ),
+        "ask_release": "a **versão do app** (mostrada em Configurações > Atualizações, ex.: v1.3.2)",
+        "ask_log": (
+            "o **xcloud.log** (`/data/psbox/xcloud.log` via FTP, ou use *Relatar um problema* "
+            "(△ nas Configurações ou na tela de erro) para preencher este formulário pelo app)"
+        ),
+        "ask_join": " e ",
+        "ask_line": "- Para investigarmos melhor, por favor adicione {asks}.",
+    },
+    "es": {
+        "header": "Triaje automático (reglas automáticas; el mantenedor también leerá este reporte):",
+        "update_rule": " Estás en la v{current}: por favor, actualiza a la v{fixed} o superior.",
+        "outdated_latest": (
+            "- Este reporte fue enviado en la v{current}; la versión más reciente es la **v{latest}** "
+            "(la app ofrece actualizar tras iniciar sesión o en Configuración > Actualizaciones). ¿Sigue ocurriendo ahí?"
+        ),
+        "ask_release": "la **versión de la app** (se muestra en Configuración > Actualizaciones, ej.: v1.3.2)",
+        "ask_log": (
+            "el **xcloud.log** (`/data/psbox/xcloud.log` por FTP, o usa *Informar de un problema* "
+            "(△ en Configuración o en la pantalla de error) para rellenar este formulario desde la app)"
+        ),
+        "ask_join": " y ",
+        "ask_line": "- Para revisarlo, por favor añade {asks}.",
+    },
+}
+
+PT_WORDS = re.compile(
+    r"[ãõç]|\b(n[aã]o|consigo|jogo|jogos|resgatar|erro ao|iniciar sess[aã]o|posso|quando|"
+    r"aparece|tela|ajuda|ol[aá]|obrigado|bot[aã]o|controle|carrega|logar|minha|meu|fazer)\b",
+    re.I,
+)
+ES_WORDS = re.compile(
+    r"[¿¡ñ]|\b(no me|juego|juegos|adquirir|error al|iniciar sesi[oó]n|puedo|consola|cuando|"
+    r"sale|pantalla|ayuda|hola|gracias|bot[oó]n|mando|carga|guarda|hacer|est[aá]n)\b",
+    re.I,
+)
+EN_WORDS = re.compile(
+    r"\b(the|when|doesn't|does not|can't|cannot|failed|while|after|before|screen|button|"
+    r"controller|game|sign-in|login|started| freezes|froze|crashed|issue|without)\b",
+    re.I,
+)
+
+
+def detect_lang(title, what, log):
+    """Detects 'pt', 'es', or 'en' from the reporter's text or the log's language setting."""
+    user_text = f"{title or ''}\n{what or ''}"
+    pt_hits = len(PT_WORDS.findall(user_text))
+    es_hits = len(ES_WORDS.findall(user_text))
+    en_hits = len(EN_WORDS.findall(user_text))
+    if pt_hits > es_hits and pt_hits >= en_hits and pt_hits > 0:
+        return "pt"
+    if es_hits > pt_hits and es_hits >= en_hits and es_hits > 0:
+        return "es"
+    if en_hits == 0:
+        m = re.search(r"settings:\s+language\s+(pt|es|en)\b", log or "", re.I)
+        if m:
+            return m.group(1).lower()
+    return "en"
 
 
 def parse_form(body):
@@ -96,6 +178,9 @@ def triage(issue, rules, latest):
     release = version_tuple(field(fields, "app release"))
     firmware = firmware_of(field(fields, "ps5 firmware"))
     latest_t = version_tuple(latest) if latest else None
+    lang = detect_lang(title, parts["what"], log)
+    tr = STRINGS[lang]
+    reply_key = f"reply_{lang}" if lang != "en" else "reply"
 
     labels, notes = [], []
     asked_update = False
@@ -106,10 +191,10 @@ def triage(issue, rules, latest):
             continue
         if rule["label"] not in labels:
             labels.append(rule["label"])
-        note = rule["reply"]
+        note = rule.get(reply_key) or rule["reply"]
         fixed = version_tuple(rule.get("fixed_in"))
         if fixed and release and release < fixed:
-            note += f" You're on v{'.'.join(map(str, release))}: please update to v{rule['fixed_in']} or newer."
+            note += tr["update_rule"].format(current=".".join(map(str, release)), fixed=rule["fixed_in"])
             asked_update = True
         notes.append(note)
 
@@ -117,10 +202,9 @@ def triage(issue, rules, latest):
     if not fields:  # not the bug form (a question, an idea): nothing to ask for
         pass
     elif not release:
-        asks.append("the **app release** (Settings > Updates shows it, e.g. v0.9.6)")
+        asks.append(tr["ask_release"])
     if fields and not looks_like_log(log):
-        asks.append("the **xcloud.log** (`/data/psbox/xcloud.log` over FTP; before v0.9.7 in `/data/homebrew/PPSA99810/`, or use *Report a problem* "
-                    "(△ in Settings or on the error) to fill this form from the app)")
+        asks.append(tr["ask_log"])
     if asks:
         labels.append("needs-info")
     outdated = release and latest_t and release < latest_t
@@ -131,14 +215,13 @@ def triage(issue, rules, latest):
 
     if not notes and not asks and not outdated:
         return labels, None
-    out = [MARKER, "Automatic triage (rules, not a person; the maintainer will read this too):", ""]
+    out = [MARKER, tr["header"], ""]
     for note in notes:
         out.append(f"- {note}")
     if outdated and not asked_update:
-        out.append(f"- This was reported on v{'.'.join(map(str, release))}; the latest is **v{latest}** "
-                   "(the app offers it after sign-in, or Settings > Updates). Does it still happen there?")
+        out.append(tr["outdated_latest"].format(current=".".join(map(str, release)), latest=latest))
     if asks:
-        out.append("- To look into it, please add " + " and ".join(asks) + ".")
+        out.append(tr["ask_line"].format(asks=tr["ask_join"].join(asks)))
     return labels, "\n".join(out)
 
 

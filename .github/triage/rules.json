@@ -1,6 +1,51 @@
 {
-  "_comment": "Known problems, matched against the issue's title and text (case-insensitive regular expressions). label: added to the issue. fixed_in: the release that fixes it (the reply asks to update when the reporter's release is older). reply: one paragraph for the triage comment. Keep replies short and in English. where: the parts searched (\"title\", \"what\", \"log\"; all when absent) - words common in logs only in title/what.",
+  "_comment": "Known problems, matched against the issue's title and text (case-insensitive regular expressions). label: added to the issue. fixed_in: the release that fixes it (the reply asks to update when the reporter's release is older). reply / reply_pt / reply_es: one paragraph for the triage comment in the reporter's language. where: the parts searched (\"title\", \"what\", \"log\"; all when absent) - words common in logs only in title/what.",
   "rules": [
+    {
+      "id": "dns-blocked",
+      "label": "area: network",
+      "patterns": [
+        "0x8041013d",
+        "0x804101e1",
+        "dns lookup failed",
+        "sinkhole ip",
+        "connect failed to (?:login\\.live\\.com|[^\\s]+\\.xboxlive\\.com|[^\\s]+\\.microsoft\\.com)[^\\n]*errno 61"
+      ],
+      "fixed_in": "1.3.2",
+      "reply": "**DNS blocked or sinkholed** (`0x8041013d` / `0x804101e1` / `errno 61`): the DNS configured on your PS5 or router is blocking Microsoft/Xbox domains (`login.live.com`, `*.xboxlive.com`). To keep Sony updates blocked while allowing Xbox Cloud Gaming, run the **NanoDNS** payload on your PS5 and set the PS5 network **Primary DNS** to your PS5's local IP address and **Secondary DNS** to `0.0.0.0` (or use `1.1.1.1` / `8.8.8.8` if you don't use a DNS blocker).",
+      "reply_pt": "**DNS bloqueado ou redirecionado (sinkhole)** (`0x8041013d` / `0x804101e1` / `errno 61`): o DNS configurado no seu PS5 ou roteador está bloqueando os domínios da Microsoft/Xbox (`login.live.com`, `*.xboxlive.com`). Para manter os servidores da Sony bloqueados sem bloquear o Xbox Cloud Gaming, execute o payload **NanoDNS** no próprio PS5 e configure na rede do console o **DNS Primário** com o IP local do seu PS5 e o **DNS Secundário** como `0.0.0.0` (ou use `1.1.1.1` / `8.8.8.8` caso não utilize bloqueio de DNS).",
+      "reply_es": "**DNS bloqueado o redirigido (sinkhole)** (`0x8041013d` / `0x804101e1` / `errno 61`): el DNS configurado en tu PS5 o router está bloqueando los dominios de Microsoft/Xbox (`login.live.com`, `*.xboxlive.com`). Para mantener bloqueados los servidores de Sony sin bloquear Xbox Cloud Gaming, ejecuta el payload **NanoDNS** en tu PS5 y configura en la red de la consola el **DNS Primario** con la IP local de tu PS5 y el **DNS Secundario** como `0.0.0.0` (o usa `1.1.1.1` / `8.8.8.8` si no usas bloqueador de DNS)."
+    },
+    {
+      "id": "xbox-profile",
+      "label": "area: auth",
+      "patterns": [
+        "2148916233",
+        "8015dc09",
+        "xsts authorization for http://gssv\\.xboxlive\\.com/ failed: http 401",
+        "no xbox profile"
+      ],
+      "fixed_in": "1.3.1",
+      "reply": "**No Xbox profile (Gamertag) on this Microsoft account** (`XErr 2148916233` / `HTTP 401` on XSTS): this Microsoft account has never signed into Xbox before. Open https://www.xbox.com in a browser, sign in once with the same account to create your free Xbox Gamertag, and then sign in again on the PS5.",
+      "reply_pt": "**Conta Microsoft sem perfil Xbox / Gamertag** (`XErr 2148916233` / `HTTP 401` no XSTS): esta conta Microsoft ainda não possui um perfil Xbox criado. Acesse https://www.xbox.com pelo celular ou PC, faça login uma vez com a mesma conta para criar sua Gamertag gratuita e tente entrar novamente no PS5.",
+      "reply_es": "**Cuenta Microsoft sin perfil de Xbox / Gamertag** (`XErr 2148916233` / `HTTP 401` en XSTS): esta cuenta de Microsoft aún no tiene un perfil de Xbox creado. Entra una vez en https://www.xbox.com desde el móvil o PC con la misma cuenta para crear tu Gamertag gratuito y vuelve a iniciar sesión en la PS5."
+    },
+    {
+      "id": "claim-free",
+      "label": "area: catalog",
+      "patterns": [
+        "failed to claim free game",
+        "error al adquirir el juego gratuito",
+        "erro ao resgatar",
+        "purchasefd\\.mp\\.microsoft\\.com",
+        "useralreadyownscontent",
+        "9p22thr57fv7"
+      ],
+      "fixed_in": "1.3.2",
+      "reply": "**Claiming a free-to-play game failed**: v1.3.2 fixes in-app claiming for titles like *Call of Duty®* (`9P22THR57FV7`), automatically refreshes the Microsoft Store token when needed, selects direct free offers, and treats `UserAlreadyOwnsContent` as already owned. Please update to **v1.3.2** or newer (or claim the game for free at https://www.xbox.com).",
+      "reply_pt": "**Falha ao resgatar jogo gratuito**: a versão v1.3.2 corrige o resgate direto pelo app para títulos como *Call of Duty®* (`9P22THR57FV7`), renova automaticamente o token da Microsoft Store quando necessário, seleciona ofertas gratuitas diretas e reconhece `UserAlreadyOwnsContent` como já adquirido na conta. Atualize para a **v1.3.2** ou mais recente (ou resgate gratuitamente em https://www.xbox.com).",
+      "reply_es": "**Error al adquirir un juego gratuito**: la versión v1.3.2 corrige la adquisición desde la app para títulos como *Call of Duty®* (`9P22THR57FV7`), renueva automáticamente el token de Microsoft Store cuando es necesario, selecciona ofertas gratuitas directas y reconoce `UserAlreadyOwnsContent` como ya adquirido en la cuenta. Actualiza a **v1.3.2** o superior (o reclámalo gratis en https://www.xbox.com)."
+    },
     {
       "id": "ca-unreadable",
       "label": "area: certificates",
@@ -10,16 +55,22 @@
         "secure connections could not be set up"
       ],
       "fixed_in": "0.9.6",
-      "reply": "**Certificates file unreadable** (`assets/cacert.pem`, error -15872): since v0.9.6 the app uses a copy built into it, so updating fixes this. On an older version, copy the whole `PPSA99810` folder again (an incomplete copy is the usual cause)."
+      "reply": "**Certificates file unreadable** (`assets/cacert.pem`, error -15872): since v0.9.6 the app uses a copy built into it, so updating fixes this. On an older version, copy the whole `PPSA99810` folder again (an incomplete copy is the usual cause).",
+      "reply_pt": "**Arquivo de certificados ilegível** (`assets/cacert.pem`, erro -15872): desde a v0.9.6 o app possui uma cópia embutida no binário, então basta atualizar o aplicativo. Em versões antigas, copie toda a pasta `PPSA99810` novamente.",
+      "reply_es": "**Archivo de certificados ilegible** (`assets/cacert.pem`, error -15872): desde la v0.9.6 la app incluye una copia integrada en el binario, por lo que actualizar lo soluciona. En versiones anteriores, vuelve a copiar toda la carpeta `PPSA99810`."
     },
     {
       "id": "tls-verify",
       "label": "area: certificates",
       "patterns": [
         "-9984",
-        "certificate verification failed"
+        "certificate verification failed",
+        "certificate refused"
       ],
-      "reply": "**Certificate verification failed** (-9984): the most common cause is the console's **date and time** being wrong (Settings > System > Date and Time: set it correctly, or set it from the internet). A DNS server or proxy that intercepts Microsoft's sites can cause it too: try without it."
+      "fixed_in": "1.3.2",
+      "reply": "**Certificate verification failed** (-9984): if this happens when starting a game on a regional server (such as Central India `CIA.core.gssv-play-prod.xboxlive.com`), **v1.3.2** fixes out-of-order intermediate certificate chains automatically. Otherwise, the most common cause is the console's **date and time** being wrong (Settings > System > Date and Time: set it correctly, or set it from the internet), or a DNS/proxy intercepting Microsoft's sites.",
+      "reply_pt": "**Falha na verificação de certificado TLS** (-9984): se o erro ocorrer ao iniciar um jogo em servidores regionais (como Índia Central `CIA.core.gssv-play-prod.xboxlive.com`), a **v1.3.2** corrige automaticamente cadeias de certificados intermediários fora de ordem. Caso contrário, a causa mais comum é a **data e hora** do console incorreta (Configurações > Sistema > Data e Hora) ou um servidor DNS/proxy interceptando os domínios da Microsoft.",
+      "reply_es": "**Error de verificación de certificado TLS** (-9984): si ocurre al iniciar un juego en un servidor regional (como India Central `CIA.core.gssv-play-prod.xboxlive.com`), la **v1.3.2** corrige automáticamente las cadenas de certificados intermedios fuera de orden. De lo contrario, la causa más común es que la **fecha y hora** de la consola sea incorrecta (Ajustes > Sistema > Fecha y hora) o que un DNS/proxy esté interceptando los sitios de Microsoft."
     },
     {
       "id": "region",
@@ -32,7 +83,9 @@
         "sign in as another country"
       ],
       "fixed_in": "0.9.6",
-      "reply": "**xCloud refused the sign-in**: cloud gaming may not be offered in your country, or the account has no Game Pass plan with cloud gaming. Since v0.9.6 that error offers *Sign in as another country* (opt-in, at your own risk)."
+      "reply": "**xCloud refused the sign-in**: cloud gaming may not be offered in your country, or the account has no Game Pass plan with cloud gaming. Since v0.9.6 that error offers *Sign in as another country* (opt-in, at your own risk).",
+      "reply_pt": "**xCloud recusou o login**: o Cloud Gaming pode não estar disponível no país da sua conta ou a conta não possui assinatura Game Pass compatível. Desde a v0.9.6, essa tela oferece a opção de *Entrar como outro país*.",
+      "reply_es": "**xCloud rechazó el inicio de sesión**: es posible que el juego en la nube no esté disponible en tu país o que la cuenta no tenga un plan de Game Pass compatible. Desde la v0.9.6 ese error ofrece la opción *Iniciar sesión como otro país*."
     },
     {
       "id": "xbox-wake",
@@ -44,7 +97,9 @@
         "didn't wake",
         "did not wake"
       ],
-      "reply": "**Your Xbox didn't answer**: on the Xbox, Settings > General > Power options: choose *Sleep* (not *Shutdown*), and Settings > Devices & connections > Remote features: turn them on. If it was asleep for long, turn it on by hand once and try again."
+      "reply": "**Your Xbox didn't answer**: on the Xbox, Settings > General > Power options: choose *Sleep* (not *Shutdown*), and Settings > Devices & connections > Remote features: turn them on. If it was asleep for long, turn it on by hand once and try again.",
+      "reply_pt": "**Seu console Xbox não respondeu**: no Xbox, vá em Configurações > Geral > Opções de energia e escolha *Suspensão* (não *Desligar*), e ative os *Recursos remotos* em Configurações > Dispositivos e conexões. Se o console estiver desligado há muito tempo, ligue-o manualmente uma vez e tente novamente.",
+      "reply_es": "**Tu consola Xbox no respondió**: en la Xbox, ve a Configuración > General > Opciones de energía y elige *Suspensión* (no *Apagar*), y activa las *Características remotas* en Configuración > Dispositivos y conexiones. Si estuvo suspendida mucho tiempo, enciéndela manualmente una vez e inténtalo de nuevo."
     },
     {
       "id": "no-entitlement",
@@ -53,7 +108,9 @@
         "noentitlement",
         "not entitled"
       ],
-      "reply": "**Not on your account / plan**: xCloud says the account can't stream that game. It may need another Game Pass plan, or buying it."
+      "reply": "**Not on your account / plan**: xCloud says the account can't stream that game. It may need another Game Pass plan, or buying it.",
+      "reply_pt": "**Jogo não disponível na sua conta / plano**: o xCloud informou que sua conta não possui permissão para transmitir este jogo. Pode ser necessário adquirir o jogo ou um plano Game Pass compatível.",
+      "reply_es": "**No disponible en tu cuenta / plan**: xCloud indica que tu cuenta no puede transmitir ese juego. Puede requerir otro plan de Game Pass o comprarlo."
     },
     {
       "id": "free-to-play",
@@ -62,7 +119,10 @@
         "free[- ]to[- ]play",
         "fortnite"
       ],
-      "reply": "**Free-to-play games**: they appear in the *Free to play* row once they are on your Microsoft account (get them free on xbox.com or in the Xbox app first).",
+      "fixed_in": "1.3.2",
+      "reply": "**Free-to-play games**: they appear in the *Free to play* row and can be claimed for free directly from the game's page in the app (improved in v1.3.2) or on https://www.xbox.com.",
+      "reply_pt": "**Jogos gratuitos (Free-to-play)**: aparecem na fileira *Faça streaming de jogos gratuitos* e podem ser adquiridos gratuitamente direto na tela do jogo dentro do app (aprimorado na v1.3.2) ou em https://www.xbox.com.",
+      "reply_es": "**Juegos gratuitos (Free-to-play)**: aparecen en la fila de juegos gratuitos y se pueden reclamar gratis directamente desde la página del juego en la app (mejorado en v1.3.2) o en https://www.xbox.com.",
       "where": [
         "title",
         "what"
@@ -81,9 +141,13 @@
         "vibration",
         "rumble",
         "bot[aã]o",
-        "controle"
+        "controle",
+        "mando",
+        "bot[oó]n"
       ],
-      "reply": "**Controller**: the DualSense's Create button is kept by the PS5 (screenshots) and can't be used by apps. Xbox *View* is a touchpad click, Xbox *Menu* is OPTIONS. Button remapping is on the roadmap.",
+      "reply": "**Controller**: the DualSense's Create button is kept by the PS5 (screenshots) and can't be used by apps. By default, Xbox *View* is a touchpad click and Xbox *Menu* is OPTIONS; you can customize button and keyboard mappings in *Settings > Controller buttons* (or per game in the game's settings).",
+      "reply_pt": "**Controle**: o botão Create do DualSense é reservado pelo sistema do PS5 (capturas de tela). Por padrão, o botão *View* (Select) do Xbox é o clique no touchpad e *Menu* é OPTIONS; você pode remapear todos os botões em *Configurações > Botões do controle* (ou individualmente nas configurações de cada jogo).",
+      "reply_es": "**Mando**: el botón Create del DualSense está reservado por el sistema de PS5 (capturas de pantalla). Por defecto, el botón *View* (Select) de Xbox es el clic en el panel táctil y *Menu* es OPTIONS; puedes personalizar los botones en *Configuración > Botones del mando* (o por juego).",
       "where": [
         "title",
         "what"
@@ -98,7 +162,9 @@
         "signal 11\\b",
         "\\bstalled\\b"
       ],
-      "reply": "**The app closed unexpectedly**: thanks for the report. The log lines above show what it was doing; if you can, tell us what you did just before."
+      "reply": "**The app closed unexpectedly**: thanks for the report. The log lines above show what it was doing; if you can, tell us what you did just before.",
+      "reply_pt": "**O aplicativo fechou inesperadamente**: obrigado pelo relato. As linhas de log acima mostram o que ele estava fazendo; se puder, conte-nos o que você estava fazendo imediatamente antes.",
+      "reply_es": "**La aplicación se cerró inesperadamente**: gracias por el reporte. Las líneas de registro de arriba muestran lo que estaba haciendo; si puedes, cuéntanos qué hiciste justo antes."
     }
   ]
 }
