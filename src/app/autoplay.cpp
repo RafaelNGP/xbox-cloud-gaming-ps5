@@ -883,7 +883,8 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         // page must fill in on its own. Or the game named, when known.
         static uint64_t openedAt = 0;
         ui::GameTile tile;
-        if (!openedAt && (g_ui->findTile("FORTNITE", tile) || g_ui->firstTile(tile) || g_ui->purchasableAt(40, tile))) {
+        if (!openedAt && (g_ui->findTile(g_autoplay.title, tile) || g_ui->findTile("FORTNITE", tile) ||
+                          g_ui->purchasableAt(40, tile) || g_ui->firstTile(tile))) {
             XC_LOGI("autoplay: opening %s (%s)", tile.name.c_str(), tile.productId.c_str());
             ui::SettingsChoice c = g_ui->settings();
             if (!tile.productId.empty()) c.titlePlaytime[tile.productId] = 5520;
@@ -919,7 +920,18 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         }
     }
     if (!g_autoplay.title.empty() && !uiSaved && g_ui->screen() == ui::Screen::Home) {
-        if (!homeSince) homeSince = now;
+        if (!homeSince) {
+            homeSince = now;
+            if (g_autoplay.detailTest) {
+                ui::GameTile first;
+                if (g_ui->firstTile(first)) {
+                    ui::SettingsChoice c = g_ui->settings();
+                    if (!first.productId.empty()) c.titlePlaytime[first.productId] = 5520;
+                    if (!first.titleId.empty()) c.titlePlaytime[first.titleId] = 5520;
+                    g_ui->setSettings(c);
+                }
+            }
+        }
         uint64_t waitMs = g_autoplay.friendsTest ? 8000 : 5000;
         if (now - homeSince > waitMs) {
             uiSaved = true;

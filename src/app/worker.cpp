@@ -93,7 +93,17 @@ void playQueueReadyAlert() {
     }
 
     media::audioStart();
-    media::audioPush(pcm.data(), pcm.size() / 2);
+    std::thread([pcm = std::move(pcm)]() {
+        constexpr size_t kChunkFrames = (kRate * 20) / 1000;  // 20 ms per push ( stays well below 250 ms trim )
+        size_t totalFrames = pcm.size() / 2;
+        size_t offset = 0;
+        while (offset < totalFrames) {
+            size_t n = std::min(kChunkFrames, totalFrames - offset);
+            media::audioPush(pcm.data() + offset * 2, n);
+            offset += n;
+            if (offset < totalFrames) platform::sleepMs(18);
+        }
+    }).detach();
 
     // 3. System notification toast
     platform::notify(ui::tr(ui::Str::QueueReadyAlert));

@@ -3134,6 +3134,24 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
         for (size_t k = 0; k < lines.size(); ++k)
             fonts_.semibold.draw(c, lines[k], x + 16, y + 16 + static_cast<int>(k) * 30, 22, kGray);
     }
+    // Top-left: time played on this title, when recorded.
+    uint64_t cardPlayedSec = 0;
+    if (!t.productId.empty()) {
+        auto it = settings_.titlePlaytime.find(t.productId);
+        if (it != settings_.titlePlaytime.end()) cardPlayedSec = it->second;
+    }
+    if (!cardPlayedSec && !t.titleId.empty()) {
+        auto it = settings_.titlePlaytime.find(t.titleId);
+        if (it != settings_.titlePlaytime.end()) cardPlayedSec = it->second;
+    }
+    if (cardPlayedSec > 0) {
+        std::string ptLabel = formatPlaytime(cardPlayedSec);
+        int pw = std::min(kCard - 56, fonts_.bold.measure(ptLabel, 11) + 14);
+        Rect ptBadge{x + 10, y + 10, pw, 22};
+        c.fillRect(ptBadge, rgba(0, 0, 0, 215), 4);
+        fonts_.bold.draw(c, ptLabel, ptBadge.x + (ptBadge.w - fonts_.bold.measure(ptLabel, 11)) / 2,
+                         fonts_.bold.centeredY(ptBadge.y, ptBadge.h, 11), 11, kWhite);
+    }
     // Bottom-left: BUY with a bag, a Game Pass plan badge when the game is
     // in another plan (or while filtering by plan), or friends playing; a
     // padlock (top right) when it can't be played or bought.
