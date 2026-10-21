@@ -42,9 +42,11 @@ bool readXbl(const net::Response& r, XblToken& out, std::string& err, const char
             int64_t x = (*j)["XErr"].asInt();
             err += " XErr " + std::to_string(x);
             // Well-known XSTS errors worth telling the user about.
-            if (x == 2148916233) err += " (this Microsoft account has no Xbox profile yet)";
-            if (x == 2148916235) err += " (Xbox Live is not available in this account's country)";
-            if (x == 2148916238) err += " (child account: needs to be added to a family by an adult)";
+            if (x == 2148916227) err += " (this Xbox account is suspended or banned (2148916227))";
+            if (x == 2148916233) err += " (this Microsoft account has no Xbox profile yet — sign in once at xbox.com to create a Gamertag (2148916233))";
+            if (x == 2148916235) err += " (Xbox Live is not offered in this account's country/region (2148916235))";
+            if (x == 2148916236 || x == 2148916237) err += " (age verification or terms acceptance is required at xbox.com in a browser (2148916236))";
+            if (x == 2148916238) err += " (child account: an adult must add this account to a Microsoft family at account.microsoft.com/family (2148916238))";
         }
         if (j && (*j)["Redirect"].isString()) {
             std::string red = (*j)["Redirect"].str();

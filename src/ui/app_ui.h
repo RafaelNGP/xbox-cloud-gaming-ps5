@@ -186,9 +186,34 @@ std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool cus
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 17;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+constexpr int kSettingRows = 19;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
                                   // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys,
-                                  // display mode (a desktop's window), controller buttons, gyro aiming, queue chime
+                                  // display mode (a desktop's window), controller buttons, gyro aiming, queue chime,
+                                  // check sign-in, network test
+
+struct SignInStage {
+    std::string name;
+    bool ok = false;
+    bool pending = false;
+    std::string detail;
+};
+
+struct SignInCheckState {
+    bool running = false;
+    std::vector<SignInStage> stages;
+};
+
+struct RegionNetStat {
+    std::string name;
+    int rttMs = -1;
+    int jitterMs = -1;
+};
+
+struct NetworkTestState {
+    bool running = false;
+    std::string natStatus;
+    std::vector<RegionNetStat> regions;
+};
 
 // The countries "Sign in as another country" offers (xcloud::loginCountryAddress).
 constexpr const char* kLoginCountries[] = {"br", "jp", "kr", "pl", "us"};
@@ -206,7 +231,9 @@ enum class Action {
     OpenUrl,  // a link on screen to open in the browser (UiCaps::openUrl): `url`
     Quit,     // desktop: the user closed the app from the home screen
     ClaimFreeGame, // claim a free-to-play game license directly
-    RefreshLibrary // manual library refresh
+    RefreshLibrary, // manual library refresh
+    CheckSignIn,    // run sign-in diagnostic stages
+    RunNetworkTest  // run regional RTT/jitter & NAT probe
 };
 
 // How "Your games" is sorted (R3).
@@ -367,6 +394,10 @@ public:
     // Updates: this version, and the newer one (empty: up to date);
     // `checking` while it is being asked (Settings shows it).
     void setUpdateState(const std::string& current, const std::string& available, bool checking);
+    void setSignInCheckState(const SignInCheckState& state);
+    SignInCheckState signInCheckState() const;
+    void setNetworkTestState(const NetworkTestState& state);
+    NetworkTestState networkTestState() const;
     // The pop-up offering the newer version, over the home screen.
     void offerUpdate();
     bool updateOffered() const;
@@ -498,7 +529,7 @@ private:
     Color pickerColour() const;
     void drawColourPicker(Canvas& c);
     // The testers that Dead zone and Trigger vibration open in Settings.
-    enum class Tester { None, Sticks, Triggers, Keys, Pad };
+    enum class Tester { None, Sticks, Triggers, Keys, Pad, SignInCheck, NetworkTest };
     void openTester(Tester t);
     void handleTester(const NavInput& in);
     void drawStickTester(Canvas& c);
@@ -510,6 +541,8 @@ private:
     void openPadTester();
     void handlePadTester(const NavInput& in);
     void drawPadTester(Canvas& c);
+    void drawSignInCheck(Canvas& c, uint64_t nowMs);
+    void drawNetworkTest(Canvas& c, uint64_t nowMs);
     // A modal panel over Settings with its title; returns its rectangle.
     Rect drawModal(Canvas& c, int w, int h, const std::string& title);
     void drawUpdating(Canvas& c, uint64_t nowMs);
@@ -604,6 +637,8 @@ private:
     std::map<std::string, DetailInfo> detailInfo_;  // fetched on demand, by product id
     std::string updateCurrent_, updateAvailable_;
     bool updateChecking_ = false;
+    SignInCheckState signInCheck_;
+    NetworkTestState networkTest_;
     bool reportOpen_ = false;  // the report's QR code is up
     bool regionRefused_ = false;  // the error is showRegionRefused()'s
     bool countryPickerOpen_ = false;

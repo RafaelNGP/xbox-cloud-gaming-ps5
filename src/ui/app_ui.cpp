@@ -57,13 +57,13 @@ enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad,
 // position (0 = 1080p, 1 = 720p, 2 = 1440p, as saved).
 constexpr int kResolutionOrder[3] = {1, 0, 2};
 // Settings' rows on screen, alike ones together (the row ids stay what
-// settingsRow_ and the helpers use): language and sign-in country; the
-// stream (resolution, a desktop's display mode, 120 Hz, bitrate, region);
+// settingsRow_ and the helpers use): language, sign-in country, and sign-in check; the
+// stream (resolution, a desktop's display mode, 120 Hz, bitrate, region, network test);
 // sound (volume, queue chime); the controller and keyboard; updates last. A group starts at each
 // kSettingsGroupStart.
-constexpr int kSettingsOrder[kSettingRows] = {0, 8, 1, 13, 9, 10, 2, 11, 16, 3, 4, 5, 6, 15, 14, 12, 7};
-constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, true, false, false, false, false, true,
-                                                    false, true, false, false, false, false, false, false, true};
+constexpr int kSettingsOrder[kSettingRows] = {0, 8, 17, 1, 13, 9, 10, 2, 18, 11, 16, 3, 4, 5, 6, 15, 14, 12, 7};
+constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, false, true, false, false, false, false, false,
+                                                    true, false, true, false, false, false, false, false, false, true};
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
 // sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7
 // confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default, 11 controller
@@ -1368,6 +1368,28 @@ void AppUi::setUpdateState(const std::string& current, const std::string& availa
     dirty_ = true;
 }
 
+void AppUi::setSignInCheckState(const SignInCheckState& state) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    signInCheck_ = state;
+    dirty_ = true;
+}
+
+SignInCheckState AppUi::signInCheckState() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return signInCheck_;
+}
+
+void AppUi::setNetworkTestState(const NetworkTestState& state) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    networkTest_ = state;
+    dirty_ = true;
+}
+
+NetworkTestState AppUi::networkTestState() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return networkTest_;
+}
+
 void AppUi::offerUpdate() {
     std::lock_guard<std::mutex> lock(mutex_);
     updatePrompt_ = true;
@@ -1586,7 +1608,10 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         out = {tr(settings_.padMap == input::defaultPadMap() ? Str::ProfileDefault : Str::ProfileCustom)};
     } else if (row == 15) {
         out = {tr(Str::Off), tr(Str::GyroAlways), tr(Str::GyroAiming)};
-
+    } else if (row == 17) {
+        out = {tr(Str::RunCheck)};
+    } else if (row == 18) {
+        out = {tr(Str::RunTest)};
     } else if (row == 8) {
         out.push_back(loginCountryOffText());
         for (const char* country : kLoginCountries) out.push_back(loginCountryName(country));
@@ -1606,7 +1631,7 @@ int AppUi::settingSelected(int row) const {
         for (int i = 0; i < 3; ++i)
             if (kResolutionOrder[i] == settings_.resolution) return i;
     }
-    if (row == 3 || row == 12 || row == 14) return 0;
+    if (row == 3 || row == 12 || row == 14 || row == 17 || row == 18) return 0;
     if (row == 4) return settings_.triggerStrength;
     if (row == 5) return settings_.circleConfirms ? 1 : 0;
     if (row == 6) return settings_.lightBarMode;
@@ -1642,7 +1667,7 @@ void AppUi::applySetting(int row, int index) {
         setLanguage(static_cast<Language>(index));  // the UI switches right away
     } else if (row == 1) {
         settings_.resolution = kResolutionOrder[index];
-    } else if (row == 3 || row == 12 || row == 14) {
+    } else if (row == 3 || row == 12 || row == 14 || row == 17 || row == 18) {
         (void)index;  // the tester sets each stick's, the keys' and buttons' screens theirs
     } else if (row == 4) {
         settings_.triggerStrength = index;
@@ -2590,6 +2615,24 @@ UiEvent AppUi::handle(const NavInput& in) {
                 handleColourPicker(in);
                 break;
             }
+            if (tester_ == Tester::SignInCheck) {
+                if (in.back) {
+                    tester_ = Tester::None;
+                    dirty_ = true;
+                } else if (in.accept && !signInCheck_.running) {
+                    ev.action = Action::CheckSignIn;
+                }
+                break;
+            }
+            if (tester_ == Tester::NetworkTest) {
+                if (in.back) {
+                    tester_ = Tester::None;
+                    dirty_ = true;
+                } else if (in.accept && !networkTest_.running) {
+                    ev.action = Action::RunNetworkTest;
+                }
+                break;
+            }
             if (tester_ != Tester::None) {
                 handleTester(in);
                 break;
@@ -2620,6 +2663,12 @@ UiEvent AppUi::handle(const NavInput& in) {
             } else if (in.accept && (settingsRow_ == 3 || settingsRow_ == 4 || settingsRow_ == 12)) {
                 // Dead zone, trigger vibration, keyboard keys: their own screens instead of a list.
                 openTester(settingsRow_ == 3 ? Tester::Sticks : settingsRow_ == 4 ? Tester::Triggers : Tester::Keys);
+            } else if (in.accept && settingsRow_ == 17) {
+                openTester(Tester::SignInCheck);
+                ev.action = Action::CheckSignIn;
+            } else if (in.accept && settingsRow_ == 18) {
+                openTester(Tester::NetworkTest);
+                ev.action = Action::RunNetworkTest;
             } else if (in.accept && settingsRow_ == 7) {
                 // Updates: a newer version is installed (the settings saved
                 // first). Where the app doesn't install it, the release's
@@ -2756,7 +2805,9 @@ bool AppUi::needsRedraw(uint64_t nowMs) const {
     if (platform::toastsEnabled() && platform::toasts().version(nowMs) != toastsDrawn_) return true;
     // Spinners keep moving (about 30 fps is enough).
     bool spinner = screen_ == Screen::Splash || screen_ == Screen::SignIn || screen_ == Screen::Launching ||
-                   screen_ == Screen::Updating;
+                   screen_ == Screen::Updating ||
+                   (screen_ == Screen::Settings && ((tester_ == Tester::SignInCheck && signInCheck_.running) ||
+                                                    (tester_ == Tester::NetworkTest && networkTest_.running)));
     return spinner && nowMs - lastRender_ >= 33;
 }
 
@@ -3925,25 +3976,26 @@ void AppUi::drawError(Canvas& c) {
 void AppUi::drawSettings(Canvas& c) {
     drawBackground(c);
     drawTopBar(c);
-    fonts_.bold.draw(c, tr(Str::Settings), kMargin, 170, 60, kWhite);
+    fonts_.bold.draw(c, tr(Str::Settings), kMargin, 146, 52, kWhite);
     const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
                                         tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry),
                                         tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume),
                                         tr(Str::KeyboardKeys),  tr(Str::DisplayMode),   tr(Str::ControllerButtons),
-                                        tr(Str::Gyro),          tr(Str::QueueReadyNotification)};
-    constexpr int kRowW = 1200, kRowH = 46, kGap = 4, kGroupGap = 12;
+                                        tr(Str::Gyro),          tr(Str::QueueReadyNotification),
+                                        tr(Str::CheckSignIn),   tr(Str::NetworkTest)};
+    constexpr int kRowW = 1200, kRowH = 36, kGap = 3, kGroupGap = 7, kRowPx = 24;
     Rect rows[kSettingRows];  // by row id
-    int y = 236;
+    int y = 200;
     for (const auto& [i, groupStart] : visibleSettingsRows(caps_)) {  // what caps_ rules out is hidden
         if (groupStart) y += kGroupGap;
         Rect r{kMargin, y, kRowW, kRowH};
         rows[i] = r;
         bool focused = i == settingsRow_;
-        c.fillRect(r, focused ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 16);
-        if (focused && !dropdownOpen_) c.strokeRect({r.x - 5, r.y - 5, r.w + 10, r.h + 10}, kWhite, 3, 20);
-        int ty = fonts_.semibold.centeredY(r.y, r.h, 28);
-        fonts_.semibold.draw(c, labels[i], r.x + 36, ty, 28, kWhite);
+        c.fillRect(r, focused ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 12);
+        if (focused && !dropdownOpen_) c.strokeRect({r.x - 4, r.y - 4, r.w + 8, r.h + 8}, kWhite, 3, 16);
+        int ty = fonts_.semibold.centeredY(r.y, r.h, kRowPx);
+        fonts_.semibold.draw(c, labels[i], r.x + 32, ty, kRowPx, kWhite);
         if (i == 7) {
             // Updates: the state; Cross updates when there is a newer version.
             std::string value = updateChecking_ ? tr(Str::UpdateChecking)
@@ -3951,8 +4003,8 @@ void AppUi::drawSettings(Canvas& c) {
                                     ? trf(caps_.selfUpdate ? Str::UpdateReady : Str::UpdateReadyPc, updateAvailable_)
                                     : trf(Str::UpToDate, "v" + updateCurrent_);
             Color color = !updateAvailable_.empty() && !updateChecking_ ? rgba(120, 220, 120) : focused ? kWhite : kGray;
-            int w = fonts_.regular.measure(value, 28);
-            fonts_.regular.draw(c, value, r.x + r.w - 44 - w, fonts_.regular.centeredY(r.y, r.h, 28), 28, color);
+            int w = fonts_.regular.measure(value, kRowPx);
+            fonts_.regular.draw(c, value, r.x + r.w - 40 - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx, color);
             y += kRowH + kGap;
             continue;
         }
@@ -3960,26 +4012,26 @@ void AppUi::drawSettings(Canvas& c) {
         auto options = settingOptions(i);
         int sel = settingSelected(i);
         std::string value = sel < static_cast<int>(options.size()) ? options[static_cast<size_t>(sel)] : "";
-        float cx = static_cast<float>(r.x + r.w - 44), cy = static_cast<float>(r.y + r.h / 2);
-        c.line(cx - 9, cy - 4, cx, cy + 5, 3, focused ? kWhite : kGray);
-        c.line(cx, cy + 5, cx + 9, cy - 4, 3, focused ? kWhite : kGray);
-        int vx = r.x + r.w - 76;
+        float cx = static_cast<float>(r.x + r.w - 40), cy = static_cast<float>(r.y + r.h / 2);
+        c.line(cx - 8, cy - 3, cx, cy + 4, 2.5f, focused ? kWhite : kGray);
+        c.line(cx, cy + 4, cx + 8, cy - 3, 2.5f, focused ? kWhite : kGray);
+        int vx = r.x + r.w - 68;
         if (i == 5) {
             // The confirm button, as the button itself.
-            drawFaceButton(c, fonts_.bold, settings_.circleConfirms ? kIconCircle : kIconCross, vx - 20.0f, cy, 20);
+            drawFaceButton(c, fonts_.bold, settings_.circleConfirms ? kIconCircle : kIconCross, vx - 16.0f, cy, 16);
         } else {
-            int w = fonts_.regular.measure(value, 28);
-            fonts_.regular.draw(c, value, vx - w, fonts_.regular.centeredY(r.y, r.h, 28), 28, focused ? kWhite : kGray);
+            int w = fonts_.regular.measure(value, kRowPx);
+            fonts_.regular.draw(c, value, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx, focused ? kWhite : kGray);
             if (i == 6 && settings_.lightBarMode == 1) {  // the colour chosen
-                c.fillCircle(vx - w - 30.0f, cy, 14, settings_.lightBarColour);
-                c.strokeArc(vx - w - 30.0f, cy, 14, 2, 0, 6.2832f, rgba(255, 255, 255, 120));
+                c.fillCircle(vx - w - 26.0f, cy, 11, settings_.lightBarColour);
+                c.strokeArc(vx - w - 26.0f, cy, 11, 2, 0, 6.2832f, rgba(255, 255, 255, 120));
             }
         }
         y += kRowH + kGap;
     }
-    for (const auto& line : fonts_.regular.wrap(tr(Str::SettingsNote), 24, kRowW, 2)) {
-        fonts_.regular.draw(c, line, kMargin, y + 20, 24, kDim);
-        y += 34;
+    for (const auto& line : fonts_.regular.wrap(tr(Str::SettingsNote), 22, kRowW, 2)) {
+        fonts_.regular.draw(c, line, kMargin, y + 6, 22, kDim);
+        y += 28;
     }
 
     if (pickerOpen_) {
@@ -3990,6 +4042,8 @@ void AppUi::drawSettings(Canvas& c) {
     if (tester_ == Tester::Triggers) return drawTriggerTester(c);
     if (tester_ == Tester::Keys) return drawKeysTester(c);
     if (tester_ == Tester::Pad) return drawPadTester(c);
+    if (tester_ == Tester::SignInCheck) return drawSignInCheck(c, lastRender_);
+    if (tester_ == Tester::NetworkTest) return drawNetworkTest(c, lastRender_);
     if (dropdownOpen_) {
         // The list under (or, near the bottom, over) the row, right-aligned
         // with it; scrolls past kVisible choices.
@@ -4344,6 +4398,94 @@ void AppUi::drawPadTester(Canvas& c) {
         drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
     else
         drawHints(c, {{kIconCross, tr(Str::ChangeKey)}, {kIconSquare, tr(Str::ClearKey)}, {kIconCircle, tr(Str::Back)}});
+}
+
+void AppUi::drawSignInCheck(Canvas& c, uint64_t nowMs) {
+    Rect panel = drawModal(c, 1180, 620, tr(Str::CheckSignIn));
+    if (signInCheck_.running) {
+        drawSpinner(c, static_cast<float>(panel.x + panel.w - 76), static_cast<float>(panel.y + 64), 14.0f, nowMs);
+        animating_ = true;
+    }
+    int y = panel.y + 120;
+    constexpr int kRowH = 66, kGap = 10;
+    for (size_t i = 0; i < signInCheck_.stages.size() && i < 6; ++i) {
+        const auto& st = signInCheck_.stages[i];
+        Rect r{panel.x + 56, y, panel.w - 112, kRowH};
+        c.fillRect(r, rgba(255, 255, 255, 14), 14);
+        float cx = static_cast<float>(r.x + 36), cy = static_cast<float>(r.y + r.h / 2);
+        if (st.pending) {
+            drawSpinner(c, cx, cy, 12.0f, nowMs);
+            animating_ = true;
+        } else if (st.ok) {
+            c.fillCircle(cx, cy, 14.0f, kGreen);
+            c.line(cx - 6, cy, cx - 2, cy + 5, 2.5f, kWhite);
+            c.line(cx - 2, cy + 5, cx + 7, cy - 5, 2.5f, kWhite);
+        } else {
+            c.fillCircle(cx, cy, 14.0f, rgba(220, 65, 65));
+            c.line(cx - 5, cy - 5, cx + 5, cy + 5, 2.5f, kWhite);
+            c.line(cx - 5, cy + 5, cx + 5, cy - 5, 2.5f, kWhite);
+        }
+        int ty = fonts_.semibold.centeredY(r.y, r.h, 24);
+        fonts_.semibold.draw(c, st.name, r.x + 70, ty, 24, kWhite);
+        if (!st.detail.empty()) {
+            int maxW = r.w - 380;
+            std::string det = fonts_.regular.fit(st.detail, 22, maxW);
+            int dw = fonts_.regular.measure(det, 22);
+            Color detCol = st.pending ? kDim : (st.ok ? kGray : rgba(255, 130, 130));
+            fonts_.regular.draw(c, det, r.x + r.w - 28 - dw, fonts_.regular.centeredY(r.y, r.h, 22), 22, detCol);
+        }
+        y += kRowH + kGap;
+    }
+    c.fillRect({0, kH - 80, kW, 80}, kBg);
+    if (signInCheck_.running)
+        drawHints(c, {{kIconCircle, tr(Str::Back)}});
+    else
+        drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconCircle, tr(Str::Back)}});
+}
+
+void AppUi::drawNetworkTest(Canvas& c, uint64_t nowMs) {
+    Rect panel = drawModal(c, 1180, 740, tr(Str::NetworkTest));
+    if (networkTest_.running) {
+        drawSpinner(c, static_cast<float>(panel.x + panel.w - 76), static_cast<float>(panel.y + 64), 14.0f, nowMs);
+        animating_ = true;
+    }
+    Rect natBox{panel.x + 56, panel.y + 114, panel.w - 112, 56};
+    c.fillRect(natBox, rgba(255, 255, 255, 18), 14);
+    fonts_.semibold.draw(c, "UDP / STUN (NAT)", natBox.x + 28, fonts_.semibold.centeredY(natBox.y, natBox.h, 24), 24, kWhite);
+    std::string natVal = networkTest_.natStatus.empty() ? "..." : networkTest_.natStatus;
+    int nw = fonts_.regular.measure(natVal, 24);
+    Color natCol = natVal.find("OK") != std::string::npos || natVal.find("Reachable") != std::string::npos
+                       ? rgba(110, 225, 120)
+                       : (networkTest_.running ? kDim : rgba(255, 180, 90));
+    fonts_.regular.draw(c, natVal, natBox.x + natBox.w - 28 - nw, fonts_.regular.centeredY(natBox.y, natBox.h, 24), 24, natCol);
+
+    int y = panel.y + 188;
+    constexpr int kRowH = 54, kGap = 8;
+    for (size_t i = 0; i < networkTest_.regions.size() && i < 8; ++i) {
+        const auto& reg = networkTest_.regions[i];
+        Rect r{panel.x + 56, y, panel.w - 112, kRowH};
+        c.fillRect(r, i == 0 && reg.rttMs >= 0 ? rgba(16, 124, 16, 45) : rgba(255, 255, 255, 12), 12);
+        std::string label = prettyRegion(reg.name);
+        if (i == 0 && reg.rttMs >= 0) label += "  \xE2\x98\x85";
+        fonts_.semibold.draw(c, label, r.x + 28, fonts_.semibold.centeredY(r.y, r.h, 24), 24, kWhite);
+        std::string val;
+        Color valCol = kDim;
+        if (reg.rttMs >= 0) {
+            val = "RTT " + std::to_string(reg.rttMs) + " ms   \xC2\xB7   Jitter " +
+                  std::to_string(std::max(0, reg.jitterMs)) + " ms";
+            valCol = reg.rttMs < 60 ? rgba(110, 225, 120) : (reg.rttMs < 120 ? rgba(255, 200, 80) : rgba(255, 120, 120));
+        } else {
+            val = networkTest_.running ? "..." : "--";
+        }
+        int vw = fonts_.regular.measure(val, 22);
+        fonts_.regular.draw(c, val, r.x + r.w - 28 - vw, fonts_.regular.centeredY(r.y, r.h, 22), 22, valCol);
+        y += kRowH + kGap;
+    }
+    c.fillRect({0, kH - 80, kW, 80}, kBg);
+    if (networkTest_.running)
+        drawHints(c, {{kIconCircle, tr(Str::Back)}});
+    else
+        drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconCircle, tr(Str::Back)}});
 }
 
 void AppUi::drawKeysTester(Canvas& c) {

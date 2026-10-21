@@ -25,10 +25,15 @@
 
 #include <cmath>
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
+#include <cstring>
 #include <map>
+#include <netdb.h>
+#include <poll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #include <memory>
 #include <thread>
@@ -786,10 +791,23 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
             g_ui->showError(ui::tr(ui::Str::ConnectionIntercepted));
         } else if (isDnsOrSinkholeError(err)) {
             g_ui->showError(ui::tr(ui::Str::DnsBlockedNanoDns));
+        } else if (err.find("2148916227") != std::string::npos ||
+                   err.find("suspended or banned") != std::string::npos) {
+            g_ui->showError(ui::tr(ui::Str::XboxAccountBanned),
+                            am.redirectUrl().empty() ? "https://enforcement.xbox.com" : am.redirectUrl());
         } else if (err.find("2148916233") != std::string::npos ||
                    err.find("no Xbox profile") != std::string::npos) {
             g_ui->showError(ui::tr(ui::Str::XboxProfileMissing),
                             am.redirectUrl().empty() ? "https://www.xbox.com" : am.redirectUrl());
+        } else if (err.find("2148916235") != std::string::npos) {
+            g_ui->showError(ui::tr(ui::Str::XboxRegionNotSupported), am.redirectUrl());
+        } else if (err.find("2148916236") != std::string::npos ||
+                   err.find("2148916237") != std::string::npos) {
+            g_ui->showError(ui::tr(ui::Str::XboxAdultVerificationRequired),
+                            am.redirectUrl().empty() ? "https://www.xbox.com" : am.redirectUrl());
+        } else if (err.find("2148916238") != std::string::npos) {
+            g_ui->showError(ui::tr(ui::Str::XboxChildAccountFamily),
+                            am.redirectUrl().empty() ? "https://account.microsoft.com/family" : am.redirectUrl());
         } else if (err.find("user interaction is required") != std::string::npos ||
                    err.find("invalid_grant") != std::string::npos ||
                    err.find("authorization_declined") != std::string::npos) {
@@ -961,6 +979,203 @@ void setWorkerState(int state) {
     g_workerStateCv.notify_all();
 }
 
+void runSignInCheck(auth::AuthManager& am, xcloud::GssvClient& gssv) {
+    ui::SignInCheckState st;
+    st.running = true;
+    st.stages = {
+        {"1. Account Storage", false, true, "Checking..."},
+        {"2. Microsoft OAuth (MSA)", false, true, "Waiting..."},
+        {"3. Xbox Live User Token", false, true, "Waiting..."},
+        {"4. XSTS Security Token", false, true, "Waiting..."},
+        {"5. xCloud Offering (xgpuweb)", false, true, "Waiting..."},
+    };
+    g_ui->setSignInCheckState(st);
+
+    bool writable = platform::dataDirWritable();
+    bool hasAccount = am.hasStoredAccount();
+    st.stages[0].pending = false;
+    st.stages[0].ok = writable && hasAccount;
+    st.stages[0].detail = !writable ? "Storage read-only" : (hasAccount ? "OK (account.json saved)" : "No saved account");
+    XC_LOGI("sign-in check: stage 1 (%s) -> %s: %s", st.stages[0].name.c_str(),
+            st.stages[0].ok ? "OK" : "FAIL", st.stages[0].detail.c_str());
+    if (!hasAccount) {
+        for (size_t i = 1; i < st.stages.size(); ++i) {
+            st.stages[i].pending = false;
+            st.stages[i].ok = false;
+            st.stages[i].detail = "Skipped (not signed in)";
+        }
+        st.running = false;
+        g_ui->setSignInCheckState(st);
+        return;
+    }
+    g_ui->setSignInCheckState(st);
+
+    std::string err;
+    uint64_t t0 = platform::nowMs();
+    bool ok = am.ensureFresh(&gssv, err, true);
+    uint64_t elapsedMs = platform::nowMs() - t0;
+
+    int failedStage = -1;
+    if (!ok) {
+        if (err.find("token refresh") != std::string::npos || err.find("not signed in") != std::string::npos) {
+            failedStage = 1;
+        } else if (err.find("Xbox user authentication") != std::string::npos) {
+            failedStage = 2;
+        } else if (err.find("XSTS authorization") != std::string::npos) {
+            failedStage = 3;
+        } else {
+            failedStage = 4;
+        }
+    }
+
+    for (int i = 1; i <= 4; ++i) {
+        auto& s = st.stages[static_cast<size_t>(i)];
+        s.pending = false;
+        if (ok || i < failedStage) {
+            s.ok = true;
+            if (i == 1) s.detail = "OK";
+            else if (i == 2) s.detail = "OK";
+            else if (i == 3) s.detail = am.profile().gamertag.empty() ? "OK" : ("OK (" + am.profile().gamertag + ")");
+            else if (i == 4)
+                s.detail = "OK (" + (gssv.session().market.empty() ? std::string("cloud") : gssv.session().market) +
+                           ", " + std::to_string(gssv.session().regions.size()) + " regions, " +
+                           std::to_string(elapsedMs) + " ms)";
+        } else if (i == failedStage) {
+            s.ok = false;
+            s.detail = err;
+        } else {
+            s.ok = false;
+            s.detail = "Skipped";
+        }
+        XC_LOGI("sign-in check: stage %d (%s) -> %s: %s", i + 1, s.name.c_str(), s.ok ? "OK" : "FAIL", s.detail.c_str());
+    }
+    st.running = false;
+    g_ui->setSignInCheckState(st);
+}
+
+std::string probeStunUdp() {
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    addrinfo* res = nullptr;
+    if (::getaddrinfo("stun.l.google.com", "19302", &hints, &res) != 0 || !res) {
+        return "DNS / UDP Unavailable";
+    }
+    int fd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (fd < 0) {
+        ::freeaddrinfo(res);
+        return "UDP Socket Error";
+    }
+    // RFC 5389 STUN Binding Request (20 bytes)
+    uint8_t req[20] = {
+        0x00, 0x01, 0x00, 0x00,              // Binding Request, length 0
+        0x21, 0x12, 0xA4, 0x42,              // Magic cookie
+        0x63, 0x87, 0x11, 0x42, 0x99, 0x10,  // Transaction ID (12 bytes)
+        0x24, 0x55, 0x7A, 0xBC, 0xDE, 0xF0,
+    };
+    uint64_t t0 = platform::nowMs();
+    ssize_t sent = ::sendto(fd, req, sizeof(req), 0, res->ai_addr, res->ai_addrlen);
+    ::freeaddrinfo(res);
+    if (sent != static_cast<ssize_t>(sizeof(req))) {
+        ::close(fd);
+        return "UDP Blocked";
+    }
+    pollfd pfd{};
+    pfd.fd = fd;
+    pfd.events = POLLIN;
+    int pr = ::poll(&pfd, 1, 900);
+    if (pr <= 0) {
+        ::close(fd);
+        return "UDP Filtered / Timeout";
+    }
+    uint8_t resp[128];
+    ssize_t got = ::recv(fd, resp, sizeof(resp), 0);
+    ::close(fd);
+    int rtt = static_cast<int>(platform::nowMs() - t0);
+    if (got >= 20 && resp[0] == 0x01 && resp[1] == 0x01) {
+        return "UDP Reachable (" + std::to_string(rtt) + " ms)";
+    }
+    return "UDP Invalid Response";
+}
+
+void runNetworkTest(xcloud::GssvClient& gssv) {
+    ui::NetworkTestState state;
+    state.running = true;
+    state.natStatus = "Probing UDP STUN...";
+    auto regions = gssv.session().regions;
+    if (regions.empty()) {
+        regions = {
+            {"BRAZILSOUTH", "https://brazilsouth.core.gssv-play-prod.xboxlive.com", true},
+            {"EASTUS", "https://eastus.core.gssv-play-prod.xboxlive.com", false},
+            {"EASTUS2", "https://eastus2.core.gssv-play-prod.xboxlive.com", false},
+            {"SOUTHCENTRALUS", "https://southcentralus.core.gssv-play-prod.xboxlive.com", false},
+            {"WESTUS2", "https://westus2.core.gssv-play-prod.xboxlive.com", false},
+            {"WESTEUROPE", "https://westeurope.core.gssv-play-prod.xboxlive.com", false},
+        };
+    }
+    for (const auto& r : regions) {
+        state.regions.push_back({r.name, -1, -1});
+    }
+    g_ui->setNetworkTestState(state);
+
+    state.natStatus = probeStunUdp();
+    XC_LOGI("network test: NAT/STUN -> %s", state.natStatus.c_str());
+    g_ui->setNetworkTestState(state);
+
+    std::map<std::string, int> measured;
+    {
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        measured = g_settings.regionRtt;
+    }
+
+    for (size_t i = 0; i < regions.size() && !g_cancel && !g_quit; ++i) {
+        const auto& r = regions[i];
+        if (r.baseUri.empty()) continue;
+        std::vector<int> samples;
+        for (int s = 0; s < 3 && !g_cancel && !g_quit; ++s) {
+            net::Request req;
+            req.method = "GET";
+            req.url = r.baseUri + "/";
+            req.timeoutMs = 2500;
+            uint64_t t0 = platform::nowMs();
+            net::Response resp = net::perform(req);
+            int dt = static_cast<int>(platform::nowMs() - t0);
+            if (resp.status > 0) samples.push_back(dt);
+        }
+        int rtt = -1, jitter = -1;
+        if (!samples.empty()) {
+            auto [minIt, maxIt] = std::minmax_element(samples.begin(), samples.end());
+            rtt = *minIt;
+            jitter = *maxIt - *minIt;
+            measured[r.name] = rtt;
+        }
+        for (auto& entry : state.regions) {
+            if (entry.name == r.name) {
+                entry.rttMs = rtt;
+                entry.jitterMs = jitter;
+                break;
+            }
+        }
+        XC_LOGI("network test: region %s -> rtt=%d ms, jitter=%d ms", r.name.c_str(), rtt, jitter);
+        g_ui->setNetworkTestState(state);
+    }
+
+    std::sort(state.regions.begin(), state.regions.end(), [](const ui::RegionNetStat& a, const ui::RegionNetStat& b) {
+        if ((a.rttMs >= 0) != (b.rttMs >= 0)) return a.rttMs >= 0;
+        if (a.rttMs != b.rttMs) return a.rttMs < b.rttMs;
+        return a.name < b.name;
+    });
+    state.running = false;
+    g_ui->setNetworkTestState(state);
+    if (!measured.empty()) {
+        {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            g_settings.regionRtt = measured;
+        }
+        g_ui->setRegionLatency(measured);
+    }
+}
+
 }  // namespace
 
 void startWorker() {
@@ -1017,6 +1232,8 @@ void worker() {
                 break;
             case kConsoles: loadConsoles(am, home); break;
             case kUpdate: runUpdate(); break;
+            case kCheckSignIn: runSignInCheck(am, gssv); break;
+            case kNetworkTest: runNetworkTest(gssv); break;
             case kReloadLibrary:
                 if (am.signedIn()) loadLibrary(am, gssv);
                 else signInAndLoad(am, gssv);

@@ -324,6 +324,14 @@ enum class Str {
     PlaytimePlayed,     // details / menu: "Played: %s"
     RefreshLibrary,     // hint: "Refresh"
     RefreshingLibrary,  // toast: "Refreshing library..."
+    XboxAccountBanned,  // error: 2148916227 suspended or banned
+    XboxRegionNotSupported, // error: 2148916235 Xbox Live not offered in country/region
+    XboxAdultVerificationRequired, // error: 2148916236/2148916237 age verification or terms acceptance required
+    XboxChildAccountFamily, // error: 2148916238 child account needs Microsoft family
+    CheckSignIn,        // settings: "Check my sign-in"
+    RunCheck,           // settings option: "Run check"
+    NetworkTest,        // settings: "Network test"
+    RunTest,            // settings option: "Run test"
     Count
 };
 

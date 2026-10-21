@@ -695,6 +695,18 @@ bool Core::frame() {
             platform::notify(ui::tr(ui::Str::RefreshingLibrary));
             break;
         }
+        case ui::Action::CheckSignIn: {
+            XC_LOGI("sign-in check: requested from Settings");
+            int idle = kNone;
+            if (!g_command.compare_exchange_strong(idle, kCheckSignIn)) XC_LOGW("sign-in check: worker is busy");
+            break;
+        }
+        case ui::Action::RunNetworkTest: {
+            XC_LOGI("network test: requested from Settings");
+            int idle = kNone;
+            if (!g_command.compare_exchange_strong(idle, kNetworkTest)) XC_LOGW("network test: worker is busy");
+            break;
+        }
         case ui::Action::None: break;
     }
 

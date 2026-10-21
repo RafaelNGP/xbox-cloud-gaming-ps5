@@ -119,6 +119,7 @@ std::string logExcerpt(const std::string& logText, bool previousSession, size_t 
     for (size_t i = 0; i < lines.size(); ++i)
         if (i == 0 || lines[i].find("[E]") != std::string::npos || lines[i].find("[W]") != std::string::npos ||
             lines[i].find("session summary:") != std::string::npos || lines[i].find("crash:") != std::string::npos ||
+            lines[i].find("network test:") != std::string::npos || lines[i].find("sign-in check:") != std::string::npos ||
             i + lastLines >= lines.size())
             keep.insert(i);
     std::string out;

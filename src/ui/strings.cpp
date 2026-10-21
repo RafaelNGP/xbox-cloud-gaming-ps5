@@ -347,6 +347,14 @@ constexpr Column kEnglish = {
     "Played: %s",                                     // PlaytimePlayed
     "Refresh",                                        // RefreshLibrary
     "Refreshing library...",                          // RefreshingLibrary
+    "This Xbox account is suspended or banned. Visit enforcement.xbox.com for details.", // XboxAccountBanned
+    "Xbox Live is not offered in this account's country or region.", // XboxRegionNotSupported
+    "Age verification or terms acceptance is required. Sign in to xbox.com in a browser, then try again.", // XboxAdultVerificationRequired
+    "Child account: an adult must add this account to a Microsoft family at account.microsoft.com/family.", // XboxChildAccountFamily
+    "Check my sign-in",                               // CheckSignIn
+    "Run check",                                      // RunCheck
+    "Network test",                                   // NetworkTest
+    "Run test",                                       // RunTest
 };
 
 constexpr Column kPortugueseBR = {
@@ -664,6 +672,14 @@ constexpr Column kPortugueseBR = {
     "Jogado: %s",                                     // PlaytimePlayed
     "Atualizar",                                      // RefreshLibrary
     "Atualizando biblioteca...",                      // RefreshingLibrary
+    "Esta conta Xbox está suspensa ou banida. Acesse enforcement.xbox.com para mais detalhes.", // XboxAccountBanned
+    "O Xbox Live não é oferecido no país ou região desta conta.", // XboxRegionNotSupported
+    "Verificação de idade ou aceite dos termos necessário. Entre em xbox.com pelo navegador e tente novamente.", // XboxAdultVerificationRequired
+    "Conta infantil: um adulto precisa adicionar esta conta a uma família Microsoft em account.microsoft.com/family.", // XboxChildAccountFamily
+    "Verificar meu login",                            // CheckSignIn
+    "Verificar",                                      // RunCheck
+    "Teste de rede",                                  // NetworkTest
+    "Testar",                                         // RunTest
 };
 
 constexpr Column kSpanish = {
@@ -981,6 +997,14 @@ constexpr Column kSpanish = {
     "Jugado: %s",                                     // PlaytimePlayed
     "Actualizar",                                     // RefreshLibrary
     "Actualizando biblioteca...",                     // RefreshingLibrary
+    "Esta cuenta de Xbox está suspendida o bloqueada. Visita enforcement.xbox.com para más detalles.", // XboxAccountBanned
+    "Xbox Live no se ofrece en el país o región de esta cuenta.", // XboxRegionNotSupported
+    "Se requiere verificación de edad o aceptar los términos. Inicia sesión en xbox.com desde un navegador y vuelve a intentarlo.", // XboxAdultVerificationRequired
+    "Cuenta infantil: un adulto debe añadir esta cuenta a una familia de Microsoft en account.microsoft.com/family.", // XboxChildAccountFamily
+    "Comprobar mi inicio de sesión",                  // CheckSignIn
+    "Comprobar",                                      // RunCheck
+    "Prueba de red",                                  // NetworkTest
+    "Probar",                                         // RunTest
 };
 
 constexpr Column kFrench = {
@@ -1298,6 +1322,14 @@ constexpr Column kFrench = {
     "Joué : %s",                                      // PlaytimePlayed
     "Actualiser",                                     // RefreshLibrary
     "Actualisation de la bibliothèque...",            // RefreshingLibrary
+    "Ce compte Xbox est suspendu ou banni. Consultez enforcement.xbox.com pour plus de détails.", // XboxAccountBanned
+    "Xbox Live n'est pas proposé dans le pays ou la région de ce compte.", // XboxRegionNotSupported
+    "Vérification d'âge ou acceptation des conditions requise. Connectez-vous sur xbox.com dans un navigateur, puis réessayez.", // XboxAdultVerificationRequired
+    "Compte enfant : un adulte doit ajouter ce compte à une famille Microsoft sur account.microsoft.com/family.", // XboxChildAccountFamily
+    "Vérifier ma connexion",                          // CheckSignIn
+    "Vérifier",                                       // RunCheck
+    "Test réseau",                                    // NetworkTest
+    "Tester",                                         // RunTest
 };
 
 constexpr Column kGerman = {
@@ -1615,6 +1647,14 @@ constexpr Column kGerman = {
     "Gespielt: %s",                                   // PlaytimePlayed
     "Aktualisieren",                                  // RefreshLibrary
     "Bibliothek wird aktualisiert...",                // RefreshingLibrary
+    "Dieses Xbox-Konto ist gesperrt oder gebannt. Details unter enforcement.xbox.com.", // XboxAccountBanned
+    "Xbox Live wird im Land oder in der Region dieses Kontos nicht angeboten.", // XboxRegionNotSupported
+    "Altersprüfung oder Zustimmung zu den Bedingungen erforderlich. Melde dich im Browser auf xbox.com an und versuche es erneut.", // XboxAdultVerificationRequired
+    "Kinderkonto: Ein Erwachsener muss dieses Konto unter account.microsoft.com/family zu einer Microsoft-Familie hinzufügen.", // XboxChildAccountFamily
+    "Anmeldung prüfen",                               // CheckSignIn
+    "Prüfen",                                         // RunCheck
+    "Netzwerktest",                                   // NetworkTest
+    "Testen",                                         // RunTest
 };
 
 constexpr Column kItalian = {
@@ -1932,6 +1972,14 @@ constexpr Column kItalian = {
     "Giocato: %s",                                    // PlaytimePlayed
     "Aggiorna",                                       // RefreshLibrary
     "Aggiornamento libreria...",                      // RefreshingLibrary
+    "Questo account Xbox è sospeso o bloccato. Visita enforcement.xbox.com per i dettagli.", // XboxAccountBanned
+    "Xbox Live non è offerto nel paese o nella regione di questo account.", // XboxRegionNotSupported
+    "È richiesta la verifica dell'età o l'accettazione dei termini. Accedi a xbox.com in un browser, poi riprova.", // XboxAdultVerificationRequired
+    "Account bambino: un adulto deve aggiungere questo account a una famiglia Microsoft su account.microsoft.com/family.", // XboxChildAccountFamily
+    "Verifica il mio accesso",                        // CheckSignIn
+    "Verifica",                                       // RunCheck
+    "Test di rete",                                   // NetworkTest
+    "Testa",                                          // RunTest
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,
