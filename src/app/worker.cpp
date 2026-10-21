@@ -658,6 +658,13 @@ void tryInstantCachedBoot(auth::AuthManager& am) {
 }
 }  // namespace
 
+bool isDnsOrSinkholeError(const std::string& err) {
+    return err.find("DNS lookup failed") != std::string::npos ||
+           err.find("0x8041013d") != std::string::npos ||
+           err.find("0x804101e1") != std::string::npos ||
+           err.find("(errno 61)") != std::string::npos;
+}
+
 void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     if (!platform::dataDirWritable()) {
         std::string pathAndErr = platform::dataDir() + " (errno " + std::to_string(platform::dataDirErrno()) + ")";
@@ -692,12 +699,12 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         } else if (net::lastTlsProblem() == net::TlsProblem::Untrusted ||
                    net::lastTlsProblem() == net::TlsProblem::NameMismatch) {
             g_ui->showError(ui::tr(ui::Str::ConnectionIntercepted));
-        } else if (err.find("DNS lookup failed") != std::string::npos ||
-                   err.find("0x8041013d") != std::string::npos) {
+        } else if (isDnsOrSinkholeError(err)) {
             g_ui->showError(ui::tr(ui::Str::DnsBlockedNanoDns));
         } else if (err.find("2148916233") != std::string::npos ||
                    err.find("no Xbox profile") != std::string::npos) {
-            g_ui->showError(ui::tr(ui::Str::XboxProfileMissing), "https://www.xbox.com");
+            g_ui->showError(ui::tr(ui::Str::XboxProfileMissing),
+                            am.redirectUrl().empty() ? "https://www.xbox.com" : am.redirectUrl());
         } else if (err.find("user interaction is required") != std::string::npos ||
                    err.find("invalid_grant") != std::string::npos ||
                    err.find("authorization_declined") != std::string::npos) {
@@ -805,8 +812,7 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv) {
                             },
                             err);
     if (!ok) {
-        if (err.find("DNS lookup failed") != std::string::npos ||
-            err.find("0x8041013d") != std::string::npos) {
+        if (isDnsOrSinkholeError(err)) {
             g_ui->showError(ui::tr(ui::Str::DnsBlockedNanoDns));
         } else {
             g_ui->showError(ui::trf(ui::Str::LibraryFailed, err));
@@ -900,7 +906,8 @@ void worker() {
     if (g_autoplay.tlsCheck) {
         // How refused certificates are told apart, on the console's own TLS.
         static const char* kNames[] = {"none", "clock", "untrusted", "name mismatch", "other"};
-        for (const char* url : {"https://login.live.com/", "https://expired.badssl.com/", "https://self-signed.badssl.com/",
+        for (const char* url : {"https://login.live.com/", "https://CIA.core.gssv-play-prod.xboxlive.com/",
+                                "https://expired.badssl.com/", "https://self-signed.badssl.com/",
                                 "https://wrong.host.badssl.com/"}) {
             net::Request req;
             req.url = url;
@@ -921,11 +928,14 @@ void worker() {
         switch (cmd) {
             case kSignIn:
                 signInAndLoad(am, gssv);
-                if (!g_quit) loadConsoles(am, home);  // empty when the sign-in failed
+                if (!g_quit && am.signedIn()) loadConsoles(am, home);
                 break;
             case kConsoles: loadConsoles(am, home); break;
             case kUpdate: runUpdate(); break;
-            case kReloadLibrary: loadLibrary(am, gssv); break;  // e.g. after a language change
+            case kReloadLibrary:
+                if (am.signedIn()) loadLibrary(am, gssv);
+                else signInAndLoad(am, gssv);
+                break;
             case kSignOut:
                 // Nothing of this account stays for the next one: its library
                 // stops loading, its cache goes, the lists empty.
@@ -947,7 +957,7 @@ void worker() {
                 g_ui->setPlaytime(-1, -1);
                 XC_LOGI("signed out: library and its cache cleared");
                 signInAndLoad(am, gssv);
-                if (!g_quit) loadConsoles(am, home);
+                if (!g_quit && am.signedIn()) loadConsoles(am, home);
                 break;
             case kPlay: {
                 stopHydration();
@@ -997,7 +1007,7 @@ void worker() {
                         g_ui->showHome(endedToast(result));
                     g_playingHome = false;
                     autoplayFinished(result);
-                    if (!g_quit) loadConsoles(am, home);  // its state changed
+                    if (!g_quit && am.signedIn()) loadConsoles(am, home);  // its state changed
                     break;
                 }
                 bool automatic;
@@ -1041,8 +1051,12 @@ void worker() {
                                                 tile.name),
                                         tile);
                 } else if (failed) {
-                    if (result.find("DNS lookup failed") != std::string::npos ||
-                        result.find("0x8041013d") != std::string::npos) {
+                    if (net::lastTlsProblem() == net::TlsProblem::Clock) {
+                        g_ui->showError(ui::trf(shell::caps().console ? ui::Str::ClockWrong : ui::Str::ClockWrongPc, net::todayText()));
+                    } else if (net::lastTlsProblem() == net::TlsProblem::Untrusted ||
+                               net::lastTlsProblem() == net::TlsProblem::NameMismatch) {
+                        g_ui->showError(ui::tr(ui::Str::ConnectionIntercepted));
+                    } else if (isDnsOrSinkholeError(result)) {
                         g_ui->showError(ui::tr(ui::Str::DnsBlockedNanoDns));
                     } else {
                         g_ui->showError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result);
@@ -1065,6 +1079,10 @@ void worker() {
                         tile.name.c_str(), tile.productId.c_str(), tile.titleId.c_str());
 
                 std::string err;
+                if (!keepSignedIn(am, gssv, err)) {
+                    XC_LOGW("claim: sign-in renewal: %s", err.c_str());
+                    err.clear();
+                }
                 xcloud::PurchaseOffer offer;
                 std::string market = gssv.session().market.empty() ? "US" : gssv.session().market;
                 std::string lang = ui::catalogLanguage();
@@ -1082,7 +1100,11 @@ void worker() {
                 std::string authHeader;
                 if (!am.marketplaceAuthorization(authHeader, err)) {
                     XC_LOGW("claim: marketplace auth failed: %s", err.c_str());
-                    g_ui->showPlayError(ui::trf(ui::Str::ClaimFailed, err), tile);
+                    if (err == "not signed in") {
+                        g_ui->showError(ui::trf(ui::Str::ClaimFailed, err));
+                    } else {
+                        g_ui->showPlayError(ui::trf(ui::Str::ClaimFailed, err), tile);
+                    }
                     break;
                 }
                 if (!xcloud::claimFreeProduct(authHeader, offer, market, ui::catalogLanguage(), err)) {

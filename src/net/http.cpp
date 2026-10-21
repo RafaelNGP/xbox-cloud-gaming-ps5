@@ -113,6 +113,16 @@ void setTimeouts(int fd, int timeoutMs) {
 int connectTcp(const std::string& host, int port, int timeoutMs, std::string& err) {
     uint32_t ip = 0;
     if (!platform::resolveIPv4(host, ip, err)) return -1;
+    uint32_t hostOrderIp = ntohl(ip);
+    char ipStr[32];
+    std::snprintf(ipStr, sizeof ipStr, "%u.%u.%u.%u",
+                  (hostOrderIp >> 24) & 0xFF, (hostOrderIp >> 16) & 0xFF,
+                  (hostOrderIp >> 8) & 0xFF, hostOrderIp & 0xFF);
+    if (host != "localhost" && host != "127.0.0.1" &&
+        (hostOrderIp == 0 || (hostOrderIp >> 24) == 127)) {
+        err = "DNS lookup failed for " + host + " (sinkhole IP " + ipStr + ")";
+        return -1;
+    }
     sockaddr_in sa{};
     sa.sin_family = AF_INET;
     sa.sin_port = htons(static_cast<uint16_t>(port));
@@ -144,20 +154,20 @@ int connectTcp(const std::string& host, int port, int timeoutMs, std::string& er
             int connectTimeout = (timeoutMs > 0) ? std::min(timeoutMs, 10000) : 10000;
             int pr = ::poll(&pfd, 1, connectTimeout);
             if (pr <= 0) {
-                err = (pr == 0) ? "connect timed out to " + host + ":" + std::to_string(port)
-                                : "poll failed connecting to " + host + ":" + std::to_string(port) + " (errno " + std::to_string(errno) + ")";
+                err = (pr == 0) ? "connect timed out to " + host + ":" + std::to_string(port) + " [" + ipStr + "]"
+                                : "poll failed connecting to " + host + ":" + std::to_string(port) + " [" + ipStr + "] (errno " + std::to_string(errno) + ")";
                 ::close(fd);
                 return -1;
             }
             int so_error = 0;
             socklen_t len = sizeof so_error;
             if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &len) < 0 || so_error != 0) {
-                err = "connect failed to " + host + ":" + std::to_string(port) + " (errno " + std::to_string(so_error ? so_error : errno) + ")";
+                err = "connect failed to " + host + ":" + std::to_string(port) + " [" + ipStr + "] (errno " + std::to_string(so_error ? so_error : errno) + ")";
                 ::close(fd);
                 return -1;
             }
         } else {
-            err = "connect failed to " + host + ":" + std::to_string(port) + " (errno " + std::to_string(errno) + ")";
+            err = "connect failed to " + host + ":" + std::to_string(port) + " [" + ipStr + "] (errno " + std::to_string(errno) + ")";
             ::close(fd);
             return -1;
         }
@@ -478,6 +488,79 @@ void shutdownTls() {
 
 namespace {
 
+struct VerifyChainCtx {
+    mbedtls_x509_crt* ca = nullptr;
+    const char* host = nullptr;
+    uint32_t deferredFlags = 0;
+};
+
+// Some regional Azure load balancers (e.g. CIA.core.gssv-play-prod.xboxlive.com
+// in Central India) deliver intermediate certificates out of RFC 5246 order
+// ([leaf, root, intermediate2, intermediate1] where intermediate1 signs leaf
+// and intermediate2 signs intermediate1). Stock mbedTLS only searches
+// child->next for each parent, failing with MBEDTLS_X509_BADCERT_NOT_TRUSTED.
+// When that happens on a multi-certificate peer chain, reconstruct the
+// issuer-ordered chain from the full peer list and re-verify it against `ca`.
+int verifyPeerChainCallback(void* data, mbedtls_x509_crt* crt, int depth, uint32_t* flags) {
+    auto* ctx = static_cast<VerifyChainCtx*>(data);
+    if (!ctx || !ctx->ca || !crt || !flags) return 0;
+    if (depth > 0) {
+        if (*flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED) {
+            ctx->deferredFlags |= (*flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED);
+            *flags &= ~static_cast<uint32_t>(MBEDTLS_X509_BADCERT_NOT_TRUSTED);
+        }
+        return 0;
+    }
+    *flags |= ctx->deferredFlags;
+    ctx->deferredFlags = 0;
+    if (!(*flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED) || !crt->next) return 0;
+
+    std::vector<const mbedtls_x509_crt*> all;
+    for (const mbedtls_x509_crt* c = crt; c != nullptr && all.size() < 16; c = c->next)
+        all.push_back(c);
+
+    std::vector<const mbedtls_x509_crt*> ordered;
+    ordered.push_back(crt);
+    bool orderChanged = false;
+    while (ordered.size() < all.size()) {
+        const mbedtls_x509_crt* child = ordered.back();
+        const mbedtls_x509_crt* nextParent = nullptr;
+        for (const mbedtls_x509_crt* cand : all) {
+            if (std::find(ordered.begin(), ordered.end(), cand) != ordered.end()) continue;
+            if (child->issuer_raw.len == cand->subject_raw.len &&
+                std::memcmp(child->issuer_raw.p, cand->subject_raw.p, child->issuer_raw.len) == 0) {
+                nextParent = cand;
+                break;
+            }
+        }
+        if (!nextParent) break;
+        if (nextParent != child->next) orderChanged = true;
+        ordered.push_back(nextParent);
+    }
+    if (!orderChanged) return 0;
+
+    mbedtls_x509_crt reordered;
+    mbedtls_x509_crt_init(&reordered);
+    bool parsedOk = true;
+    for (const mbedtls_x509_crt* c : ordered) {
+        if (mbedtls_x509_crt_parse_der(&reordered, c->raw.p, c->raw.len) != 0) {
+            parsedOk = false;
+            break;
+        }
+    }
+    if (parsedOk) {
+        uint32_t newFlags = 0;
+        int vrc = mbedtls_x509_crt_verify(&reordered, ctx->ca, nullptr, ctx->host, &newFlags, nullptr, nullptr);
+        if (vrc == 0) {
+            *flags = 0;
+        } else if (vrc == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED) {
+            *flags = newFlags;
+        }
+    }
+    mbedtls_x509_crt_free(&reordered);
+    return 0;
+}
+
 // One request on one connection: a kept-alive one from the pool when
 // `reuse` and there is one, else a new one. `stale` is set (and nothing
 // else is to be trusted in the answer) when a kept-alive connection failed
@@ -530,6 +613,8 @@ Response exchange(const Request& req, const Url& url, bool reuse, bool& stale) {
         if (rc) return finish("ssl_config_defaults: " + tlsError(rc));
         mbedtls_ssl_conf_authmode(&conn->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
         mbedtls_ssl_conf_ca_chain(&conn->conf, &g.ca, nullptr);
+        VerifyChainCtx verifyCtx{&g.ca, url.host.c_str(), 0};
+        mbedtls_ssl_conf_verify(&conn->conf, verifyPeerChainCallback, &verifyCtx);
         mbedtls_ssl_conf_rng(&conn->conf, mbedtls_ctr_drbg_random, &g.drbg);
         if ((rc = mbedtls_ssl_setup(&conn->ssl, &conn->conf))) return finish("ssl_setup: " + tlsError(rc));
         if ((rc = mbedtls_ssl_set_hostname(&conn->ssl, url.host.c_str()))) return finish("set_hostname: " + tlsError(rc));

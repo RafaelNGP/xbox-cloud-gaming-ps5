@@ -40,6 +40,9 @@ bool fetchPurchaseOffer(const std::string& productId, const std::string& market,
     out.skuId.clear();
     out.availabilityId.clear();
 
+    PurchaseOffer fallbackFree{};
+    PurchaseOffer fallbackAny{};
+
     for (const auto& dsa : p["DisplaySkuAvailabilities"].items()) {
         std::string skuId = dsa["Sku"]["SkuId"].str();
         for (const auto& av : dsa["Availabilities"].items()) {
@@ -48,18 +51,36 @@ bool fetchPurchaseOffer(const std::string& productId, const std::string& market,
             const auto& price = av["OrderManagementData"]["Price"];
             if (!purchase || !price.isObject()) continue;
 
-            out.skuId = skuId.empty() ? av["SkuId"].str() : skuId;
-            out.availabilityId = av["AvailabilityId"].str();
-            out.listPrice = price["ListPrice"].asNumber();
-            out.msrp = price["MSRP"].asNumber();
-            out.currency = price["CurrencyCode"].str();
-            if (out.listPrice <= 0.005 && out.msrp <= 0.005) {
-                out.isFree = true;
-            }
-            if (!out.availabilityId.empty()) {
+            PurchaseOffer cand;
+            cand.productId = productId;
+            cand.skuId = skuId.empty() ? av["SkuId"].str() : skuId;
+            cand.availabilityId = av["AvailabilityId"].str();
+            cand.listPrice = price["ListPrice"].asNumber();
+            cand.msrp = price["MSRP"].asNumber();
+            cand.currency = price["CurrencyCode"].str();
+            cand.isFree = (cand.listPrice <= 0.005 && cand.msrp <= 0.005);
+            if (cand.availabilityId.empty()) continue;
+
+            bool remediation = av["RemediationRequired"].asBool();
+            if (cand.isFree && !remediation) {
+                out = cand;
                 return true;
             }
+            if (cand.isFree && fallbackFree.availabilityId.empty()) {
+                fallbackFree = cand;
+            }
+            if (fallbackAny.availabilityId.empty()) {
+                fallbackAny = cand;
+            }
         }
+    }
+    if (!fallbackFree.availabilityId.empty()) {
+        out = fallbackFree;
+        return true;
+    }
+    if (!fallbackAny.availabilityId.empty()) {
+        out = fallbackAny;
+        return true;
     }
     err = "no purchase availability found for " + productId;
     return false;
@@ -77,22 +98,39 @@ std::string uuid4() {
     return s;
 }
 
+bool isAlreadyOwnedError(const net::Response& r) {
+    if (r.body.find("UserAlreadyOwnsContent") != std::string::npos) return true;
+    auto j = json::parse(r.body);
+    if (!j) return false;
+    return (*j)["innererror"]["code"].str() == "UserAlreadyOwnsContent" ||
+           (*j)["code"].str() == "UserAlreadyOwnsContent";
+}
+
 std::string extractErrorDetail(const net::Response& r) {
     auto j = json::parse(r.body);
     if (!j) return r.error.empty() ? ("HTTP " + std::to_string(r.status)) : r.error;
-    if ((*j)["innererror"]["data"].isArray() && (*j)["innererror"]["data"].size() > 0 &&
-        (*j)["innererror"]["data"][0].isString()) {
-        return (*j)["innererror"]["data"][0].str();
-    }
+    std::string innerCode = (*j)["innererror"]["code"].str();
     if ((*j)["innererror"]["details"].isArray() && (*j)["innererror"]["details"].size() > 0 &&
         (*j)["innererror"]["details"][0]["message"].isString()) {
-        return (*j)["innererror"]["details"][0]["message"].str();
+        std::string msg = (*j)["innererror"]["details"][0]["message"].str();
+        return innerCode.empty() ? msg : (innerCode + ": " + msg);
     }
     if ((*j)["innererror"]["message"].isString()) {
-        return (*j)["innererror"]["message"].str();
+        std::string msg = (*j)["innererror"]["message"].str();
+        return innerCode.empty() ? msg : (innerCode + ": " + msg);
+    }
+    if (!innerCode.empty()) {
+        return innerCode;
     }
     if ((*j)["message"].isString()) {
         return (*j)["message"].str();
+    }
+    if ((*j)["code"].isString()) {
+        return (*j)["code"].str();
+    }
+    if ((*j)["innererror"]["data"].isArray() && (*j)["innererror"]["data"].size() > 0 &&
+        (*j)["innererror"]["data"][0].isString()) {
+        return (*j)["innererror"]["data"][0].str();
     }
     return "HTTP " + std::to_string(r.status);
 }
@@ -153,6 +191,11 @@ bool claimFreeProduct(const std::string& marketplaceAuthHeader, const PurchaseOf
 
     auto r = net::perform(req);
     if (!r.ok()) {
+        if (isAlreadyOwnedError(r)) {
+            XC_LOGI("claimFreeProduct: account already owns %s (UserAlreadyOwnsContent on create)",
+                    offer.productId.c_str());
+            return true;
+        }
         err = extractErrorDetail(r);
         XC_LOGW("claimFreeProduct: create order failed for %s: %s (status %d)",
                 offer.productId.c_str(), err.c_str(), r.status);
@@ -172,6 +215,11 @@ bool claimFreeProduct(const std::string& marketplaceAuthHeader, const PurchaseOf
 
     auto finRes = net::perform(finReq);
     if (!finRes.ok()) {
+        if (isAlreadyOwnedError(finRes)) {
+            XC_LOGI("claimFreeProduct: account already owns %s (UserAlreadyOwnsContent on finalize)",
+                    offer.productId.c_str());
+            return true;
+        }
         err = extractErrorDetail(finRes);
         XC_LOGW("claimFreeProduct: finalize order failed for %s (order %s): %s (status %d)",
                 offer.productId.c_str(), orderId.c_str(), err.c_str(), finRes.status);

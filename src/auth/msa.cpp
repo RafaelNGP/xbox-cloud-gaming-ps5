@@ -50,9 +50,17 @@ std::string describe(const net::Response& r) {
 int64_t unixNow() { return static_cast<int64_t>(std::time(nullptr)); }
 
 bool MsaClient::startDeviceCode(DeviceCode& out, std::string& err) const {
-    auto r = postForm(kConnectUrl, {{"client_id", cfg_.clientId},
-                                    {"scope", cfg_.scope},
-                                    {"response_type", "device_code"}});
+    net::Response r;
+    constexpr int kTries = 3;
+    for (int attempt = 1; attempt <= kTries; ++attempt) {
+        r = postForm(kConnectUrl, {{"client_id", cfg_.clientId},
+                                   {"scope", cfg_.scope},
+                                   {"response_type", "device_code"}});
+        bool transient = r.status == 0 || r.status == 408 || r.status == 429 || r.status >= 500;
+        if (!transient || attempt == kTries) break;
+        XC_LOGW("device code request: %s, trying again (%d/%d)", describe(r).c_str(), attempt + 1, kTries);
+        platform::sleepMs(1000u << (attempt - 1));
+    }
     auto j = json::parse(r.body);
     if (!r.ok() || !j) {
         err = "device code request failed: " + describe(r);

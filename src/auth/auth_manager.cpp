@@ -120,7 +120,10 @@ bool AuthManager::xboxChain(xcloud::GssvClient* gssv, std::string& err, bool ful
     // fall back to "d=" in case the service expects the MSAL form.
     if (!xblUserToken(tokens_.accessToken, "t=", user, err, &redirectUrl_)) {
         std::string err2;
-        if (!xblUserToken(tokens_.accessToken, "d=", user, err2, &redirectUrl_)) return false;
+        if (err.find("HTTP ") == std::string::npos ||
+            !xblUserToken(tokens_.accessToken, "d=", user, err2, &redirectUrl_)) {
+            return false;
+        }
         err.clear();
     }
 
@@ -455,15 +458,44 @@ bool AuthManager::marketplaceAuthorization(std::string& outAuthHeader, std::stri
         outAuthHeader = marketplaceXsts_.authorizationHeader();
         return true;
     }
-    if (tokens_.accessToken.empty()) {
-        err = "not signed in";
-        return false;
+    bool refreshedMsa = false;
+    if (tokens_.accessToken.empty() || (tokens_.expiresAt > 0 && refreshDue(tokens_.expiresAt, unixNow()))) {
+        if (tokens_.refreshToken.empty()) {
+            err = "not signed in";
+            return false;
+        }
+        MsaTokens t;
+        if (!msa_.refresh(tokens_.refreshToken, t, err)) return false;
+        if (t.userId.empty()) t.userId = tokens_.userId;
+        tokens_ = t;
+        save();
+        refreshedMsa = true;
     }
     XblToken userToken;
-    if (!xblUserToken(tokens_.accessToken, "t=", userToken, err, &redirectUrl_)) {
+    auto fetchUserToken = [&]() {
+        if (xblUserToken(tokens_.accessToken, "t=", userToken, err, &redirectUrl_)) return true;
         std::string err2;
-        if (!xblUserToken(tokens_.accessToken, "d=", userToken, err2, &redirectUrl_)) return false;
-        err.clear();
+        if (err.find("HTTP ") != std::string::npos &&
+            xblUserToken(tokens_.accessToken, "d=", userToken, err2, &redirectUrl_)) {
+            err.clear();
+            return true;
+        }
+        return false;
+    };
+    if (!fetchUserToken()) {
+        if (!refreshedMsa && !tokens_.refreshToken.empty() && err.find("HTTP ") != std::string::npos) {
+            MsaTokens t;
+            if (msa_.refresh(tokens_.refreshToken, t, err)) {
+                if (t.userId.empty()) t.userId = tokens_.userId;
+                tokens_ = t;
+                save();
+                if (!fetchUserToken()) return false;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
     }
     if (!xstsToken(userToken, rp::kMarketplace, marketplaceXsts_, err, &redirectUrl_)) {
         return false;

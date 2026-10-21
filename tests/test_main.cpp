@@ -2472,15 +2472,62 @@ static void testPurchase() {
     auto putJson = json::parse(lastPutReq.body);
     CHECK(putJson && (*putJson)["orderState"].str() == "Purchased");
 
-    // 6. claimFreeProduct error handling
+    // 6. claimFreeProduct error handling (must extract innererror code/message, not innererror.data[0] productId)
     net::setTestTransport([&](const net::Request&) {
         net::Response r;
         r.status = 400;
-        r.body = R"({"code":"PaymentRequired","innererror":{"message":"Payment method needed"}})";
+        r.body = R"({"code":"PaymentRequired","innererror":{"code":"MissingPaymentInstrument","data":["FREE123"],"message":"Payment method needed"}})";
         return r;
     });
     CHECK(!claimFreeProduct("XBL3.0 x=test;token", offer, "US", "en-US", err));
     CHECK(err.find("Payment method needed") != std::string::npos);
+    CHECK(err != "FREE123");
+
+    // 7. UserAlreadyOwnsContent on finalize (HTTP 403, Issue #104) is treated as already acquired
+    net::setTestTransport([&](const net::Request& req) {
+        net::Response r;
+        if (req.method == "POST") {
+            r.status = 201;
+            r.body = R"({"orderId":"ORDER-12345","orderState":"Editing"})";
+        } else {
+            r.status = 403;
+            r.body = R"({"code":"Forbidden","innererror":{"code":"UserAlreadyOwnsContent","data":["9P22THR57FV7"],"message":"Purchase policy restricts user from purchasing certain content multiple times"}})";
+        }
+        return r;
+    });
+    CHECK(claimFreeProduct("XBL3.0 x=test;token", offer, "US", "en-US", err));
+
+    // 8. fetchPurchaseOffer skips RemediationRequired upsells and picks the non-remediated free availability
+    net::setTestTransport([&](const net::Request&) {
+        net::Response r;
+        r.status = 200;
+        r.body = R"({
+            "Products": [{
+                "DisplaySkuAvailabilities": [{
+                    "Sku": {"SkuId": "0001"},
+                    "Availabilities": [
+                        {
+                            "AvailabilityId": "AVAIL_UPSELL_REMEDIATION",
+                            "Actions": ["Purchase"],
+                            "RemediationRequired": true,
+                            "OrderManagementData": {"Price": {"ListPrice": 0.0, "MSRP": 0.0, "CurrencyCode": "USD"}}
+                        },
+                        {
+                            "AvailabilityId": "AVAIL_DIRECT_FREE",
+                            "Actions": ["Purchase"],
+                            "RemediationRequired": false,
+                            "OrderManagementData": {"Price": {"ListPrice": 0.0, "MSRP": 0.0, "CurrencyCode": "USD"}}
+                        }
+                    ]
+                }]
+            }]
+        })";
+        return r;
+    });
+    PurchaseOffer directOffer;
+    CHECK(fetchPurchaseOffer("FREE123", "US", "en-us", directOffer, err));
+    CHECK(directOffer.isFree);
+    CHECK(directOffer.availabilityId == "AVAIL_DIRECT_FREE");
 
     net::setTestTransport({});
 }
