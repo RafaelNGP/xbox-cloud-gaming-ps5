@@ -87,6 +87,7 @@ struct Autoplay {
     bool regionTest = false;     // regiontest: the refused sign-in (region.ppm), its country list (region_picker.ppm,
                                  // closed unchanged), Settings on the sign-in country (region_settings.ppm), back
                                  // (region_back.ppm). The sign-in country is never changed.
+    bool donationTest = false;   // donationtest: navigate to Settings row 19, open donation modal, save donation.ppm
 };
 extern Autoplay g_autoplay;
 extern std::atomic<bool> g_syntheticA;  // A held down for the game

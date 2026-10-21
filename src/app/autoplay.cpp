@@ -31,6 +31,7 @@ namespace {
 // The home screen was saved: the tests that start from it may go.
 bool uiSaved = false;
 bool settingsShot = false;  // "settingstest": save the screen now
+bool donationShot = false;  // "donationtest": save the screen now
 const char* keysShot = nullptr;  // "keystest": the screen to save now
 uint64_t homeSince = 0, launchSince = 0;
 bool launchSaved = false;
@@ -146,6 +147,7 @@ void loadAutoplay() {
         if (opt == "streammenutest") g_autoplay.streamMenuTest = true;
         if (opt == "regiontest") g_autoplay.regionTest = true;
         if (opt == "tlscheck") g_autoplay.tlsCheck = true;
+        if (opt == "donationtest") g_autoplay.donationTest = true;
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
@@ -793,6 +795,39 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
             if (next) ++step;
         }
     }
+
+    if (g_autoplay.donationTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        static SettingsWalk walk;
+        const uint64_t at[] = {500, 1500, 3200, 4800, 7000, 8500};
+        if (step < 6 && now - since >= at[step]) {
+            bool next = true;
+            if (step == 0) nav.options = true;
+            if (step == 1) next = walk.step(nav, downsTo(19));
+            if (step == 2) {
+                if (onSettingsRow(19, "donation test")) {
+                    settingsShot = true;
+                } else {
+                    g_autoplay.donationTest = false;
+                    g_ui->showHome();
+                }
+            }
+            if (step == 3) {
+                nav.accept = true;
+            }
+            if (step == 4) {
+                donationShot = true;
+            }
+            if (step == 5) {
+                g_ui->showHome();
+                g_autoplay.donationTest = false;
+                XC_LOGI("AUTOPLAY END: donation test");
+            }
+            if (next) ++step;
+        }
+    }
 }
 
 void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
@@ -930,10 +965,19 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             saveCanvas("detail.ppm");
             detailShot = true;
             ui::NavInput in{};
-            in.l3 = true;
+            in.right = true;
             g_ui->handle(in);
             achAt = now;
-        } else if (achAt && now - achAt > 3000) {
+        } else if (achAt && now - achAt > 1500 && now - achAt <= 3000) {
+            static bool focusShot = false;
+            if (!focusShot) {
+                saveCanvas("detail_focus_ach.ppm");
+                focusShot = true;
+                ui::NavInput in{};
+                in.accept = true;
+                g_ui->handle(in);
+            }
+        } else if (achAt && now - achAt > 4000) {
             saveCanvas("achievements.ppm");
             g_autoplay.detailTest = false;
             XC_LOGI("AUTOPLAY END: detail test");
@@ -947,6 +991,11 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         settingsShot = false;
         saveCanvas("settings.ppm");
         XC_LOGI("AUTOPLAY END: settings test");
+    }
+    if (donationShot) {
+        donationShot = false;
+        saveCanvas("donation.ppm");
+        XC_LOGI("AUTOPLAY END: donation screenshot saved");
     }
     if (g_autoplay.consolesTab && uiSaved) {
         static uint64_t shownAt = 0;

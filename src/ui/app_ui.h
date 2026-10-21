@@ -188,10 +188,10 @@ std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool cus
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 19;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+constexpr int kSettingRows = 20;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
                                   // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys,
                                   // display mode (a desktop's window), controller buttons, gyro aiming, queue chime,
-                                  // check sign-in, network test
+                                  // check sign-in, network test, support project
 
 struct SignInStage {
     std::string name;
@@ -538,7 +538,7 @@ private:
     Color pickerColour() const;
     void drawColourPicker(Canvas& c);
     // The testers that Dead zone and Trigger vibration open in Settings.
-    enum class Tester { None, Sticks, Triggers, Keys, Pad, SignInCheck, NetworkTest };
+    enum class Tester { None, Sticks, Triggers, Keys, Pad, SignInCheck, NetworkTest, Donation };
     void openTester(Tester t);
     void handleTester(const NavInput& in);
     void drawStickTester(Canvas& c);
@@ -552,6 +552,7 @@ private:
     void drawPadTester(Canvas& c);
     void drawSignInCheck(Canvas& c, uint64_t nowMs);
     void drawNetworkTest(Canvas& c, uint64_t nowMs);
+    void drawDonationModal(Canvas& c);
     void openAchievements();
     void drawAchievementsModal(Canvas& c, uint64_t nowMs);
     // A modal panel over Settings with its title; returns its rectangle.
@@ -715,6 +716,7 @@ private:
     uint64_t achievementsAskedAt_ = 0;
     bool achievementsOpen_ = false;
     int achScroll_ = 0;
+    int detailButtonFocus_ = 0;  // 0 = Play / Claim, 1 = Achievements
 };
 
 }  // namespace xc::ui

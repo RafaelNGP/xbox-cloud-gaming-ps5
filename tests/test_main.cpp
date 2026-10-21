@@ -2039,21 +2039,21 @@ static void testVisibleSettingsRows() {
     };
     const ui::UiCaps ps5;
     auto all = ui::visibleSettingsRows(ps5);
-    CHECK((ids(all) == std::vector<int>{0, 8, 17, 1, 9, 10, 2, 18, 11, 16, 3, 4, 5, 6, 15, 14, 12, 7}));
-    CHECK((groups(all) == std::vector<bool>{false, false, false, true, false, false, false, false, true, false, true, false, false, false, false, false, false, true}));
+    CHECK((ids(all) == std::vector<int>{0, 8, 17, 1, 9, 10, 2, 18, 11, 16, 3, 4, 5, 6, 15, 14, 12, 7, 19}));
+    CHECK((groups(all) == std::vector<bool>{false, false, false, true, false, false, false, false, true, false, true, false, false, false, false, false, false, true, false}));
     ui::UiCaps pc;
     pc.lightBar = pc.triggerRumble = pc.adaptiveTriggers = pc.gyro = pc.touchpad = false;
     pc.upscalers = pc.sharpen = pc.deband = pc.highRefresh = pc.console = pc.selfUpdate = false;
     pc.openUrl = true;
     auto desk = ui::visibleSettingsRows(pc);
-    CHECK((ids(desk) == std::vector<int>{0, 8, 17, 1, 10, 2, 18, 11, 16, 3, 5, 14, 12, 7}));
-    CHECK((groups(desk) == std::vector<bool>{false, false, false, true, false, false, false, true, false, true, false, false, false, true}));
+    CHECK((ids(desk) == std::vector<int>{0, 8, 17, 1, 10, 2, 18, 11, 16, 3, 5, 14, 12, 7, 19}));
+    CHECK((groups(desk) == std::vector<bool>{false, false, false, true, false, false, false, true, false, true, false, false, false, true, false}));
     // The desktop app's window: Display mode after the resolution, in the stream's group.
     ui::UiCaps win = pc;
     win.desktopWindow = true;
     auto w = ui::visibleSettingsRows(win);
-    CHECK((ids(w) == std::vector<int>{0, 8, 17, 1, 13, 10, 2, 18, 11, 16, 3, 5, 14, 12, 7}));
-    CHECK((groups(w) == std::vector<bool>{false, false, false, true, false, false, false, false, true, false, true, false, false, false, true}));
+    CHECK((ids(w) == std::vector<int>{0, 8, 17, 1, 13, 10, 2, 18, 11, 16, 3, 5, 14, 12, 7, 19}));
+    CHECK((groups(w) == std::vector<bool>{false, false, false, true, false, false, false, false, true, false, true, false, false, false, true, false}));
     ui::UiCaps xbox = pc;  // an Xbox pad: impulse triggers, no light bar
     xbox.triggerRumble = true;
     auto x = ids(ui::visibleSettingsRows(xbox));

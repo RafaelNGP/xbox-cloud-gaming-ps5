@@ -391,10 +391,6 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     line(Str::StatLoss, fmt("%.1f %%", info.lossPct));
     line(Str::StatDecode, info.decodeMs > 0 ? fmt("%.1f ms", info.decodeMs) : none);
     line(Str::StatOnScreen, info.onScreenMs > 0 ? fmt("%.1f ms", info.onScreenMs) : none);
-    // Playtime for the current title
-    if (info.playtimeSeconds > 0) {
-        line(Str::PlaytimePlayed, formatPlaytime(info.playtimeSeconds));
-    }
 
     // The controllers: numbered pads, each connected one with its user.
     y += 8;

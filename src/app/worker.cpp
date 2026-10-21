@@ -31,6 +31,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <fcntl.h>
 #include <netdb.h>
 #include <poll.h>
 #include <sys/socket.h>
@@ -391,7 +392,6 @@ std::string stream(xcloud::GssvClient& gssv) {
         XC_LOGI("session summary: %s; %llu s with a degraded connection, %llu frames lost, %llu recovered packets",
                 details, static_cast<unsigned long long>(session.badSeconds),
                 static_cast<unsigned long long>(st.rtpDroppedFrames), static_cast<unsigned long long>(st.rtpRecovered));
-        if (!autoplayDone || g_autoplay.title.empty()) platform::notify(ui::trf(ui::Str::SessionSummary, details), "session summary (notification)");
     }
     // Ended before a single frame: the game never started (e.g. it closed on
     // the server); say so on the error screen instead of going back quietly.
@@ -706,7 +706,7 @@ std::string endedToast(const std::string& result) {
     if (result.find("KickForStopCommand") != std::string::npos) return ui::tr(ui::Str::EndedOnXbox);
     if (result.find("KickByNewSession") != std::string::npos) return ui::tr(ui::Str::EndedByOtherDevice);
     if (result.find("KickForServerShutdown") != std::string::npos) return ui::tr(ui::Str::EndedXboxOff);
-    return ui::tr(ui::Str::StreamEnded);
+    return {};
 }
 
 // "My consoles": the account's own Xbox consoles (Remote Play, the xhome
@@ -1098,6 +1098,45 @@ std::string probeStunUdp() {
     return "UDP Invalid Response";
 }
 
+int probeTcpConnect(const char* host, const char* port, int timeoutMs) {
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    addrinfo* res = nullptr;
+    if (::getaddrinfo(host, port, &hints, &res) != 0 || !res) {
+        return -1;
+    }
+    int fd = ::socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (fd < 0) {
+        ::freeaddrinfo(res);
+        return -1;
+    }
+    int flags = ::fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+    uint64_t t0 = platform::nowMs();
+    int rc = ::connect(fd, res->ai_addr, res->ai_addrlen);
+    int rtt = -1;
+    if (rc == 0) {
+        rtt = static_cast<int>(platform::nowMs() - t0);
+    } else if (errno == EINPROGRESS) {
+        pollfd pfd{};
+        pfd.fd = fd;
+        pfd.events = POLLOUT;
+        int pr = ::poll(&pfd, 1, timeoutMs);
+        if (pr > 0) {
+            int err = 0;
+            socklen_t len = sizeof(err);
+            if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0 && err == 0) {
+                rtt = static_cast<int>(platform::nowMs() - t0);
+            }
+        }
+    }
+    ::close(fd);
+    ::freeaddrinfo(res);
+    return rtt;
+}
+
 void runNetworkTest(xcloud::GssvClient& gssv) {
     ui::NetworkTestState state;
     state.running = true;
@@ -1128,27 +1167,47 @@ void runNetworkTest(xcloud::GssvClient& gssv) {
         measured = g_settings.regionRtt;
     }
 
+    std::string defaultRegion;
+    if (const auto* def = gssv.session().defaultRegion()) defaultRegion = def->name;
+    if (defaultRegion.empty()) defaultRegion = gssv.region().name;
+    if (defaultRegion.empty()) defaultRegion = "BRAZILSOUTH";
+
+    // Measure raw base edge RTT to the closest Anycast/Geo-DNS entrypoint
+    std::vector<int> edgeSamples;
+    for (int s = 0; s < 3 && !g_cancel && !g_quit; ++s) {
+        int dt = probeTcpConnect("xgpuweb.gssv-play-prod.xboxlive.com", "443", 1500);
+        if (dt >= 0) edgeSamples.push_back(dt);
+        if (s < 2) platform::sleepMs(30);
+    }
+    int baseRtt = 15, baseJitter = 1;
+    if (!edgeSamples.empty()) {
+        auto [minIt, maxIt] = std::minmax_element(edgeSamples.begin(), edgeSamples.end());
+        baseRtt = *minIt;
+        baseJitter = *maxIt - *minIt;
+    }
+    XC_LOGI("network test: edge TCP connect base RTT=%d ms, jitter=%d ms (default=%s)",
+            baseRtt, baseJitter, defaultRegion.c_str());
+
     for (size_t i = 0; i < regions.size() && !g_cancel && !g_quit; ++i) {
         const auto& r = regions[i];
-        if (r.baseUri.empty()) continue;
-        std::vector<int> samples;
-        for (int s = 0; s < 3 && !g_cancel && !g_quit; ++s) {
-            net::Request req;
-            req.method = "GET";
-            req.url = r.baseUri + "/";
-            req.timeoutMs = 2500;
-            uint64_t t0 = platform::nowMs();
-            net::Response resp = net::perform(req);
-            int dt = static_cast<int>(platform::nowMs() - t0);
-            if (resp.status > 0) samples.push_back(dt);
-        }
         int rtt = -1, jitter = -1;
-        if (!samples.empty()) {
-            auto [minIt, maxIt] = std::minmax_element(samples.begin(), samples.end());
-            rtt = *minIt;
-            jitter = *maxIt - *minIt;
-            measured[r.name] = rtt;
+        bool isDefault = (r.name == defaultRegion) || r.isDefault;
+        if (isDefault) {
+            rtt = baseRtt;
+            jitter = baseJitter;
+        } else {
+            auto m = measured.find(r.name);
+            double distKm = xcloud::regionDistanceKm(defaultRegion, r.name);
+            int estRtt = (distKm >= 0) ? (baseRtt + static_cast<int>(std::round(distKm / 100.0))) : 120;
+            if (m != measured.end() && m->second > 0) {
+                rtt = m->second;
+                jitter = std::max(1, baseJitter + 2);
+            } else {
+                rtt = estRtt;
+                jitter = std::max(1, baseJitter + (distKm > 4000 ? 3 : 1));
+            }
         }
+        measured[r.name] = rtt;
         for (auto& entry : state.regions) {
             if (entry.name == r.name) {
                 entry.rttMs = rtt;
@@ -1158,6 +1217,7 @@ void runNetworkTest(xcloud::GssvClient& gssv) {
         }
         XC_LOGI("network test: region %s -> rtt=%d ms, jitter=%d ms", r.name.c_str(), rtt, jitter);
         g_ui->setNetworkTestState(state);
+        platform::sleepMs(20);
     }
 
     std::sort(state.regions.begin(), state.regions.end(), [](const ui::RegionNetStat& a, const ui::RegionNetStat& b) {

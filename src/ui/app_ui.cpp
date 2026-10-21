@@ -61,9 +61,9 @@ constexpr int kResolutionOrder[3] = {1, 0, 2};
 // stream (resolution, a desktop's display mode, 120 Hz, bitrate, region, network test);
 // sound (volume, queue chime); the controller and keyboard; updates last. A group starts at each
 // kSettingsGroupStart.
-constexpr int kSettingsOrder[kSettingRows] = {0, 8, 17, 1, 13, 9, 10, 2, 18, 11, 16, 3, 4, 5, 6, 15, 14, 12, 7};
+constexpr int kSettingsOrder[kSettingRows] = {0, 8, 17, 1, 13, 9, 10, 2, 18, 11, 16, 3, 4, 5, 6, 15, 14, 12, 7, 19};
 constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, false, true, false, false, false, false, false,
-                                                    true, false, true, false, false, false, false, false, false, true};
+                                                    true, false, true, false, false, false, false, false, false, true, false};
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
 // sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7
 // confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default, 11 controller
@@ -920,6 +920,7 @@ void AppUi::openDetails(const GameTile& tile) {
         if (detail_.publisher.empty()) detail_.publisher = info->second.publisher;
         if (detail_.categories.empty()) detail_.categories = info->second.categories;
     }
+    detailButtonFocus_ = 0;
     screen_ = Screen::Details;
     dirty_ = true;
 }
@@ -1663,6 +1664,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         out = {tr(Str::RunCheck)};
     } else if (row == 18) {
         out = {tr(Str::RunTest)};
+    } else if (row == 19) {
+        out = {tr(Str::SupportKoFi)};
     } else if (row == 8) {
         out.push_back(loginCountryOffText());
         for (const char* country : kLoginCountries) out.push_back(loginCountryName(country));
@@ -1682,7 +1685,7 @@ int AppUi::settingSelected(int row) const {
         for (int i = 0; i < 3; ++i)
             if (kResolutionOrder[i] == settings_.resolution) return i;
     }
-    if (row == 3 || row == 12 || row == 14 || row == 17 || row == 18) return 0;
+    if (row == 3 || row == 12 || row == 14 || row == 17 || row == 18 || row == 19) return 0;
     if (row == 4) return settings_.triggerStrength;
     if (row == 5) return settings_.circleConfirms ? 1 : 0;
     if (row == 6) return settings_.lightBarMode;
@@ -2687,6 +2690,13 @@ UiEvent AppUi::handle(const NavInput& in) {
                 }
                 break;
             }
+            if (tester_ == Tester::Donation) {
+                if (in.back || in.accept) {
+                    tester_ = Tester::None;
+                    dirty_ = true;
+                }
+                break;
+            }
             if (tester_ != Tester::None) {
                 handleTester(in);
                 break;
@@ -2723,6 +2733,8 @@ UiEvent AppUi::handle(const NavInput& in) {
             } else if (in.accept && settingsRow_ == 18) {
                 openTester(Tester::NetworkTest);
                 ev.action = Action::RunNetworkTest;
+            } else if (in.accept && settingsRow_ == 19) {
+                openTester(Tester::Donation);
             } else if (in.accept && settingsRow_ == 7) {
                 // Updates: a newer version is installed (the settings saved
                 // first). Where the app doesn't install it, the release's
@@ -2782,14 +2794,27 @@ UiEvent AppUi::handle(const NavInput& in) {
                 dirty_ = true;
                 break;
             }
-            // A free game not on the account yet triggers direct claim.
-            if (in.accept && (detail_.playable || detail_.freeInStore) && !detail_.titleId.empty()) {
-                if (detail_.playable) {
-                    ev.action = Action::Play;
-                    ev.game = detail_;
-                } else if (detail_.freeInStore) {
-                    ev.action = Action::ClaimFreeGame;
-                    ev.game = detail_;
+            {
+                bool hasAchievements = !detail_.xboxTitleId.empty();
+                if (in.right && hasAchievements && detailButtonFocus_ == 0) {
+                    detailButtonFocus_ = 1;
+                    dirty_ = true;
+                } else if (in.left && detailButtonFocus_ == 1) {
+                    detailButtonFocus_ = 0;
+                    dirty_ = true;
+                }
+                if (in.accept) {
+                    if (detailButtonFocus_ == 1 && hasAchievements) {
+                        openAchievements();
+                    } else if ((detail_.playable || detail_.freeInStore) && !detail_.titleId.empty()) {
+                        if (detail_.playable) {
+                            ev.action = Action::Play;
+                            ev.game = detail_;
+                        } else if (detail_.freeInStore) {
+                            ev.action = Action::ClaimFreeGame;
+                            ev.game = detail_;
+                        }
+                    }
                 }
             }
             if (in.square) toggleHidden(detail_, ev);  // the page stays open
@@ -3960,16 +3985,49 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         drawToast(c, nowMs);
         return;
     }
-    // Play button (focused).
+    bool hasAchievements = !g->xboxTitleId.empty();
+    bool playFocused = (detailButtonFocus_ == 0);
+    bool achFocused = (detailButtonFocus_ == 1 && hasAchievements);
+
+    // Play button
     Rect play{kMargin, std::max(y + 48, 620), 300, 76};
-    c.strokeRect({play.x - 7, play.y - 7, play.w + 14, play.h + 14}, kWhite, 4, 45);
-    c.fillRect(play, kGreen, 38);
+    if (playFocused) {
+        c.strokeRect({play.x - 7, play.y - 7, play.w + 14, play.h + 14}, kWhite, 4, 45);
+        c.fillRect(play, kGreen, 38);
+    } else {
+        c.fillRect(play, rgba(16, 124, 65, 140), 38);
+    }
     float tx = play.x + 70, ty = play.y + play.h / 2.0f;
     c.line(tx - 8, ty - 13, tx - 8, ty + 13, 4, kWhite);
     c.line(tx - 8, ty - 13, tx + 13, ty, 4, kWhite);
     c.line(tx - 8, ty + 13, tx + 13, ty, 4, kWhite);
     fonts_.semibold.draw(c, tr(Str::Play), play.x + 108, play.y + 20, 32, kWhite);
-    int nextBadgeX = play.x + play.w + 32;
+
+    int nextBadgeX = play.x + play.w + 24;
+
+    // Achievements button beside Play
+    if (hasAchievements) {
+        std::string achText = tr(Str::Achievements);
+        auto it = achievements_.find(g->xboxTitleId);
+        if (it != achievements_.end() && it->second.totalCount > 0) {
+            const auto& ach = it->second;
+            achText = std::to_string(ach.unlockedCount) + "/" + std::to_string(ach.totalCount) +
+                      " (" + std::to_string(ach.unlockedGamerscore) + "/" + std::to_string(ach.totalGamerscore) + " G)";
+        }
+        int textW = fonts_.semibold.measure(achText, 26);
+        int achW = std::max(240, textW + 80);
+        Rect achBtn{nextBadgeX, play.y, achW, 76};
+        if (achFocused) {
+            c.strokeRect({achBtn.x - 7, achBtn.y - 7, achBtn.w + 14, achBtn.h + 14}, kWhite, 4, 45);
+            c.fillRect(achBtn, kGreen, 38);
+        } else {
+            c.fillRect(achBtn, rgba(255, 255, 255, 30), 38);
+        }
+        drawGamerscoreBadge(c, static_cast<float>(achBtn.x + 36), static_cast<float>(achBtn.y + 38), 13.0f);
+        fonts_.semibold.draw(c, achText, achBtn.x + 60, achBtn.y + 22, 26, kWhite);
+        nextBadgeX += achBtn.w + 24;
+    }
+
     // The service's estimate of the wait to start it, beside Play.
     if (queueTitle_ == g->titleId && queueSeconds_ >= 0) {
         std::string wait = queueSeconds_ < 60 ? trf(Str::QueueSeconds, std::to_string(queueSeconds_))
@@ -3997,29 +4055,14 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         fonts_.semibold.draw(c, playedText, pill.x + 22, pill.y + 12, 24, kWhite);
         nextBadgeX += pill.w + 16;
     }
-    if (!g->xboxTitleId.empty()) {
-        auto it = achievements_.find(g->xboxTitleId);
-        if (it != achievements_.end() && it->second.totalCount > 0) {
-            const auto& ach = it->second;
-            std::string achText = std::to_string(ach.unlockedCount) + "/" + std::to_string(ach.totalCount) +
-                                  " (" + std::to_string(ach.unlockedGamerscore) + "/" + std::to_string(ach.totalGamerscore) + " G)";
-            int w = fonts_.semibold.measure(achText, 24);
-            Rect pill{nextBadgeX, play.y + 14, w + 64, 48};
-            c.fillRect(pill, rgba(0, 0, 0, 150), 24);
-            drawGamerscoreBadge(c, static_cast<float>(pill.x + 24), static_cast<float>(pill.y + 24), 11.0f);
-            fonts_.semibold.draw(c, achText, pill.x + 44, pill.y + 12, 24, kWhite);
-            nextBadgeX += pill.w + 16;
-        }
-    }
     std::vector<Hint> hints = {
-        {kIconCross, tr(Str::Play)},
+        {kIconCross, tr(achFocused ? Str::Achievements : Str::Play)},
         {kIconOptions, tr(Str::GameSettings)},
         {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
         {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
-        {kIconR3, tr(wishlist_.count(g->productId) ? Str::RemoveWishlist : Str::AddWishlist)}
+        {kIconR3, tr(wishlist_.count(g->productId) ? Str::RemoveWishlist : Str::AddWishlist)},
+        {kIconCircle, tr(Str::Back)}
     };
-    if (!g->xboxTitleId.empty()) hints.push_back({kIconL3, tr(Str::Achievements)});
-    hints.push_back({kIconCircle, tr(Str::Back)});
     drawHints(c, hints);
     drawToast(c, nowMs);
 }
@@ -4081,7 +4124,7 @@ void AppUi::drawSettings(Canvas& c) {
                                         tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume),
                                         tr(Str::KeyboardKeys),  tr(Str::DisplayMode),   tr(Str::ControllerButtons),
                                         tr(Str::Gyro),          tr(Str::QueueReadyNotification),
-                                        tr(Str::CheckSignIn),   tr(Str::NetworkTest)};
+                                        tr(Str::CheckSignIn),   tr(Str::NetworkTest),   tr(Str::SupportProject)};
     constexpr int kRowW = 1200, kRowH = 36, kGap = 3, kGroupGap = 7, kRowPx = 24;
     Rect rows[kSettingRows];  // by row id
     int y = 200;
@@ -4103,6 +4146,22 @@ void AppUi::drawSettings(Canvas& c) {
             Color color = !updateAvailable_.empty() && !updateChecking_ ? rgba(120, 220, 120) : focused ? kWhite : kGray;
             int w = fonts_.regular.measure(value, kRowPx);
             fonts_.regular.draw(c, value, r.x + r.w - 40 - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx, color);
+            y += kRowH + kGap;
+            continue;
+        }
+        if (i == 17 || i == 18 || i == 19) {
+            // Action buttons (Check sign-in, Network test, Support / Donate)
+            std::string label = (i == 17) ? tr(Str::RunCheck) : (i == 18) ? tr(Str::RunTest) : tr(Str::SupportKoFi);
+            int btnTextW = fonts_.semibold.measure(label, 20);
+            int btnW = btnTextW + 36;
+            int btnH = 26;
+            Rect btnRect{r.x + r.w - 32 - btnW, r.y + (r.h - btnH) / 2, btnW, btnH};
+            Color btnBg = focused ? (i == 19 ? rgba(255, 95, 95, 220) : rgba(16, 124, 65, 230)) : rgba(255, 255, 255, 24);
+            c.fillRect(btnRect, btnBg, 13);
+            if (focused) c.strokeRect(btnRect, kWhite, 2, 13);
+            int textX = btnRect.x + (btnRect.w - btnTextW) / 2;
+            int textY = fonts_.semibold.centeredY(btnRect.y, btnRect.h, 20);
+            fonts_.semibold.draw(c, label, textX, textY, 20, kWhite);
             y += kRowH + kGap;
             continue;
         }
@@ -4142,6 +4201,7 @@ void AppUi::drawSettings(Canvas& c) {
     if (tester_ == Tester::Pad) return drawPadTester(c);
     if (tester_ == Tester::SignInCheck) return drawSignInCheck(c, lastRender_);
     if (tester_ == Tester::NetworkTest) return drawNetworkTest(c, lastRender_);
+    if (tester_ == Tester::Donation) return drawDonationModal(c);
     if (dropdownOpen_) {
         // The list under (or, near the bottom, over) the row, right-aligned
         // with it; scrolls past kVisible choices.
@@ -4584,6 +4644,32 @@ void AppUi::drawNetworkTest(Canvas& c, uint64_t nowMs) {
         drawHints(c, {{kIconCircle, tr(Str::Back)}});
     else
         drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconCircle, tr(Str::Back)}});
+}
+
+void AppUi::drawDonationModal(Canvas& c) {
+    Rect panel = drawModal(c, 1260, 680, tr(Str::SupportTitle));
+
+    // Left column: message and link
+    int textW = 600;
+    int y = panel.y + 114;
+    for (const auto& line : fonts_.regular.wrap(tr(Str::SupportMessage), 26, textW, 10)) {
+        fonts_.regular.draw(c, line, panel.x + 56, y, 26, rgba(230, 230, 230));
+        y += 38;
+    }
+
+    y += 24;
+    fonts_.semibold.draw(c, "https://ko-fi.com/RafaelNGP", panel.x + 56, y, 24, rgba(255, 215, 80));
+
+    // Right column: QR code card
+    Rect qrBox = drawQr(c, "https://ko-fi.com/RafaelNGP", panel.x + panel.w - 56, panel.y + 114, 340, qrcodegen_Ecc_MEDIUM);
+    if (qrBox.w > 0) {
+        std::string scanText = tr(Str::ScanToDonate);
+        int tw = fonts_.semibold.measure(scanText, 22);
+        fonts_.semibold.draw(c, scanText, qrBox.x + (qrBox.w - tw) / 2, qrBox.y + qrBox.h + 20, 22, kWhite);
+    }
+
+    c.fillRect({0, kH - 80, kW, 80}, kBg);
+    drawHints(c, {{kIconCircle, tr(Str::Back)}});
 }
 
 void AppUi::drawAchievementsModal(Canvas& c, uint64_t nowMs) {

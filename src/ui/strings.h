@@ -343,6 +343,11 @@ enum class Str {
     RemovedFromWishlist,// "Removed from wishlist"
     WishlistOnSale,     // "%s is on sale!"
     WishlistInGamePass, // "%s joined Game Pass!"
+    SupportProject,     // settings row: "Support the project"
+    SupportTitle,       // modal title: "Support PSBox Development"
+    SupportMessage,     // modal text: captivating thank you / donation message
+    SupportKoFi,        // settings action button: "Ko-fi"
+    ScanToDonate,       // modal subtitle below QR: "Scan with your phone to donate"
     Count
 };
 
