@@ -222,7 +222,7 @@ is rolled back at the next start), then the app restarts itself
 - Audio & video: PCM waveform extrapolation PLC (`AudioDecoder::conceal`) with 12 ms RTP gap detection, desktop Vulkan display (`display/gpu.cpp` shared with SDL3 Linux for FSR 1, Anime4K, RCAS, deband), PS5 swapchain flip-rate unpegging (`wsi_videoout_set_flip_rate(0)`), and an in-game performance HUD with a 60-frame frametime sparkline (`L3 + R3`).
 - Performance & resilience: dynamic Zen 2 thread pinning, zero-allocation RTP ring buffer, instant frame-1 boot, HTTP keep-alive connection pooling, out-of-order X.509 TLS chain sorting, NanoDNS / missing-Gamertag diagnostics, and client support for Microsoft's monthly cloud playtime cap (`fetchPlaytimeLimit`, waiting for Microsoft to enable the quota).
 
-### Queue-ready chime, manual refresh, playtime, sign-in diagnostics, network test, achievements & wishlist — done (v1.3.3-dev)
+### Queue-ready chime, manual refresh, playtime, sign-in diagnostics, network test, achievements & wishlist — done (v1.3.3)
 - **Queue-ready chime**: plays a pleasant chime (chunked 20 ms audio pulses via `AudioQueue`), triggers controller haptic vibration (`input::setRumble(160, 160, 400)`), and emits an in-app notice (`QueueReadyAlert`) when cloud queue waiting ends and the stream provisions.
 - **Refresh the library by hand**: L3 button on the Home screen performs an in-place delta sync (`kReloadLibrary` / `Action::RefreshLibrary`), re-evaluating title list and entitlements without restarting the app.
 - **Playtime per game on card & details page**: formats elapsed gameplay duration in hours and minutes, displaying a subtle badge on the card's top-left corner and a rounded pill with playtime on the game details page.
