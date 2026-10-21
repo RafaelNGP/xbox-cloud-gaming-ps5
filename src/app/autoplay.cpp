@@ -108,7 +108,7 @@ void loadAutoplay() {
         if (opt == "restore") g_autoplay.restore = true;
         if (opt.rfind("swap=", 0) == 0) display::setSwapImages(std::atoi(opt.c_str() + 5));
         if (opt == "nopace") display::setPresentWait(false);
-        if (opt == "detailtest") g_autoplay.detailTest = true;
+        if (opt == "detailtest" || opt == "detailstest") g_autoplay.detailTest = true;
         if (opt == "pad") g_autoplay.pad = true;
         if (opt == "consoles") g_autoplay.consoles = true;
         if (opt == "consolestab") g_autoplay.consolesTab = true;
@@ -878,10 +878,17 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             errorSince = 1;
         }
     }
+    if (g_ui->reportOpen() && !g_autoplay.crashTest) {
+        ui::NavInput in{};
+        in.back = true;
+        g_ui->handle(in);
+    }
     if (g_autoplay.detailTest && uiSaved) {
         // A game to buy far down the list (no prefetched details): its
         // page must fill in on its own. Or the game named, when known.
         static uint64_t openedAt = 0;
+        static uint64_t achAt = 0;
+        static bool detailShot = false;
         ui::GameTile tile;
         if (!openedAt && (g_ui->findTile(g_autoplay.title, tile) || g_ui->findTile("FORTNITE", tile) ||
                           g_ui->purchasableAt(40, tile) || g_ui->firstTile(tile))) {
@@ -890,10 +897,35 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             if (!tile.productId.empty()) c.titlePlaytime[tile.productId] = 5520;
             if (!tile.titleId.empty()) c.titlePlaytime[tile.titleId] = 5520;
             g_ui->setSettings(c);
+            if (!tile.xboxTitleId.empty()) {
+                xcloud::TitleAchievements ach;
+                ach.totalCount = 30;
+                ach.unlockedCount = 12;
+                ach.totalGamerscore = 1000;
+                ach.unlockedGamerscore = 420;
+                for (int i = 0; i < 15; ++i) {
+                    xcloud::Achievement a;
+                    a.id = std::to_string(i + 1);
+                    a.name = "Achievement " + std::to_string(i + 1);
+                    a.description = "Complete challenge " + std::to_string(i + 1);
+                    a.gamerscore = (i + 1) * 20;
+                    a.unlocked = (i < 6);
+                    a.isSecret = (i == 10 || i == 11);
+                    ach.items.push_back(a);
+                }
+                g_ui->setTitleAchievements(tile.xboxTitleId, ach);
+            }
             g_ui->showDetails(tile);
             openedAt = now;
-        } else if (openedAt && now - openedAt > 8000) {
+        } else if (openedAt && !detailShot && now - openedAt > 6000) {
             saveCanvas("detail.ppm");
+            detailShot = true;
+            ui::NavInput in{};
+            in.l3 = true;
+            g_ui->handle(in);
+            achAt = now;
+        } else if (achAt && now - achAt > 3000) {
+            saveCanvas("achievements.ppm");
             g_autoplay.detailTest = false;
             XC_LOGI("AUTOPLAY END: detail test");
         }

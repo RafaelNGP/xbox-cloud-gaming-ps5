@@ -759,7 +759,7 @@ void AppUi::setTitleAchievements(const std::string& xboxTitleId, const xcloud::T
 }
 
 void AppUi::openAchievements() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    // Caller holds mutex_.
     achievementsOpen_ = true;
     achScroll_ = 0;
     dirty_ = true;
@@ -3998,12 +3998,13 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         auto it = achievements_.find(g->xboxTitleId);
         if (it != achievements_.end() && it->second.totalCount > 0) {
             const auto& ach = it->second;
-            std::string achText = "🏆 " + std::to_string(ach.unlockedCount) + "/" + std::to_string(ach.totalCount) +
+            std::string achText = std::to_string(ach.unlockedCount) + "/" + std::to_string(ach.totalCount) +
                                   " (" + std::to_string(ach.unlockedGamerscore) + "/" + std::to_string(ach.totalGamerscore) + " G)";
             int w = fonts_.semibold.measure(achText, 24);
-            Rect pill{nextBadgeX, play.y + 14, w + 44, 48};
+            Rect pill{nextBadgeX, play.y + 14, w + 64, 48};
             c.fillRect(pill, rgba(0, 0, 0, 150), 24);
-            fonts_.semibold.draw(c, achText, pill.x + 22, pill.y + 12, 24, kWhite);
+            drawGamerscoreBadge(c, static_cast<float>(pill.x + 24), static_cast<float>(pill.y + 24), 11.0f);
+            fonts_.semibold.draw(c, achText, pill.x + 44, pill.y + 12, 24, kWhite);
             nextBadgeX += pill.w + 16;
         }
     }
