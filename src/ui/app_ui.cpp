@@ -59,11 +59,12 @@ constexpr int kResolutionOrder[3] = {1, 0, 2};
 // Settings' rows on screen, alike ones together (the row ids stay what
 // settingsRow_ and the helpers use): language, sign-in country, and sign-in check; the
 // stream (resolution, a desktop's display mode, 120 Hz, bitrate, region, network test);
-// sound (volume, queue chime); the controller and keyboard; updates last. A group starts at each
+// the controller, keyboard and queue-ready alert; support and updates last. A group starts at each
 // kSettingsGroupStart.
-constexpr int kSettingsOrder[kSettingRows] = {0, 8, 17, 1, 13, 9, 10, 2, 18, 11, 16, 3, 4, 5, 6, 15, 14, 12, 19, 7};
-constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, false, true, false, false, false, false, false,
-                                                    true, false, true, false, false, false, false, false, false, true, false};
+constexpr int kSettingsCount = 19;
+constexpr int kSettingsOrder[kSettingsCount] = {0, 8, 17, 1, 13, 9, 10, 2, 18, 14, 12, 3, 15, 4, 5, 6, 16, 19, 7};
+constexpr bool kSettingsGroupStart[kSettingsCount] = {false, false, false, true, false, false, false, false, false,
+                                                     true, false, false, false, false, false, false, false, true, false};
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
 // sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7
 // confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default, 11 controller
@@ -498,8 +499,20 @@ void AppUi::rebuild(bool keepPosition) {
         }
         return v;
     };
+    for (auto it = wishlist_.begin(); it != wishlist_.end(); ) {
+        GameTile checkTile;
+        checkTile.productId = *it;
+        for (const auto& p : allPurchasable_) {
+            if (p.productId == *it) { checkTile.titleId = p.titleId; break; }
+        }
+        if (isAcquired(checkTile)) it = wishlist_.erase(it);
+        else ++it;
+    }
     owned_ = sorted(visible(allOwned_));
     purchasable_ = sorted(visible(allPurchasable_));
+    std::stable_partition(purchasable_.begin(), purchasable_.end(), [&](const GameTile& t) {
+        return wishlist_.count(t.productId) > 0;
+    });
     // Hidden games stay in their tab, at its end: the account's games and
     // games to buy in "Your games", Game Pass games in a last Game Pass row
     // (a few rows away, not past ~2000 games to buy). Once each, A-Z.
@@ -647,14 +660,28 @@ void AppUi::toggleFavorite(const GameTile& tile, UiEvent& ev) {
     dirty_ = true;
 }
 
+bool AppUi::isAcquired(const GameTile& t) const {
+    if (!t.productId.empty()) {
+        for (const auto& o : allOwned_)
+            if (o.productId == t.productId) return true;
+    }
+    if (!t.titleId.empty()) {
+        for (const auto& o : allOwned_)
+            if (o.titleId == t.titleId) return true;
+    }
+    return false;
+}
+
 void AppUi::toggleWishlist(const GameTile& tile, UiEvent& ev) {
     // Caller holds mutex_.
     if (tile.productId.empty()) return;
+    if (isAcquired(tile)) return;  // Only unacquired games can be added to the wishlist
     bool wish = !wishlist_.count(tile.productId);
     if (wish) wishlist_.insert(tile.productId);
     else wishlist_.erase(tile.productId);
     toast_ = tr(wish ? Str::AddedToWishlist : Str::RemovedFromWishlist);
     toastUntil_ = 0;
+    rebuild();
     prefsEvent(ev);
     dirty_ = true;
 }
@@ -679,7 +706,7 @@ void AppUi::setPrices(const std::map<std::string, PriceInfo>& prices) {
     for (const auto& [id, p] : prices) prices_[id] = p;
     // A list ordered or filtered by price fills in as prices arrive (not
     // while the user moves through it).
-    if (searching_ && searchOnKeys_ && tab_ == Tab::Library && (filterCheapest_ || filterFree_))
+    if (searching_ && searchOnKeys_ && tab_ == Tab::Library && (filterCheapest_ || filterFree_ || filterWishlist_))
         runSearch();
     dirty_ = true;
 }
@@ -856,6 +883,7 @@ void AppUi::showFilteredSearch(Tab tab, bool cheapest, int mode, const std::stri
     searchOnKeys_ = true;
     query_.clear();
     filterFree_ = false;
+    filterWishlist_ = false;
     filterMouseKeyboard_ = false;
     filterCheapest_ = cheapest;
     filterPlan_ = 0;
@@ -995,6 +1023,7 @@ void AppUi::runSearch() {
         auto price = prices_.find(t.productId);
         bool priced = price != prices_.end();
         if (tab_ == Tab::Library) {
+            if (filterWishlist_ && !wishlist_.count(t.productId)) continue;
             // Free-to-play: free in the store and no regular price. A paid
             // game given away (price 0 now, regular price above 0) is a
             // sale, not free-to-play.
@@ -1783,9 +1812,9 @@ void AppUi::setCaps(const UiCaps& caps) {
     };
     if (!shown(settingsRow_)) {
         int pos = 0, next = -1;
-        for (int i = 0; i < kSettingRows; ++i)
+        for (int i = 0; i < kSettingsCount; ++i)
             if (kSettingsOrder[i] == settingsRow_) pos = i;
-        for (int i = pos; i < kSettingRows && next < 0; ++i)
+        for (int i = pos; i < kSettingsCount && next < 0; ++i)
             if (shown(kSettingsOrder[i])) next = kSettingsOrder[i];
         for (int i = pos; i >= 0 && next < 0; --i)
             if (shown(kSettingsOrder[i])) next = kSettingsOrder[i];
@@ -2110,7 +2139,7 @@ void AppUi::handleHome(const NavInput& in, UiEvent& ev) {
 bool AppUi::anyFilter() const {
     // Caller holds mutex_. Free and Lowest price only count in "Your games";
     // Plan only in Game Pass.
-    bool library = tab_ == Tab::Library && (filterFree_ || filterCheapest_);
+    bool library = tab_ == Tab::Library && (filterFree_ || filterCheapest_ || filterWishlist_);
     bool gamePass = tab_ == Tab::GamePass && filterPlan_ > 0;
     return library || gamePass || filterConsole_ || filterMouseKeyboard_ || filterMode_ || !filterGenre_.empty() ||
            filterPublisher_ || filterLanguage_;
@@ -2121,7 +2150,7 @@ std::vector<AppUi::Filter> AppUi::filterRow(int row) const {
     // games aren't bought).
     if (row == 1) return {Filter::Mode, Filter::Genre, Filter::Publisher, Filter::Language};
     if (tab_ == Tab::GamePass) return {Filter::Plan, Filter::Console, Filter::MouseKeyboard};
-    return {Filter::Free, Filter::Cheapest, Filter::Console, Filter::MouseKeyboard};
+    return {Filter::Wishlist, Filter::Free, Filter::Cheapest, Filter::Console, Filter::MouseKeyboard};
 }
 
 std::vector<std::string> AppUi::poolGenres() const {
@@ -2201,6 +2230,10 @@ void AppUi::chooseFilterLocked(Filter f, int index) {
     if (f == Filter::Mode) filterMode_ = index;
     if (f == Filter::Publisher) filterPublisher_ = index;
     if (f == Filter::Language) filterLanguage_ = index;
+    if (f == Filter::Free) filterFree_ = index != 0;
+    if (f == Filter::Cheapest) filterCheapest_ = index != 0;
+    if (f == Filter::MouseKeyboard) filterMouseKeyboard_ = index != 0;
+    if (f == Filter::Wishlist) filterWishlist_ = index != 0;
     if (f == Filter::Genre) {
         auto genres = poolGenres();
         filterGenre_ = index > 0 && index <= static_cast<int>(genres.size()) ? genres[static_cast<size_t>(index - 1)] : "";
@@ -2215,6 +2248,7 @@ std::string AppUi::filterText(Filter f) const {
     if (f == Filter::Free) return tr(Str::FilterFree);
     if (f == Filter::MouseKeyboard) return tr(Str::FilterMouseKeyboard);
     if (f == Filter::Cheapest) return tr(Str::FilterCheapest);
+    if (f == Filter::Wishlist) return tr(Str::Wishlist);
     int sel = filterSelected(f);
     if (sel > 0 || f == Filter::Console) {
         auto options = filterOptions(f);
@@ -2232,6 +2266,7 @@ bool AppUi::filterOn(Filter f) const {
     if (f == Filter::Free) return filterFree_;
     if (f == Filter::Cheapest) return filterCheapest_;
     if (f == Filter::MouseKeyboard) return filterMouseKeyboard_;
+    if (f == Filter::Wishlist) return filterWishlist_;
     return filterSelected(f) > 0;
 }
 
@@ -2242,7 +2277,10 @@ void AppUi::pressFilter(Filter f) {
         filterListIndex_ = filterSelected(f);
         filterListTop_ = 0;
     } else {
-        (f == Filter::Free ? filterFree_ : f == Filter::MouseKeyboard ? filterMouseKeyboard_ : filterCheapest_) ^= true;
+        if (f == Filter::Free) filterFree_ ^= true;
+        else if (f == Filter::MouseKeyboard) filterMouseKeyboard_ ^= true;
+        else if (f == Filter::Cheapest) filterCheapest_ ^= true;
+        else if (f == Filter::Wishlist) filterWishlist_ ^= true;
         runSearch();
     }
     dirty_ = true;
@@ -2722,6 +2760,9 @@ UiEvent AppUi::handle(const NavInput& in) {
             }
             if (in.right) changeSetting(+1);
             if (in.left) changeSetting(-1);
+            if (in.square && settingsRow_ == 16) {
+                ev.action = Action::TestQueueAlert;
+            }
             if (in.accept && settingsRow_ == 14) {
                 openPadTester();  // controller buttons: their own screen
             } else if (in.accept && (settingsRow_ == 3 || settingsRow_ == 4 || settingsRow_ == 12)) {
@@ -2819,7 +2860,7 @@ UiEvent AppUi::handle(const NavInput& in) {
             }
             if (in.square) toggleHidden(detail_, ev);  // the page stays open
             if (in.triangle) toggleFavorite(detail_, ev);
-            if (in.r3) toggleWishlist(detail_, ev);
+            if (in.r3 && !isAcquired(detail_)) toggleWishlist(detail_, ev);
             if (in.l3 && !detail_.xboxTitleId.empty()) openAchievements();
             if (in.back) {
                 screen_ = Screen::Home;
@@ -3063,10 +3104,13 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
             x = l2Pill.x;
         } else if (icon == kIconR3 || icon == kIconL3) {
             const char* label = buttonName(style, icon == kIconR3 ? PadButton::R3 : PadButton::L3);
-            Rect pill{x - 6, static_cast<int>(cy) - 12, 2 * kR + 12, 24};
+            int pillW = fonts_.bold.measure(label, 14) + 16;
+            int rightX = x + 2 * kR;
+            Rect pill{rightX - pillW, static_cast<int>(cy) - 12, pillW, 24};
             c.fillRect(pill, rgba(255, 255, 255, 40), 8);
-            fonts_.bold.draw(c, label, pill.x + (pill.w - fonts_.bold.measure(label, 14)) / 2,
+            fonts_.bold.draw(c, label, pill.x + (pillW - fonts_.bold.measure(label, 14)) / 2,
                              fonts_.bold.centeredY(pill.y, pill.h, 14), 14, kGray);
+            x = pill.x;
         } else if (xbox && icon == kIconTouchpad) {  // View
             drawXboxViewButton(c, cx, cy, kR, kGray);
         } else if (xbox && icon == kIconOptions) {  // Menu
@@ -3287,6 +3331,29 @@ void drawBag(Canvas& c, int cx, int cy, Color color, float size = 1.0f) {
     c.strokeArc(static_cast<float>(cx), bodyTop, r, std::max(1.5f, 2.5f * size), 3.1416f, 3.1416f, color);
 }
 
+// A 5-pointed star centred on (cx, cy) with outer radius r.
+void drawStar(Canvas& c, float cx, float cy, float r, Color color) {
+    constexpr float kPi = 3.14159265358979323846f;
+    float innerR = r * 0.42f;
+    float px[10], py[10];
+    for (int i = 0; i < 10; ++i) {
+        float angle = -kPi / 2.0f + i * (kPi / 5.0f);
+        float radius = (i % 2 == 0) ? r : innerR;
+        px[i] = cx + radius * std::cos(angle);
+        py[i] = cy + radius * std::sin(angle);
+    }
+    for (int i = 0; i < 10; ++i) {
+        int next = (i + 1) % 10;
+        c.line(px[i], py[i], px[next], py[next], 1.2f, color);
+        c.line(cx, cy, px[i], py[i], 1.5f, color);
+    }
+    c.fillCircle(cx, cy, innerR * 0.95f, color);
+    for (int i = 0; i < 5; ++i) {
+        int pt = i * 2;
+        c.line(cx, cy, px[pt], py[pt], 2.0f, color);
+    }
+}
+
 }  // namespace
 
 void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, bool gamePassBadge) {
@@ -3316,9 +3383,47 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
         fonts_.bold.draw(c, ptLabel, ptBadge.x + (ptBadge.w - fonts_.bold.measure(ptLabel, 11)) / 2,
                          fonts_.bold.centeredY(ptBadge.y, ptBadge.h, 11), 11, kWhite);
     }
-    // Bottom-left: BUY with a bag, a Game Pass plan badge when the game is
-    // in another plan (or while filtering by plan), or friends playing; a
-    // padlock (top right) when it can't be played or bought.
+    // Top-right: Wishlist blue star when marked (or lock if unplayable and not wishlisted)
+    bool isWishlisted = !t.productId.empty() && wishlist_.count(t.productId) > 0;
+    if (isWishlisted) {
+        c.fillCircle(x + kCard - 24, y + 24, 14, rgba(10, 20, 35, 230));
+        c.strokeCircle(x + kCard - 24, y + 24, 14, 1.5f, rgba(40, 140, 255, 180));
+        drawStar(c, x + kCard - 24, y + 24, 7.5f, rgba(50, 160, 255));
+    }
+
+    // Bottom-right: console badge and input badge.
+    // Calculate rightBadgeLeft so bottom-left badges never overlap them.
+    int rightEdge = x + kCard - 10;
+    int rightBadgeLeft = rightEdge;
+    if (const char* p = platformLabel(t.platform)) {
+        int pTextW = fonts_.bold.measure(p, 11);
+        int pBadgeW = std::clamp(pTextW + 12, 54, 66);
+        Rect badge{rightBadgeLeft - pBadgeW, y + kCard - 34, pBadgeW, 24};
+        c.fillRect(badge, rgba(0, 0, 0, 220), 4);
+        fonts_.bold.draw(c, p, badge.x + (badge.w - pTextW) / 2,
+                         fonts_.bold.centeredY(badge.y, badge.h, 11), 11, kWhite);
+        rightBadgeLeft = badge.x - 4;
+    }
+    if (t.mouseKeyboard || fonts_.hasIcons) {
+        constexpr int kInputW = 28;
+        Rect k{rightBadgeLeft - kInputW, y + kCard - 34, kInputW, 24};
+        c.fillRect(k, rgba(0, 0, 0, 220), 4);
+        const char* glyph = t.mouseKeyboard ? kIconKeyboardMouse : kIconGamepad;
+        if (fonts_.hasIcons) {
+            int gw = fonts_.icons.measure(glyph, 18);
+            int gx = k.x + (k.w - gw) / 2;
+            fonts_.icons.draw(c, glyph, gx, k.y + 3, 18, kWhite);
+        } else {
+            int kw = 16, kh = kw * 10 / 24;
+            int kx = k.x + (k.w - kw) / 2;
+            int ky = k.y + (k.h - kh) / 2;
+            drawKeyboardGlyph(c, kx, ky, kw, kWhite);
+        }
+        rightBadgeLeft = k.x - 6;
+    }
+
+    // Bottom-left: price badge, plan badge, or friends playing; bounded by rightBadgeLeft.
+    int maxLeftW = std::max(40, rightBadgeLeft - (x + 10) - 4);
     const char* planBadge = planBadgeLabel(t.plan);
     uint8_t myPlan = xcloud::planTier(subscription_);
     bool otherPlan = planBadge && (!t.playable || (myPlan > 0 && !xcloud::planIncludes(myPlan, t.plan, t.freeInStore)));
@@ -3329,23 +3434,27 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
         std::string label = t.freeInStore          ? tr(Str::Free)
                             : price != prices_.end() ? price->second.now
                                                      : tr(Str::BuyBadge);
-        int w = fonts_.bold.measure(label, 13) + 42;
+        int tw = fonts_.bold.measure(label, 11);
+        int w = std::min(maxLeftW, 20 + tw + 8);
+        if (w < 20 + tw + 8) {
+            label = fonts_.bold.fit(label, 11, w - 22);
+        }
         Rect badge{x + 10, y + kCard - 34, w, 24};
         c.fillRect(badge, rgba(16, 124, 16, 235), 4);
-        drawBag(c, badge.x + 15, badge.y + badge.h / 2, kWhite, 0.62f);
-        fonts_.bold.draw(c, label, badge.x + 30, fonts_.bold.centeredY(badge.y, badge.h, 13), 13, kWhite);
+        drawBag(c, badge.x + 10, badge.y + badge.h / 2, kWhite, 0.52f);
+        fonts_.bold.draw(c, label, badge.x + 18, fonts_.bold.centeredY(badge.y, badge.h, 11), 11, kWhite);
     } else if (!t.playable) {
         c.fillRect({x, y, kCard, kCard}, rgba(0, 0, 0, 150), 10);
-        drawLock(c, x + kCard - 34, y + 30);
+        drawLock(c, isWishlisted ? x + kCard - 54 : x + kCard - 34, isWishlisted ? y + 24 : y + 30);
         if (planBadge) {
-            int w = std::min(78, fonts_.bold.measure(planBadge, 11) + 12);
+            int w = std::min(maxLeftW, fonts_.bold.measure(planBadge, 11) + 14);
             Rect badge{x + 10, y + kCard - 34, w, 24};
             c.fillRect(badge, rgba(0, 0, 0, 220), 4);
             fonts_.bold.draw(c, planBadge, badge.x + (badge.w - fonts_.bold.measure(planBadge, 11)) / 2,
                              fonts_.bold.centeredY(badge.y, badge.h, 11), 11, kWhite);
         }
     } else if (showPlan) {
-        int w = std::min(78, fonts_.bold.measure(planBadge, 11) + 12);
+        int w = std::min(maxLeftW, fonts_.bold.measure(planBadge, 11) + 14);
         Rect badge{x + 10, y + kCard - 34, w, 24};
         c.fillRect(badge, rgba(0, 0, 0, 220), 4);
         fonts_.bold.draw(c, planBadge, badge.x + (badge.w - fonts_.bold.measure(planBadge, 11)) / 2,
@@ -3369,8 +3478,7 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
             tagText = t.friends[0].gamertag;
         }
 
-        bool hasPlatform = platformLabel(t.platform) != nullptr;
-        int maxPillW = hasPlatform ? (kCard - 20 - 96 - 8) : (kCard - 20);
+        int maxPillW = maxLeftW;
         int maxTextW = maxPillW - avatarsW - kPadX * 2 - 8;
         int textW = !tagText.empty() ? fonts_.semibold.measure(tagText, 12) + 6 : 0;
         if (textW > maxTextW && maxTextW > 15) {
@@ -3414,26 +3522,6 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
                 fonts_.semibold.draw(c, tagText, tx, ty, 12, kWhite);
             }
         }
-    }
-    // Bottom-right: the console it was made for; one style and width for all.
-    // Left of it, how it's played: keyboard and mouse (the cloud takes them
-    // in it) or the controller only.
-    if (t.mouseKeyboard || fonts_.hasIcons) {
-        int right = x + kCard - 10 - (platformLabel(t.platform) ? 96 + 6 : 0);
-        Rect k{right - 34, y + kCard - 34, 34, 24};
-        c.fillRect(k, rgba(0, 0, 0, 220), 4);
-        const char* glyph = t.mouseKeyboard ? kIconKeyboardMouse : kIconGamepad;
-        if (fonts_.hasIcons)  // the console's own icons
-            fonts_.icons.draw(c, glyph, k.x + (k.w - fonts_.icons.measure(glyph, 18)) / 2, k.y + 3, 18, kWhite);
-        else
-            drawKeyboardGlyph(c, k.x + 6, k.y + 6, 22, kWhite);
-    }
-    if (const char* p = platformLabel(t.platform)) {
-        constexpr int kBadgeW = 96;
-        Rect badge{x + kCard - 10 - kBadgeW, y + kCard - 34, kBadgeW, 24};
-        c.fillRect(badge, rgba(0, 0, 0, 220), 4);
-        fonts_.bold.draw(c, p, badge.x + (kBadgeW - fonts_.bold.measure(p, 13)) / 2,
-                         fonts_.bold.centeredY(badge.y, badge.h, 13), 13, kWhite);
     }
     if (focused) c.strokeRect({x - 7, y - 7, kCard + 14, kCard + 14}, kWhite, 4, 16);
 }
@@ -3515,7 +3603,8 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
                                                               : Str::SortRecent;
         std::string label = trf(Str::SortLabel, tr(sortName));
         int w = fonts_.semibold.measure(label, 22);
-        int right = left + kGridW;
+        constexpr int kAvatar = 52;
+        int right = kW - kMargin - kAvatar - 16;
         fonts_.semibold.draw(c, label, right - w, fonts_.semibold.centeredY(112, 28, 22), 22, kGray);
     }
     c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
@@ -3545,7 +3634,8 @@ void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
     if (query_.empty() && !filtering) {
         fonts_.semibold.draw(c, tr(Str::SearchHint), kResultsX, 150, 26, kDim);
     } else if (results_.empty()) {
-        fonts_.semibold.draw(c, tr(Str::NoResults), kResultsX, 150, 26, kGray);
+        const char* emptyMsg = (tab_ == Tab::Library && filterWishlist_) ? tr(Str::WishlistEmpty) : tr(Str::NoResults);
+        fonts_.semibold.draw(c, emptyMsg, kResultsX, 150, 26, kGray);
     } else {
         fonts_.semibold.draw(c, trf(Str::ResultsCount, std::to_string(results_.size())), kResultsX, 150, 26, kGray);
     }
@@ -3605,10 +3695,12 @@ void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
             if (on && focused) c.strokeRect({chip.x + 3, chip.y + 3, chip.w - 6, chip.h - 6}, kGreen, 3, fh / 2 - 3);
             Color text = focused ? kBg : kWhite;
             int room = chip.w - (isList(f) ? 44 : 16);
-            std::string label = fonts_.semibold.fit(filterText(f), px, room);
-            int tw = fonts_.semibold.measure(label, px);
+            int chipPx = px;
+            while (chipPx > 13 && fonts_.semibold.measure(filterText(f), chipPx) > room) --chipPx;
+            std::string label = fonts_.semibold.fit(filterText(f), chipPx, room);
+            int tw = fonts_.semibold.measure(label, chipPx);
             int tx = chip.x + (isList(f) ? (chip.w - 22 - tw) / 2 : (chip.w - tw) / 2);
-            fonts_.semibold.draw(c, label, tx, fonts_.semibold.centeredY(chip.y, chip.h, px), px, text);
+            fonts_.semibold.draw(c, label, tx, fonts_.semibold.centeredY(chip.y, chip.h, chipPx), chipPx, text);
             if (isList(f)) {  // a list: a chevron at the right
                 float cx = static_cast<float>(chip.x + chip.w - 24), cy = static_cast<float>(chip.y + chip.h / 2);
                 c.line(cx - 6, cy - 3, cx, cy + 3, 2.5f, text);
@@ -3966,7 +4058,7 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         hints.push_back({kIconOptions, tr(Str::GameSettings)});
         hints.push_back({kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)});
         hints.push_back({kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)});
-        hints.push_back({kIconR3, tr(wishlist_.count(g->productId) ? Str::RemoveWishlist : Str::AddWishlist)});
+        if (!isAcquired(*g)) hints.push_back({kIconR3, tr(wishlist_.count(g->productId) ? Str::RemoveWishlist : Str::AddWishlist)});
         if (!g->xboxTitleId.empty()) hints.push_back({kIconL3, tr(Str::Achievements)});
         hints.push_back({kIconCircle, tr(Str::Back)});
         drawHints(c, hints);
@@ -3984,9 +4076,9 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         std::vector<Hint> hints = {
             {kIconOptions, tr(Str::GameSettings)},
             {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
-            {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
-            {kIconR3, tr(wishlist_.count(g->productId) ? Str::RemoveWishlist : Str::AddWishlist)}
+            {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)}
         };
+        if (!isAcquired(*g)) hints.push_back({kIconR3, tr(wishlist_.count(g->productId) ? Str::RemoveWishlist : Str::AddWishlist)});
         if (!g->xboxTitleId.empty()) hints.push_back({kIconL3, tr(Str::Achievements)});
         hints.push_back({kIconCircle, tr(Str::Back)});
         drawHints(c, hints);
@@ -4067,10 +4159,10 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         {kIconCross, tr(achFocused ? Str::Achievements : Str::Play)},
         {kIconOptions, tr(Str::GameSettings)},
         {kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)},
-        {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)},
-        {kIconR3, tr(wishlist_.count(g->productId) ? Str::RemoveWishlist : Str::AddWishlist)},
-        {kIconCircle, tr(Str::Back)}
+        {kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)}
     };
+    if (!isAcquired(*g)) hints.push_back({kIconR3, tr(wishlist_.count(g->productId) ? Str::RemoveWishlist : Str::AddWishlist)});
+    hints.push_back({kIconCircle, tr(Str::Back)});
     drawHints(c, hints);
     drawToast(c, nowMs);
 }
@@ -4252,7 +4344,11 @@ void AppUi::drawSettings(Canvas& c) {
         }
         drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
     } else {
-        drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
+        if (settingsRow_ == 16) {
+            drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconSquare, tr(Str::TestSound)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
+        } else {
+            drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
+        }
     }
 }
 

@@ -184,6 +184,7 @@ def cmd_test(args):
         "padmaptest", "detailtest", "gridtest", "crashtest", "searchtest",
         "tunetest", "confirmtest", "pickertest", "menutest", "regiontest",
         "friendstest", "publishertest", "scrolltest", "quicktest", "tlscheck",
+        "padspktest", "queuetest", "queueuitest", "wishlisttest",
     }
     bitrate_opt = f" bitrate={args.bitrate}" if getattr(args, "bitrate", 0) > 0 else ""
     if target.startswith("AUTOTEST") or target.startswith("BENCH") or " " in target:
@@ -220,7 +221,7 @@ def cmd_test(args):
     # Delete old artifacts on PS5
     for name in ("xcloud.log", "frame.ppm", "frame2.ppm", "frame3.ppm", "frame4.ppm", "screen.ppm", "ui.ppm", "launch.ppm", "detail.ppm",
                  "detail_after.ppm", "settings.ppm", "game_settings.ppm", "game_settings_custom.ppm", "library.ppm",
-                 "confirm2.ppm", "home.ppm"):
+                 "wishlist_empty.ppm", "wishlist_active.ppm", "confirm2.ppm", "home.ppm"):
         try:
             ftp.sendcmd(f"DELE {name}")
         except (error_perm, error_reply):
@@ -256,7 +257,7 @@ def cmd_test(args):
     # Fetch all PPMs and log
     ppm_names = ["ui.ppm", "launch.ppm", "frame.ppm", "frame2.ppm", "frame3.ppm", "frame4.ppm", "screen.ppm", "detail.ppm",
                  "detail_after.ppm", "settings.ppm", "game_settings.ppm", "game_settings_custom.ppm",
-                 "library.ppm", "error.ppm", "confirm2.ppm", "home.ppm"]
+                 "library.ppm", "wishlist_empty.ppm", "wishlist_active.ppm", "error.ppm", "confirm2.ppm", "home.ppm"]
     ftp = get_ftp(host, port)
     ftp.cwd("/data/psbox")
     for name in ppm_names + ["xcloud.log"]:

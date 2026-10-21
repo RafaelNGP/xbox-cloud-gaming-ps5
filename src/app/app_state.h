@@ -45,6 +45,8 @@ extern ui::GameTile g_playTile;  // what kPlay plays
 void worker();
 // The worker thread started (detached), as coreStartup() does.
 void startWorker();
+// Plays the queue-ready chime through the DualSense speaker and vibrates.
+void playQueueReadyAlert(bool notifyToast = false);
 // The update pop-up's "Not now": that release isn't offered again on start.
 void skipOfferedUpdate();
 // Updates the running library's favorites list and refreshes UI rows.

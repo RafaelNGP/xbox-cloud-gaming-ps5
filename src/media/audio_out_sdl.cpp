@@ -15,6 +15,7 @@
 
 #include <mutex>
 #include <vector>
+#include <thread>
 
 namespace xc::media {
 
@@ -77,6 +78,24 @@ void audioStop() {
     if (g_initedAudio) SDL_QuitSubSystem(SDL_INIT_AUDIO);
     g_initedAudio = false;
     XC_LOGI("audio output closed");
+}
+
+bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
+    if (!interleavedStereo || frames == 0) return false;
+    audioStart();
+    std::thread([pcm = std::vector<float>(interleavedStereo, interleavedStereo + frames * 2)]() {
+        constexpr size_t kRate = AudioQueue::kRate;
+        constexpr size_t kChunk = (kRate * 20) / 1000;
+        size_t total = pcm.size() / 2;
+        size_t off = 0;
+        while (off < total) {
+            size_t n = std::min(kChunk, total - off);
+            audioPush(pcm.data() + off * 2, n);
+            off += n;
+            if (off < total) SDL_Delay(18);
+        }
+    }).detach();
+    return true;
 }
 
 }  // namespace xc::media

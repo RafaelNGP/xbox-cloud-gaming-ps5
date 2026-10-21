@@ -22,6 +22,8 @@ int sceAudioOutInit(void);
 int sceAudioOutOpen(int userId, int type, int index, unsigned len, unsigned freq, unsigned param);
 int sceAudioOutOutput(int handle, const void* ptr);
 int sceAudioOutClose(int handle);
+int sceAudioOutSetMixLevelPadSpk(int handle, int mixLevel);
+int sceAudioOutSetPadSpkVolume(int handle, int volume);
 }
 
 namespace xc::media {
@@ -116,6 +118,111 @@ void audioStop() {
         g_handle = -1;
     }
     audioQueue().clear();
+}
+
+bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
+    if (!interleavedStereo || frames == 0) return false;
+
+    std::thread([pcm = std::vector<float>(interleavedStereo, interleavedStereo + frames * 2)]() {
+        platform::setThreadAffinity(platform::ThreadRole::Audio, "ps5_pad_audio");
+
+        static bool initialised = false;
+        if (!initialised) {
+            int rc = sceAudioOutInit();
+            if (rc >= 0 || rc == static_cast<int>(0x8026000C) || rc == static_cast<int>(0x8026000E)) {
+                initialised = true;
+            }
+        }
+
+        int32_t userId = input::padUserId(0);
+        if (userId < 0) userId = 0xFF;
+
+        int padHandle = -1;
+        int activeFormat = -1;
+        // Formats: 3 = FloatMono (native DualSense pad speaker), 4 = FloatStereo, 0 = S16Mono, 1 = S16Stereo
+        const int formatsToTry[] = {3, 4, 0, 1};
+        for (int fmt : formatsToTry) {
+            padHandle = sceAudioOutOpen(userId, 4 /* PADSPK */, 0, kGrain, kRate, fmt);
+            if (padHandle >= 0) {
+                activeFormat = fmt;
+                XC_LOGI("pad speaker: opened port handle 0x%08x for user 0x%08x (fmt %d)", padHandle, userId, fmt);
+                break;
+            } else {
+                XC_LOGW("pad speaker: sceAudioOutOpen(user 0x%08x, fmt %d) returned 0x%08x", userId, fmt, static_cast<unsigned>(padHandle));
+            }
+        }
+
+        if (padHandle < 0) {
+            XC_LOGW("pad speaker: failed to open controller speaker port, fallback to main audio");
+            audioStart();
+            constexpr size_t kChunk = (kRate * 20) / 1000;
+            size_t total = pcm.size() / 2;
+            size_t off = 0;
+            while (off < total) {
+                size_t n = std::min(kChunk, total - off);
+                audioPush(pcm.data() + off * 2, n);
+                off += n;
+                if (off < total) platform::sleepMs(18);
+            }
+            return;
+        }
+
+        sceAudioOutSetMixLevelPadSpk(padHandle, 32768);
+        sceAudioOutSetPadSpkVolume(padHandle, 127);
+
+        size_t totalFrames = pcm.size() / 2;
+        size_t offset = 0;
+
+        if (activeFormat == 4) {
+            std::vector<float> chunk(kGrain * 2, 0.0f);
+            while (offset < totalFrames) {
+                size_t n = std::min(static_cast<size_t>(kGrain), totalFrames - offset);
+                std::fill(chunk.begin(), chunk.end(), 0.0f);
+                std::copy(pcm.data() + offset * 2, pcm.data() + (offset + n) * 2, chunk.data());
+                sceAudioOutOutput(padHandle, chunk.data());
+                offset += n;
+            }
+        } else if (activeFormat == 3) {
+            std::vector<float> chunk(kGrain, 0.0f);
+            while (offset < totalFrames) {
+                size_t n = std::min(static_cast<size_t>(kGrain), totalFrames - offset);
+                std::fill(chunk.begin(), chunk.end(), 0.0f);
+                for (size_t i = 0; i < n; ++i) {
+                    chunk[i] = 0.5f * (pcm[(offset + i) * 2] + pcm[(offset + i) * 2 + 1]);
+                }
+                sceAudioOutOutput(padHandle, chunk.data());
+                offset += n;
+            }
+        } else if (activeFormat == 0) {
+            std::vector<int16_t> chunk(kGrain, 0);
+            while (offset < totalFrames) {
+                size_t n = std::min(static_cast<size_t>(kGrain), totalFrames - offset);
+                std::fill(chunk.begin(), chunk.end(), 0);
+                for (size_t i = 0; i < n; ++i) {
+                    float m = 0.5f * (pcm[(offset + i) * 2] + pcm[(offset + i) * 2 + 1]);
+                    chunk[i] = static_cast<int16_t>(std::clamp(m * 32767.0f, -32768.0f, 32767.0f));
+                }
+                sceAudioOutOutput(padHandle, chunk.data());
+                offset += n;
+            }
+        } else if (activeFormat == 1) {
+            std::vector<int16_t> chunk(kGrain * 2, 0);
+            while (offset < totalFrames) {
+                size_t n = std::min(static_cast<size_t>(kGrain), totalFrames - offset);
+                std::fill(chunk.begin(), chunk.end(), 0);
+                for (size_t i = 0; i < n * 2; ++i) {
+                    chunk[i] = static_cast<int16_t>(std::clamp(pcm[offset * 2 + i] * 32767.0f, -32768.0f, 32767.0f));
+                }
+                sceAudioOutOutput(padHandle, chunk.data());
+                offset += n;
+            }
+        }
+
+        sceAudioOutClose(padHandle);
+        XC_LOGI("pad speaker: alert chime playback completed successfully on DualSense");
+    }).detach();
+
+    return true;
 }
 
 }  // namespace xc::media

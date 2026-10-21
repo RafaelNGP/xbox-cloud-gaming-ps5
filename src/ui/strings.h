@@ -348,6 +348,8 @@ enum class Str {
     SupportMessage,     // modal text: captivating thank you / donation message
     SupportKoFi,        // settings action button: "Ko-fi"
     ScanToDonate,       // modal subtitle below QR: "Scan with your phone to donate"
+    TestSound,          // "Test sound" / "Testar som"
+    WishlistEmpty,      // "Wishlist is empty"
     Count
 };
 

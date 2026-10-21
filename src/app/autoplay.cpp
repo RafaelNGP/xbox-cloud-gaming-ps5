@@ -98,6 +98,9 @@ void loadAutoplay() {
         if (opt == "idle") g_autoplay.idle = true;
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
         if (opt == "triggertest") input::setTriggerRumble(255, 128, 3000);
+        if (opt == "queuetest" || opt == "padspktest") g_autoplay.padSpkTest = true;
+        if (opt == "queueuitest") g_autoplay.queueUiTest = true;
+        if (opt == "wishlisttest") g_autoplay.wishlistTest = true;
         if (opt == "vibetest") g_autoplay.vibeTest = true;
         if (opt == "vktest") g_autoplay.vkTest = true;
         if (opt == "cpudisplay") g_autoplay.cpuDisplay = true;
@@ -796,6 +799,36 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         }
     }
 
+    if (g_autoplay.queueUiTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        static SettingsWalk walk;
+        const uint64_t at[] = {500, 1500, 6000, 7500, 9000};
+        if (step < 5 && now - since >= at[step]) {
+            bool next = true;
+            if (step == 0) nav.options = true;
+            if (step == 1) next = walk.step(nav, downsTo(16));
+            if (step == 2) {
+                if (onSettingsRow(16, "queue ui test")) {
+                    settingsShot = true;
+                } else {
+                    g_autoplay.queueUiTest = false;
+                    g_ui->showHome();
+                }
+            }
+            if (step == 3) {
+                nav.square = true;  // Trigger test sound with Square
+            }
+            if (step == 4) {
+                g_ui->showHome();
+                g_autoplay.queueUiTest = false;
+                XC_LOGI("AUTOPLAY END: queue ui test completed");
+            }
+            if (next) ++step;
+        }
+    }
+
     if (g_autoplay.donationTest && uiSaved) {
         static uint64_t since = 0;
         static int step = 0;
@@ -1062,6 +1095,15 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         XC_LOGI("AUTOPLAY END: confirm test, on the %s screen (the confirm button put back as it was)",
                 home ? "home" : "WRONG");
     }
+    if (g_autoplay.padSpkTest && uiSaved) {
+        static bool done = false;
+        if (!done) {
+            done = true;
+            XC_LOGI("AUTOPLAY: triggering pad speaker alert test");
+            playQueueReadyAlert();
+            XC_LOGI("AUTOPLAY END: padspktest triggered");
+        }
+    }
     if (g_autoplay.crashTest && uiSaved) {
         XC_LOGI("AUTOPLAY END: crash test (SIGSEGV now)");
         volatile int* nullPtr = nullptr;
@@ -1131,6 +1173,34 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             saveCanvas("plan_results.ppm");
             g_autoplay.publisherTest = false;
             XC_LOGI("AUTOPLAY END: publisher test");
+        }
+    }
+    if (g_autoplay.wishlistTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        if (step == 0 && now - since > 2000) {
+            // Open filtered search on Library tab with Wishlist filter
+            g_ui->showFilteredSearch(ui::Tab::Library, false, 0, "", 0, -1);
+            g_ui->chooseFilter(ui::AppUi::Filter::Wishlist, 1);
+            ++step;
+        } else if (step == 1 && now - since > 4000) {
+            saveCanvas("wishlist_empty.ppm");
+            // If any purchasable tile exists, add to wishlist and verify
+            ui::GameTile t;
+            if (g_ui->purchasableAt(0, t)) {
+                ui::UiEvent ev;
+                g_ui->toggleWishlist(t, ev);
+                g_ui->showFilteredSearch(ui::Tab::Library, false, 0, "", 0, -1);
+                g_ui->chooseFilter(ui::AppUi::Filter::Wishlist, 1);
+            }
+            ++step;
+        } else if (step == 2 && now - since > 6000) {
+            saveCanvas("wishlist_active.ppm");
+            g_ui->showHome();
+            g_autoplay.wishlistTest = false;
+            XC_LOGI("AUTOPLAY END: wishlist test");
+            ++step;
         }
     }
     if (g_autoplay.friendsTest && uiSaved) {

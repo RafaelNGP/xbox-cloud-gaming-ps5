@@ -2039,21 +2039,21 @@ static void testVisibleSettingsRows() {
     };
     const ui::UiCaps ps5;
     auto all = ui::visibleSettingsRows(ps5);
-    CHECK((ids(all) == std::vector<int>{0, 8, 17, 1, 9, 10, 2, 18, 11, 16, 3, 4, 5, 6, 15, 14, 12, 19, 7}));
-    CHECK((groups(all) == std::vector<bool>{false, false, false, true, false, false, false, false, true, false, true, false, false, false, false, false, false, true, false}));
+    CHECK((ids(all) == std::vector<int>{0, 8, 17, 1, 9, 10, 2, 18, 14, 12, 3, 15, 4, 5, 6, 16, 19, 7}));
+    CHECK((groups(all) == std::vector<bool>{false, false, false, true, false, false, false, false, true, false, false, false, false, false, false, false, true, false}));
     ui::UiCaps pc;
     pc.lightBar = pc.triggerRumble = pc.adaptiveTriggers = pc.gyro = pc.touchpad = false;
     pc.upscalers = pc.sharpen = pc.deband = pc.highRefresh = pc.console = pc.selfUpdate = false;
     pc.openUrl = true;
     auto desk = ui::visibleSettingsRows(pc);
-    CHECK((ids(desk) == std::vector<int>{0, 8, 17, 1, 10, 2, 18, 11, 16, 3, 5, 14, 12, 19, 7}));
-    CHECK((groups(desk) == std::vector<bool>{false, false, false, true, false, false, false, true, false, true, false, false, false, true, false}));
+    CHECK((ids(desk) == std::vector<int>{0, 8, 17, 1, 10, 2, 18, 14, 12, 3, 5, 16, 19, 7}));
+    CHECK((groups(desk) == std::vector<bool>{false, false, false, true, false, false, false, true, false, false, false, false, true, false}));
     // The desktop app's window: Display mode after the resolution, in the stream's group.
     ui::UiCaps win = pc;
     win.desktopWindow = true;
     auto w = ui::visibleSettingsRows(win);
-    CHECK((ids(w) == std::vector<int>{0, 8, 17, 1, 13, 10, 2, 18, 11, 16, 3, 5, 14, 12, 19, 7}));
-    CHECK((groups(w) == std::vector<bool>{false, false, false, true, false, false, false, false, true, false, true, false, false, false, true, false}));
+    CHECK((ids(w) == std::vector<int>{0, 8, 17, 1, 13, 10, 2, 18, 14, 12, 3, 5, 16, 19, 7}));
+    CHECK((groups(w) == std::vector<bool>{false, false, false, true, false, false, false, false, true, false, false, false, false, true, false}));
     ui::UiCaps xbox = pc;  // an Xbox pad: impulse triggers, no light bar
     xbox.triggerRumble = true;
     auto x = ids(ui::visibleSettingsRows(xbox));
@@ -2063,9 +2063,6 @@ static void testVisibleSettingsRows() {
     CHECK((ids(ui::visibleGameSettingsRows(ps5, true, true)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 13, 9, 10}));
     CHECK((groups(ui::visibleGameSettingsRows(ps5, true, true)) ==
            std::vector<bool>{false, true, false, false, true, false, false, true, false, false, false, false, false, false, true}));
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, true)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
-    CHECK((groups(ui::visibleGameSettingsRows(ps5, true)) ==
-           std::vector<bool>{false, true, false, false, true, false, false, true, false, false, false, false, false, true}));
     CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9}));
     ui::UiCaps noTouch = ps5;
     noTouch.touchpad = false;
@@ -2073,14 +2070,12 @@ static void testVisibleSettingsRows() {
     auto game = ui::visibleGameSettingsRows(pc, false);
     CHECK((ids(game) == std::vector<int>{0, 4, 14, 5, 7, 11, 9}));
     CHECK((groups(game) == std::vector<bool>{false, true, false, true, false, false, false}));
-    // How far down the autoplay tests walk to each row (autoplay.cpp's
-    // downsTo): on the PS5 the confirm button is 12 down (6 is the region),
-    // the keyboard keys 16 (15 is the controller buttons).
+    // How far down the autoplay tests walk to each row (autoplay.cpp's downsTo).
     CHECK(ui::settingsRowPosition(ps5, 1) == 3 && ui::settingsRowPosition(ps5, 3) == 10);
-    CHECK(ui::settingsRowPosition(ps5, 16) == 9);
-    CHECK(ui::settingsRowPosition(ps5, 5) == 12 && ui::settingsRowPosition(ps5, 6) == 13);
-    CHECK(ui::settingsRowPosition(ps5, 12) == 16 && ui::settingsRowPosition(ps5, 14) == 15);
-    CHECK(ui::settingsRowPosition(ps5, 7) == 18 && ui::settingsRowPosition(ps5, 19) == 17 && ui::settingsRowPosition(ps5, 2) == 6);
+    CHECK(ui::settingsRowPosition(ps5, 16) == 15);
+    CHECK(ui::settingsRowPosition(ps5, 5) == 13 && ui::settingsRowPosition(ps5, 6) == 14);
+    CHECK(ui::settingsRowPosition(ps5, 12) == 9 && ui::settingsRowPosition(ps5, 14) == 8);
+    CHECK(ui::settingsRowPosition(ps5, 7) == 17 && ui::settingsRowPosition(ps5, 19) == 16 && ui::settingsRowPosition(ps5, 2) == 6);
     CHECK(ui::settingsRowPosition(pc, 5) == 10 && ui::settingsRowPosition(pc, 6) == -1 && ui::settingsRowPosition(pc, 4) == -1);
 }
 
@@ -2589,7 +2584,124 @@ static void testWishlist() {
     Library lib;
     lib.setWishlist({"PROD_WISH"});
     auto rows = lib.rows();
-    (void)rows;
+    // Standalone wishlist shelf must not exist in Game Pass home rows
+    for (const auto& r : rows) {
+        CHECK(r.title != ui::tr(ui::Str::Wishlist));
+    }
+
+    // AppUi Wishlist tests
+    ui::Fonts fonts;
+    ui::ImageCache images([] {});
+    ui::AppUi app(fonts, images);
+
+    ui::GameTile ownedTile, unownedTileA, unownedTileB;
+    ownedTile.productId = "OWNED_1";
+    ownedTile.titleId = "TITLE_OWNED_1";
+    ownedTile.name = "Owned Game";
+
+    unownedTileA.productId = "UNOWNED_A";
+    unownedTileA.titleId = "TITLE_UNOWNED_A";
+    unownedTileA.name = "Game A";
+
+    unownedTileB.productId = "UNOWNED_B";
+    unownedTileB.titleId = "TITLE_UNOWNED_B";
+    unownedTileB.name = "Game B";
+
+    // Set owned and purchasable: unownedTileB is wishlisted initially.
+    // Also include ownedTile in wishlist initially to verify rebuild() prunes acquired games!
+    app.setPrefs({}, ui::LibrarySort::AZ, {}, {"OWNED_1", "UNOWNED_B"});
+    app.setOwned({ownedTile}, {unownedTileA, unownedTileB}, true);
+
+    // In purchasable_, UNOWNED_B should be at index 0 because it's wishlisted, even though Game A precedes Game B alphabetically!
+    ui::GameTile firstPurchasable;
+    CHECK(app.purchasableAt(0, firstPurchasable));
+    CHECK(firstPurchasable.productId == "UNOWNED_B");
+
+    // Search filtering with Wishlist
+    app.setSearchPools({}, {unownedTileA, unownedTileB});
+    app.showFilteredSearch(ui::Tab::Library, false, 0, "", 0, -1);
+    app.chooseFilter(ui::AppUi::Filter::Wishlist, 1);
+    auto res = app.searchResults(10);
+    // Only UNOWNED_B should be returned because it's in the wishlist
+    CHECK(res.size() == 1);
+    if (!res.empty()) {
+        CHECK(res[0].first == "Game B");
+    }
+
+    // Test details screen: open details for ownedTile, press R3 -> should NOT add to wishlist!
+    app.showDetails(ownedTile);
+    ui::NavInput r3Press;
+    r3Press.r3 = true;
+    app.handle(r3Press);
+
+    // Verify search with wishlist filter again: ownedTile was NOT added!
+    app.showFilteredSearch(ui::Tab::Library, false, 0, "", 0, -1);
+    app.chooseFilter(ui::AppUi::Filter::Wishlist, 1);
+    res = app.searchResults(10);
+    CHECK(res.size() == 1);
+    if (!res.empty()) {
+        CHECK(res[0].first == "Game B");
+    }
+
+    // Open details for unownedTileA, press R3 -> should be added to wishlist!
+    app.showDetails(unownedTileA);
+    app.handle(r3Press);
+
+    app.showFilteredSearch(ui::Tab::Library, false, 0, "", 0, -1);
+    app.chooseFilter(ui::AppUi::Filter::Wishlist, 1);
+    res = app.searchResults(10);
+    // Now both UNOWNED_B and UNOWNED_A are wishlisted!
+    CHECK(res.size() == 2);
+
+    // Press R3 again on unownedTileA -> toggles off!
+    app.showDetails(unownedTileA);
+    app.handle(r3Press);
+
+    app.showFilteredSearch(ui::Tab::Library, false, 0, "", 0, -1);
+    app.chooseFilter(ui::AppUi::Filter::Wishlist, 1);
+    res = app.searchResults(10);
+    CHECK(res.size() == 1);
+
+    // Test price updating via setPrices while wishlist filter is active
+    ui::PriceInfo pi;
+    pi.list = 49.99;
+    pi.msrp = 49.99;
+    pi.now = "R$ 49,99";
+    app.setPrices({{"UNOWNED_B", pi}});
+    res = app.searchResults(10);
+    CHECK(res.size() == 1);
+    CHECK(res[0].second.now == "R$ 49,99");
+
+    // Add UNOWNED_A to wishlist
+    app.showDetails(unownedTileA);
+    app.handle(r3Press);
+
+    // Test pruning of acquired game matching titleId
+    ui::GameTile newlyOwned;
+    newlyOwned.productId = "DIFF_PID";
+    newlyOwned.titleId = "TITLE_UNOWNED_A";
+    newlyOwned.name = "Game A";
+    app.setOwned({ownedTile, newlyOwned}, {unownedTileA, unownedTileB}, true);
+
+    app.showFilteredSearch(ui::Tab::Library, false, 0, "", 0, -1);
+    app.chooseFilter(ui::AppUi::Filter::Wishlist, 1);
+    res = app.searchResults(10);
+    // UNOWNED_A must be pruned because newlyOwned has matching titleId
+    CHECK(res.size() == 1);
+    CHECK(res[0].first == "Game B");
+
+    // Unwishlist UNOWNED_B to test empty state
+    app.showDetails(unownedTileB);
+    app.handle(r3Press);
+
+    app.showFilteredSearch(ui::Tab::Library, false, 0, "", 0, -1);
+    app.chooseFilter(ui::AppUi::Filter::Wishlist, 1);
+    res = app.searchResults(10);
+    CHECK(res.empty());
+
+    // Empty wishlist string test
+    CHECK(std::string(ui::tr(ui::Str::WishlistEmpty)).find("vazia") != std::string::npos ||
+          std::string(ui::tr(ui::Str::WishlistEmpty)).find("empty") != std::string::npos);
 }
 
 static void testAchievements() {

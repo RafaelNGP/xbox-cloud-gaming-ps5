@@ -96,11 +96,14 @@ void applyControllerSettings() {
 // the language changed.
 bool saveSettings(const ui::SettingsChoice& choice) {
     bool languageChanged, fullscreenChanged;
+    bool queueAlertToggledOn = false;
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         std::string language = g_settings.language;
         bool fullscreen = g_settings.desktopFullscreen;
+        bool prevQueue = g_settings.queueReadyAlert;
         ui::applyChoice(choice, g_settings);
+        queueAlertToggledOn = !prevQueue && g_settings.queueReadyAlert;
         languageChanged = g_settings.language != language;
         fullscreenChanged = g_settings.desktopFullscreen != fullscreen;
         g_settings.save(settingsPath());  // warns itself
@@ -108,6 +111,10 @@ bool saveSettings(const ui::SettingsChoice& choice) {
                 g_settings.region.empty() ? "auto" : g_settings.region.c_str());
     }
     applyControllerSettings();
+    if (queueAlertToggledOn) {
+        XC_LOGI("settings: queue-ready alert toggled on; playing test chime and rumble");
+        playQueueReadyAlert();
+    }
     if (g_ui) g_ui->setGyroDefaults(choice.gyroMode, choice.gyroLevel);
     if (fullscreenChanged) shell::setFullscreen(choice.fullscreen);  // a desktop's window (main thread)
     return languageChanged;
@@ -714,6 +721,11 @@ bool Core::frame() {
             XC_LOGI("network test: requested from Settings");
             int idle = kNone;
             if (!g_command.compare_exchange_strong(idle, kNetworkTest)) XC_LOGW("network test: worker is busy");
+            break;
+        }
+        case ui::Action::TestQueueAlert: {
+            XC_LOGI("settings: manual queue-ready alert test requested");
+            playQueueReadyAlert();
             break;
         }
         case ui::Action::None: break;

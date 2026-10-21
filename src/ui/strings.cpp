@@ -371,6 +371,8 @@ constexpr Column kEnglish = {
     "PSBox is an open-source project passionately maintained to bring the best Xbox Cloud Gaming experience to PlayStation 5. If you enjoy the app and would like to support ongoing development, frequent updates and new features, consider buying me a coffee on Ko-Fi!", // SupportMessage
     "Ko-fi",                                          // SupportKoFi
     "Scan with your phone to support",                // ScanToDonate
+    "Test sound",                                     // TestSound
+    "Wishlist is empty",                              // WishlistEmpty
 };
 
 constexpr Column kPortugueseBR = {
@@ -712,6 +714,8 @@ constexpr Column kPortugueseBR = {
     "O PSBox é um projeto de código aberto mantido com dedicação para trazer a melhor experiência do Xbox Cloud Gaming ao PlayStation 5. Se você curte o app e quer apoiar o desenvolvimento contínuo, atualizações e novos recursos, considere me pagar um café no Ko-Fi!", // SupportMessage
     "Ko-fi",                                          // SupportKoFi
     "Aponte a câmera do seu celular",                 // ScanToDonate
+    "Testar som",                                     // TestSound
+    "A lista de desejos está vazia",                  // WishlistEmpty
 };
 
 constexpr Column kSpanish = {
@@ -1053,6 +1057,8 @@ constexpr Column kSpanish = {
     "PSBox es un proyecto de código abierto desarrollado con dedicación para brindar la mejor experiencia de Xbox Cloud Gaming en PlayStation 5. Si disfrutas de la app y deseas apoyar el desarrollo continuo y nuevas funciones, ¡considera invitarme un café en Ko-Fi!", // SupportMessage
     "Ko-fi",                                          // SupportKoFi
     "Escanea con tu teléfono para donar",             // ScanToDonate
+    "Probar sonido",                                  // TestSound
+    "La lista de deseos está vacía",                  // WishlistEmpty
 };
 
 constexpr Column kFrench = {
@@ -1394,6 +1400,8 @@ constexpr Column kFrench = {
     "PSBox est un projet open source développé avec passion pour offrir la meilleure expérience Xbox Cloud Gaming sur PlayStation 5. Si vous appréciez l'application et souhaitez soutenir les mises à jour et les nouveautés, pensez à m'offrir un café sur Ko-Fi !", // SupportMessage
     "Ko-fi",                                          // SupportKoFi
     "Scannez avec votre téléphone",                   // ScanToDonate
+    "Tester le son",                                  // TestSound
+    "La liste de souhaits est vide",                  // WishlistEmpty
 };
 
 constexpr Column kGerman = {
@@ -1735,6 +1743,8 @@ constexpr Column kGerman = {
     "PSBox ist ein Open-Source-Projekt, das mit viel Engagement entwickelt wird, um das beste Xbox Cloud Gaming-Erlebnis auf die PlayStation 5 zu bringen. Wenn dir die App gefällt und du die Weiterentwicklung unterstützen möchtest, spendiere mir gerne einen Kaffee auf Ko-Fi!", // SupportMessage
     "Ko-fi",                                          // SupportKoFi
     "Mit dem Smartphone scannen",                     // ScanToDonate
+    "Ton testen",                                     // TestSound
+    "Wunschliste ist leer",                           // WishlistEmpty
 };
 
 constexpr Column kItalian = {
@@ -2076,6 +2086,8 @@ constexpr Column kItalian = {
     "PSBox è un progetto open source sviluppato con passione per portare la migliore esperienza di Xbox Cloud Gaming su PlayStation 5. Se ti piace l'app e vuoi sostenere lo sviluppo continuo e le nuove funzionalità, considera di offrirmi un caffè su Ko-Fi!", // SupportMessage
     "Ko-fi",                                          // SupportKoFi
     "Inquadra con lo smartphone",                     // ScanToDonate
+    "Prova suono",                                    // TestSound
+    "La lista dei desideri è vuota",                  // WishlistEmpty
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

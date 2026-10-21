@@ -28,4 +28,10 @@ void audioStop() {
     audioQueue().clear();
 }
 
+bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
+    if (!interleavedStereo || frames == 0) return false;
+    audioQueue().push(interleavedStereo, frames);
+    return true;
+}
+
 }  // namespace xc::media

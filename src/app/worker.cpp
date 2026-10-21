@@ -63,7 +63,21 @@ std::string formatWait(int seconds) {
     return std::to_string((seconds + 59) / 60) + " min";
 }
 
-void playQueueReadyAlert() {
+// Set by stream(): the game quit on the server before its first frame.
+bool g_gameClosedOnServer = false;
+// Titles that would not start in the automatic region, and where they did
+// (for the rest of this run).
+std::map<std::string, std::string> g_regionFallback;
+std::shared_ptr<app::Library> s_library;
+std::mutex s_libraryMutex;
+// Cloud playtime telemetry in seconds (-1 unknown/uncapped).
+// STRICTLY INFORMATIVE: The client never blocks gameplay, streams, or launches
+// based on playtime telemetry, as Microsoft does not enforce client-side blocking.
+int64_t s_playtimeRemainingSeconds = -1;
+
+}  // namespace
+
+void playQueueReadyAlert(bool notifyToast) {
     // 1. DualSense rumble pulse
     input::setRumble(180, 180, 500, 0);
 
@@ -90,7 +104,7 @@ void playQueueReadyAlert() {
             float sec = static_cast<float>(i) / static_cast<float>(kRate);
             float attack = std::min(1.0f, sec / 0.005f);
             float decay = std::exp(-decayRate * sec);
-            float env = attack * decay * 0.45f;
+            float env = attack * decay * 0.70f;
             float s = std::sin(2.0f * kPi * freq * sec) + 0.25f * std::sin(4.0f * kPi * freq * sec);
             float sample = s * env;
             pcm.push_back(sample); // Left
@@ -98,36 +112,14 @@ void playQueueReadyAlert() {
         }
     }
 
-    media::audioStart();
-    std::thread([pcm = std::move(pcm)]() {
-        constexpr size_t kChunkFrames = (kRate * 20) / 1000;  // 20 ms per push ( stays well below 250 ms trim )
-        size_t totalFrames = pcm.size() / 2;
-        size_t offset = 0;
-        while (offset < totalFrames) {
-            size_t n = std::min(kChunkFrames, totalFrames - offset);
-            media::audioPush(pcm.data() + offset * 2, n);
-            offset += n;
-            if (offset < totalFrames) platform::sleepMs(18);
-        }
-    }).detach();
+    // Play directly through the DualSense controller speaker (falls back to main audio)
+    media::playPadSpeakerAudio(pcm.data(), pcm.size() / 2);
 
-    // 3. System notification toast
-    platform::notify(ui::tr(ui::Str::QueueReadyAlert));
+    // 3. System notification toast (only when stream queue actually finishes)
+    if (notifyToast) {
+        platform::notify(ui::tr(ui::Str::QueueReadyAlert));
+    }
 }
-
-// Set by stream(): the game quit on the server before its first frame.
-bool g_gameClosedOnServer = false;
-// Titles that would not start in the automatic region, and where they did
-// (for the rest of this run).
-std::map<std::string, std::string> g_regionFallback;
-std::shared_ptr<app::Library> s_library;
-std::mutex s_libraryMutex;
-// Cloud playtime telemetry in seconds (-1 unknown/uncapped).
-// STRICTLY INFORMATIVE: The client never blocks gameplay, streams, or launches
-// based on playtime telemetry, as Microsoft does not enforce client-side blocking.
-int64_t s_playtimeRemainingSeconds = -1;
-
-}  // namespace
 
 void updateLibraryFavorites(const std::vector<std::string>& favorites) {
     std::shared_ptr<app::Library> lib;
@@ -589,8 +581,8 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
                 alertOn = g_settings.queueReadyAlert;
             }
             if (alertOn && wasInQueue) {
-                XC_LOGI("session: queue completed and provisioned; triggering queue-ready chime and rumble");
-                playQueueReadyAlert();
+                XC_LOGI("session: queue completed and provisioned; triggering queue-ready chime and rumble on DualSense");
+                playQueueReadyAlert(true);
             }
             g_ui->setLaunchStatus(ui::tr(ui::Str::StartingStream));
             result = stream(gssv);

@@ -22,5 +22,8 @@ void audioSetVolume(float gain);
 // Past ~60 ms queued (a burst from the network) cuts back to ~40 ms, the
 // oldest samples first, to keep the sound close to the picture.
 void audioPush(const float* interleaved, size_t frames);
+// Plays a short audio sample or chime directly through the DualSense controller speaker,
+// falling back to main output if the pad speaker port is not available.
+bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames);
 
 }  // namespace xc::media

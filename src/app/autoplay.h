@@ -43,6 +43,9 @@ struct Autoplay {
     bool badCa = false;          // "badca": a missing CA bundle: the built-in copy must be used
     bool consoles = false;       // "consoles": log the account's own consoles (xhome)
     bool pad = false;            // "pad": the physical pad stays in use, its buttons logged
+    bool padSpkTest = false;     // "padspktest": play queue-ready chime and vibration on controller speaker
+    bool queueUiTest = false;    // "queueuitest": open settings, focus queueReadyAlert row, test sound with Square
+    bool wishlistTest = false;   // "wishlisttest": test wishlist filter, empty state, and active wishlisted items
     bool detailTest = false;     // open a game to buy far down the list, save its page
     bool libraryTest = false;    // open "Your games", save it at 4 s and 25 s
     bool vkTest = false;         // the GPU presenting instead of the CPU display

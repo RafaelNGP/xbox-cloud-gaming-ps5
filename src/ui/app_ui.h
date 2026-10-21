@@ -235,7 +235,8 @@ enum class Action {
     ClaimFreeGame, // claim a free-to-play game license directly
     RefreshLibrary, // manual library refresh
     CheckSignIn,    // run sign-in diagnostic stages
-    RunNetworkTest  // run regional RTT/jitter & NAT probe
+    RunNetworkTest, // run regional RTT/jitter & NAT probe
+    TestQueueAlert  // play test chime and vibration for queue-ready alert
 };
 
 // How "Your games" is sorted (R3).
@@ -423,7 +424,7 @@ public:
     // The search keyboard's focus (row, column), for the tests.
     std::pair<int, int> searchKeyFocus() const;
     std::vector<std::pair<std::string, PriceInfo>> searchResults(size_t max) const;
-    enum class Filter { Plan, Free, Cheapest, Console, Mode, Genre, Publisher, Language, MouseKeyboard };
+    enum class Filter { Plan, Free, Cheapest, Console, Mode, Genre, Publisher, Language, MouseKeyboard, Wishlist };
     void chooseFilter(Filter f, int index);
     // Autoplay tests: where the focus is ("Game Pass row 2 card 6", ...).
     std::string focusDescription() const;
@@ -506,7 +507,8 @@ private:
     // only) and Console; then Mode, Genre, Publisher and Language. The lists open a
     // drop-down; Free and Lowest price turn on and off.
     std::vector<Filter> filterRow(int row) const;
-    bool isList(Filter f) const { return f != Filter::Free && f != Filter::Cheapest && f != Filter::MouseKeyboard; }
+    bool isList(Filter f) const { return f != Filter::Free && f != Filter::Cheapest && f != Filter::MouseKeyboard && f != Filter::Wishlist; }
+    bool isAcquired(const GameTile& t) const;
     std::string filterText(Filter f) const;  // the chip's label: its choice when one is made
     bool filterOn(Filter f) const;
     std::vector<std::string> filterOptions(Filter f) const;
@@ -602,7 +604,7 @@ private:
     void drawLoadingBar(Canvas& c, int x, int y, int w, uint64_t nowMs);
     LibrarySort librarySort_ = LibrarySort::Recent;
     // Search filters (the row of buttons under the keys).
-    bool filterFree_ = false, filterCheapest_ = false, filterMouseKeyboard_ = false;
+    bool filterFree_ = false, filterCheapest_ = false, filterMouseKeyboard_ = false, filterWishlist_ = false;
     int filterPlan_ = 0;      // 0 My plan, 1 Ultimate, 2 Premium, 3 Essential, 4 All plans
     int filterConsole_ = 0;   // 0 all, 1 Series X|S, 2 Xbox One, 3 Xbox 360
     int filterMode_ = 0;      // 0 all, single, online multiplayer, online co-op, local
