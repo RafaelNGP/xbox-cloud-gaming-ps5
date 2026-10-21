@@ -61,7 +61,7 @@ constexpr int kResolutionOrder[3] = {1, 0, 2};
 // stream (resolution, a desktop's display mode, 120 Hz, bitrate, region, network test);
 // sound (volume, queue chime); the controller and keyboard; updates last. A group starts at each
 // kSettingsGroupStart.
-constexpr int kSettingsOrder[kSettingRows] = {0, 8, 17, 1, 13, 9, 10, 2, 18, 11, 16, 3, 4, 5, 6, 15, 14, 12, 7, 19};
+constexpr int kSettingsOrder[kSettingRows] = {0, 8, 17, 1, 13, 9, 10, 2, 18, 11, 16, 3, 4, 5, 6, 15, 14, 12, 19, 7};
 constexpr bool kSettingsGroupStart[kSettingRows] = {false, false, false, true, false, false, false, false, false,
                                                     true, false, true, false, false, false, false, false, false, true, false};
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
@@ -3042,12 +3042,25 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
         const GlyphStyle style = g_glyphStyle;
         const bool xbox = style == GlyphStyle::Xbox;
         if (icon == kIconL2R2) {
-            const std::string both = std::string(buttonName(style, PadButton::L2)) + " " + buttonName(style, PadButton::R2);
-            Rect pill{x - 40, static_cast<int>(cy) - 12, 2 * kR + 46, 24};
-            c.fillRect(pill, rgba(255, 255, 255, 40), 8);
-            fonts_.bold.draw(c, both, pill.x + (pill.w - fonts_.bold.measure(both, 14)) / 2,
-                             fonts_.bold.centeredY(pill.y, pill.h, 14), 14, kGray);
-            x -= 34;
+            const char* l2 = buttonName(style, PadButton::L2);
+            const char* r2 = buttonName(style, PadButton::R2);
+            int l2w = fonts_.bold.measure(l2, 14) + 16;
+            int r2w = fonts_.bold.measure(r2, 14) + 16;
+            int sepW = fonts_.regular.measure("|", 14);
+            constexpr int kPillGap = 6;
+            int rightX = x + 2 * kR;
+            Rect r2Pill{rightX - r2w, static_cast<int>(cy) - 12, r2w, 24};
+            c.fillRect(r2Pill, rgba(255, 255, 255, 40), 8);
+            fonts_.bold.draw(c, r2, r2Pill.x + (r2w - fonts_.bold.measure(r2, 14)) / 2,
+                             fonts_.bold.centeredY(r2Pill.y, r2Pill.h, 14), 14, kGray);
+            int sepX = r2Pill.x - kPillGap - sepW;
+            fonts_.regular.draw(c, "|", sepX, fonts_.regular.centeredY(static_cast<int>(cy) - 12, 24, 14), 14,
+                                rgba(255, 255, 255, 120));
+            Rect l2Pill{sepX - kPillGap - l2w, static_cast<int>(cy) - 12, l2w, 24};
+            c.fillRect(l2Pill, rgba(255, 255, 255, 40), 8);
+            fonts_.bold.draw(c, l2, l2Pill.x + (l2w - fonts_.bold.measure(l2, 14)) / 2,
+                             fonts_.bold.centeredY(l2Pill.y, l2Pill.h, 14), 14, kGray);
+            x = l2Pill.x;
         } else if (icon == kIconR3 || icon == kIconL3) {
             const char* label = buttonName(style, icon == kIconR3 ? PadButton::R3 : PadButton::L3);
             Rect pill{x - 6, static_cast<int>(cy) - 12, 2 * kR + 12, 24};
@@ -3503,13 +3516,7 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
         std::string label = trf(Str::SortLabel, tr(sortName));
         int w = fonts_.semibold.measure(label, 22);
         int right = left + kGridW;
-        const char* sortKey = g_keyboardHints ? "R" : buttonName(g_glyphStyle, PadButton::R3);
-        Rect pill{right - 44, 112, 44, 28};
-        c.fillRect(pill, rgba(255, 255, 255, 40), 8);
-        if (g_keyboardHints) c.strokeRect(pill, kGray, 2, 8);
-        fonts_.bold.draw(c, sortKey, pill.x + (pill.w - fonts_.bold.measure(sortKey, 16)) / 2,
-                         fonts_.bold.centeredY(pill.y, pill.h, 16), 16, kGray);
-        fonts_.semibold.draw(c, label, pill.x - 14 - w, fonts_.semibold.centeredY(pill.y, pill.h, 22), 22, kGray);
+        fonts_.semibold.draw(c, label, right - w, fonts_.semibold.centeredY(112, 28, 22), 22, kGray);
     }
     c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
     c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));
@@ -3518,6 +3525,7 @@ void AppUi::drawLibrary(Canvas& c, uint64_t nowMs) {
     drawHints(c, {{kIconCross, tr(Str::Select)},
                   {kIconSquare, tr(focusHidden ? Str::Unhide : Str::Hide)},
                   {kIconTriangle, tr(Str::TabSearch)},
+                  {kIconL3, tr(Str::RefreshLibrary)},
                   {kIconR3, tr(Str::SortHint)},
                   {kIconL2R2, tr(Str::Sections)},
                   {kIconOptions, tr(Str::Settings)}});
@@ -4150,18 +4158,12 @@ void AppUi::drawSettings(Canvas& c) {
             continue;
         }
         if (i == 17 || i == 18 || i == 19) {
-            // Action buttons (Check sign-in, Network test, Support / Donate)
+            // Action items without chevrons or pills: clean right-aligned text
             std::string label = (i == 17) ? tr(Str::RunCheck) : (i == 18) ? tr(Str::RunTest) : tr(Str::SupportKoFi);
-            int btnTextW = fonts_.semibold.measure(label, 20);
-            int btnW = btnTextW + 36;
-            int btnH = 26;
-            Rect btnRect{r.x + r.w - 32 - btnW, r.y + (r.h - btnH) / 2, btnW, btnH};
-            Color btnBg = focused ? (i == 19 ? rgba(255, 95, 95, 220) : rgba(16, 124, 65, 230)) : rgba(255, 255, 255, 24);
-            c.fillRect(btnRect, btnBg, 13);
-            if (focused) c.strokeRect(btnRect, kWhite, 2, 13);
-            int textX = btnRect.x + (btnRect.w - btnTextW) / 2;
-            int textY = fonts_.semibold.centeredY(btnRect.y, btnRect.h, 20);
-            fonts_.semibold.draw(c, label, textX, textY, 20, kWhite);
+            int w = fonts_.regular.measure(label, kRowPx);
+            int vx = r.x + r.w - 40;
+            fonts_.regular.draw(c, label, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx,
+                                focused ? kWhite : kGray);
             y += kRowH + kGap;
             continue;
         }
@@ -4649,24 +4651,36 @@ void AppUi::drawNetworkTest(Canvas& c, uint64_t nowMs) {
 void AppUi::drawDonationModal(Canvas& c) {
     Rect panel = drawModal(c, 1260, 680, tr(Str::SupportTitle));
 
-    // Left column: message and link
-    int textW = 600;
-    int y = panel.y + 114;
-    for (const auto& line : fonts_.regular.wrap(tr(Str::SupportMessage), 26, textW, 10)) {
-        fonts_.regular.draw(c, line, panel.x + 56, y, 26, rgba(230, 230, 230));
-        y += 38;
-    }
+    // Calculate dimensions for QR code (larger target = 420px)
+    constexpr int kQrTarget = 420;
+    int qrTotalH = 460;
+    int contentTop = panel.y + 90;
+    int contentH = panel.h - 110;
+    int centerY = contentTop + contentH / 2;
 
-    y += 24;
-    fonts_.semibold.draw(c, "https://ko-fi.com/RafaelNGP", panel.x + 56, y, 24, rgba(255, 215, 80));
-
-    // Right column: QR code card
-    Rect qrBox = drawQr(c, "https://ko-fi.com/RafaelNGP", panel.x + panel.w - 56, panel.y + 114, 340, qrcodegen_Ecc_MEDIUM);
+    int qrTop = centerY - qrTotalH / 2;
+    Rect qrBox = drawQr(c, "https://ko-fi.com/RafaelNGP", panel.x + panel.w - 60, qrTop, kQrTarget, qrcodegen_Ecc_MEDIUM);
     if (qrBox.w > 0) {
         std::string scanText = tr(Str::ScanToDonate);
         int tw = fonts_.semibold.measure(scanText, 22);
-        fonts_.semibold.draw(c, scanText, qrBox.x + (qrBox.w - tw) / 2, qrBox.y + qrBox.h + 20, 22, kWhite);
+        fonts_.semibold.draw(c, scanText, qrBox.x + (qrBox.w - tw) / 2, qrBox.y + qrBox.h + 16, 22, kWhite);
     }
+
+    // Left column: message and link vertically centered aligned with QR code
+    int textW = 600;
+    int textX = panel.x + 60;
+    auto lines = fonts_.regular.wrap(tr(Str::SupportMessage), 26, textW, 10);
+    constexpr int kLineH = 38;
+    int textContentH = static_cast<int>(lines.size()) * kLineH + 24 + 26;
+    int textY = centerY - textContentH / 2;
+
+    for (const auto& line : lines) {
+        fonts_.regular.draw(c, line, textX, textY, 26, rgba(230, 230, 230));
+        textY += kLineH;
+    }
+
+    textY += 24;
+    fonts_.semibold.draw(c, "https://ko-fi.com/RafaelNGP", textX, textY, 24, rgba(255, 215, 80));
 
     c.fillRect({0, kH - 80, kW, 80}, kBg);
     drawHints(c, {{kIconCircle, tr(Str::Back)}});

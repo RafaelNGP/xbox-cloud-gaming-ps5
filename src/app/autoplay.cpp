@@ -871,8 +871,6 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         } else if (saved == 0 && now - openedAt > 4000) {
             saveCanvas("library.ppm");
             saved = 1;
-        } else if (saved == 1 && now - openedAt > 25000) {
-            saveCanvas("library2.ppm");
             g_autoplay.libraryTest = false;
             XC_LOGI("AUTOPLAY END: library test");
         }
