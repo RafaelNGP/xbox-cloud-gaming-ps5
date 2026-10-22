@@ -231,41 +231,30 @@ is rolled back at the next start), then the app restarts itself
 - **Achievements on game page**: queries Xbox Live Achievements v2 contract (`achievements.xboxlive.com`), displays an official Gamerscore badge pill with unlocked count and score on Details, and provides a scrollable in-modal achievement browser (`L3` on Details) with checkmarks, descriptions, secret masks, and Gamerscore rewards.
 - **Store wishlist**: toggle titles on Details with `R3`, persists to `settings.json`, renders a dedicated "Lista de desejos" / "Wishlist" shelf in Library immediately after Favorites, and polls background price/catalog loops to emit notifications when wishlist games go on sale or enter Game Pass.
 
+### Web control, age ratings, AppImage package, bitrate slider & boot chime — done (v1.4.0)
+- **Local Web UI (port 8080)**: embedded asynchronous micro HTTP server with right-side QR code in Settings, remote keyboard for TV search, interactive controller/keyboard remapping with live sync, and direct sanitized `xcloud.log` download.
+- **Official age rating badges**: ClassInd (Brazil), ESRB (US), and PEGI (Europe) color-coded badges and content descriptors on the game details page.
+- **Universal Linux AppImage**: standalone bundle (`tools/desktop/package-appimage.sh`) packaging SDL3 runtime, desktop integration, and full compatibility with Steam Deck / SteamOS.
+- **Bitrate slider & DualSense speaker volume**: inline slider for bitrate caps (5 to 50 Mbps / Auto) and controller speaker volume slider (0% to 100% / Mute) in StreamMenu and Settings.
+- **Direct free-to-play claim & boot sound**: in-console 1-click Store entitlement claim for free trials and F2P games; official boot chime (`ps5/sce_sys/snd0.at9`) on app launch.
+
 ## Next
 
-| Item | Why | Size |
-| --- | --- | --- |
-| VRR for the stream (flip rate unpegged; `libSceVideoOut` stub optional) | `wsi_videoout_set_flip_rate(0)` + 120 Hz mode switch is in place (`v1.2.0`); direct `sceVideoOutVrrUnpegFromFixedRate` call needs an extended `libSceVideoOut` stub if further unpegging is needed | medium |
-| Cloud playtime left (done in client; waiting for Microsoft) | From November 2026 cloud play is capped each month (Ultimate 15 h, Premium 10 h, Essential 5 h). Informational only: no lock in the app (more time can be bought); built in `AuthManager::fetchPlaytimeLimit` (`contentaccess.exp.xboxservices.com/all/v1`) + `MonthlyLimitExceeded` (`0x87DD043A`) handling, stays hidden until Microsoft turns the quota on | small–medium |
-| Catalog by Game Pass plan (done) | Rows and tabs show only what the account's plan plays; the search gets a **Plan** filter (My plan / Ultimate / Premium / Essential / All) to see what an upgrade or downgrade changes; other plans' games marked (badge, "Included with Game Pass Ultimate" on the page). Data already downloaded: catalog.gamepass.com v3 `PassMetadataByPassProductId` (full hydration): Essential `CFQ7TTC0K5DJ`, Premium `CFQ7TTC0P85B`, otherwise Ultimate (EA Play `CFQ7TTC0K5DH`, Ubisoft+ Classics, PC, day-one); Ultimate plays all, Premium plays Premium + Essential, Essential only Essential. The free-to-play list (87 games, BR) is open to every plan and to no plan, even the 34 also tagged with a plan (partly free: Halo Infinite, the Call of Duty launchers, Warzone; "Fortnite" tagged Ultimate next to the untagged "Fortnite Battle Royale"). Audit 2026-10-15, 894 cloud games: 126 Essential, 440 Premium, 328 Ultimate only. The plan itself comes from the store (v0.9.7). A non-Ultimate account is needed to check the default view | medium |
-| Free play with ads (careful, low priority) | Microsoft's ad-supported offering (`xgpuwebf2p` login and sessions, its own list). Risk: users would soon ask for a way to skip or block the ads, which would worry Microsoft/Xbox; if ever built, the ads are never skipped and nothing in the app helps hide them | medium |
-| Game Pass trial badge (later) | The store's answer says `isTrial`; a TRIAL mark next to the plan. Not now | small |
-| Unreliable input channel (protocol v9, done) | The official client sends input on an unordered channel (`unordered = true`, `maxRetransmits = 0`), so a lost packet doesn't hold the ones after it | medium |
-| DualSense button remapping, touchpad mouse (done) | Full DualSense button customization in Settings and each game's settings (Edge back buttons/paddles too), with its own remapping screen like keyboard keys; touchpad as a mouse for MKB games (done) | medium |
-| Gamepad report physicality & touchpad click robustness (#39, done) | In `src/stream/input_packet.cpp`: compute accurate `physicalPhysicality` bitmask (0 when idle) and send 0 for `virtualPhysicality` (LE), preventing idle secondary controllers/bridges from continuously reporting active physical input to xCloud. In `src/app/stream_screen.cpp`: suppress touchpad swipe gesture detection while `btnTouchpad` is physically pressed. Add one-time diagnostic log on first `kView` / `kMenu` sent per stream session | small |
-| Gyro in Settings (done) | Gyro aiming in Settings and the game settings too (done); an inverted / separate horizontal sensitivity if asked | small |
-| Desktop Vulkan display (done) | `display/gpu.cpp` shared with the SDL3 desktop window (`SDL_Vulkan_*`): FSR 1, Anime4K x2, Anime4K Restore, CAS sharpening and block smoothing on Linux, with `SDL_Renderer` kept as fallback | medium |
-| Lost audio filled (done via PCM PLC) | Waveform-extrapolation PLC (`AudioDecoder::conceal`) with 12 ms RTP gap detection in `StreamPlayer::audioLoop` fills lost packets without external dependencies; `libopus` in-band FEC optional later | small–medium |
-| Home-screen tile per game | The PS5 Forwarder Format (ProsperoLight): a tile that starts one cloud game directly | small |
-| Dedicated voice chat output routing | Route voice chat audio independently to DualSense controller speaker or headset while keeping game audio on TV (if xCloud exposes separate voice track) | medium |
-| Game language & Favourites row (done) | Per-game language selector (`GameProfile::locale`) and Favourites row on Home | small |
-| **Queue-ready chime** (done) | When the queue ends and the game starts, a short "success" sound from the DualSense speaker (plus a light rumble), so a player who put the pad down knows it's ready; a global on/off in Settings. Desktop: the pad's speaker where SDL allows, else the PC's sound | small |
-| **Refresh the library by hand** (done) | A button / shortcut on Home that looks only for differences: the title list and entitlements fetched again, new and removed games found by id, details fetched only for the new ones, rows rebuilt in place (users add games on the Xbox app and don't see them) | small |
-| **Sign-in diagnostics** (done) | Each sign-in failure explained in the app with what to do: XSTS errors (#95, #96: no Xbox profile, region, child account, needs the browser), 2FA / browser steps, clock, network, a sign-in that isn't kept (#91); a "check my sign-in" step in Settings that runs each stage and shows where it stops | small–medium |
-| **Network test in Settings** (done) | Round trip, jitter and loss to each region, and the bandwidth a stream would get, with a suggestion (region, bitrate cap); also kept in the report, for troubleshooting | small–medium |
-| **Achievements on the game page** (done) | Progress and gamerscore for the game, the unlocked / locked list; popup achievement viewer with L3, gamerscore disc pill on details | medium |
-| **Store wishlist** (done) | Toggle titles on Details with R3, dedicated Wishlist row in Library, notify on sales or Game Pass entry | small–medium |
-| **Web configuration panel via QR code** (done) | Embedded micro HTTP server on port 8080 with QR Code in Settings, remote keyboard for TV search, interactive controller and keyboard remapping, direct sanitized log download | medium |
-| **Steam Deck + AppImage** (done) | Standalone universal AppImage packaging script (`tools/desktop/package-appimage.sh`), bundling SDL3, AppRun, icon, desktop file, full compatibility with SteamOS/Steam Deck gamescope and Linux distros | small–medium |
-| **Age rating on game details** (done) | Official age classification badge (ClassInd for Brazil, ESRB for US, PEGI for EU) with color coding and content descriptors on the details page | small–medium |
-| **Discord Rich Presence (desktop)** | "Playing Fortnite on PSBox" with the game's art and elapsed time, through the local Discord client's IPC (no account data sent); an on/off in Settings; desktop only (capability-gated, a no-op on the PS5) | small |
-| **Mouse in the desktop UI** | Today the mouse only goes to the game (native MKB / mouse as a stick); on desktop menus, hover moves the focus and a click presses (cards, rows, buttons, dropdowns, the search keys), the wheel scrolls; never on the PS5, never during a game | small–medium |
-| **Windows (planned)** | The desktop app for Windows, cross-built with llvm-mingw, tested under wine (`docs/multiplatform.md`) | medium |
-| **Android (planned)** | Native Android client with touch overlay, controller support and hardware video decoding | medium |
-| Ideas to weigh (no decision yet) | A first-run guide (sign-in, region, controls) | — |
+| Priority | Item | Why | Size |
+| :---: | --- | --- | --- |
+| **1** | **Hardware video decoding (PS5 & other platforms)** | Integrate `libSceVideodec2` (sysmodule 207) into the active streaming pipeline (`StreamPlayer`) on PS5 to free an entire Zen 2 CPU core, reduce jitter/thermals, and map NV12 to Vulkan textures; enable VA-API / NVDEC via FFmpeg hwaccel on desktop/Steam Deck | medium–large |
+| **2** | **Expanded WebUI settings (Settings & in-stream Game Menu)** | Expand local HTTP server (port 8080): full general settings (bitrate slider, 120 Hz, dead zones, light bar, trigger vibration, queue alert) plus real-time in-stream `StreamMenu` control (CAS sharpness, FSR 1/Anime4K upscalers, deband, pad speaker volume, smart trigger profiles, live session telemetry FPS/RTT/loss) | medium |
+| **3** | **Mouse navigation in desktop UI** | On desktop/Steam Deck menus, mouse hover updates focus, left click triggers cards/buttons/tabs/options, mouse wheel scrolls shelves and the 550+ title vertical grid; strictly desktop-only (`XCLOUD_DESKTOP_APP`), inactive on PS5 | small–medium |
+| **4a** | **Native Windows build (planned)** | Cross-compiled with `llvm-mingw` (or native MSVC/CMake), SDL3/Vulkan backend, XInput & DualSense controller integration, portable standalone `.zip` distribution | medium |
+| **4b** | **Native Android build (planned)** | Android NDK (C++20) + Java/Kotlin wrapper, hardware video decoding via `AMediaCodec`, customizable on-screen touch overlay controls, and Bluetooth gamepad support | large |
+| **5** | **Adaptive Voice Chat (DualSense mic & speaker with fallback)** | Optional voice routing: when using DualSense, route incoming voice chat to controller speaker while game audio stays on TV; transparent fallback for generic Xbox controllers, USB/P2 headsets or PC to use standard system mic and main audio mix without blocking | medium |
+| **6** | Cloud playtime left (done in client; waiting for Microsoft) | From November 2026 cloud play is capped each month (Ultimate 15 h, Premium 10 h, Essential 5 h). Client support is ready (`AuthManager::fetchPlaytimeLimit`), waiting for Microsoft to enable quota | small–medium |
+| **7** | Home-screen tile per game (later) | The PS5 Forwarder Format (ProsperoLight): generate standalone tiles on the PS5 home screen that directly launch a cloud game (deprioritized to end of roadmap) | small |
 
 ## Dropped (and why)
 
+- **Discord Rich Presence (desktop)**: dropped (Xbox Live / Game Pass ecosystem already provides native activity presence).
+- **First-run guide / Onboarding**: dropped per user decision (simple, intuitive navigation preferred without forced wizards).
 - **Data used per session**: not worth a feature (decided 2026-10-18).
 - **Saving the last 30 s as a clip, screenshots of the game**: dropped (decided 2026-10-18).
 - **Several Xbox accounts at once / switching between them**: not offered.
