@@ -43,7 +43,7 @@ enum StatsIndicator : uint32_t {
 // Close: the menu went away (Circle, OPTIONS, or the Xbox button): a fresh key frame is asked for.
 enum class MenuAction {
     None, Close, Leave, Resolution, Stats, Sharpness, Deband, Upscaler, XboxButton,
-    ProfileToggle, Triggers, Deadzone, ConfirmButton, MicToggle, Gyro
+    ProfileToggle, Triggers, Deadzone, ConfirmButton, MicToggle, Gyro, PadSpeakerVolume
 };
 
 class StreamMenu {
@@ -64,7 +64,7 @@ public:
     // `allow1440`: offered only once a stream delivered it.
     void open(int resolution, bool stats, int sharpness = 0, int deband = 1, int upscaler = 0, bool homeConsole = false,
               bool allow1440 = true, bool hasCustomProfile = false, int triggerStrength = 2, int deadzone = 15,
-              bool circleConfirms = false, float micLevel = 0.0f, bool micMuted = false);
+              bool circleConfirms = false, float micLevel = 0.0f, bool micMuted = false, int padSpeakerVolume = 100);
     void close() { open_ = false; }
     bool isOpen() const { return open_; }
     MenuAction handle(const NavInput& in);
@@ -85,6 +85,8 @@ public:
     void setDeadzone(int deadzone) { deadzone_ = deadzone; }
     bool circleConfirms() const { return circleConfirms_; }
     void setCircleConfirms(bool cc) { circleConfirms_ = cc; }
+    int padSpeakerVolume() const { return padSpeakerVolume_; }
+    void setPadSpeakerVolume(int vol) { padSpeakerVolume_ = vol; }
     // Gyro aiming: mode (input::GyroMode) and intensity 1..input::kGyroLevels.
     int gyroMode() const { return gyroMode_; }
     int gyroLevel() const { return gyroLevel_; }
@@ -129,6 +131,7 @@ private:
         ConfirmItem,
         GyroItem,
         GyroLevelItem,
+        PadSpeakerVolumeItem,
         Leave,
         ItemCount
     };
@@ -154,6 +157,7 @@ private:
     int gyroMode_ = 0, gyroLevel_ = 5;
     bool micMuted_ = false;
     float micLevel_ = 0.0f;
+    int padSpeakerVolume_ = 100;
     PadSlots pads_{};
     mutable std::vector<float> frametimes_;
 };

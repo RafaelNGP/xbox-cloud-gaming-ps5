@@ -22,7 +22,12 @@ struct Release {
     std::string zipUrl;  // PPSA99810.zip
     std::string sigUrl;  // PPSA99810.zip.sig, its signature
     long zipSize = -1;
+    std::string notes;
 };
+
+// Filters release notes delimited by <!-- LANG:PT --> / <!-- LANG:EN --> etc.
+// Returns the matching section or full notes if no language tags exist.
+std::string filterReleaseNotes(const std::string& notes, const std::string& langCode);
 
 // The latest GitHub release, or the release `feedUrl` describes (the same
 // JSON; the update test's local server). False with `err` when there is

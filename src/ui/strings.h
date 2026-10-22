@@ -47,6 +47,7 @@ enum class Str {
     ResBest,
     SettingsNote,
     Change,
+    Adjust,
     HoldSignOut,
     SigningOutIn,     // "%s" = seconds left
     SignInFailed,     // "%s" = technical detail
@@ -350,6 +351,43 @@ enum class Str {
     ScanToDonate,       // modal subtitle below QR: "Scan with your phone to donate"
     TestSound,          // "Test sound" / "Testar som"
     WishlistEmpty,      // "Wishlist is empty"
+    // Loading tips
+    TipTouchpadMenu,
+    TipKeyboardMouse,
+    TipFreeStore,
+    TipBugReportQr,
+    TipSupportKofi,
+    Tip120HzVideo,
+    TipAnalogDeadzone,
+    TipDualSenseMic,
+    // Settings descriptions
+    SettingDescLanguage,
+    SettingDescResolution,
+    SettingDescRegion,
+    SettingDescDeadzone,
+    SettingDescTriggerRumble,
+    SettingDescConfirmButton,
+    SettingDescLightBar,
+    SettingDescUpdates,
+    SettingDescLoginCountry,
+    SettingDescHighRefresh,
+    SettingDescBitrateCap,
+    SettingDescGameVolume,
+    SettingDescKeyboardKeys,
+    SettingDescDisplayMode,
+    SettingDescControllerButtons,
+    SettingDescGyro,
+    SettingDescQueueReady,
+    SettingDescCheckSignIn,
+    SettingDescNetworkTest,
+    SettingDescSupportProject,
+    WhatsNew,
+    WhatsNewTitle,
+    PadSpeakerVolume,
+    Mute,
+    WebControlTitle,
+    WebControlSubtitle,
+    WebControlDesc,
     Count
 };
 

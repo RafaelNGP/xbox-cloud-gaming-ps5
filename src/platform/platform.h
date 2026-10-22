@@ -41,6 +41,8 @@ bool randomBytes(void* out, size_t len);
 // resolv.conf, so the console goes through sceNetResolver instead of
 // getaddrinfo. Returns false (with a message in `err`) on failure.
 bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err);
+// Returns the active local IPv4 address (e.g. "192.168.1.50") or "127.0.0.1".
+std::string localIPv4();
 uint64_t nowMs();  // monotonic
 uint64_t nowUs();  // monotonic
 void sleepMs(uint32_t ms);
@@ -92,6 +94,9 @@ bool restartApp();
 
 // The console's system software ("13.00"); empty where unknown.
 std::string firmwareVersion();
+
+// Platform description ("PlayStation 5 (PPSA99810)" or "Linux").
+std::string platformName();
 
 bool readFile(const std::string& path, std::string& out);
 bool writeFileAtomic(const std::string& path, const std::string& data);

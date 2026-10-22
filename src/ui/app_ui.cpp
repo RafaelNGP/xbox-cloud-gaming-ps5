@@ -13,6 +13,7 @@
 #include "ui/brand.h"
 #include "ui/strings.h"
 #include "ui/toast_view.h"
+#include "app/update_check.h"
 
 #include "qrcodegen.h"
 
@@ -51,7 +52,7 @@ constexpr Color kGreen = rgba(16, 124, 16);
 constexpr Color kPanel = rgba(36, 36, 36);
 constexpr Color kPlaceholder = rgba(44, 44, 44);
 
-enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad, kIconSquare, kIconR3, kIconL3, kIconL2R2 };
+enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad, kIconSquare, kIconR3, kIconL3, kIconL2R2, kIconDpadLR };
 
 // The resolution list, lowest first: SettingsChoice::resolution value per
 // position (0 = 1080p, 1 = 720p, 2 = 1440p, as saved).
@@ -672,6 +673,17 @@ bool AppUi::isAcquired(const GameTile& t) const {
     return false;
 }
 
+bool AppUi::isFreeGame(const GameTile& t) const {
+    if (t.freeInStore) return true;
+    auto price = prices_.find(t.productId);
+    if (price != prices_.end()) {
+        if (price->second.list < 0.005 && price->second.msrp < 0.005) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void AppUi::toggleWishlist(const GameTile& tile, UiEvent& ev) {
     // Caller holds mutex_.
     if (tile.productId.empty()) return;
@@ -893,9 +905,27 @@ void AppUi::showFilteredSearch(Tab tab, bool cheapest, int mode, const std::stri
     filterLanguage_ = language;
     filterPublisher_ = 0;
     runSearch();
-    keyRow_ = kKeyRows + 2;  // the row of lists
+    keyRow_ = kKeyRows + 2;  // row 1 of filters
     keyCol_ = std::max(0, openList);
-    if (openList >= 0) pressFilter(filterRow(1)[static_cast<size_t>(openList)]);
+    if (openList >= 0) {
+        Filter targets[] = {Filter::Mode, Filter::Genre, Filter::Publisher, Filter::Language};
+        if (static_cast<size_t>(openList) < sizeof(targets) / sizeof(targets[0])) {
+            Filter want = targets[openList];
+            bool found = false;
+            for (int r = 0; r < 3 && !found; ++r) {
+                auto chips = filterRow(r);
+                for (size_t c = 0; c < chips.size(); ++c) {
+                    if (chips[c] == want) {
+                        keyRow_ = kKeyRows + 1 + r;
+                        keyCol_ = static_cast<int>(c);
+                        pressFilter(want);
+                        found = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
     dirty_ = true;
 }
 
@@ -1441,11 +1471,22 @@ void AppUi::handleColourPicker(const NavInput& in) {
     }
 }
 
-void AppUi::setUpdateState(const std::string& current, const std::string& available, bool checking) {
+void AppUi::setUpdateState(const std::string& current, const std::string& available, bool checking, const std::string& notes) {
     std::lock_guard<std::mutex> lock(mutex_);
     updateCurrent_ = current;
     updateAvailable_ = available;
     updateChecking_ = checking;
+    if (!notes.empty()) {
+        updateNotes_ = notes;
+        formatUpdateNotes();
+    }
+    dirty_ = true;
+}
+
+void AppUi::setUpdateNotes(const std::string& notes) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    updateNotes_ = notes;
+    formatUpdateNotes();
     dirty_ = true;
 }
 
@@ -1471,16 +1512,33 @@ NetworkTestState AppUi::networkTestState() const {
     return networkTest_;
 }
 
-void AppUi::offerUpdate() {
+void AppUi::offerUpdate(const std::string& notes) {
     std::lock_guard<std::mutex> lock(mutex_);
     updatePrompt_ = true;
+    showingUpdateNotes_ = false;
+    updateNotesScroll_ = 0;
     promptFocus_ = 0;
+    if (!notes.empty()) updateNotes_ = notes;
+    formatUpdateNotes();
     dirty_ = true;
 }
 
 bool AppUi::updateOffered() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return updatePrompt_ && screen_ == Screen::Home;
+}
+
+bool AppUi::showingUpdateNotes() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return updatePrompt_ && showingUpdateNotes_;
+}
+
+void AppUi::showUpdateNotes(bool show) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    showingUpdateNotes_ = show;
+    updateNotesScroll_ = 0;
+    if (show) formatUpdateNotes();
+    dirty_ = true;
 }
 
 void AppUi::showUpdating(const std::string& version) {
@@ -1523,6 +1581,81 @@ SettingsChoice AppUi::settings() const {
 int AppUi::settingsFocus() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return settingsRow_;
+}
+
+void AppUi::setWebUrl(const std::string& url) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    webUrl_ = url;
+    dirty_ = true;
+}
+
+std::string AppUi::webUrl() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return webUrl_;
+}
+
+void AppUi::setSearchQuery(const std::string& query) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    query_ = query;
+    if (screen_ == Screen::Home || screen_ == Screen::Details || screen_ == Screen::Settings || screen_ == Screen::Error) {
+        screen_ = Screen::Home;
+        searching_ = true;
+        searchOnKeys_ = true;
+        filterList_ = -1;
+        runSearch();
+        dirty_ = true;
+    }
+}
+
+std::string AppUi::searchQuery() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return query_;
+}
+
+void AppUi::setSearchTab(Tab t) {
+    setSearchState(nullptr, &t, nullptr);
+}
+
+Tab AppUi::searchTab() const {
+    return tab();
+}
+
+void AppUi::setSearchState(const std::string* query, const Tab* tab,
+                           const std::vector<std::pair<Filter, int>>* filters) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (query) {
+        query_ = *query;
+    }
+    if (tab) {
+        tab_ = *tab;
+    }
+    if (filters) {
+        for (const auto& [f, val] : *filters) {
+            applyFilterLocked(f, val);
+        }
+    }
+    if (screen_ == Screen::Home || screen_ == Screen::Details || screen_ == Screen::Settings || screen_ == Screen::Error) {
+        screen_ = Screen::Home;
+        searching_ = true;
+        searchOnKeys_ = true;
+        filterList_ = -1;
+        runSearch();
+        dirty_ = true;
+    }
+}
+
+int AppUi::filterSelectedPublic(Filter f) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (f == Filter::Free) return filterFree_ ? 1 : 0;
+    if (f == Filter::Cheapest) return filterCheapest_ ? 1 : 0;
+    if (f == Filter::MouseKeyboard) return filterMouseKeyboard_ ? 1 : 0;
+    if (f == Filter::Wishlist) return filterWishlist_ ? 1 : 0;
+    return filterSelected(f);
+}
+
+bool AppUi::filterOnPublic(Filter f) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return filterOn(f);
 }
 
 void AppUi::setGyroDefaults(int mode, int level) {
@@ -1643,7 +1776,7 @@ void AppUi::setRegions(std::vector<std::string> regions, const std::string& defa
 }
 
 // Settings' bitrate caps (Mbps, after Automatic) and game volumes (percent).
-constexpr int kBitrateCaps[] = {30, 25, 22, 20, 15, 10, 5};
+constexpr int kBitrateCaps[] = {5, 10, 15, 20, 25, 30, 35, 40, 45, 50};
 constexpr int kVolumes[] = {25, 50, 75, 100, 150};
 
 std::vector<std::string> AppUi::settingOptions(int row) const {
@@ -1724,9 +1857,17 @@ int AppUi::settingSelected(int row) const {
     if (row == 15) return std::clamp(settings_.gyroMode, 0, 2);
     if (row == 16) return settings_.queueReadyAlert ? 1 : 0;
     if (row == 10) {
-        for (size_t i = 0; i < std::size(kBitrateCaps); ++i)
-            if (kBitrateCaps[i] == settings_.maxBitrateMbps) return static_cast<int>(i) + 1;
-        return 0;
+        if (settings_.maxBitrateMbps <= 0) return 0;
+        int closest = 1;
+        int minDiff = 1000;
+        for (size_t i = 0; i < std::size(kBitrateCaps); ++i) {
+            int diff = std::abs(kBitrateCaps[i] - settings_.maxBitrateMbps);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closest = static_cast<int>(i) + 1;
+            }
+        }
+        return closest;
     }
     if (row == 11) {
         for (size_t i = 0; i < std::size(kVolumes); ++i)
@@ -1786,7 +1927,15 @@ void AppUi::applySetting(int row, int index) {
 void AppUi::changeSetting(int delta) {
     // Caller holds mutex_. Left / right: the previous / next choice.
     int n = static_cast<int>(settingOptions(settingsRow_).size());
-    if (n > 0) applySetting(settingsRow_, (settingSelected(settingsRow_) + delta + n) % n);
+    if (n <= 0) return;
+    if (settingsRow_ == 10) {
+        // Bitrate slider: clamp between 0 (Automatic) and n - 1 (50 Mbps)
+        int cur = settingSelected(10);
+        int next = std::clamp(cur + delta, 0, n - 1);
+        if (next != cur) applySetting(10, next);
+        return;
+    }
+    applySetting(settingsRow_, (settingSelected(settingsRow_) + delta + n) % n);
 }
 
 Screen AppUi::screen() const {
@@ -2148,9 +2297,16 @@ bool AppUi::anyFilter() const {
 std::vector<AppUi::Filter> AppUi::filterRow(int row) const {
     // Caller holds mutex_. Prices only matter in "Your games" (Game Pass
     // games aren't bought).
-    if (row == 1) return {Filter::Mode, Filter::Genre, Filter::Publisher, Filter::Language};
-    if (tab_ == Tab::GamePass) return {Filter::Plan, Filter::Console, Filter::MouseKeyboard};
-    return {Filter::Wishlist, Filter::Free, Filter::Cheapest, Filter::Console, Filter::MouseKeyboard};
+    if (tab_ == Tab::GamePass) {
+        if (row == 0) return {Filter::Plan, Filter::Console, Filter::MouseKeyboard};
+        if (row == 1) return {Filter::Mode, Filter::Genre, Filter::Publisher};
+        if (row == 2) return {Filter::Language};
+        return {};
+    }
+    if (row == 0) return {Filter::Wishlist, Filter::Free, Filter::Cheapest};
+    if (row == 1) return {Filter::Mode, Filter::Genre, Filter::Publisher};
+    if (row == 2) return {Filter::Console, Filter::Language, Filter::MouseKeyboard};
+    return {};
 }
 
 std::vector<std::string> AppUi::poolGenres() const {
@@ -2223,7 +2379,7 @@ void AppUi::chooseFilter(Filter f, int index) {
     chooseFilterLocked(f, index);
 }
 
-void AppUi::chooseFilterLocked(Filter f, int index) {
+void AppUi::applyFilterLocked(Filter f, int index) {
     // Caller holds mutex_.
     if (f == Filter::Plan) filterPlan_ = index;
     if (f == Filter::Console) filterConsole_ = index;
@@ -2238,6 +2394,11 @@ void AppUi::chooseFilterLocked(Filter f, int index) {
         auto genres = poolGenres();
         filterGenre_ = index > 0 && index <= static_cast<int>(genres.size()) ? genres[static_cast<size_t>(index - 1)] : "";
     }
+}
+
+void AppUi::chooseFilterLocked(Filter f, int index) {
+    // Caller holds mutex_.
+    applyFilterLocked(f, index);
     filterList_ = -1;
     runSearch();
     dirty_ = true;
@@ -2333,7 +2494,11 @@ std::vector<int> AppUi::keyCenters(int row) const {
         for (int k = 0; k < 3; ++k)
             out.push_back(kMargin + kWideCols[k] * (kKeyW + kKeyGap) + (kWideSpan[k] * kKeyW + (kWideSpan[k] - 1) * kKeyGap) / 2);
     } else {
-        int n = static_cast<int>(filterRow(row - kKeyRows - 1).size()), w = chipWidth(n);
+        int r = row - kKeyRows - 1;
+        auto chips = filterRow(r);
+        int n = static_cast<int>(chips.size());
+        constexpr int kCols = 3;
+        int w = (kKeysW - kChipGap * (kCols - 1)) / kCols;
         for (int k = 0; k < n; ++k) out.push_back(kMargin + k * (w + kChipGap) + w / 2);
     }
     return out;
@@ -2341,8 +2506,8 @@ std::vector<int> AppUi::keyCenters(int row) const {
 
 void AppUi::handleSearchKeys(const NavInput& in) {
     // Caller holds mutex_. keyRow_ == kKeyRows is the row of wide keys, where
-    // keyCol_ is 0..2 (Space, Delete, Clear); kKeyRows + 1 and + 2 the two
-    // rows of filters.
+    // keyCol_ is 0..2 (Space, Delete, Clear); kKeyRows + 1, + 2 and + 3 the three
+    // rows of filters in the 3x3 grid.
     if (filterList_ >= 0) {
         // A filter's drop-down: up / down, Cross picks, Circle closes it unchanged.
         Filter f = static_cast<Filter>(filterList_);
@@ -2356,7 +2521,8 @@ void AppUi::handleSearchKeys(const NavInput& in) {
     }
     bool wide = keyRow_ == kKeyRows, filters = keyRow_ > kKeyRows;
     int filterCount = filters ? static_cast<int>(filterRow(keyRow_ - kKeyRows - 1).size()) : 0;
-    if ((in.up && keyRow_ > 0) || (in.down && keyRow_ < kKeyRows + 2)) {
+    bool canDown = (keyRow_ < kKeyRows + 3) && (!filters || !filterRow(keyRow_ - kKeyRows).empty());
+    if ((in.up && keyRow_ > 0) || (in.down && canDown)) {
         // To the item on the next row whose middle is nearest this one's
         // (the rows have 6, 3 and a few items of different widths).
         auto from = keyCenters(keyRow_);
@@ -2366,7 +2532,7 @@ void AppUi::handleSearchKeys(const NavInput& in) {
         int best = 0;
         for (int k = 1; k < static_cast<int>(to.size()); ++k)
             if (std::abs(to[static_cast<size_t>(k)] - x) < std::abs(to[static_cast<size_t>(best)] - x)) best = k;
-        keyCol_ = best;
+        keyCol_ = std::clamp(best, 0, std::max(0, static_cast<int>(to.size()) - 1));
     } else if (in.left && keyCol_ > 0) {
         --keyCol_;
     } else if (in.right) {
@@ -2656,10 +2822,71 @@ UiEvent AppUi::handle(const NavInput& in) {
         return ev;
     }
     if (screen_ == Screen::Home && updatePrompt_) {
-        // The update pop-up has the pad: left / right, Cross picks, Circle is "Not now".
-        if (in.left || in.right) promptFocus_ = 1 - promptFocus_, dirty_ = true;
-        if (in.accept || in.back) {
-            ev.action = in.accept && promptFocus_ == 0 ? Action::UpdateNow : Action::UpdateLater;
+        if (showingUpdateNotes_) {
+            if (in.up) {
+                if (updateNotesScroll_ > 0) {
+                    --updateNotesScroll_;
+                    dirty_ = true;
+                }
+            } else if (in.down) {
+                if (updateNotesScroll_ < updateNotesMaxScroll_) {
+                    ++updateNotesScroll_;
+                    dirty_ = true;
+                }
+            } else if (in.l1 || in.l2) {
+                if (updateNotesScroll_ > 0) {
+                    updateNotesScroll_ = std::max(0, updateNotesScroll_ - 5);
+                    dirty_ = true;
+                }
+            } else if (in.r1 || in.r2) {
+                if (updateNotesScroll_ < updateNotesMaxScroll_) {
+                    updateNotesScroll_ = std::min(updateNotesMaxScroll_, updateNotesScroll_ + 5);
+                    dirty_ = true;
+                }
+            } else if (in.scrollRows != 0) {
+                int next = std::clamp(updateNotesScroll_ + in.scrollRows, 0, updateNotesMaxScroll_);
+                if (next != updateNotesScroll_) {
+                    updateNotesScroll_ = next;
+                    dirty_ = true;
+                }
+            } else if (in.back || in.accept || in.square) {
+                showingUpdateNotes_ = false;
+                dirty_ = true;
+            }
+            return ev;
+        }
+        // 3 buttons: 0 Update now, 1 What's new, 2 Not now
+        if (in.square) {
+            showingUpdateNotes_ = true;
+            updateNotesScroll_ = 0;
+            formatUpdateNotes();
+            dirty_ = true;
+            return ev;
+        }
+        if (in.left) {
+            promptFocus_ = (promptFocus_ + 2) % 3;
+            dirty_ = true;
+        } else if (in.right) {
+            promptFocus_ = (promptFocus_ + 1) % 3;
+            dirty_ = true;
+        }
+        if (in.accept) {
+            if (promptFocus_ == 0) {
+                ev.action = Action::UpdateNow;
+                updatePrompt_ = false;
+                dirty_ = true;
+            } else if (promptFocus_ == 1) {
+                showingUpdateNotes_ = true;
+                updateNotesScroll_ = 0;
+                formatUpdateNotes();
+                dirty_ = true;
+            } else {
+                ev.action = Action::UpdateLater;
+                updatePrompt_ = false;
+                dirty_ = true;
+            }
+        } else if (in.back) {
+            ev.action = Action::UpdateLater;
             updatePrompt_ = false;
             dirty_ = true;
         }
@@ -2789,6 +3016,10 @@ UiEvent AppUi::handle(const NavInput& in) {
                     ev.action = Action::UpdateNow;
                     ev.settings = settings_;
                 }
+            } else if (in.accept && settingsRow_ == 10) {
+                // Inline bitrate slider: cycles to next option, no dropdown modal
+                int n = static_cast<int>(settingOptions(10).size());
+                if (n > 0) applySetting(10, (settingSelected(10) + 1) % n);
             } else if (in.accept) {
                 dropdownOpen_ = true;
                 dropdownIndex_ = settingSelected(settingsRow_);
@@ -2847,14 +3078,13 @@ UiEvent AppUi::handle(const NavInput& in) {
                 if (in.accept) {
                     if (detailButtonFocus_ == 1 && hasAchievements) {
                         openAchievements();
-                    } else if ((detail_.playable || detail_.freeInStore) && !detail_.titleId.empty()) {
-                        if (detail_.playable) {
-                            ev.action = Action::Play;
-                            ev.game = detail_;
-                        } else if (detail_.freeInStore) {
-                            ev.action = Action::ClaimFreeGame;
-                            ev.game = detail_;
-                        }
+                    } else if (isFreeGame(detail_) && !detail_.playable) {
+                        ev.action = Action::ClaimFreeGame;
+                        ev.game = detail_;
+                        ev.game.freeInStore = true;
+                    } else if (detail_.playable) {
+                        ev.action = Action::Play;
+                        ev.game = detail_;
                     }
                 }
             }
@@ -2871,12 +3101,13 @@ UiEvent AppUi::handle(const NavInput& in) {
             if (in.back) ev.action = Action::CancelLaunch;
             break;
         case Screen::Error:
-            if (!errorGame_.titleId.empty()) {
+            if (!errorGame_.titleId.empty() || !errorGame_.productId.empty()) {
                 if (in.accept) {
-                    if (errorGame_.freeInStore && !errorGame_.playable) {
+                    if (isFreeGame(errorGame_) && !errorGame_.playable) {
                         ev.action = Action::ClaimFreeGame;
                         ev.game = errorGame_;
-                    } else {
+                        ev.game.freeInStore = true;
+                    } else if (errorGame_.playable && !errorGame_.titleId.empty()) {
                         ev.action = Action::Play;
                         ev.game = errorGame_;
                     }
@@ -3102,6 +3333,22 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
             fonts_.bold.draw(c, l2, l2Pill.x + (l2w - fonts_.bold.measure(l2, 14)) / 2,
                              fonts_.bold.centeredY(l2Pill.y, l2Pill.h, 14), 14, kGray);
             x = l2Pill.x;
+        } else if (icon == kIconDpadLR) {
+            const char* l = "\xE2\x86\x90";
+            const char* r = "\xE2\x86\x92";
+            int lw = fonts_.bold.measure(l, 14) + 14;
+            int rw = fonts_.bold.measure(r, 14) + 14;
+            constexpr int kPillGap = 4;
+            int rightX = x + 2 * kR;
+            Rect rPill{rightX - rw, static_cast<int>(cy) - 12, rw, 24};
+            c.fillRect(rPill, rgba(255, 255, 255, 40), 8);
+            fonts_.bold.draw(c, r, rPill.x + (rw - fonts_.bold.measure(r, 14)) / 2,
+                             fonts_.bold.centeredY(rPill.y, rPill.h, 14), 14, kGray);
+            Rect lPill{rPill.x - kPillGap - lw, static_cast<int>(cy) - 12, lw, 24};
+            c.fillRect(lPill, rgba(255, 255, 255, 40), 8);
+            fonts_.bold.draw(c, l, lPill.x + (lw - fonts_.bold.measure(l, 14)) / 2,
+                             fonts_.bold.centeredY(lPill.y, lPill.h, 14), 14, kGray);
+            x = lPill.x;
         } else if (icon == kIconR3 || icon == kIconL3) {
             const char* label = buttonName(style, icon == kIconR3 ? PadButton::R3 : PadButton::L3);
             int pillW = fonts_.bold.measure(label, 14) + 16;
@@ -3426,12 +3673,13 @@ void AppUi::drawCard(Canvas& c, const GameTile& t, int x, int y, bool focused, b
     int maxLeftW = std::max(40, rightBadgeLeft - (x + 10) - 4);
     const char* planBadge = planBadgeLabel(t.plan);
     uint8_t myPlan = xcloud::planTier(subscription_);
-    bool otherPlan = planBadge && (!t.playable || (myPlan > 0 && !xcloud::planIncludes(myPlan, t.plan, t.freeInStore)));
+    bool otherPlan = planBadge && (!t.playable || (myPlan > 0 && !xcloud::planIncludes(myPlan, t.plan, isFreeGame(t))));
     bool showPlan = otherPlan || (planBadge && searching_ && tab_ == Tab::GamePass && filterPlan_ > 0 && t.friends.empty());
-    if (t.purchasable) {
+    if (!t.playable && (t.purchasable || isFreeGame(t))) {
         c.fillRect({x, y, kCard, kCard}, rgba(0, 0, 0, 70), 10);
         auto price = prices_.find(t.productId);
-        std::string label = t.freeInStore          ? tr(Str::Free)
+        bool free = isFreeGame(t);
+        std::string label = free                     ? tr(Str::Free)
                             : price != prices_.end() ? price->second.now
                                                      : tr(Str::BuyBadge);
         int tw = fonts_.bold.measure(label, 11);
@@ -3676,15 +3924,16 @@ void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
     }
     c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
     c.fillRect({0, kH - 80, kW, 80}, withAlpha(kBg, 245));
-    // The filters, two rows under the keys (over the fade): green when on;
-    // the lists with a chevron.
-    const int gap = kChipGap, px = 18, fh = 50;
-    const int fy0 = kKeysY + (kKeyRows + 1) * (kKeyH + kKeyGap) + 6;
+    // The filters, 3x3 grid under the keys: green when on; the lists with a chevron.
+    const int gap = kChipGap, px = 18, fh = 48;
+    const int fy0 = kKeysY + (kKeyRows + 1) * (kKeyH + kKeyGap) + 8;
+    constexpr int kCols = 3;
+    const int chipW = (kKeysW - gap * (kCols - 1)) / kCols;
     Rect openChip{};
-    for (int row = 0; row < 2; ++row) {
+    for (int row = 0; row < 3; ++row) {
         auto chips = filterRow(row);
-        int fy = fy0 + row * (fh + 10);
-        int chipW = chipWidth(static_cast<int>(chips.size()));
+        if (chips.empty()) continue;
+        int fy = fy0 + row * (fh + 8);
         for (size_t k = 0; k < chips.size(); ++k) {
             Filter f = chips[k];
             bool on = filterOn(f);
@@ -3694,17 +3943,17 @@ void AppUi::drawSearch(Canvas& c, uint64_t nowMs) {
             c.fillRect(chip, focused ? kWhite : on ? rgba(16, 124, 16, 255) : kPanel, fh / 2);
             if (on && focused) c.strokeRect({chip.x + 3, chip.y + 3, chip.w - 6, chip.h - 6}, kGreen, 3, fh / 2 - 3);
             Color text = focused ? kBg : kWhite;
-            int room = chip.w - (isList(f) ? 44 : 16);
+            int room = chip.w - (isList(f) ? 56 : 20);
             int chipPx = px;
             while (chipPx > 13 && fonts_.semibold.measure(filterText(f), chipPx) > room) --chipPx;
             std::string label = fonts_.semibold.fit(filterText(f), chipPx, room);
             int tw = fonts_.semibold.measure(label, chipPx);
-            int tx = chip.x + (isList(f) ? (chip.w - 22 - tw) / 2 : (chip.w - tw) / 2);
+            int tx = chip.x + (chip.w - tw) / 2;
             fonts_.semibold.draw(c, label, tx, fonts_.semibold.centeredY(chip.y, chip.h, chipPx), chipPx, text);
             if (isList(f)) {  // a list: a chevron at the right
-                float cx = static_cast<float>(chip.x + chip.w - 24), cy = static_cast<float>(chip.y + chip.h / 2);
-                c.line(cx - 6, cy - 3, cx, cy + 3, 2.5f, text);
-                c.line(cx, cy + 3, cx + 6, cy - 3, 2.5f, text);
+                float cx = static_cast<float>(chip.x + chip.w - 20), cy = static_cast<float>(chip.y + chip.h / 2);
+                c.line(cx - 5, cy - 3, cx, cy + 2, 2.2f, text);
+                c.line(cx, cy + 2, cx + 5, cy - 3, 2.2f, text);
             }
         }
     }
@@ -3966,7 +4215,7 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     if (!drawHero(c, nowMs, g->heroUrl, true)) {
         // No hero art (yet): the cover, until the art arrives and fades in.
         drawBackground(c);
-        if (!g->purchasable || g->freeInStore) {  // paid games show their QR code there instead
+        if (g->playable || !g->purchasable || isFreeGame(*g)) {  // paid games show their QR code there instead
             if (auto img = images_.get(g->tileUrl, kCover, kCover)) c.drawImage(*img, cover.x, cover.y, 255, 16);
             else c.fillRect(cover, kPlaceholder, 16);
         }
@@ -3987,6 +4236,51 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
         fonts_.semibold.draw(c, byLine, kMargin, y, 26, kGray);
         y += 40;
     }
+
+    // Age rating & content descriptors (ClassInd, ESRB, PEGI)
+    if (!g->ratingAge.empty()) {
+        Color badgeBg = rgba(100, 100, 100);
+        Color badgeFg = kWhite;
+        if (g->ratingAge == "Livre" || g->ratingAge == "E" || g->ratingAge == "3+" || g->ratingAge == "0") {
+            badgeBg = rgba(0, 160, 60);
+        } else if (g->ratingAge == "10+" || g->ratingAge == "E10+" || g->ratingAge == "7+") {
+            badgeBg = rgba(0, 120, 220);
+        } else if (g->ratingAge == "12+") {
+            badgeBg = rgba(230, 180, 0);
+            badgeFg = rgba(20, 20, 20);
+        } else if (g->ratingAge == "14+" || g->ratingAge == "T") {
+            badgeBg = rgba(235, 100, 0);
+        } else if (g->ratingAge == "16+" || g->ratingAge == "M") {
+            badgeBg = rgba(210, 30, 30);
+        } else if (g->ratingAge == "18+" || g->ratingAge == "AO") {
+            badgeBg = rgba(30, 30, 30);
+        }
+
+        int textW = fonts_.bold.measure(g->ratingAge, 20);
+        int badgeW = std::max(38, textW + 16);
+        int badgeH = 28;
+        Rect badge{kMargin, y + 2, badgeW, badgeH};
+        c.fillRect(badge, badgeBg, 6);
+        if (badgeBg == rgba(30, 30, 30)) {
+            c.strokeRect(badge, rgba(255, 255, 255, 160), 1, 6);
+        }
+        fonts_.bold.draw(c, g->ratingAge, badge.x + (badge.w - textW) / 2, fonts_.bold.centeredY(badge.y, badge.h, 20), 20, badgeFg);
+
+        std::string descLine;
+        if (!g->ratingSystem.empty()) descLine = g->ratingSystem;
+        for (const auto& d : g->ratingDescriptors) {
+            std::string next = (descLine.empty() ? "" : "  \xE2\x80\xA2  ") + d;
+            if (fonts_.semibold.measure(descLine + next, 22) > 750) {
+                descLine += " ...";
+                break;
+            }
+            descLine += next;
+        }
+        if (!descLine.empty()) {
+            fonts_.semibold.draw(c, descLine, badge.x + badge.w + 14, fonts_.semibold.centeredY(badge.y, badge.h, 22), 22, kDim);
+        }
+        y += 38;
+    }
     std::string cats;
     if (const char* p = platformLabel(g->platform)) cats = p;
     for (const auto& cat : g->categories) cats += (cats.empty() ? "" : "  \xE2\x80\xA2  ") + cat;
@@ -3997,18 +4291,19 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
     }
     y += 10;
     // Shorter for a free game, whose page also has the hint and Play below.
-    int descLines = g->purchasable && g->freeInStore ? 4 : 6;
+    int descLines = !g->playable && isFreeGame(*g) ? 4 : 6;
     for (const auto& line : fonts_.regular.wrap(g->description, 24, 880, descLines)) {
         fonts_.regular.draw(c, line, kMargin, y, 24, kGray);
         y += 34;
     }
-    if (g->purchasable) {
+    if (!g->playable && (g->purchasable || isFreeGame(*g))) {
         // Streams once bought: the price and how to buy it on the left, a
         // large QR code of the store page (for the phone) on the right. The
         // console's browser can't run the xbox.com store, so no button.
         int ty = y + 30;
         auto price = prices_.find(g->productId);
-        if (g->freeInStore) {
+        bool free = isFreeGame(*g);
+        if (free) {
             // Free to play: "Get Free" button to claim license directly.
             fonts_.bold.draw(c, tr(Str::Free), kMargin, ty, 52, kWhite);
             ty += 84;
@@ -4038,7 +4333,7 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
             }
             ty += 84;
         }
-        if (!g->freeInStore) {
+        if (!free) {
             drawBag(c, kMargin + 12, ty + 16, kGreen);
             fonts_.semibold.draw(c, tr(Str::BuyToPlay), kMargin + 36, ty, 28, kWhite);
             ty += 48;
@@ -4054,7 +4349,7 @@ void AppUi::drawDetails(Canvas& c, uint64_t nowMs) {
             }
         }
         std::vector<Hint> hints;
-        if (g->freeInStore) hints.push_back({kIconCross, tr(Str::ClaimFree)});
+        if (free) hints.push_back({kIconCross, tr(Str::ClaimFree)});
         hints.push_back({kIconOptions, tr(Str::GameSettings)});
         hints.push_back({kIconTriangle, tr(favorites_.count(g->productId) ? Str::RemoveFavorite : Str::AddFavorite)});
         hints.push_back({kIconSquare, tr(hidden_.count(g->productId) ? Str::Unhide : Str::Hide)});
@@ -4175,8 +4470,20 @@ void AppUi::drawLaunching(Canvas& c, uint64_t nowMs) {
     drawCentered(c, fonts_.bold, launching_.name, 500, 48, kWhite);
     drawCentered(c, fonts_.semibold, tr(Str::GettingReady), 576, 30, kGray);
     drawCentered(c, fonts_.regular, status_, 630, 26, kDim);
-    // The touchpad's gestures, or the buttons and keys that do the same.
-    drawCentered(c, fonts_.regular, tr(caps_.touchpad ? Str::GestureHint : Str::GestureHintButtons), 900, 22, kDim);
+    // Helpful tips rotating every ~5 seconds.
+    static constexpr Str kTips[] = {
+        Str::TipTouchpadMenu,
+        Str::TipKeyboardMouse,
+        Str::TipFreeStore,
+        Str::TipBugReportQr,
+        Str::TipSupportKofi,
+        Str::Tip120HzVideo,
+        Str::TipAnalogDeadzone,
+        Str::TipDualSenseMic,
+    };
+    constexpr size_t kTipCount = sizeof(kTips) / sizeof(kTips[0]);
+    size_t tipIndex = (nowMs / 5000) % kTipCount;
+    drawCentered(c, fonts_.regular, tr(kTips[tipIndex]), 900, 22, kDim);
     drawHints(c, {{kIconCircle, tr(Str::Cancel)}});
 }
 
@@ -4259,6 +4566,19 @@ void AppUi::drawSettings(Canvas& c) {
             y += kRowH + kGap;
             continue;
         }
+        if (i == 10) {
+            // BitrateCap: inline slider without dropdown chevron
+            auto options = settingOptions(i);
+            int sel = settingSelected(i);
+            std::string value = sel < static_cast<int>(options.size()) ? options[static_cast<size_t>(sel)] : "";
+            std::string disp = "< " + value + " >";
+            int w = fonts_.regular.measure(disp, kRowPx);
+            int vx = r.x + r.w - 40;
+            fonts_.regular.draw(c, disp, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx,
+                                focused ? kWhite : kGray);
+            y += kRowH + kGap;
+            continue;
+        }
         // The value, then a chevron: this opens a list.
         auto options = settingOptions(i);
         int sel = settingSelected(i);
@@ -4280,9 +4600,66 @@ void AppUi::drawSettings(Canvas& c) {
         }
         y += kRowH + kGap;
     }
-    for (const auto& line : fonts_.regular.wrap(tr(Str::SettingsNote), 22, kRowW, 2)) {
-        fonts_.regular.draw(c, line, kMargin, y + 6, 22, kDim);
-        y += 28;
+    static constexpr Str kSettingDescs[kSettingRows] = {
+        Str::SettingDescLanguage,
+        Str::SettingDescResolution,
+        Str::SettingDescRegion,
+        Str::SettingDescDeadzone,
+        Str::SettingDescTriggerRumble,
+        Str::SettingDescConfirmButton,
+        Str::SettingDescLightBar,
+        Str::SettingDescUpdates,
+        Str::SettingDescLoginCountry,
+        Str::SettingDescHighRefresh,
+        Str::SettingDescBitrateCap,
+        Str::SettingDescGameVolume,
+        Str::SettingDescKeyboardKeys,
+        Str::SettingDescDisplayMode,
+        Str::SettingDescControllerButtons,
+        Str::SettingDescGyro,
+        Str::SettingDescQueueReady,
+        Str::SettingDescCheckSignIn,
+        Str::SettingDescNetworkTest,
+        Str::SettingDescSupportProject,
+    };
+    if (settingsRow_ >= 0 && settingsRow_ < kSettingRows) {
+        int dy = 936;
+        const char* desc = tr(kSettingDescs[settingsRow_]);
+        for (const auto& line : fonts_.regular.wrap(desc, 22, kRowW, 3)) {
+            fonts_.regular.draw(c, line, kMargin, dy, 22, kDim);
+            dy += 28;
+        }
+    }
+
+    // Web UI / Remote QR panel on the right side (x = 1320..1840)
+    if (tester_ == Tester::None && !pickerOpen_) {
+        std::string qrUrl = !webUrl_.empty() ? webUrl_ : "http://" + platform::localIPv4() + ":8080";
+        Rect panel{1320, 200, 500, 710};
+        c.fillRect(panel, rgba(255, 255, 255, 14), 16);
+        c.strokeRect(panel, rgba(255, 255, 255, 30), 1, 16);
+
+        int py = panel.y + 26;
+        fonts_.bold.draw(c, tr(Str::WebControlTitle), panel.x + 28, py, 30, kWhite);
+        py += 40;
+        fonts_.semibold.draw(c, tr(Str::WebControlSubtitle), panel.x + 28, py, 22, rgba(16, 180, 80));
+        py += 34;
+
+        auto descLines = fonts_.regular.wrap(tr(Str::WebControlDesc), 20, panel.w - 56, 3);
+        for (const auto& l : descLines) {
+            fonts_.regular.draw(c, l, panel.x + 28, py, 20, kGray);
+            py += 26;
+        }
+        py += 18;
+
+        int qrTarget = 300;
+        int qrRight = panel.x + panel.w - (panel.w - (qrTarget + 40)) / 2;
+        Rect qrBox = drawQr(c, qrUrl, qrRight, py, qrTarget, qrcodegen_Ecc_LOW);
+        if (qrBox.h > 0) py += qrBox.h + 20;
+        else py += 340;
+
+        int urlW = fonts_.semibold.measure(qrUrl, 22);
+        int urlX = panel.x + (panel.w - urlW) / 2;
+        fonts_.semibold.draw(c, qrUrl, urlX, py, 22, kWhite);
     }
 
     if (pickerOpen_) {
@@ -4346,6 +4723,8 @@ void AppUi::drawSettings(Canvas& c) {
     } else {
         if (settingsRow_ == 16) {
             drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconSquare, tr(Str::TestSound)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
+        } else if (settingsRow_ == 10) {
+            drawHints(c, {{kIconDpadLR, tr(Str::Adjust)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
         } else {
             drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
         }
@@ -4437,7 +4816,7 @@ void AppUi::drawQuitPrompt(Canvas& c) {
 
 void AppUi::drawUpdatePrompt(Canvas& c) {
     c.fillRect({0, 0, kW, kH}, rgba(0, 0, 0, 160));
-    constexpr int kPanelW = 960, kPanelH = 340, kButtonW = 360, kButtonH = 72;
+    constexpr int kPanelW = 960, kPanelH = 340, kButtonW = 260, kButtonH = 72;
     Rect panel{(kW - kPanelW) / 2, (kH - kPanelH) / 2 - 40, kPanelW, kPanelH};
     c.fillRect({panel.x + 8, panel.y + 12, panel.w, panel.h}, rgba(0, 0, 0, 120), 26);  // shadow
     c.fillRect(panel, kPanel, 24);
@@ -4446,18 +4825,143 @@ void AppUi::drawUpdatePrompt(Canvas& c) {
     auto lines = fonts_.regular.wrap(tr(Str::UpdatePrompt), 26, kPanelW - 112, 2);
     for (size_t i = 0; i < lines.size(); ++i)
         fonts_.regular.draw(c, lines[i], panel.x + 56, panel.y + 124 + static_cast<int>(i) * 36, 26, kGray);
-    const char* labels[2] = {tr(Str::UpdateNow), tr(Str::NotNow)};
-    for (int i = 0; i < 2; ++i) {
-        Rect b{panel.x + 56 + i * (kButtonW + 24), panel.y + panel.h - kButtonH - 44, kButtonW, kButtonH};
+
+    // 3 buttons: Update now (0), What's new (1), Not now (2)
+    const char* labels[3] = {tr(Str::UpdateNow), tr(Str::WhatsNew), tr(Str::NotNow)};
+    constexpr int kGap = (kPanelW - 112 - 3 * kButtonW) / 2;
+    for (int i = 0; i < 3; ++i) {
+        Rect b{panel.x + 56 + i * (kButtonW + kGap), panel.y + panel.h - kButtonH - 44, kButtonW, kButtonH};
         bool on = i == promptFocus_;
         c.fillRect(b, on ? kWhite : rgba(255, 255, 255, 30), 14);
-        int tw = fonts_.semibold.measure(labels[i], 28);
-        fonts_.semibold.draw(c, labels[i], b.x + (b.w - tw) / 2, fonts_.semibold.centeredY(b.y, b.h, 28), 28,
+        int tw = fonts_.semibold.measure(labels[i], 24);
+        fonts_.semibold.draw(c, labels[i], b.x + (b.w - tw) / 2, fonts_.semibold.centeredY(b.y, b.h, 24), 24,
                              on ? kBg : kWhite);
     }
     c.fillRect({0, kH - 80, kW, 80}, kBg);  // the home screen's hints, under the pop-up's
     drawPads(c);
-    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::NotNow)}});
+    drawHints(c, {
+        {kIconCross, tr(Str::Select)},
+        {kIconSquare, tr(Str::WhatsNew)},
+        {kIconCircle, tr(Str::NotNow)}
+    });
+}
+
+void AppUi::formatUpdateNotes() {
+    updateNotesLines_.clear();
+    std::string lang = languageCode(language());
+    updateNotesLang_ = lang;
+    std::string raw = xc::app::filterReleaseNotes(updateNotes_, lang);
+    if (raw.empty()) raw = updateNotes_;
+    if (raw.empty()) raw = "No release notes provided.";
+
+    constexpr int kModalW = 1200, kModalH = 740;
+    int textW = kModalW - 128 - 28;
+    int textH = kModalH - 175;
+
+    size_t pos = 0;
+    while (pos < raw.size()) {
+        size_t next = raw.find('\n', pos);
+        std::string rawLine = raw.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+        if (!rawLine.empty() && rawLine.back() == '\r') rawLine.pop_back();
+
+        if (rawLine.rfind("### ", 0) == 0) {
+            std::string sub = rawLine.substr(4);
+            auto wrapped = fonts_.semibold.wrap(sub, 22, textW, 4);
+            for (const auto& w : wrapped) updateNotesLines_.push_back({w, false, true, false, false});
+        } else if (rawLine.rfind("## ", 0) == 0) {
+            std::string hdr = rawLine.substr(3);
+            auto wrapped = fonts_.bold.wrap(hdr, 26, textW, 4);
+            for (const auto& w : wrapped) updateNotesLines_.push_back({w, true, false, false, false});
+        } else if (rawLine.rfind("# ", 0) == 0) {
+            std::string hdr = rawLine.substr(2);
+            auto wrapped = fonts_.bold.wrap(hdr, 28, textW, 4);
+            for (const auto& w : wrapped) updateNotesLines_.push_back({w, true, false, false, false});
+        } else if (rawLine.rfind("- ", 0) == 0 || rawLine.rfind("* ", 0) == 0) {
+            std::string bullet = "•  " + rawLine.substr(2);
+            auto wrapped = fonts_.regular.wrap(bullet, 22, textW, 6);
+            for (size_t wi = 0; wi < wrapped.size(); ++wi) {
+                updateNotesLines_.push_back({wrapped[wi], false, false, wi == 0, wi > 0});
+            }
+        } else if (!rawLine.empty()) {
+            auto wrapped = fonts_.regular.wrap(rawLine, 22, textW, 8);
+            for (const auto& w : wrapped) updateNotesLines_.push_back({w, false, false, false, false});
+        } else {
+            updateNotesLines_.push_back({"", false, false, false, false});
+        }
+
+        if (next == std::string::npos) break;
+        pos = next + 1;
+    }
+
+    constexpr int kLineH = 32;
+    int visibleLines = textH / kLineH;
+    int totalLines = static_cast<int>(updateNotesLines_.size());
+    updateNotesMaxScroll_ = std::max(0, totalLines - visibleLines);
+    updateNotesScroll_ = std::clamp(updateNotesScroll_, 0, updateNotesMaxScroll_);
+}
+
+void AppUi::drawUpdateNotesModal(Canvas& c) {
+    std::string currentLang = languageCode(language());
+    if (updateNotesLines_.empty() || updateNotesLang_ != currentLang) {
+        formatUpdateNotes();
+    }
+
+    std::string title = tr(Str::WhatsNewTitle);
+    if (!updateAvailable_.empty()) {
+        title += " - " + updateAvailable_;
+    }
+    constexpr int kModalW = 1200, kModalH = 740;
+    Rect panel = drawModal(c, kModalW, kModalH, title);
+
+    int textX = panel.x + 64;
+    int textY = panel.y + 115;
+    int textH = panel.h - 175;
+
+    constexpr int kLineH = 32;
+    int visibleLines = textH / kLineH;
+    int totalLines = static_cast<int>(updateNotesLines_.size());
+    updateNotesScroll_ = std::clamp(updateNotesScroll_, 0, updateNotesMaxScroll_);
+
+    c.fillRect({panel.x + 44, textY - 12, panel.w - 88, textH + 24}, rgba(18, 18, 18, 220), 12);
+    c.strokeRect({panel.x + 44, textY - 12, panel.w - 88, textH + 24}, rgba(255, 255, 255, 25), 1, 12);
+
+    int curY = textY;
+    int endIdx = std::min(totalLines, updateNotesScroll_ + visibleLines);
+    for (int i = updateNotesScroll_; i < endIdx; ++i) {
+        const auto& fl = updateNotesLines_[static_cast<size_t>(i)];
+        if (!fl.text.empty()) {
+            if (fl.isHeader) {
+                fonts_.bold.draw(c, fl.text, textX, curY, 26, kWhite);
+            } else if (fl.isSubHeader) {
+                fonts_.semibold.draw(c, fl.text, textX, curY, 22, rgba(120, 220, 120));
+            } else if (fl.isBullet) {
+                fonts_.regular.draw(c, fl.text, textX + 6, curY, 22, rgba(235, 235, 235));
+            } else if (fl.isBulletContinuation) {
+                fonts_.regular.draw(c, fl.text, textX + 28, curY, 22, rgba(235, 235, 235));
+            } else {
+                fonts_.regular.draw(c, fl.text, textX, curY, 22, kGray);
+            }
+        }
+        curY += kLineH;
+    }
+
+    if (totalLines > visibleLines) {
+        int barTrackX = panel.x + panel.w - 60;
+        int barTrackY = textY - 4;
+        int barTrackH = textH + 8;
+        c.fillRect({barTrackX, barTrackY, 6, barTrackH}, rgba(255, 255, 255, 30), 3);
+        float ratio = static_cast<float>(visibleLines) / totalLines;
+        int thumbH = std::max(32, static_cast<int>(barTrackH * ratio));
+        float scrollPct = updateNotesMaxScroll_ > 0 ? static_cast<float>(updateNotesScroll_) / updateNotesMaxScroll_ : 0.0f;
+        int thumbY = barTrackY + static_cast<int>((barTrackH - thumbH) * scrollPct);
+        c.fillRect({barTrackX, thumbY, 6, thumbH}, kWhite, 3);
+    }
+
+    c.fillRect({0, kH - 80, kW, 80}, kBg);
+    drawPads(c);
+    drawHints(c, {
+        {kIconCircle, tr(Str::Back)}
+    });
 }
 
 Rect AppUi::drawModal(Canvas& c, int w, int h, const std::string& title) {
@@ -5266,7 +5770,10 @@ void AppUi::render(Canvas& c, uint64_t nowMs) {
         case Screen::Updating: drawUpdating(c, nowMs); break;
         case Screen::Streaming: break;
     }
-    if (screen_ == Screen::Home && updatePrompt_) drawUpdatePrompt(c);
+    if (screen_ == Screen::Home && updatePrompt_) {
+        if (showingUpdateNotes_) drawUpdateNotesModal(c);
+        else drawUpdatePrompt(c);
+    }
     if (screen_ == Screen::Home && quitPrompt_) drawQuitPrompt(c);
     if (screen_ == Screen::Error && countryPickerOpen_) drawCountryPicker(c);
     if (reportOpen_) drawReport(c);

@@ -19,6 +19,7 @@ struct Info {
     std::string firmware;  // PS5 system software, when known
     std::string log;       // logExcerpt()'s
     std::string crash;     // crash: SIGSEGV pc=eboot+0x... (from the marker)
+    std::string platform;  // platform name ("PlayStation 5 (PPSA99810)", "Linux", etc.)
 };
 
 // The bug form's link, at most `maxLength` characters: the log is cut from

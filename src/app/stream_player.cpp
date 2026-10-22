@@ -555,7 +555,7 @@ struct StreamPlayer::Impl {
                           : gssv.resolution() == xcloud::Resolution::P1080HQ ? 30000000
                                                                            : 25000000;
         if (maxBitrateMbps > 0)  // the user's cap (Wi-Fi) or test override: REMB offers this rate
-            opts.maxBitrate = static_cast<uint32_t>(maxBitrateMbps) * 1000000u;
+            opts.maxBitrate = static_cast<uint32_t>(std::clamp(maxBitrateMbps, 5, 50)) * 1000000u;
         opts.simulatedVideoLoss = simulatedLoss;
         if (const char* loss = std::getenv("XC_SIM_LOSS")) opts.simulatedVideoLoss = std::atoi(loss);
         callbacks = cb;
@@ -866,7 +866,7 @@ void StreamPlayer::stop() { impl_->stop(); }
 void StreamPlayer::setHwDecodeProbe(bool on) { impl_->hwProbe = on; }
 
 void StreamPlayer::setDecodeThreads(int threads) { impl_->decodeThreads = std::max(1, threads); }
-void StreamPlayer::setMaxBitrate(int mbps) { impl_->maxBitrateMbps = std::max(0, mbps); }
+void StreamPlayer::setMaxBitrate(int mbps) { impl_->maxBitrateMbps = std::clamp(mbps, 0, 50); }
 void StreamPlayer::setSimulatedLoss(int percent) { impl_->simulatedLoss = std::clamp(percent, 0, 50); }
 
 StreamPlayer::Stats StreamPlayer::stats() const {

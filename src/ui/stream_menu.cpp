@@ -41,6 +41,7 @@ bool StreamMenu::itemShown(int item) const {
     case Triggers: return caps_.triggerRumble || caps_.adaptiveTriggers;
     case GyroItem:
     case GyroLevelItem: return caps_.gyro;
+    case PadSpeakerVolumeItem: return caps_.triggerRumble || caps_.adaptiveTriggers;
     default: return true;
     }
 }
@@ -65,7 +66,7 @@ void StreamMenu::setProfileValues(int resolution, int sharpness, int deband, int
 
 void StreamMenu::open(int resolution, bool stats, int sharpness, int deband, int upscaler, bool homeConsole,
                       bool allow1440, bool hasCustomProfile, int triggerStrength, int deadzone,
-                      bool circleConfirms, float micLevel, bool micMuted) {
+                      bool circleConfirms, float micLevel, bool micMuted, int padSpeakerVolume) {
     open_ = true;
     homeConsole_ = homeConsole;
     allow1440_ = allow1440;
@@ -79,6 +80,7 @@ void StreamMenu::open(int resolution, bool stats, int sharpness, int deband, int
     circleConfirms_ = circleConfirms;
     micLevel_ = micLevel;
     micMuted_ = micMuted;
+    padSpeakerVolume_ = std::clamp(padSpeakerVolume, 0, 100);
     selected_ = XboxButton;
     resolution_ = applied_ = resolution;
     resolutionAsked_ = false;
@@ -170,6 +172,12 @@ MenuAction StreamMenu::handle(const NavInput& in) {
         if (level == gyroLevel_) return MenuAction::None;
         gyroLevel_ = level;
         return MenuAction::Gyro;
+    }
+    if (selected_ == PadSpeakerVolumeItem && (in.left || in.right)) {
+        int newVol = std::clamp(padSpeakerVolume_ + (in.right ? 5 : -5), 0, 100);
+        if (newVol == padSpeakerVolume_) return MenuAction::None;
+        padSpeakerVolume_ = newVol;
+        return MenuAction::PadSpeakerVolume;
     }
     if (selected_ == Stats && (in.left || in.right)) {
         stats_ = !stats_;
@@ -304,6 +312,7 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
                             : i == ConfirmItem    ? tr(Str::ConfirmButton)
                             : i == GyroItem       ? tr(Str::Gyro)
                             : i == GyroLevelItem  ? tr(Str::GyroIntensity)
+                            : i == PadSpeakerVolumeItem ? tr(Str::PadSpeakerVolume)
                             : homeConsole_        ? tr(Str::MenuEndStream)
                                                   : tr(Str::MenuLeave);
         fonts_.semibold.draw(c, label, row.x + 16, ty, kPx, fg);
@@ -354,6 +363,10 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         }
         if (i == GyroLevelItem) {
             value = std::to_string(gyroLevel_) + " / 10";
+            if (sel) value = "< " + value + " >";
+        }
+        if (i == PadSpeakerVolumeItem) {
+            value = padSpeakerVolume_ == 0 ? tr(Str::Mute) : std::to_string(padSpeakerVolume_) + " %";
             if (sel) value = "< " + value + " >";
         }
         if (i == ConfirmItem) {

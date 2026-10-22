@@ -629,13 +629,13 @@ void checkForUpdate() {
         std::lock_guard<std::mutex> lock(g_releaseMutex);
         g_release = offer ? r : Release{};
     }
-    g_ui->setUpdateState(XC_APP_VERSION, offer || (newer && !selfUpdate) ? r.tag : std::string(), false);
+    g_ui->setUpdateState(XC_APP_VERSION, offer || (newer && !selfUpdate) ? r.tag : std::string(), false, r.notes);
     bool skipped;
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         skipped = g_settings.skippedUpdate == r.tag;
     }
-    if (offer && !skipped) g_ui->offerUpdate();
+    if (offer && !skipped) g_ui->offerUpdate(r.notes);
 }
 
 // The update itself, then the restart into the new version. A failure

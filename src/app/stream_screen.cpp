@@ -194,8 +194,13 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             menu_.setDebandInUse(autoDeband_.level());
             menu_.setGyro(gyroMode_, gyroLevel_);
             menu_.setStatsMask(g_settings.statsMask);
+            int padVol = 100;
+            {
+                std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                padVol = g_settings.padSpeakerVolume;
+            }
             menu_.open(streamResolution_, showStats_, sharpness_, deband_, upscaler_, g_playingHome, allow1440,
-                       hasCustomProfile_, triggerStrength_, deadzone_, circleConfirms_, micLvl, micMuted);
+                       hasCustomProfile_, triggerStrength_, deadzone_, circleConfirms_, micLvl, micMuted, padVol);
             overlaySeq_ = 0;
         } else if (wasOpen && (menuCombo || swipeMenu_)) {
             // The same gesture or key closes it again.
@@ -212,6 +217,14 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 g_player->requestKeyframe();
                 XC_LOGI("menu_: Xbox button");
                 break;
+            case ui::MenuAction::PadSpeakerVolume: {
+                int vol = menu_.padSpeakerVolume();
+                media::setPadSpeakerVolume(vol);
+                std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                g_settings.padSpeakerVolume = vol;
+                g_settings.save(settingsPath());
+                break;
+            }
             case ui::MenuAction::Close: g_player->requestKeyframe(); break;  // a clean picture back in the game
             case ui::MenuAction::Resolution:
                 streamResolution_ = menu_.resolution();

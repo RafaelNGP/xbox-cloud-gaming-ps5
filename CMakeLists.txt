@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 RafaelNGP
 cmake_minimum_required(VERSION 3.20)
-project(xcloud_ps5 VERSION 1.3.4 LANGUAGES C CXX)
+project(xcloud_ps5 VERSION 1.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -102,6 +102,7 @@ add_library(xcloud_ui STATIC
     src/app/crash_guard.cpp
     src/app/updater.cpp
     src/app/auto_deband.cpp
+    src/app/web_server.cpp
     extern/qrcodegen/qrcodegen.c
 )
 target_compile_definitions(xcloud_ui PUBLIC XC_APP_VERSION="${PROJECT_VERSION}")

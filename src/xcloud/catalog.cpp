@@ -110,6 +110,7 @@ bool fetchProducts(const std::vector<std::string>& ids, const std::string& marke
             prod.heroUrl = imageUrl(p["Image_Hero"]);
             if (prod.heroUrl.empty()) prod.heroUrl = imageUrl(p["Image_TitledHero"]);
             for (const auto& c : p["LocalizedCategories"].items()) prod.categories.push_back(categoryName(c.str()));
+            parseContentRatings(p, market, prod.ratingAge, prod.ratingSystem, prod.ratingDescriptors);
             if (full) {
                 // How it can be played, from the store's attributes, and the
                 // lowest Game Pass plan that includes it.
@@ -187,6 +188,145 @@ bool isNonGameAddon(const std::string& titleId, const std::string& titleName) {
         }
     }
     return false;
+}
+
+void parseContentRatings(const json::Value& p, const std::string& market,
+                         std::string& outAge, std::string& outSystem,
+                         std::vector<std::string>& outDescriptors) {
+    outAge.clear();
+    outSystem.clear();
+    outDescriptors.clear();
+
+    const json::Value* ratingsArray = nullptr;
+    if (p.has("ContentRatings") && p["ContentRatings"].isArray()) {
+        ratingsArray = &p["ContentRatings"];
+    } else if (p.has("MarketProperties") && p["MarketProperties"].isArray() && p["MarketProperties"].size() > 0) {
+        const auto& mp0 = p["MarketProperties"][0];
+        if (mp0.has("ContentRatings") && mp0["ContentRatings"].isArray()) {
+            ratingsArray = &mp0["ContentRatings"];
+        }
+    } else if (p.has("LocalizedProperties") && p["LocalizedProperties"].isArray() && p["LocalizedProperties"].size() > 0) {
+        const auto& lp0 = p["LocalizedProperties"][0];
+        if (lp0.has("ContentRatings") && lp0["ContentRatings"].isArray()) {
+            ratingsArray = &lp0["ContentRatings"];
+        }
+    }
+
+    if (!ratingsArray || ratingsArray->items().empty()) return;
+
+    struct Candidate {
+        std::string system;
+        std::string rawId;
+        std::vector<std::string> descriptors;
+    };
+    std::vector<Candidate> candidates;
+
+    for (const auto& item : ratingsArray->items()) {
+        Candidate c;
+        c.system = item["RatingSystem"].str();
+        if (c.system.empty()) c.system = item["ratingSystem"].str();
+        if (c.system.empty()) c.system = item["RatingSystemId"].str();
+
+        c.rawId = item["RatingId"].str();
+        if (c.rawId.empty()) c.rawId = item["ratingId"].str();
+        if (c.rawId.empty()) c.rawId = item["RatingName"].str();
+        if (c.rawId.empty()) c.rawId = item["ratingName"].str();
+
+        auto descVal = item.has("RatingDescriptors") ? item["RatingDescriptors"] : item["ratingDescriptors"];
+        if (descVal.isArray()) {
+            for (const auto& d : descVal.items()) {
+                if (d.isString()) {
+                    if (!d.str().empty()) c.descriptors.push_back(d.str());
+                } else if (d.isObject()) {
+                    std::string s = d["Name"].str();
+                    if (s.empty()) s = d["Descriptor"].str();
+                    if (!s.empty()) c.descriptors.push_back(s);
+                }
+            }
+        } else if (descVal.isString() && !descVal.str().empty()) {
+            c.descriptors.push_back(descVal.str());
+        } else if (item.has("RatingDescriptor") && item["RatingDescriptor"].isString()) {
+            c.descriptors.push_back(item["RatingDescriptor"].str());
+        }
+
+        if (!c.rawId.empty()) candidates.push_back(std::move(c));
+    }
+
+    if (candidates.empty()) return;
+
+    std::string mkt = market;
+    for (char& ch : mkt) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+
+    const Candidate* selected = nullptr;
+    auto matchSystem = [&](const std::string& sysName) -> const Candidate* {
+        for (const auto& c : candidates) {
+            std::string sysLower;
+            for (char ch : c.system) sysLower += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            std::string targetLower;
+            for (char ch : sysName) targetLower += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            if (sysLower.find(targetLower) != std::string::npos) return &c;
+        }
+        return nullptr;
+    };
+
+    if (mkt == "BR" || mkt == "PT") {
+        selected = matchSystem("classind");
+        if (!selected) selected = matchSystem("djctq");
+    } else if (mkt == "US" || mkt == "CA") {
+        selected = matchSystem("esrb");
+    } else if (mkt == "DE") {
+        selected = matchSystem("usk");
+        if (!selected) selected = matchSystem("pegi");
+    } else if (mkt == "GB" || mkt == "UK" || mkt == "FR" || mkt == "ES" || mkt == "IT") {
+        selected = matchSystem("pegi");
+    }
+
+    if (!selected) {
+        if (mkt == "BR") selected = matchSystem("classind");
+        if (!selected) selected = matchSystem("esrb");
+        if (!selected) selected = matchSystem("pegi");
+        if (!selected) selected = &candidates[0];
+    }
+
+    outSystem = selected->system;
+    outDescriptors = selected->descriptors;
+
+    std::string raw = selected->rawId;
+    std::string rawLower;
+    for (char ch : raw) rawLower += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+
+    std::string sysLower;
+    for (char ch : selected->system) sysLower += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+
+    if (sysLower.find("classind") != std::string::npos || sysLower.find("djctq") != std::string::npos) {
+        outSystem = "ClassInd";
+        if (rawLower.find("livre") != std::string::npos || rawLower == "l" || rawLower == "0" || rawLower == "general") outAge = "Livre";
+        else if (rawLower.find("10") != std::string::npos || rawLower == "ten") outAge = "10+";
+        else if (rawLower.find("12") != std::string::npos || rawLower == "twelve") outAge = "12+";
+        else if (rawLower.find("14") != std::string::npos || rawLower == "fourteen") outAge = "14+";
+        else if (rawLower.find("16") != std::string::npos || rawLower == "sixteen") outAge = "16+";
+        else if (rawLower.find("18") != std::string::npos || rawLower == "eighteen") outAge = "18+";
+        else outAge = raw;
+    } else if (sysLower.find("esrb") != std::string::npos) {
+        outSystem = "ESRB";
+        if (rawLower.find("everyone 10") != std::string::npos || rawLower == "e10" || rawLower == "e10+" || rawLower == "everyone10plus") outAge = "E10+";
+        else if (rawLower.find("everyone") != std::string::npos || rawLower == "e") outAge = "E";
+        else if (rawLower.find("teen") != std::string::npos || rawLower == "t") outAge = "T";
+        else if (rawLower.find("mature") != std::string::npos || rawLower == "m" || rawLower == "mature 17+") outAge = "M";
+        else if (rawLower.find("adult") != std::string::npos || rawLower == "ao") outAge = "AO";
+        else if (rawLower.find("pending") != std::string::npos || rawLower == "rp") outAge = "RP";
+        else outAge = raw;
+    } else if (sysLower.find("pegi") != std::string::npos) {
+        outSystem = "PEGI";
+        if (rawLower.find("3") != std::string::npos) outAge = "3+";
+        else if (rawLower.find("7") != std::string::npos) outAge = "7+";
+        else if (rawLower.find("12") != std::string::npos) outAge = "12+";
+        else if (rawLower.find("16") != std::string::npos) outAge = "16+";
+        else if (rawLower.find("18") != std::string::npos) outAge = "18+";
+        else outAge = raw;
+    } else {
+        outAge = raw;
+    }
 }
 
 }  // namespace xc::xcloud

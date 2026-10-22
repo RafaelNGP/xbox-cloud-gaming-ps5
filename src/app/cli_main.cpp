@@ -688,8 +688,10 @@ int main(int argc, char** argv) {
         for (int i = 0; i < 30; ++i) log += "08:11:3" + std::to_string(i % 10) + " [I] gpu: something at step " + std::to_string(i) + "\n";
         log += "08:11:37 [E] TLS setup: certificates /app0/assets/cacert.pem: PK - Read/write of file failed (-15872)\n"
                "08:11:37 [I] NOTIFY: PSBox: secure connections unavailable\n";
-        app::report::Info info{error.substr(0, 70), error, XC_APP_VERSION, "13.00",
-                               app::report::sanitize(app::report::logExcerpt(log, false), {})};
+        std::string plat = platform::platformName();
+        std::string sanitizedLog = "[Platform: " + plat + "]\n" +
+                                   app::report::sanitize(app::report::logExcerpt(log, false), {});
+        app::report::Info info{error.substr(0, 70), error, XC_APP_VERSION, "13.00", sanitizedLog, "", plat};
         std::string url = app::report::issueUrl(info);
         std::printf("url: %zu characters\n%s\n", url.size(), url.c_str());
         app.showReport(url, ui::tr(ui::Str::ReportProblem));

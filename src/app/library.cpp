@@ -48,6 +48,13 @@ json::Value productToJson(const xcloud::Product& p) {
         for (const auto& [lang, bits] : p.languages) langs.set(lang, static_cast<int64_t>(bits));
         v.set("langs", langs);
     }
+    if (!p.ratingAge.empty()) {
+        v.set("rage", p.ratingAge);
+        v.set("rsys", p.ratingSystem);
+        json::Value rdesc = json::Value::array();
+        for (const auto& d : p.ratingDescriptors) rdesc.push(d);
+        v.set("rdesc", rdesc);
+    }
     return v;
 }
 
@@ -69,6 +76,9 @@ xcloud::Product productFromJson(const std::string& id, const json::Value& v) {
     p.modes = static_cast<uint32_t>(v["modes"].asInt(0));
     p.plan = static_cast<uint8_t>(v["plan"].asInt(0));
     for (const auto& [lang, bits] : v["langs"].members()) p.languages[lang] = static_cast<uint8_t>(bits.asInt(0));
+    p.ratingAge = v["rage"].str();
+    p.ratingSystem = v["rsys"].str();
+    for (const auto& d : v["rdesc"].items()) p.ratingDescriptors.push_back(d.str());
     return p;
 }
 
@@ -140,6 +150,9 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
     t.categories = p.categories;
     t.detailed = p.detailed;
     t.modes = p.modes;
+    t.ratingAge = p.ratingAge;
+    t.ratingSystem = p.ratingSystem;
+    t.ratingDescriptors = p.ratingDescriptors;
     if (auto lang = p.languages.find(language_.substr(0, language_.find('-'))); lang != p.languages.end())
         t.languages = lang->second;  // in the app's language
     if (ownershipKnown_) t.playable = ownedTitles_.count(t.titleId) || ownedProducts_.count(t.productId);

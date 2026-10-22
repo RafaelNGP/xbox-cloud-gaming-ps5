@@ -6,6 +6,7 @@
 #include "app/settings.h"
 #include "app/update_check.h"
 #include "app/updater.h"
+#include "app/web_server.h"
 #include "app/crash_guard.h"
 #include "app/report.h"
 #include "display/display.h"
@@ -27,6 +28,7 @@
 #include "ui/app_ui.h"
 #include "ui/accent_color.h"
 #include "ui/pad_glyphs.h"
+#include "ui/input_mode.h"
 #include "ui/stream_menu.h"
 #include "ui/strings.h"
 #include "util/json.h"
@@ -639,6 +641,8 @@ static void testStreamMenu() {
     CHECK(press([](xc::ui::NavInput& n) { n.right = true; }) == MenuAction::Gyro && menu.gyroMode() == 2);
     press([](xc::ui::NavInput& n) { n.down = true; });  // its intensity, 1..10
     CHECK(press([](xc::ui::NavInput& n) { n.left = true; }) == MenuAction::Gyro && menu.gyroLevel() == 4);
+    press([](xc::ui::NavInput& n) { n.down = true; });  // DualSense speaker volume
+    CHECK(press([](xc::ui::NavInput& n) { n.left = true; }) == MenuAction::PadSpeakerVolume && menu.padSpeakerVolume() == 95);
     press([](xc::ui::NavInput& n) { n.down = true; });  // "Leave game", last
     CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Leave);
     CHECK(!menu.isOpen());
@@ -900,6 +904,24 @@ static void testPrivacyAndRobustness() {
     CHECK(app::report::shorten("short", 70) == "short");
     app::report::Info info{"t", std::string("a\0b", 3), "1", "13.00", ""};
     CHECK(app::report::issueUrl(info).find("a%00b") != std::string::npos);
+
+    // Platform in report URL and immutable platform header in log
+    app::report::Info infoPlat{"t", "what", "1.4.0", "13.00", "[Platform: PlayStation 5 (PPSA99810)]\nlog line 1\n", "", "PlayStation 5 (PPSA99810)"};
+    std::string urlPlat = app::report::issueUrl(infoPlat);
+    CHECK(urlPlat.find("&platform=PlayStation+5+(PPSA99810)") != std::string::npos);
+    CHECK(urlPlat.find("%5BPlatform:+PlayStation+5+(PPSA99810)%5D") != std::string::npos);
+
+    // Platform header automatically injected if missing from log
+    app::report::Info infoNoHdr{"t", "what", "1.4.0", "13.00", "raw log line\n", "", "PlayStation 5 (PPSA99810)"};
+    std::string urlNoHdr = app::report::issueUrl(infoNoHdr);
+    CHECK(urlNoHdr.find("%5BPlatform:+PlayStation+5+(PPSA99810)%5D") != std::string::npos);
+
+    // Truncation preserves [Platform: ...]
+    std::string bigLog = "[Platform: PlayStation 5 (PPSA99810)]\n";
+    for (int i = 0; i < 50; ++i) bigLog += "lots of long log lines to trigger shortening " + std::to_string(i) + "\n";
+    app::report::Info infoTrunc{"t", "what", "1.4.0", "13.00", bigLog, "", "PlayStation 5 (PPSA99810)"};
+    std::string urlTrunc = app::report::issueUrl(infoTrunc, 350);
+    CHECK(urlTrunc.find("%5BPlatform:+PlayStation+5+(PPSA99810)%5D") != std::string::npos);
 
     // Sign-in: the service busy or throttling keeps the code polling and
     // the stored sign-in; only a refused token drops it.
@@ -2562,6 +2584,32 @@ static void testPurchase() {
     CHECK(directOffer.isFree);
     CHECK(directOffer.availabilityId == "AVAIL_DIRECT_FREE");
 
+    // 9. fetchPurchaseOffer accepts actions like "Browse" or "License" for zero-priced games
+    net::setTestTransport([](const net::Request&) {
+        net::Response r;
+        r.status = 200;
+        r.body = R"({
+            "Products": [{
+                "ProductId": "JUSTDANCE",
+                "DisplaySkuAvailabilities": [{
+                    "Sku": { "SkuId": "0001" },
+                    "Availabilities": [{
+                        "AvailabilityId": "AVAIL_JUSTDANCE",
+                        "Actions": ["Browse", "License"],
+                        "OrderManagementData": {
+                            "Price": { "ListPrice": 0.0, "MSRP": 0.0, "CurrencyCode": "BRL" }
+                        }
+                    }]
+                }]
+            }]
+        })";
+        return r;
+    });
+    PurchaseOffer trialOffer;
+    CHECK(fetchPurchaseOffer("JUSTDANCE", "BR", "pt-br", trialOffer, err));
+    CHECK(trialOffer.isFree);
+    CHECK(trialOffer.availabilityId == "AVAIL_JUSTDANCE");
+
     net::setTestTransport({});
 }
 
@@ -2704,6 +2752,76 @@ static void testWishlist() {
           std::string(ui::tr(ui::Str::WishlistEmpty)).find("empty") != std::string::npos);
 }
 
+static void testBlock1Features() {
+    using namespace xc;
+    ui::Fonts fonts;
+    ui::ImageCache images([] {});
+    ui::AppUi app(fonts, images);
+
+    // 1. 3x3 filter grid verification
+    app.showFilteredSearch(ui::Tab::Library, false, 0, "", 0, -1);
+    CHECK(app.filterRow(0).size() == 3); // Wishlist, Free, Cheapest
+    CHECK(app.filterRow(1).size() == 3); // Mode, Genre, Publisher
+    CHECK(app.filterRow(2).size() == 3); // Console, Language, MouseKeyboard
+    CHECK(app.filterRow(3).empty());
+
+    app.showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+    CHECK(app.filterRow(0).size() == 3); // Plan, Console, MouseKeyboard
+    CHECK(app.filterRow(1).size() == 3); // Mode, Genre, Publisher
+    CHECK(app.filterRow(2).size() == 1); // Language
+    CHECK(app.filterRow(3).empty());
+
+    // 2. isFreeGame and ClaimFreeGame for zero-priced games
+    ui::GameTile trialGame;
+    trialGame.productId = "9P0LHV4DV2BG";
+    trialGame.titleId = "TITLE_JUSTDANCE";
+    trialGame.name = "Just Dance Trial";
+    trialGame.purchasable = false; // Test that even when purchasable is false, zero price enables claiming
+    trialGame.playable = false;
+    trialGame.freeInStore = false; // Microsoft doesn't set freeInStore for trials
+
+    // Before prices are loaded, not free
+    CHECK(!app.isFreeGame(trialGame));
+
+    // When prices.json returns list=0 and msrp=0
+    ui::PriceInfo zeroPrice;
+    zeroPrice.list = 0.0;
+    zeroPrice.msrp = 0.0;
+    zeroPrice.now = "Grátis";
+    app.setPrices({{"9P0LHV4DV2BG", zeroPrice}});
+
+    CHECK(app.isFreeGame(trialGame));
+
+    // Opening details and pressing accept should produce Action::ClaimFreeGame
+    app.showDetails(trialGame);
+    ui::NavInput acceptPress;
+    acceptPress.accept = true;
+    auto ev = app.handle(acceptPress);
+    CHECK(ev.action == ui::Action::ClaimFreeGame);
+    CHECK(ev.game.productId == "9P0LHV4DV2BG");
+    CHECK(ev.game.freeInStore == true);
+
+    // After acquiring the game, it becomes owned/playable: pressing accept produces Action::Play
+    app.markTileOwned("9P0LHV4DV2BG", "TITLE_JUSTDANCE");
+    ev = app.handle(acceptPress);
+    CHECK(ev.action == ui::Action::Play);
+
+    // 3. Search filter navigation across 3x3 grid
+    app.showFilteredSearch(ui::Tab::Library, false, 0, "", 0, -1);
+    // Move down from wide keys to filter row 0, 1, 2
+    ui::NavInput navDown;
+    navDown.down = true;
+    app.handle(navDown);
+    app.handle(navDown);
+    // Move left and right
+    ui::NavInput navRight;
+    navRight.right = true;
+    app.handle(navRight);
+    ui::NavInput navLeft;
+    navLeft.left = true;
+    app.handle(navLeft);
+}
+
 static void testAchievements() {
     using namespace xc::xcloud;
     TitleAchievements ach;
@@ -2714,9 +2832,623 @@ static void testAchievements() {
     CHECK(err == "xboxTitleId empty");
 }
 
+static void testBlock2Features() {
+    // 1. Parsing of bilingual release notes
+    std::string notes =
+        "<!-- LANG:PT -->\n"
+        "## Novidades 1.3.4\n"
+        "- Alto-falante no menu\n"
+        "- Novos tetos de bitrate\n"
+        "<!-- LANG:EN -->\n"
+        "## What's new 1.3.4\n"
+        "- Speaker in menu\n"
+        "- New bitrate caps\n";
+    std::string pt = app::filterReleaseNotes(notes, "pt-BR");
+    CHECK(pt.find("Novidades 1.3.4") != std::string::npos);
+    CHECK(pt.find("What's new") == std::string::npos);
+
+    std::string en = app::filterReleaseNotes(notes, "en");
+    CHECK(en.find("What's new 1.3.4") != std::string::npos);
+    CHECK(en.find("Novidades 1.3.4") == std::string::npos);
+
+    // Fallback to EN when lang tag is not found
+    std::string es = app::filterReleaseNotes(notes, "es");
+    CHECK(es.find("What's new 1.3.4") != std::string::npos);
+
+    // No tags: returns whole text
+    std::string plain = "Simple release notes without tags.";
+    CHECK(app::filterReleaseNotes(plain, "pt-BR") == plain);
+
+    // Test tag spacing and casing variations
+    std::string noSpaceNotes = "<!--LANG:PT-->\nNotas compactas\n<!--LANG:EN-->\nCompact notes";
+    CHECK(app::filterReleaseNotes(noSpaceNotes, "pt-BR") == "Notas compactas");
+    CHECK(app::filterReleaseNotes(noSpaceNotes, "en") == "Compact notes");
+
+    std::string spaceColonNotes = "<!-- LANG: PT -->\nNotas com espaco\n<!-- LANG: EN -->\nSpaced notes";
+    CHECK(app::filterReleaseNotes(spaceColonNotes, "pt-BR") == "Notas com espaco");
+    CHECK(app::filterReleaseNotes(spaceColonNotes, "en") == "Spaced notes");
+
+    std::string lowerNotes = "<!-- lang: pt-br -->\nNotas minusculas\n<!-- lang: en-us -->\nLowercase notes";
+    CHECK(app::filterReleaseNotes(lowerNotes, "pt-BR") == "Notas minusculas");
+    CHECK(app::filterReleaseNotes(lowerNotes, "en") == "Lowercase notes");
+
+    // Ensure delimiter tags do not leak into output
+    CHECK(app::filterReleaseNotes(notes, "pt-BR").find("<!--") == std::string::npos);
+    CHECK(app::filterReleaseNotes(notes, "en").find("<!--") == std::string::npos);
+
+    // 2. Settings serialization of padSpeakerVolume
+    app::Settings s;
+    CHECK(s.padSpeakerVolume == 100);
+    s.padSpeakerVolume = 75;
+    std::string tmpPath = "/tmp/test_settings_block2.json";
+    CHECK(s.save(tmpPath));
+
+    app::Settings loaded;
+    CHECK(loaded.load(tmpPath));
+    CHECK(loaded.padSpeakerVolume == 75);
+    std::remove(tmpPath.c_str());
+
+    // Test media::setPadSpeakerVolume and padSpeakerVolume
+    media::setPadSpeakerVolume(60);
+    CHECK(media::padSpeakerVolume() == 60);
+    media::setPadSpeakerVolume(-10);
+    CHECK(media::padSpeakerVolume() == 0);
+    media::setPadSpeakerVolume(150);
+    CHECK(media::padSpeakerVolume() == 100);
+
+    // 3. Bitrate caps in UI
+    ui::Fonts dummyFonts{};
+    ui::ImageCache images([] {});
+    ui::AppUi app(dummyFonts, images);
+
+    app::Settings bs;
+    bs.maxBitrateMbps = 50;
+    ui::SettingsChoice bc = ui::choiceFromSettings(bs);
+    CHECK(bc.maxBitrateMbps == 50);
+    app::Settings bsBack;
+    ui::applyChoice(bc, bsBack);
+    CHECK(bsBack.maxBitrateMbps == 50);
+
+    bs.maxBitrateMbps = 45;
+    bc = ui::choiceFromSettings(bs);
+    CHECK(bc.maxBitrateMbps == 45);
+    ui::applyChoice(bc, bsBack);
+    CHECK(bsBack.maxBitrateMbps == 45);
+
+    // Test settings navigation in AppUi
+    app.showHome();
+    ui::NavInput openOpt;
+    openOpt.options = true;
+    app.handle(openOpt);
+    CHECK(app.screen() == ui::Screen::Settings);
+
+    // Navigate down to BitrateCap row (row 10)
+    ui::NavInput navDownRow;
+    navDownRow.down = true;
+    while (app.settingsFocus() != 10) {
+        app.handle(navDownRow);
+    }
+    CHECK(app.settingsFocus() == 10);
+
+    // Test inline slider navigation on BitrateCap (row 10)
+    CHECK(app.settings().maxBitrateMbps == 0);
+
+    // Pressing left at 0 (Automatic) should clamp at 0
+    ui::NavInput navLeft;
+    navLeft.left = true;
+    app.handle(navLeft);
+    CHECK(app.settings().maxBitrateMbps == 0);
+
+    // Pressing right increases the bitrate in 5 Mbps increments up to 50 Mbps
+    ui::NavInput navRight;
+    navRight.right = true;
+    const int expectedMbps[] = {5, 10, 15, 20, 25, 30, 35, 40, 45, 50};
+    for (int exp : expectedMbps) {
+        app.handle(navRight);
+        CHECK(app.settings().maxBitrateMbps == exp);
+    }
+
+    // Pressing right at 50 Mbps should clamp at 50 Mbps
+    app.handle(navRight);
+    CHECK(app.settings().maxBitrateMbps == 50);
+
+    // Pressing left reduces the bitrate from 50 to 45 Mbps
+    app.handle(navLeft);
+    CHECK(app.settings().maxBitrateMbps == 45);
+
+    // Pressing accept (Cross) on row 10 cycles/alternates to next option (no dropdown opened)
+    ui::NavInput acc;
+    acc.accept = true;
+    app.handle(acc);
+    CHECK(app.settings().maxBitrateMbps == 50);
+    app.handle(acc);
+    CHECK(app.settings().maxBitrateMbps == 0); // wrapped to Automatic
+    app.handle(acc);
+    CHECK(app.settings().maxBitrateMbps == 5);
+
+    // Non-exact bitrate snapping test:
+    // If a legacy or custom setting such as 22 Mbps is loaded, it should snap to nearest option (20 Mbps)
+    auto st = app.settings();
+    st.maxBitrateMbps = 22;
+    app.setSettings(st);
+    app.handle(navRight); // from snapped 20 Mbps -> 25 Mbps
+    CHECK(app.settings().maxBitrateMbps == 25);
+    app.handle(navLeft);  // 25 -> 20 Mbps
+    CHECK(app.settings().maxBitrateMbps == 20);
+    app.handle(navLeft);  // 20 -> 15 Mbps
+    CHECK(app.settings().maxBitrateMbps == 15);
+
+    // Test rendering on row 10 with controller and keyboard hints
+    ui::Canvas canvas(1920, 1080);
+    ui::g_keyboardHints = false;
+    app.render(canvas, 1000);
+    ui::g_keyboardHints = true;
+    app.render(canvas, 1000);
+    ui::g_keyboardHints = false;
+
+    // Test keyLabel icon index alignment
+    CHECK(std::string(ui::keyLabel(0)) == "Enter");
+    CHECK(std::string(ui::keyLabel(1)) == "Esc");
+    CHECK(std::string(ui::keyLabel(2)) == "Tab");
+    CHECK(std::string(ui::keyLabel(3)) == "F");
+    CHECK(std::string(ui::keyLabel(4)) == "Del");
+    CHECK(std::string(ui::keyLabel(5)) == "H");
+    CHECK(std::string(ui::keyLabel(6)) == "R");
+    CHECK(std::string(ui::keyLabel(7)) == "Shift");
+    CHECK(std::string(ui::keyLabel(8)) == "Z C");
+    CHECK(std::string(ui::keyLabel(9)) == "<- ->");
+    CHECK(std::string(ui::keyLabel(10)) == "");
+    CHECK(std::string(ui::keyLabel(-1)) == "");
+
+    // Close Settings
+    ui::NavInput navBack;
+    navBack.back = true;
+    app.handle(navBack);
+    CHECK(app.screen() == ui::Screen::Home);
+
+    // 4. StreamMenu with PadSpeakerVolumeItem
+    ui::StreamMenu menu(dummyFonts);
+    menu.open(0, false, 0, 1, 0, false, true, false, 2, 15, false, 0.0f, false, 100);
+    CHECK(menu.padSpeakerVolume() == 100);
+
+    // When at 100%, right should not trigger PadSpeakerVolume action
+    ui::NavInput down;
+    down.down = true;
+    for (int i = 0; i < 12; ++i) menu.handle(down);
+
+    ui::NavInput right;
+    right.right = true;
+    auto actAt100 = menu.handle(right);
+    CHECK(actAt100 == ui::MenuAction::None);
+    CHECK(menu.padSpeakerVolume() == 100);
+
+    // Left should decrease volume by 5%
+    ui::NavInput left;
+    left.left = true;
+    auto act = menu.handle(left);
+    CHECK(act == ui::MenuAction::PadSpeakerVolume);
+    CHECK(menu.padSpeakerVolume() == 95);
+
+    // Test decreasing down to 0%
+    for (int i = 0; i < 20; ++i) menu.handle(left);
+    CHECK(menu.padSpeakerVolume() == 0);
+
+    // When at 0%, left should not trigger PadSpeakerVolume action
+    auto actAt0 = menu.handle(left);
+    CHECK(actAt0 == ui::MenuAction::None);
+    CHECK(menu.padSpeakerVolume() == 0);
+
+    // Rendering at 0% should render valid canvas
+    ui::StreamInfo sinfo;
+    auto cMute = menu.renderMenu(sinfo);
+    CHECK(cMute.width() == ui::StreamMenu::kMenuW);
+
+    // Right should increase by 5%
+    act = menu.handle(right);
+    CHECK(act == ui::MenuAction::PadSpeakerVolume);
+    CHECK(menu.padSpeakerVolume() == 5);
+
+    // 5. Update prompt with 3 buttons and Square shortcut
+    app.showHome();
+    app.setUpdateState("v1.3.3", "v1.3.4", false, notes);
+    app.offerUpdate(notes);
+    CHECK(app.updateOffered());
+    CHECK(!app.showingUpdateNotes());
+
+    // Navigation between 3 buttons: left wraps from 0 to 2
+    ui::NavInput navL;
+    navL.left = true;
+    app.handle(navL); // promptFocus_ becomes 2 (Not now)
+    ui::NavInput navR;
+    navR.right = true;
+    app.handle(navR); // promptFocus_ wraps to 0 (Update now)
+    app.handle(navR); // promptFocus_ is 1 (What's new)
+
+    // Press accept on What's new -> opens notes modal
+    ui::NavInput accept;
+    accept.accept = true;
+    auto ev = app.handle(accept);
+    CHECK(ev.action == ui::Action::None);
+    CHECK(app.showingUpdateNotes());
+
+    // Up / Down scroll in notes modal
+    ui::NavInput navDown;
+    navDown.down = true;
+    app.handle(navDown);
+    ui::NavInput navUp;
+    navUp.up = true;
+    app.handle(navUp);
+
+    // Shoulder buttons page scrolling (L1/R1)
+    ui::NavInput navR1;
+    navR1.r1 = true;
+    app.handle(navR1);
+    ui::NavInput navL1;
+    navL1.l1 = true;
+    app.handle(navL1);
+
+    // Right stick smooth scrolling
+    ui::NavInput stickScroll;
+    stickScroll.scrollRows = 2;
+    app.handle(stickScroll);
+    stickScroll.scrollRows = -2;
+    app.handle(stickScroll);
+
+    // Back closes notes modal
+    ui::NavInput back;
+    back.back = true;
+    app.handle(back);
+    CHECK(!app.showingUpdateNotes());
+    CHECK(app.updateOffered());
+
+    // Square shortcut opens notes modal directly
+    ui::NavInput sq;
+    sq.square = true;
+    app.handle(sq);
+    CHECK(app.showingUpdateNotes());
+    app.handle(back);
+    CHECK(!app.showingUpdateNotes());
+}
+
+static void testBlock3Features() {
+    using namespace xc;
+
+    // 1. Content ratings parsing
+    {
+        // ClassInd for BR
+        auto jBr = json::parse(R"({
+            "ContentRatings": [
+                {
+                    "RatingSystem": "ClassInd",
+                    "RatingId": "14",
+                    "RatingDescriptors": ["Violência", "Drogas Lícitas"]
+                },
+                {
+                    "RatingSystem": "ESRB",
+                    "RatingId": "Teen",
+                    "RatingDescriptors": ["Violence", "Blood"]
+                }
+            ]
+        })");
+        CHECK(jBr.has_value());
+        std::string age, sys;
+        std::vector<std::string> desc;
+        xcloud::parseContentRatings(*jBr, "BR", age, sys, desc);
+        CHECK(sys == "ClassInd");
+        CHECK(age == "14+");
+        CHECK(desc.size() == 2 && desc[0] == "Violência");
+
+        // ESRB for US
+        std::string ageUs, sysUs;
+        std::vector<std::string> descUs;
+        xcloud::parseContentRatings(*jBr, "US", ageUs, sysUs, descUs);
+        CHECK(sysUs == "ESRB");
+        CHECK(ageUs == "T");
+        CHECK(descUs.size() == 2 && descUs[0] == "Violence");
+
+        // ESRB Mature
+        auto jMature = json::parse(R"({
+            "MarketProperties": [
+                {
+                    "ContentRatings": [
+                        {
+                            "ratingSystem": "ESRB",
+                            "ratingId": "Mature 17+",
+                            "ratingDescriptors": ["Blood and Gore", "Intense Violence"]
+                        }
+                    ]
+                }
+            ]
+        })");
+        CHECK(jMature.has_value());
+        xcloud::parseContentRatings(*jMature, "US", ageUs, sysUs, descUs);
+        CHECK(sysUs == "ESRB");
+        CHECK(ageUs == "M");
+        CHECK(descUs.size() == 2);
+
+        // PEGI for GB / UK
+        auto jPegi = json::parse(R"({
+            "LocalizedProperties": [
+                {
+                    "ContentRatings": [
+                        {
+                            "RatingSystemId": "PEGI",
+                            "RatingName": "18",
+                            "RatingDescriptor": "Bad Language"
+                        }
+                    ]
+                }
+            ]
+        })");
+        CHECK(jPegi.has_value());
+        std::string ageEu, sysEu;
+        std::vector<std::string> descEu;
+        xcloud::parseContentRatings(*jPegi, "GB", ageEu, sysEu, descEu);
+        CHECK(sysEu == "PEGI");
+        CHECK(ageEu == "18+");
+        CHECK(descEu.size() == 1 && descEu[0] == "Bad Language");
+
+        // Fallback when ClassInd not present in BR market -> falls back to ESRB
+        std::string ageFb, sysFb;
+        std::vector<std::string> descFb;
+        xcloud::parseContentRatings(*jMature, "BR", ageFb, sysFb, descFb);
+        CHECK(sysFb == "ESRB");
+        CHECK(ageFb == "M");
+    }
+
+    // 2. Local Web Micro-Server
+    {
+        app::WebServer ws;
+        CHECK(!ws.isRunning());
+        std::string ip = ws.localIp();
+        CHECK(!ip.empty());
+        std::string url = ws.url();
+        CHECK(url.find(":8080") != std::string::npos);
+
+        // Test OPTIONS (CORS preflight)
+        auto optRes = ws.handleRequest("OPTIONS", "/api/search", "");
+        CHECK(optRes.status == 204);
+
+        // Test GET / (HTML index)
+        auto htmlRes = ws.handleRequest("GET", "/", "");
+        CHECK(htmlRes.status == 200);
+        CHECK(htmlRes.contentType.find("text/html") != std::string::npos);
+        CHECK(htmlRes.body.find("PSBOX CLOUD GAMING") != std::string::npos);
+        CHECK(htmlRes.body.find("logo-icon") != std::string::npos);
+        CHECK(htmlRes.body.find("#107C41") != std::string::npos);
+        CHECK(htmlRes.body.find("tabBtnGamePass") != std::string::npos);
+        CHECK(htmlRes.body.find("tabBtnLibrary") != std::string::npos);
+        CHECK(htmlRes.body.find("filtersGamePass") != std::string::npos);
+        CHECK(htmlRes.body.find("filtersLibrary") != std::string::npos);
+        CHECK(htmlRes.body.find("chipWishlist") != std::string::npos);
+        CHECK(htmlRes.body.find("chipFree") != std::string::npos);
+        CHECK(htmlRes.body.find("chipCheapest") != std::string::npos);
+        CHECK(htmlRes.body.find("filterPlan") != std::string::npos);
+        CHECK(htmlRes.body.find("filterConsoleGP") != std::string::npos);
+        CHECK(htmlRes.body.find("chipMouseGP") != std::string::npos);
+        CHECK(htmlRes.body.find("Teclado Remoto para Busca") != std::string::npos);
+        CHECK(htmlRes.body.find("Remapeamento de Botões") != std::string::npos);
+        CHECK(htmlRes.body.find("Remapeamento de Teclado") != std::string::npos);
+        CHECK(htmlRes.body.find("subRemapKey") != std::string::npos);
+
+        CHECK(htmlRes.body.find("navTab-search") != std::string::npos);
+        CHECK(htmlRes.body.find("navTab-remap") != std::string::npos);
+        CHECK(htmlRes.body.find("navTab-logs") != std::string::npos);
+        CHECK(htmlRes.body.find("clamp(") != std::string::npos);
+        CHECK(htmlRes.body.find("chipSelectModeGP") != std::string::npos);
+        CHECK(htmlRes.body.find("chipSelectLangGP") != std::string::npos);
+        CHECK(htmlRes.body.find("chipSelectModeLib") != std::string::npos);
+        CHECK(htmlRes.body.find("chipSelectLangLib") != std::string::npos);
+
+        // Test GET /api/settings
+        auto getSetRes = ws.handleRequest("GET", "/api/settings", "");
+        CHECK(getSetRes.status == 200);
+        CHECK(getSetRes.contentType.find("application/json") != std::string::npos);
+        auto jSet = json::parse(getSetRes.body);
+        CHECK(jSet.has_value() && (*jSet)["ok"].asBool());
+        CHECK((*jSet).has("keyMap") && (*jSet)["keyMap"].isArray());
+        CHECK((*jSet).has("tab") && (*jSet)["tab"].isString());
+        CHECK((*jSet).has("filters") && (*jSet)["filters"].isObject());
+
+        // Test POST /api/search with query only
+        auto searchRes = ws.handleRequest("POST", "/api/search", R"({"query":"Gears of War"})");
+        CHECK(searchRes.status == 200);
+        auto jSearch = json::parse(searchRes.body);
+        CHECK(jSearch.has_value() && (*jSearch)["ok"].asBool());
+        CHECK((*jSearch)["query"].str() == "Gears of War");
+
+        // Test POST /api/search with tab and interactive filters (Game Pass)
+        auto searchGPRes = ws.handleRequest("POST", "/api/search", R"({
+            "query": "Halo",
+            "tab": "gamepass",
+            "filters": {
+                "plan": 1,
+                "console": 2,
+                "mode": 1,
+                "language": 2,
+                "mouseKeyboard": true
+            }
+        })");
+        CHECK(searchGPRes.status == 200);
+        auto jSearchGP = json::parse(searchGPRes.body);
+        CHECK(jSearchGP.has_value() && (*jSearchGP)["ok"].asBool());
+        CHECK((*jSearchGP)["query"].str() == "Halo");
+        CHECK((*jSearchGP)["tab"].str() == "gamepass");
+        CHECK((*jSearchGP)["filters"]["plan"].asInt() == 1);
+        CHECK((*jSearchGP)["filters"]["console"].asInt() == 2);
+        CHECK((*jSearchGP)["filters"]["mode"].asInt() == 1);
+        CHECK((*jSearchGP)["filters"]["language"].asInt() == 2);
+        CHECK((*jSearchGP)["filters"]["mouseKeyboard"].asBool() == true);
+
+        // Test POST /api/search with tab and interactive filters (Library / Meus jogos)
+        auto searchLibRes = ws.handleRequest("POST", "/api/search", R"({
+            "query": "Forza",
+            "tab": "library",
+            "filters": {
+                "wishlist": true,
+                "free": true,
+                "cheapest": false,
+                "mode": 3,
+                "language": 1
+            }
+        })");
+        CHECK(searchLibRes.status == 200);
+        auto jSearchLib = json::parse(searchLibRes.body);
+        CHECK(jSearchLib.has_value() && (*jSearchLib)["ok"].asBool());
+        CHECK((*jSearchLib)["query"].str() == "Forza");
+        CHECK((*jSearchLib)["tab"].str() == "library");
+        CHECK((*jSearchLib)["filters"]["wishlist"].asBool() == true);
+        CHECK((*jSearchLib)["filters"]["free"].asBool() == true);
+        CHECK((*jSearchLib)["filters"]["cheapest"].asBool() == false);
+        CHECK((*jSearchLib)["filters"]["mode"].asInt() == 3);
+        CHECK((*jSearchLib)["filters"]["language"].asInt() == 1);
+
+        // Test setSearchParams / getSearchParams hooks integration
+        {
+            std::string hookedQ;
+            std::string hookedTab;
+            json::Value hookedFilters = json::Value::object();
+            app::setWebServerHooks({
+                /*getSettings=*/nullptr,
+                /*updateSettings=*/nullptr,
+                /*getSearchQuery=*/nullptr,
+                /*setSearchQuery=*/nullptr,
+                /*setSearchParams=*/[&](const std::string* q, const std::string* tab, const json::Value* f) {
+                    if (q) hookedQ = *q;
+                    if (tab) hookedTab = *tab;
+                    if (f && f->isObject()) hookedFilters = *f;
+                },
+                /*getSearchParams=*/[&](std::string& outQ, std::string& outTab, json::Value& outF) {
+                    outQ = hookedQ;
+                    outTab = hookedTab.empty() ? "gamepass" : hookedTab;
+                    outF = hookedFilters;
+                }
+            });
+
+            ws.handleRequest("POST", "/api/search", R"({"query":"Starfield","tab":"library","filters":{"wishlist":true,"console":1,"mode":2}})");
+            CHECK(hookedQ == "Starfield");
+            CHECK(hookedTab == "library");
+            CHECK(hookedFilters["wishlist"].asBool() == true);
+            CHECK(hookedFilters["console"].asInt() == 1);
+            CHECK(hookedFilters["mode"].asInt() == 2);
+
+            auto hookGetRes = ws.handleRequest("GET", "/api/settings", "");
+            auto jHookGet = json::parse(hookGetRes.body);
+            CHECK(jHookGet.has_value() && (*jHookGet)["query"].str() == "Starfield");
+            CHECK((*jHookGet)["tab"].str() == "library");
+            CHECK((*jHookGet)["filters"]["wishlist"].asBool() == true);
+            CHECK((*jHookGet)["filters"]["mode"].asInt() == 2);
+
+            // Test POST without tab: should resolve current tab from hooks
+            auto noTabRes = ws.handleRequest("POST", "/api/search", R"({"query":"Flight Simulator"})");
+            auto jNoTab = json::parse(noTabRes.body);
+            CHECK(jNoTab.has_value() && (*jNoTab)["ok"].asBool());
+            CHECK((*jNoTab)["tab"].str() == "library");  // resolved from hookedTab
+
+            // Clean up hooks
+            app::setWebServerHooks({});
+        }
+
+        // Test POST /api/settings (bad json, padMap only, and padMap + keyMap)
+        auto badSetRes = ws.handleRequest("POST", "/api/settings", "not-a-json");
+        CHECK(badSetRes.status == 400);
+
+        auto goodSetRes = ws.handleRequest("POST", "/api/settings", R"({"padMap":{"version":1,"map":[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]}})");
+        CHECK(goodSetRes.status == 200);
+
+        auto fullSetRes = ws.handleRequest("POST", "/api/settings", R"({
+            "padMap": [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
+            "keyMap": [87,0,83,0,65,0,68,0,38,0,40,0,37,0,39,0,32,0,67,0,82,0,69,0,81,0,70,0,242,0,241,0,16,0,86,243,9,0,27,0]
+        })");
+        CHECK(fullSetRes.status == 200);
+
+        // Test GET /api/log
+        auto logRes = ws.handleRequest("GET", "/api/log", "");
+        CHECK(logRes.status == 200);
+        CHECK(logRes.contentType.find("text/plain") != std::string::npos);
+        CHECK(logRes.extraHeaders.find("Content-Disposition") != std::string::npos);
+
+        // Test 404
+        auto notFoundRes = ws.handleRequest("GET", "/api/unknown_endpoint", "");
+        CHECK(notFoundRes.status == 404);
+
+        // Test start/stop on a high ephemeral port (e.g. 18088)
+        CHECK(ws.start(18088));
+        CHECK(ws.isRunning());
+        CHECK(ws.port() == 18088);
+        ws.stop();
+        CHECK(!ws.isRunning());
+    }
+
+    // 3. UI Integration: Web QR & Remote Search & Rating Badges
+    {
+        ui::Fonts dummyFonts{};
+        ui::ImageCache images([] {});
+        ui::AppUi app(dummyFonts, images);
+
+        app.setWebUrl("http://192.168.1.100:8080");
+        CHECK(app.webUrl() == "http://192.168.1.100:8080");
+
+        app.setSearchQuery("Halo");
+        CHECK(app.searchQuery() == "Halo");
+
+        // Edge case: setSearchQuery while in streaming or modal mode should NOT yank out of screen
+        app.showStreaming();
+        CHECK(app.screen() == ui::Screen::Streaming);
+        app.setSearchQuery("Forza");
+        CHECK(app.screen() == ui::Screen::Streaming);  // Must remain streaming!
+        CHECK(app.searchQuery() == "Forza");
+
+        // Test Game Details with rating badge rendering and long descriptors line
+        ui::GameTile tile;
+        tile.name = "Forza Horizon 5";
+        tile.publisher = "Xbox Game Studios";
+        tile.description = "Your Ultimate Horizon Adventure awaits!";
+        tile.ratingAge = "Livre";
+        tile.ratingSystem = "ClassInd";
+        tile.ratingDescriptors = {
+            "Violência Fantasiosa", "Compras no Jogo", "Interação de Usuários",
+            "Linguagem Apropriada", "Elementos Online Adicionais"
+        };
+        tile.categories = {"Corrida", "Mundo Aberto"};
+        tile.playable = true;
+
+        app.showDetails(tile);
+        ui::Canvas c(1920, 1080);
+        app.render(c, 1000);
+        CHECK(c.width() == 1920 && c.height() == 1080);
+
+        // Test other rating badge colors (12+, 14+, 16+, 18+)
+        tile.ratingAge = "14+";
+        app.showDetails(tile);
+        app.render(c, 1000);
+
+        tile.ratingAge = "18+";
+        app.showDetails(tile);
+        app.render(c, 1000);
+
+        // Test Settings screen rendering with QR Panel
+        app.showHome();
+        ui::NavInput openOpt;
+        openOpt.options = true;
+        app.handle(openOpt);
+        CHECK(app.screen() == ui::Screen::Settings);
+        app.render(c, 1000);
+        CHECK(c.width() == 1920);
+
+        // Close Settings
+        ui::NavInput back;
+        back.back = true;
+        app.handle(back);
+        CHECK(app.screen() == ui::Screen::Home);
+    }
+}
+
 int main() {
+    testBlock3Features();
     testWishlist();
     testAchievements();
+    testBlock2Features();
     testPurchase();
     testNullBackends();
     testPadGlyphs();
@@ -2776,6 +3508,7 @@ int main() {
     testKeyMap();
     testPadMap();
     testTeredo();
+    testBlock1Features();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

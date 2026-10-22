@@ -20,6 +20,17 @@ body:
       description: What you did, what you expected, and what you saw (error text, black screen, crash, no sound...).
     validations:
       required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Platform where you run the application.
+      options:
+        - PlayStation 5 (PPSA99810)
+        - Linux
+        - Other
+    validations:
+      required: true
   - type: input
     id: release
     attributes:

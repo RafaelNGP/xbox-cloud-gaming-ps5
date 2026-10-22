@@ -61,6 +61,10 @@ struct GameTile {
     uint32_t modes = 0;
     uint8_t languages = 0;
     uint8_t plan = 0;  // xcloud::kPlanEssential..kPlanUltimate (0 for free-to-play or unknown)
+    // Age rating & content descriptors (ClassInd, ESRB, PEGI)
+    std::string ratingAge;
+    std::string ratingSystem;
+    std::vector<std::string> ratingDescriptors;
     // Active friends playing this game now
     std::vector<FriendPlaying> friends;
 };
@@ -125,7 +129,7 @@ struct SettingsChoice {
     int deband = 3;
     int upscaler = 2;
     bool highRefresh = false;  // 120 Hz output while a game streams
-    int maxBitrateMbps = 0;    // 0 automatic, else 30 / 25 / 22 / 20 / 15 / 10 / 5
+    int maxBitrateMbps = 0;    // 0 automatic, else 5 / 10 / 15 / 20 / 25 / 30 / 35 / 40 / 45 / 50
     int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
     bool queueReadyAlert = true; // Queue-ready chime and rumble alert
     input::KeyMap keyMap = input::defaultKeyMap();  // the keyboard as a player's controller
@@ -364,6 +368,17 @@ public:
     void setFullscreen(bool on);
     SettingsChoice settings() const;  // what Settings holds now (the autoplay tests put it back)
     int settingsFocus() const;        // the Settings row focused (its id), for the autoplay tests' checks
+    void setWebUrl(const std::string& url);
+    std::string webUrl() const;
+    void setSearchQuery(const std::string& query);
+    std::string searchQuery() const;
+    enum class Filter { Plan, Free, Cheapest, Console, Mode, Genre, Publisher, Language, MouseKeyboard, Wishlist };
+    void setSearchTab(Tab t);
+    Tab searchTab() const;
+    void setSearchState(const std::string* query, const Tab* tab,
+                        const std::vector<std::pair<Filter, int>>* filters);
+    int filterSelectedPublic(Filter f) const;
+    bool filterOnPublic(Filter f) const;
     // Per-game settings
     void setPerGameSettings(const std::map<std::string, app::GameProfile>& perGame);
     // The general gyro aiming (set from the in-game menu): what a game
@@ -402,14 +417,17 @@ public:
     void setRegions(std::vector<std::string> regions, const std::string& defaultRegion);
     // Updates: this version, and the newer one (empty: up to date);
     // `checking` while it is being asked (Settings shows it).
-    void setUpdateState(const std::string& current, const std::string& available, bool checking);
+    void setUpdateState(const std::string& current, const std::string& available, bool checking, const std::string& notes = "");
+    void setUpdateNotes(const std::string& notes);
     void setSignInCheckState(const SignInCheckState& state);
     SignInCheckState signInCheckState() const;
     void setNetworkTestState(const NetworkTestState& state);
     NetworkTestState networkTestState() const;
     // The pop-up offering the newer version, over the home screen.
-    void offerUpdate();
+    void offerUpdate(const std::string& notes = "");
     bool updateOffered() const;
+    bool showingUpdateNotes() const;
+    void showUpdateNotes(bool show);
     // The screen while it updates: `status` and, 0..1, how far (-1: a spinner).
     void showUpdating(const std::string& version);
     void setUpdateStatus(const std::string& status, float fraction);
@@ -424,8 +442,10 @@ public:
     // The search keyboard's focus (row, column), for the tests.
     std::pair<int, int> searchKeyFocus() const;
     std::vector<std::pair<std::string, PriceInfo>> searchResults(size_t max) const;
-    enum class Filter { Plan, Free, Cheapest, Console, Mode, Genre, Publisher, Language, MouseKeyboard, Wishlist };
     void chooseFilter(Filter f, int index);
+    std::vector<Filter> filterRow(int row) const;
+    bool isAcquired(const GameTile& t) const;
+    bool isFreeGame(const GameTile& t) const;
     // Autoplay tests: where the focus is ("Game Pass row 2 card 6", ...).
     std::string focusDescription() const;
     void invalidate();
@@ -505,14 +525,12 @@ private:
     // The filter buttons of the current tab's search.
     // The search's filters, in two rows: Free, Lowest price (in "Your games"
     // only) and Console; then Mode, Genre, Publisher and Language. The lists open a
-    // drop-down; Free and Lowest price turn on and off.
-    std::vector<Filter> filterRow(int row) const;
     bool isList(Filter f) const { return f != Filter::Free && f != Filter::Cheapest && f != Filter::MouseKeyboard && f != Filter::Wishlist; }
-    bool isAcquired(const GameTile& t) const;
     std::string filterText(Filter f) const;  // the chip's label: its choice when one is made
     bool filterOn(Filter f) const;
     std::vector<std::string> filterOptions(Filter f) const;
     int filterSelected(Filter f) const;
+    void applyFilterLocked(Filter f, int index);
     void chooseFilterLocked(Filter f, int index);
     void pressFilter(Filter f);
     std::vector<std::string> poolGenres() const;  // the genres of the tab's games, most common first
@@ -531,6 +549,8 @@ private:
     void drawError(Canvas& c);
     void drawSettings(Canvas& c);
     void drawUpdatePrompt(Canvas& c);
+    void drawUpdateNotesModal(Canvas& c);
+    void formatUpdateNotes();
     void drawQuitPrompt(Canvas& c);
     void drawReport(Canvas& c);
     void drawCountryPicker(Canvas& c);
@@ -649,7 +669,7 @@ private:
         std::vector<std::string> categories;
     };
     std::map<std::string, DetailInfo> detailInfo_;  // fetched on demand, by product id
-    std::string updateCurrent_, updateAvailable_;
+    std::string updateCurrent_, updateAvailable_, updateNotes_;
     bool updateChecking_ = false;
     SignInCheckState signInCheck_;
     NetworkTestState networkTest_;
@@ -661,8 +681,20 @@ private:
     std::string settingsCountry_;  // the sign-in country when Settings opened
     std::string reportUrl_, reportHeading_, reportDetail_;
     bool updatePrompt_ = false;  // the pop-up is up (on the home screen)
+    bool showingUpdateNotes_ = false;
+    int updateNotesScroll_ = 0;
+    int updateNotesMaxScroll_ = 0;
+    std::string updateNotesLang_;
+    struct FormattedNoteLine {
+        std::string text;
+        bool isHeader = false;
+        bool isSubHeader = false;
+        bool isBullet = false;
+        bool isBulletContinuation = false;
+    };
+    std::vector<FormattedNoteLine> updateNotesLines_;
     bool quitPrompt_ = false;    // desktop: "Close PSBox?" is up (Circle / Esc on the home screen)
-    int promptFocus_ = 0;        // 0 Update now, 1 Not now
+    int promptFocus_ = 0;        // 0 Update now, 1 Whats new, 2 Not now
     std::string updatingTo_, updateStatus_;
     float updateFraction_ = -1;
     Tester tester_ = Tester::None;
@@ -719,6 +751,7 @@ private:
     bool achievementsOpen_ = false;
     int achScroll_ = 0;
     int detailButtonFocus_ = 0;  // 0 = Play / Claim, 1 = Achievements
+    std::string webUrl_;
 };
 
 }  // namespace xc::ui

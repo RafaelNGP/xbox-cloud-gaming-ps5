@@ -70,6 +70,7 @@ constexpr Column kEnglish = {
     "Best (Auto)",                                    // ResBest
     "Resolution and region apply to the next game you start.",  // SettingsNote
     "Change",                                         // Change
+    "Adjust",                                         // Adjust
     "Hold to sign out",                               // HoldSignOut
     "Keep holding to sign out (%s)",                  // SigningOutIn
     "Sign-in failed: %s",                             // SignInFailed
@@ -373,6 +374,43 @@ constexpr Column kEnglish = {
     "Scan with your phone to support",                // ScanToDonate
     "Test sound",                                     // TestSound
     "Wishlist is empty",                              // WishlistEmpty
+    // Loading tips
+    "Touchpad gestures or L2 + R2 + Touchpad open the in-game menu and Xbox guide", // TipTouchpadMenu
+    "USB keyboard and mouse plugged into the console are supported in enabled cloud games", // TipKeyboardMouse
+    "Claim free games, trials, and discover store promotions directly from the app library", // TipFreeStore
+    "Encountered an issue? Open Bug Report to scan a QR code with auto-attached console logs", // TipBugReportQr
+    "Enjoying the project? Support future development via Ko-fi in the Settings tab!", // TipSupportKofi
+    "Enable 120 Hz display output in Settings for reduced frame latency and smoother response", // Tip120HzVideo
+    "Calibrate DualSense stick dead zones in Settings to eliminate stick drift and improve precision", // TipAnalogDeadzone
+    "Use the DualSense built-in microphone for party and multiplayer game voice chat", // TipDualSenseMic
+    // Settings descriptions
+    "Changes the language of the application interface and the preferred audio and subtitles in cloud games", // SettingDescLanguage
+    "Sets the maximum streaming video resolution (1080p, 720p, or Best available). Takes effect on the next launch", // SettingDescResolution
+    "Selects the Microsoft datacenter region for streaming (Automatic or specific regions). Takes effect on the next launch", // SettingDescRegion
+    "Adjusts the inner dead zone of DualSense analog sticks to prevent stick drift and unintended movement", // SettingDescDeadzone
+    "Enables or disables impulse trigger vibration emulation on DualSense L2 and R2 adaptive triggers", // SettingDescTriggerRumble
+    "Toggles the confirm and back button layout between Cross (Western style) and Circle (Japanese style)", // SettingDescConfirmButton
+    "Configures the light bar color and behavior of your DualSense controller during browsing and gameplay", // SettingDescLightBar
+    "Checks for and automatically installs official app updates directly on your console without needing a PC", // SettingDescUpdates
+    "Allows signing in to your Xbox account via a different geographic region to access alternative catalogs", // SettingDescLoginCountry
+    "Enables 120 Hz video output on your console for lower display lag and reduced input latency", // SettingDescHighRefresh
+    "Sets the maximum bandwidth limit for video streaming, ensuring higher visual fidelity or saving network data", // SettingDescBitrateCap
+    "Adjusts the master audio volume level played during game streaming sessions", // SettingDescGameVolume
+    "Maps USB or Bluetooth keyboard keys to the corresponding Xbox controller buttons during gameplay", // SettingDescKeyboardKeys
+    "Toggles between windowed and fullscreen display mode on supported desktop platforms", // SettingDescDisplayMode
+    "Opens the response test and calibration screen for all buttons and axes on your connected controller", // SettingDescControllerButtons
+    "Enables DualSense motion sensors to assist with analog aiming in shooter and action games", // SettingDescGyro
+    "Plays a distinctive chime when your wait in the xCloud queue finishes and your game is ready", // SettingDescQueueReady
+    "Runs a complete diagnostic on your Xbox Live sign-in, validating access tokens, profile, and subscriptions", // SettingDescCheckSignIn
+    "Measures ping (RTT) and jitter to cloud gaming datacenters across multiple global regions", // SettingDescNetworkTest
+    "Displays a QR Code to support the developer via Ko-fi and help keep the project actively maintained", // SettingDescSupportProject
+    "What's New",                                     // WhatsNew
+    "What's New",                                     // WhatsNewTitle
+    "Controller speaker",                             // PadSpeakerVolume
+    "Mute",                                           // Mute
+    "Web Control",                                    // WebControlTitle
+    "Connect from your phone",                        // WebControlSubtitle
+    "Connect to the same Wi-Fi to type search, remap buttons or download logs.", // WebControlDesc
 };
 
 constexpr Column kPortugueseBR = {
@@ -413,6 +451,7 @@ constexpr Column kPortugueseBR = {
     "Melhor (Auto)",
     "A resolução e a região valem a partir do próximo jogo.",
     "Alterar",
+    "Ajustar",
     "Segure para sair da conta",
     "Continue segurando para sair da conta (%s)",
     "Falha ao entrar: %s",
@@ -716,6 +755,43 @@ constexpr Column kPortugueseBR = {
     "Aponte a câmera do seu celular",                 // ScanToDonate
     "Testar som",                                     // TestSound
     "A lista de desejos está vazia",                  // WishlistEmpty
+    // Loading tips
+    "Gestos no Touchpad ou L2 + R2 + Touchpad abrem o menu do jogo e o guia do Xbox", // TipTouchpadMenu
+    "Teclado e mouse USB conectados ao console são suportados em jogos compatíveis da nuvem", // TipKeyboardMouse
+    "Adquira jogos gratuitos, demonstrações e confira promoções da loja direto pelo aplicativo", // TipFreeStore
+    "Encontrou um problema? Abra Relatar Problema para escanear um QR code com logs do console", // TipBugReportQr
+    "Gostando do app? Apoie o desenvolvimento contínuo via Ko-fi na aba de Configurações!", // TipSupportKofi
+    "Ative a saída de vídeo em 120 Hz nas Configurações para menor latência e resposta mais rápida", // Tip120HzVideo
+    "Ajuste a zona morta dos analógicos do DualSense nas Configurações para eliminar drift", // TipAnalogDeadzone
+    "Use o microfone integrado do DualSense para bate-papo de voz em grupos e jogos multijogador", // TipDualSenseMic
+    // Settings descriptions
+    "Altera o idioma da interface do aplicativo e a preferência de áudio e legendas nos jogos da nuvem", // SettingDescLanguage
+    "Define a resolução máxima do fluxo de vídeo transmitido (1080p, 720p ou Melhor). Vale a partir do próximo jogo", // SettingDescResolution
+    "Seleciona a região de servidores Microsoft para streaming (Automático ou regiões específicas). Vale a partir do próximo jogo", // SettingDescRegion
+    "Ajusta a sensibilidade inicial dos analógicos do DualSense para evitar drift ou comandos involuntários", // SettingDescDeadzone
+    "Ativa ou desativa a simulação dos motores de vibração nos gatilhos adaptáveis L2 e R2 em jogos compatíveis", // SettingDescTriggerRumble
+    "Alterna a função de confirmar e voltar entre Cruz (padrão ocidental) e Círculo (padrão japonês)", // SettingDescConfirmButton
+    "Configura a cor e o comportamento da barra de luz do DualSense durante a navegação e a jogatina", // SettingDescLightBar
+    "Verifica e instala automaticamente novas versões lançadas do aplicativo diretamente pelo console sem PC", // SettingDescUpdates
+    "Permite autenticar sua conta Xbox através de outra região geográfica para acessar catálogos alternativos", // SettingDescLoginCountry
+    "Ativa saída de vídeo em 120 Hz no console para menor atraso de exibição e redução da latência de comando", // SettingDescHighRefresh
+    "Define o limite máximo de bitrate para o stream de vídeo, garantindo fidelidade visual ou economizando rede", // SettingDescBitrateCap
+    "Ajusta o nível geral do volume de áudio reproduzido durante as sessões de streaming dos jogos", // SettingDescGameVolume
+    "Mapeia as teclas do teclado USB ou Bluetooth para os botões correspondentes do controle Xbox no jogo", // SettingDescKeyboardKeys
+    "Alterna entre modo de janela ou tela cheia em plataformas desktop suportadas", // SettingDescDisplayMode
+    "Abre o painel de teste de resposta e calibração de todos os botões e eixos do controle conectado", // SettingDescControllerButtons
+    "Permite usar os sensores de movimento do DualSense para auxiliar na mira em jogos de tiro e ação", // SettingDescGyro
+    "Toca um aviso sonoro característico quando o tempo de espera na fila do xCloud terminar e o jogo iniciar", // SettingDescQueueReady
+    "Realiza um diagnóstico completo da autenticação Xbox Live, validando tokens de acesso, perfil e assinaturas", // SettingDescCheckSignIn
+    "Mede o ping (RTT) e a variação (jitter) para servidores de jogos em nuvem de várias regiões globais", // SettingDescNetworkTest
+    "Exibe um QR Code para você apoiar o desenvolvedor via Ko-fi e ajudar a manter o projeto ativo e atualizado", // SettingDescSupportProject
+    "Novidades",                                      // WhatsNew
+    "Novidades",                                      // WhatsNewTitle
+    "Alto-falante do controle",                       // PadSpeakerVolume
+    "Mudo",                                           // Mute
+    "Configuração Web",                               // WebControlTitle
+    "Acesse pelo celular",                            // WebControlSubtitle
+    "Conecte no mesmo Wi-Fi para pesquisar, remapear botões ou baixar logs.", // WebControlDesc
 };
 
 constexpr Column kSpanish = {
@@ -756,6 +832,7 @@ constexpr Column kSpanish = {
     "Mejor (Auto)",
     "La resolución y la región se aplican al próximo juego que inicies.",
     "Cambiar",
+    "Ajustar",
     "Mantén para cerrar sesión",
     "Sigue manteniendo para cerrar sesión (%s)",
     "Error al iniciar sesión: %s",
@@ -1059,6 +1136,43 @@ constexpr Column kSpanish = {
     "Escanea con tu teléfono para donar",             // ScanToDonate
     "Probar sonido",                                  // TestSound
     "La lista de deseos está vacía",                  // WishlistEmpty
+    // Loading tips
+    "Gestos en el Touchpad o L2 + R2 + Touchpad abren el menú del juego y la guía de Xbox", // TipTouchpadMenu
+    "Teclado y ratón USB conectados a la consola son compatibles con juegos de la nube habilitados", // TipKeyboardMouse
+    "Reclama juegos gratis, demos y descubre promociones de la tienda directamente desde la aplicación", // TipFreeStore
+    "¿Encontraste un problema? Abre Notificar problema para escanear un QR con registros de la consola", // TipBugReportQr
+    "¿Disfrutas del proyecto? ¡Apoya su desarrollo futuro a través de Ko-fi en Configuración!", // TipSupportKofi
+    "Activa salida de vídeo a 120 Hz en Configuración para menor latencia y respuesta más fluida", // Tip120HzVideo
+    "Calibra la zona muerta de los sticks en Configuración para eliminar deriva y mejorar la precisión", // TipAnalogDeadzone
+    "Usa el micrófono integrado del DualSense para chat de voz en grupos y partidas multijugador", // TipDualSenseMic
+    // Settings descriptions
+    "Cambia el idioma de la interfaz de la aplicación y la preferencia de audio y subtítulos en juegos en la nube", // SettingDescLanguage
+    "Establece la resolución máxima del stream de vídeo (1080p, 720p o Mejor disponible). Se aplica en el próximo juego", // SettingDescResolution
+    "Selecciona la región de servidores de Microsoft para streaming (Automático o regiones específicas). Se aplica en el próximo juego", // SettingDescRegion
+    "Ajusta la zona muerta interna de los sticks analógicos para evitar deriva y movimientos no deseados", // SettingDescDeadzone
+    "Activa o desactiva la vibración de gatillos adaptativos L2 y R2 en juegos compatibles", // SettingDescTriggerRumble
+    "Alterna la función de confirmar y volver entre Cruz (estilo occidental) y Círculo (estilo japonés)", // SettingDescConfirmButton
+    "Configura el color y comportamiento de la barra luminosa del DualSense en menús y durante el juego", // SettingDescLightBar
+    "Comprueba e instala automáticamente actualizaciones oficiales de la aplicación directamente en la consola", // SettingDescUpdates
+    "Permite iniciar sesión en tu cuenta de Xbox mediante otra región geográfica para acceder a catálogos alternativos", // SettingDescLoginCountry
+    "Activa salida de vídeo a 120 Hz en tu consola para reducir el retardo de pantalla y la latencia de entrada", // SettingDescHighRefresh
+    "Define el límite máximo de tasa de bits para streaming de vídeo, asegurando calidad visual o ahorrando red", // SettingDescBitrateCap
+    "Ajusta el volumen general del audio reproducido durante las sesiones de juego en la nube", // SettingDescGameVolume
+    "Asigna teclas del teclado USB o Bluetooth a los botones correspondientes del mando de Xbox durante el juego", // SettingDescKeyboardKeys
+    "Alterna entre modo ventana y pantalla completa en plataformas de escritorio compatibles", // SettingDescDisplayMode
+    "Abre la pantalla de prueba de respuesta y calibración de todos los botones y ejes del mando conectado", // SettingDescControllerButtons
+    "Permite que los sensores de movimiento del DualSense asistan al apuntado analógico en juegos de disparos", // SettingDescGyro
+    "Reproduce un aviso sonoro cuando termina la espera en cola de xCloud y el juego está listo", // SettingDescQueueReady
+    "Ejecuta un diagnóstico completo del inicio de sesión de Xbox Live, validando tokens, perfil y suscripciones", // SettingDescCheckSignIn
+    "Mide el ping (RTT) y la fluctuación (jitter) a centros de datos de juegos en la nube en múltiples regiones", // SettingDescNetworkTest
+    "Muestra un código QR para apoyar al desarrollador mediante Ko-fi y mantener el proyecto activo", // SettingDescSupportProject
+    "Novedades",                                      // WhatsNew
+    "Novedades",                                      // WhatsNewTitle
+    "Altavoz del mando",                              // PadSpeakerVolume
+    "Silenciado",                                     // Mute
+    "Control Web",                                    // WebControlTitle
+    "Conectar desde el móvil",                        // WebControlSubtitle
+    "Conéctate al mismo Wi-Fi para buscar, reasignar botones o descargar registros.", // WebControlDesc
 };
 
 constexpr Column kFrench = {
@@ -1099,6 +1213,7 @@ constexpr Column kFrench = {
     "Meilleure (Auto)",
     "La résolution et la région s'appliquent au prochain jeu lancé.",
     "Modifier",
+    "Ajuster",
     "Maintenez pour vous déconnecter",
     "Continuez à maintenir pour vous déconnecter (%s)",
     "Échec de la connexion : %s",
@@ -1402,6 +1517,43 @@ constexpr Column kFrench = {
     "Scannez avec votre téléphone",                   // ScanToDonate
     "Tester le son",                                  // TestSound
     "La liste de souhaits est vide",                  // WishlistEmpty
+    // Loading tips
+    "Gestes sur le pavé tactile ou L2 + R2 + Pavé tactile ouvrent le menu du jeu et le guide Xbox", // TipTouchpadMenu
+    "Clavier et souris USB branchés sur la console sont pris en charge dans les jeux du cloud compatibles", // TipKeyboardMouse
+    "Obtenez des jeux gratuits, démos et promotions du magasin directement depuis l'application", // TipFreeStore
+    "Un problème ? Ouvrez Signaler un problème pour scanner un code QR avec les journaux de la console", // TipBugReportQr
+    "Vous appréciez le projet ? Soutenez son développement via Ko-fi dans les Paramètres !", // TipSupportKofi
+    "Activez la sortie vidéo 120 Hz dans les Paramètres pour réduire la latence d'affichage et de contrôle", // Tip120HzVideo
+    "Calibrez la zone morte des sticks dans les Paramètres pour éliminer le drift et améliorer la précision", // TipAnalogDeadzone
+    "Utilisez le microphone intégré de la DualSense pour le chat vocal dans les groupes et jeux multijoueurs", // TipDualSenseMic
+    // Settings descriptions
+    "Modifie la langue de l'interface de l'application et les préférences audio et sous-titres dans les jeux du cloud", // SettingDescLanguage
+    "Définit la résolution vidéo maximale (1080p, 720p ou Meilleure disponible). Prend effet au prochain lancement", // SettingDescResolution
+    "Sélectionne la région des serveurs Microsoft pour le streaming (Automatique ou spécifique). Prend effet au prochain lancement", // SettingDescRegion
+    "Ajuste la zone morte intérieure des sticks analogiques DualSense pour éviter le drift et les mouvements involontaires", // SettingDescDeadzone
+    "Active ou désactive l'émulation des vibrations sur les gâchettes adaptatives L2 et R2 dans les jeux compatibles", // SettingDescTriggerRumble
+    "Bascule la disposition des boutons de confirmation et retour entre Croix (occidental) et Rond (japonais)", // SettingDescConfirmButton
+    "Configure la couleur et le comportement de la barre lumineuse de votre manette DualSense", // SettingDescLightBar
+    "Vérifie et installe automatiquement les mises à jour officielles de l'application directement sur votre console", // SettingDescUpdates
+    "Permet de vous connecter à votre compte Xbox via une autre région pour accéder à d'autres catalogues", // SettingDescLoginCountry
+    "Active la sortie vidéo 120 Hz sur votre console pour une réactivité accrue et une latence réduite", // SettingDescHighRefresh
+    "Définit la limite maximale de débit binaire pour le streaming vidéo, optimisant la qualité ou préservant le réseau", // SettingDescBitrateCap
+    "Ajuste le niveau du volume audio principal pendant les sessions de jeu en streaming", // SettingDescGameVolume
+    "Associe les touches du clavier USB ou Bluetooth aux boutons correspondants de la manette Xbox en jeu", // SettingDescKeyboardKeys
+    "Bascule entre mode fenêtré et plein écran sur les plates-formes de bureau compatibles", // SettingDescDisplayMode
+    "Ouvre l'écran de test de réponse et de calibrage de tous les boutons et axes de votre manette connectée", // SettingDescControllerButtons
+    "Active les capteurs de mouvement DualSense pour assister la visée analogique dans les jeux de tir", // SettingDescGyro
+    "Joue un signal sonore distinctif lorsque l'attente dans la file xCloud est terminée et que le jeu est prêt", // SettingDescQueueReady
+    "Exécute un diagnostic complet de la connexion Xbox Live, validant jetons d'accès, profil et abonnements", // SettingDescCheckSignIn
+    "Mesure le ping (RTT) et la gigue (jitter) vers les centres de données de jeux en nuage de plusieurs régions", // SettingDescNetworkTest
+    "Affiche un code QR pour soutenir le développeur via Ko-fi et contribuer à la maintenance active du projet", // SettingDescSupportProject
+    "Nouveautés",                                     // WhatsNew
+    "Nouveautés",                                     // WhatsNewTitle
+    "Haut-parleur de la manette",                     // PadSpeakerVolume
+    "Muet",                                           // Mute
+    "Contrôle Web",                                   // WebControlTitle
+    "Connexion mobile",                               // WebControlSubtitle
+    "Connectez-vous au même Wi-Fi pour la recherche, remapper ou télécharger les logs.", // WebControlDesc
 };
 
 constexpr Column kGerman = {
@@ -1442,6 +1594,7 @@ constexpr Column kGerman = {
     "Beste (Auto)",
     "Auflösung und Region gelten ab dem nächsten gestarteten Spiel.",
     "Ändern",
+    "Anpassen",
     "Halten zum Abmelden",
     "Weiter halten zum Abmelden (%s)",
     "Anmeldung fehlgeschlagen: %s",
@@ -1745,6 +1898,43 @@ constexpr Column kGerman = {
     "Mit dem Smartphone scannen",                     // ScanToDonate
     "Ton testen",                                     // TestSound
     "Wunschliste ist leer",                           // WishlistEmpty
+    // Loading tips
+    "Touchpad-Gesten oder L2 + R2 + Touchpad öffnen das Spielmenü und den Xbox-Guide", // TipTouchpadMenu
+    "USB-Tastatur und -Maus an der Konsole werden in unterstützten Cloud-Spielen unterstützt", // TipKeyboardMouse
+    "Kostenlose Spiele, Demos und Store-Angebote direkt in der App-Bibliothek sichern", // TipFreeStore
+    "Problem aufgetreten? Öffnen Sie 'Problem melden', um einen QR-Code mit Konsolenprotokollen zu scannen", // TipBugReportQr
+    "Gefällt Ihnen das Projekt? Unterstützen Sie die Weiterentwicklung via Ko-fi in den Einstellungen!", // TipSupportKofi
+    "120-Hz-Videoausgabe in den Einstellungen für geringere Anzeigelatenz und flüssigere Steuerung aktivieren", // Tip120HzVideo
+    "Stick-Totzone in den Einstellungen kalibrieren, um Stick-Drift zu verhindern und Präzision zu verbessern", // TipAnalogDeadzone
+    "Integriertes DualSense-Mikrofon für Party- und Multiplayer-Sprachchat verwenden", // TipDualSenseMic
+    // Settings descriptions
+    "Ändert die Sprache der Benutzeroberfläche sowie die bevorzugte Audio- und Untertitelsprache in Cloud-Spielen", // SettingDescLanguage
+    "Legt die maximale Streaming-Auflösung fest (1080p, 720p oder Beste). Wird beim nächsten Spielstart wirksam", // SettingDescResolution
+    "Wählt die Microsoft-Rechenzentrumsregion für das Streaming aus (Automatisch oder bestimmte Regionen)", // SettingDescRegion
+    "Passt die innere Totzone der DualSense-Analogsticks an, um Drift und unbeabsichtigte Bewegungen zu vermeiden", // SettingDescDeadzone
+    "Aktiviert oder deaktiviert die Impuls-Trigger-Vibration an den adaptiven DualSense-Triggern L2 und R2", // SettingDescTriggerRumble
+    "Wechselt die Tastenbelegung für Bestätigen und Zurück zwischen Kreuz (westlich) und Kreis (japanisch)", // SettingDescConfirmButton
+    "Konfiguriert Farbe und Verhalten der Lichtleiste des DualSense-Controllers beim Navigieren und Spielen", // SettingDescLightBar
+    "Prüft und installiert offizielle App-Updates automatisch direkt auf der Konsole ohne PC", // SettingDescUpdates
+    "Ermöglicht die Xbox-Konto-Anmeldung über eine andere Region für alternative Spielkataloge", // SettingDescLoginCountry
+    "Aktiviert 120-Hz-Videoausgabe auf Ihrer Konsole für minimale Eingabelatenz und höhere Bildwiederholrate", // SettingDescHighRefresh
+    "Legt die maximale Bitrate für das Videostreaming fest, um Bildqualität zu optimieren oder Daten zu sparen", // SettingDescBitrateCap
+    "Regelt die Gesamtlautstärke während der Spielsitzungen im Cloud-Streaming", // SettingDescGameVolume
+    "Weist Tasten der USB- oder Bluetooth-Tastatur den entsprechenden Xbox-Controller-Tasten beim Spielen zu", // SettingDescKeyboardKeys
+    "Wechselt zwischen Fenster- und Vollbildmodus auf unterstützten Desktop-Plattformen", // SettingDescDisplayMode
+    "Öffnet den Test- und Kalibrierungsbildschirm für alle Tasten und Achsen des angeschlossenen Controllers", // SettingDescControllerButtons
+    "Nutzt die DualSense-Bewegungssensoren zur Unterstützung des analogen Zielens in Shooter- und Actionspielen", // SettingDescGyro
+    "Spielt einen Signalton ab, wenn die Wartezeit in der xCloud-Warteschlange endet und das Spiel bereit ist", // SettingDescQueueReady
+    "Führt eine Diagnose der Xbox Live-Anmeldung durch und prüft Zugriffstoken, Profil und Abonnements", // SettingDescCheckSignIn
+    "Misst Ping (RTT) und Jitter zu Cloud-Gaming-Rechenzentren in mehreren weltweiten Regionen", // SettingDescNetworkTest
+    "Zeigt einen QR-Code, um den Entwickler via Ko-fi zu unterstützen und die Pflege des Projekts zu sichern", // SettingDescSupportProject
+    "Neuigkeiten",                                    // WhatsNew
+    "Neuigkeiten",                                    // WhatsNewTitle
+    "Controller-Lautsprecher",                        // PadSpeakerVolume
+    "Stumm",                                          // Mute
+    "Web-Steuerung",                                  // WebControlTitle
+    "Über Smartphone verbinden",                      // WebControlSubtitle
+    "Mit demselben WLAN verbinden, um zu suchen, Tasten zu belegen oder Logs zu laden.", // WebControlDesc
 };
 
 constexpr Column kItalian = {
@@ -1785,6 +1975,7 @@ constexpr Column kItalian = {
     "Migliore (Auto)",
     "Risoluzione e regione valgono dal prossimo gioco avviato.",
     "Cambia",
+    "Regola",
     "Tieni premuto per uscire",
     "Continua a tenere premuto per uscire (%s)",
     "Accesso non riuscito: %s",
@@ -2088,6 +2279,43 @@ constexpr Column kItalian = {
     "Inquadra con lo smartphone",                     // ScanToDonate
     "Prova suono",                                    // TestSound
     "La lista dei desideri è vuota",                  // WishlistEmpty
+    // Loading tips
+    "Gesti sul touchpad o L2 + R2 + Touchpad aprono il menu di gioco e la guida Xbox", // TipTouchpadMenu
+    "Tastiera e mouse USB collegati alla console sono supportati nei giochi cloud compatibili", // TipKeyboardMouse
+    "Ottieni giochi gratuiti, demo e promozioni del negozio direttamente dalla libreria dell'app", // TipFreeStore
+    "Hai riscontrato un problema? Apri Segnala problema per scansionare un QR code con i log della console", // TipBugReportQr
+    "Ti piace il progetto? Sostieni lo sviluppo futuro tramite Ko-fi nella scheda Impostazioni!", // TipSupportKofi
+    "Abilita l'uscita video a 120 Hz nelle Impostazioni per una latenza di visualizzazione ridotta", // Tip120HzVideo
+    "Calibra la zona morta delle levette nelle Impostazioni per eliminare il drift e migliorare la precisione", // TipAnalogDeadzone
+    "Usa il microfono integrato del DualSense per la chat vocale nei gruppi e nelle partite multigiocatore", // TipDualSenseMic
+    // Settings descriptions
+    "Modifica la lingua dell'interfaccia dell'applicazione e le preferenze di audio e sottotitoli nei giochi cloud", // SettingDescLanguage
+    "Imposta la risoluzione video massima (1080p, 720p o Migliore disponibile). Ha effetto al prossimo avvio", // SettingDescResolution
+    "Seleziona la regione dei server Microsoft per lo streaming (Automatica o specifica). Ha effetto al prossimo avvio", // SettingDescRegion
+    "Regola la zona morta interna delle levette analogiche DualSense per evitare drift e movimenti involontari", // SettingDescDeadzone
+    "Abilita o disabilita l'emulazione della vibrazione sui grilletti adattivi L2 e R2 nei giochi compatibili", // SettingDescTriggerRumble
+    "Alterna la configurazione dei tasti conferma e indietro tra Croce (occidentale) e Cerchio (giapponese)", // SettingDescConfirmButton
+    "Configura il colore e il comportamento della barra luminosa del DualSense nei menu e durante il gioco", // SettingDescLightBar
+    "Verifica e installa automaticamente gli aggiornamenti ufficiali dell'app direttamente sulla console", // SettingDescUpdates
+    "Consente di accedere al proprio account Xbox tramite un'altra regione per accedere a cataloghi alternativi", // SettingDescLoginCountry
+    "Abilita l'uscita video a 120 Hz sulla console per un ritardo di visualizzazione e latenza di input ridotti", // SettingDescHighRefresh
+    "Imposta il limite massimo di bitrate per lo streaming video, garantendo alta fedeltà o risparmio dati", // SettingDescBitrateCap
+    "Regola il livello del volume audio principale durante le sessioni di gioco in streaming", // SettingDescGameVolume
+    "Mappa i tasti della tastiera USB o Bluetooth sui pulsanti corrispondenti del controller Xbox durante il gioco", // SettingDescKeyboardKeys
+    "Alterna tra modalità finestra e schermo intero sulle piattaforme desktop supportate", // SettingDescDisplayMode
+    "Apre la schermata di test e calibrazione di tutti i pulsanti e gli assi del controller collegato", // SettingDescControllerButtons
+    "Abilita i sensori di movimento DualSense per assistere la mira analogica negli sparatutto e giochi d'azione", // SettingDescGyro
+    "Riproduce un segnale sonoro caratteristico quando l'attesa nella coda di xCloud termina e il gioco è pronto", // SettingDescQueueReady
+    "Esegue una diagnostica completa dell'accesso a Xbox Live, convalidando token di accesso, profilo e abbonamenti", // SettingDescCheckSignIn
+    "Misura il ping (RTT) e il jitter verso i data center di gioco in cloud in diverse regioni globali", // SettingDescNetworkTest
+    "Mostra un codice QR per supportare lo sviluppatore tramite Ko-fi e contribuire a mantenere il progetto attivo", // SettingDescSupportProject
+    "Novità",                                         // WhatsNew
+    "Novità",                                         // WhatsNewTitle
+    "Altoparlante del controller",                    // PadSpeakerVolume
+    "Muto",                                           // Mute
+    "Controllo Web",                                  // WebControlTitle
+    "Connetti dallo smartphone",                      // WebControlSubtitle
+    "Connettiti allo stesso Wi-Fi per cercare, rimappare i pulsanti o scaricare i log.", // WebControlDesc
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

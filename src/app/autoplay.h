@@ -46,6 +46,10 @@ struct Autoplay {
     bool padSpkTest = false;     // "padspktest": play queue-ready chime and vibration on controller speaker
     bool queueUiTest = false;    // "queueuitest": open settings, focus queueReadyAlert row, test sound with Square
     bool wishlistTest = false;   // "wishlisttest": test wishlist filter, empty state, and active wishlisted items
+    bool block1Test = false;     // "block1test": verify 3x3 filter grid, settings descriptions, free acquire button, and loading tips
+    bool block2Test = false;     // "block2test": verify update prompt 3 buttons, notes modal, pad speaker volume, and bitrate caps
+    bool block3Test = false;     // "block3test": verify web server qr in settings and official age rating on details
+    bool bitrateTest = false;    // "bitratetest": open settings, focus Bitrate row, test slider, save settings_bitrate_caps.ppm
     bool detailTest = false;     // open a game to buy far down the list, save its page
     bool libraryTest = false;    // open "Your games", save it at 4 s and 25 s
     bool vkTest = false;         // the GPU presenting instead of the CPU display

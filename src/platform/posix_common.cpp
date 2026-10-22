@@ -3,9 +3,15 @@
 // File helpers shared by both platforms (the PS5 libc is POSIX enough).
 #include "platform/platform.h"
 
+#include <arpa/inet.h>
 #include <cerrno>
 #include <cstdio>
+#include <cstring>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <netinet/in.h>
 #include <pthread.h>
+#include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -89,5 +95,50 @@ void Thread::join() {
 }
 
 void sleepMs(uint32_t ms) { usleep(static_cast<useconds_t>(ms) * 1000u); }
+
+std::string localIPv4() {
+    std::string candidate;
+    ifaddrs* ifa = nullptr;
+    if (::getifaddrs(&ifa) == 0) {
+        for (ifaddrs* i = ifa; i; i = i->ifa_next) {
+            if (!i->ifa_addr || i->ifa_addr->sa_family != AF_INET) continue;
+            if ((i->ifa_flags & IFF_LOOPBACK) || !(i->ifa_flags & IFF_UP)) continue;
+            char ip[INET_ADDRSTRLEN];
+            auto* sa = reinterpret_cast<sockaddr_in*>(i->ifa_addr);
+            if (::inet_ntop(AF_INET, &sa->sin_addr, ip, sizeof(ip))) {
+                std::string s = ip;
+                if (s != "127.0.0.1" && s.rfind("169.254.", 0) != 0) {
+                    if (s.rfind("192.168.", 0) == 0 || s.rfind("10.", 0) == 0 || s.rfind("172.", 0) == 0) {
+                        candidate = s;
+                        break;
+                    }
+                    if (candidate.empty()) candidate = s;
+                }
+            }
+        }
+        ::freeifaddrs(ifa);
+    }
+    if (!candidate.empty()) return candidate;
+
+    int s = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (s >= 0) {
+        sockaddr_in dst{};
+        dst.sin_family = AF_INET;
+        dst.sin_port = htons(80);
+        ::inet_pton(AF_INET, "8.8.8.8", &dst.sin_addr);
+        if (::connect(s, reinterpret_cast<sockaddr*>(&dst), sizeof(dst)) == 0) {
+            sockaddr_in local{};
+            socklen_t len = sizeof(local);
+            if (::getsockname(s, reinterpret_cast<sockaddr*>(&local), &len) == 0) {
+                char ip[INET_ADDRSTRLEN];
+                if (::inet_ntop(AF_INET, &local.sin_addr, ip, sizeof(ip))) {
+                    candidate = ip;
+                }
+            }
+        }
+        ::close(s);
+    }
+    return candidate.empty() ? "127.0.0.1" : candidate;
+}
 
 }  // namespace xc::platform

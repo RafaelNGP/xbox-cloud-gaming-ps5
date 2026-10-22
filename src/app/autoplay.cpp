@@ -31,6 +31,7 @@ namespace {
 // The home screen was saved: the tests that start from it may go.
 bool uiSaved = false;
 bool settingsShot = false;  // "settingstest": save the screen now
+bool bitrateShot = false;   // "bitratetest": save the screen now
 bool donationShot = false;  // "donationtest": save the screen now
 const char* keysShot = nullptr;  // "keystest": the screen to save now
 uint64_t homeSince = 0, launchSince = 0;
@@ -81,7 +82,8 @@ struct SettingsWalk {
 
 void loadAutoplay() {
     std::string text;
-    if (!platform::readFile(platform::dataDir() + "/autoplay.txt", text)) return;
+    if (!platform::readFile(platform::dataDir() + "/autoplay.txt", text) &&
+        !platform::readFile("/data/homebrew/PPSA99810/autoplay.txt", text)) return;
     char title[128] = {};
     char option[512] = {};
     int seconds = 0;
@@ -122,6 +124,10 @@ void loadAutoplay() {
         if (opt == "badca") g_autoplay.badCa = true;
         if (opt == "consolesempty") g_autoplay.consolesTab = g_autoplay.consolesEmpty = true;
         if (opt == "librarytest") g_autoplay.libraryTest = true;
+        if (opt == "block1test") g_autoplay.block1Test = true;
+        if (opt == "block2test") g_autoplay.block2Test = true;
+        if (opt == "block3test") g_autoplay.block3Test = true;
+        if (opt == "bitratetest") g_autoplay.bitrateTest = true;
         if (opt == "imetest") g_autoplay.imeTest = true;
         if (opt == "menutest") g_autoplay.menuTest = true;
         if (opt.rfind("res=", 0) == 0) g_autoplay.resolution = opt.substr(4);
@@ -799,6 +805,48 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         }
     }
 
+    if (g_autoplay.bitrateTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        static std::optional<ui::SettingsChoice> settingsBefore;
+        if (!since) {
+            since = now;
+            settingsBefore = g_ui->settings();
+        }
+        static SettingsWalk walk;
+        const uint64_t at[] = {500, 1500, 2500, 4000, 4800};
+        if (step < 5 && now - since >= at[step]) {
+            bool next = true;
+            if (step == 0) nav.options = true;
+            if (step == 1) next = walk.step(nav, downsTo(10));  // down to row 10 (BitrateCap)
+            if (step == 2) {
+                if (onSettingsRow(10, "bitrate test")) {
+                    // Step right until 50 Mbps is reached on the inline slider
+                    for (int k = 0; k < 10; ++k) {
+                        ui::NavInput r;
+                        r.right = true;
+                        g_ui->handle(r);
+                    }
+                } else {
+                    g_autoplay.bitrateTest = false;
+                    g_ui->showHome();
+                }
+            }
+            if (step == 3) {
+                bitrateShot = true;  // saved below once drawn
+            }
+            if (step == 4) {
+                if (settingsBefore) {
+                    g_ui->setSettings(*settingsBefore);
+                    saveSettingsChoice(*settingsBefore);
+                }
+                g_ui->showHome();
+                g_autoplay.bitrateTest = false;
+            }
+            if (next) ++step;
+        }
+    }
+
     if (g_autoplay.queueUiTest && uiSaved) {
         static uint64_t since = 0;
         static int step = 0;
@@ -1023,6 +1071,11 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         saveCanvas("settings.ppm");
         XC_LOGI("AUTOPLAY END: settings test");
     }
+    if (bitrateShot) {
+        bitrateShot = false;
+        saveCanvas("settings_bitrate_caps.ppm");
+        XC_LOGI("AUTOPLAY END: bitrate test");
+    }
     if (donationShot) {
         donationShot = false;
         saveCanvas("donation.ppm");
@@ -1210,6 +1263,209 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             saveCanvas("friends_row.ppm");
             g_autoplay.friendsTest = false;
             XC_LOGI("AUTOPLAY END: friends test");
+        }
+    }
+    if (g_autoplay.block1Test && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        if (step == 0 && now - since > 2000) {
+            // 1. 3x3 filter grid on Search tab
+            g_ui->showFilteredSearch(ui::Tab::Library, false, 0, "", 0, -1);
+            ++step;
+        } else if (step == 1 && now - since > 4000) {
+            saveCanvas("search_grid3x3.ppm");
+            // 2. Settings screen with focused description at bottom (row 0: Language)
+            g_ui->showHome();
+            ui::NavInput opt;
+            opt.options = true;
+            g_ui->handle(opt);
+            ++step;
+        } else if (step == 2 && now - since > 6000) {
+            saveCanvas("settings_desc_row0.ppm");
+            // Focus row 1 (Resolution)
+            ui::NavInput down;
+            down.down = true;
+            g_ui->handle(down);
+            ++step;
+        } else if (step == 3 && now - since > 7500) {
+            saveCanvas("settings_desc_row1.ppm");
+            // 3. Free game in Details with "Adquirir grátis" button (zero price trial with freeInStore == false)
+            ui::GameTile freeTile;
+            freeTile.productId = "9P0LHV4DV2BG";
+            freeTile.titleId = "TITLE_JUSTDANCE";
+            freeTile.name = "Just Dance 2026 Trial";
+            freeTile.publisher = "Ubisoft";
+            freeTile.description = "Experimente gratuitamente por tempo limitado no xCloud.";
+            freeTile.purchasable = false;
+            freeTile.playable = false;
+            freeTile.freeInStore = false;
+            g_ui->setPrices({{"9P0LHV4DV2BG", {ui::tr(ui::Str::Free), "", 0.0, 0.0}}});
+            g_ui->showDetails(freeTile);
+            ++step;
+        } else if (step == 4 && now - since > 9500) {
+            saveCanvas("detail_free.ppm");
+            // 4. Launching screen with rotating loading tips
+            ui::GameTile launchTile;
+            launchTile.name = "Forza Horizon 5";
+            launchTile.publisher = "Playground Games";
+            g_ui->showLaunching(launchTile, "Iniciando sessão na nuvem...");
+            ++step;
+        } else if (step == 5 && now - since > 11500) {
+            saveCanvas("launch_tip1.ppm");
+            ++step;
+        } else if (step == 6 && now - since > 17000) {
+            saveCanvas("launch_tip2.ppm");
+            g_ui->showHome();
+            g_autoplay.block1Test = false;
+            XC_LOGI("AUTOPLAY END: block1 test");
+            ++step;
+        }
+    }
+    if (g_autoplay.block2Test && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        if (step == 0 && now - since > 2000) {
+            std::string sampleNotes =
+                "<!-- LANG:PT -->\n"
+                "## Novidades na Versão 1.3.4\n"
+                "- Controle de volume do alto-falante DualSense no menu\n"
+                "- Novos limites de taxa de bits: opções de 5 a 50 Mbps\n"
+                "- Suporte a notas de lançamento bilingues e atalho Quadrado\n"
+                "<!-- LANG:EN -->\n"
+                "## What's New in Version 1.3.4\n"
+                "- DualSense speaker volume control in stream menu\n"
+                "- New bitrate caps: options from 5 to 50 Mbps\n"
+                "- Bilingual release notes support and Square shortcut\n";
+            g_ui->showHome();
+            g_ui->setUpdateState("v1.3.3", "v1.3.4", false, sampleNotes);
+            g_ui->offerUpdate(sampleNotes);
+            ++step;
+        } else if (step == 1 && now - since > 4500) {
+            saveCanvas("update_prompt_3buttons.ppm");
+            ui::NavInput sq;
+            sq.square = true;
+            g_ui->handle(sq);
+            ++step;
+        } else if (step == 2 && now - since > 7000) {
+            saveCanvas("update_notes_modal.ppm");
+            ui::NavInput back;
+            back.back = true;
+            g_ui->handle(back);
+            g_ui->handle(back);
+
+            auto saveMenu = [](const char* name, const ui::Canvas& c) {
+                std::string ppm = "P6\n" + std::to_string(c.width()) + " " + std::to_string(c.height()) + "\n255\n";
+                ppm.reserve(ppm.size() + static_cast<size_t>(c.width() * c.height() * 3));
+                for (size_t i = 0; i < static_cast<size_t>(c.width() * c.height()); ++i) {
+                    uint32_t p = c.data()[i];
+                    ppm += static_cast<char>(p & 0xFF);
+                    ppm += static_cast<char>((p >> 8) & 0xFF);
+                    ppm += static_cast<char>((p >> 16) & 0xFF);
+                }
+                platform::writeFileAtomic(platform::dataDir() + "/" + name, ppm);
+                XC_LOGI("AUTOPLAY: %s saved", name);
+            };
+
+            ui::StreamInfo info;
+            info.region = "Brazil South";
+            info.rttMs = 12;
+            info.fps = 60.0;
+            info.mbps = 50.0;
+            info.decodeMs = 1.8;
+            info.onScreenMs = 9.5;
+            info.width = 1920;
+            info.height = 1080;
+            ui::PadSlots pads{};
+            pads[0].connected = true;
+            pads[0].name = "DualSense Controller";
+
+            ui::StreamMenu menu100(g_ui->fonts());
+            menu100.open(0, false, 1, 1, 0, false, true, false, 2, 15, false, 0.5f, false, 100);
+            for (int i = 0; i < 12; ++i) {
+                ui::NavInput down;
+                down.down = true;
+                menu100.handle(down);
+            }
+            menu100.setPads(pads);
+            saveMenu("stream_menu_spk100.ppm", menu100.renderMenu(info));
+
+            ui::StreamMenu menu50(g_ui->fonts());
+            menu50.open(0, false, 1, 1, 0, false, true, false, 2, 15, false, 0.5f, false, 50);
+            for (int i = 0; i < 12; ++i) {
+                ui::NavInput down;
+                down.down = true;
+                menu50.handle(down);
+            }
+            menu50.setPads(pads);
+            saveMenu("stream_menu_spk50.ppm", menu50.renderMenu(info));
+            ++step;
+        } else if (step == 3 && now - since > 9500) {
+            g_ui->showHome();
+            ui::NavInput opt;
+            opt.options = true;
+            g_ui->handle(opt);
+            ui::NavInput down;
+            down.down = true;
+            while (g_ui->settingsFocus() != 10) {
+                g_ui->handle(down);
+            }
+            ui::NavInput right;
+            right.right = true;
+            for (int k = 0; k < 10; ++k) {
+                g_ui->handle(right);
+            }
+            ++step;
+        } else if (step == 4 && now - since > 12000) {
+            saveCanvas("settings_bitrate_caps.ppm");
+            ui::NavInput back;
+            back.back = true;
+            g_ui->handle(back);
+            g_ui->showHome();
+            g_autoplay.block2Test = false;
+            XC_LOGI("AUTOPLAY END: block2 test");
+            ++step;
+        }
+    }
+    if (g_autoplay.block3Test && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        if (step == 0 && now - since > 2000) {
+            g_ui->showHome();
+            ui::NavInput opt;
+            opt.options = true;
+            g_ui->handle(opt);
+            ++step;
+        } else if (step == 1 && now - since > 4500) {
+            saveCanvas("settings_web_qr.ppm");
+            ui::NavInput back;
+            back.back = true;
+            g_ui->handle(back);
+            g_ui->showHome();
+
+            ui::GameTile tile;
+            if (!g_ui->findTile("FORTNITE", tile) && !g_ui->firstTile(tile)) {
+                tile.name = "Forza Horizon 5";
+                tile.publisher = "Xbox Game Studios";
+                tile.description = "Explore os cenários dinâmicos do México com ação automobilística ilimitada.";
+                tile.categories = {"Corrida", "Mundo Aberto"};
+            }
+            tile.ratingAge = "14+";
+            tile.ratingSystem = "ClassInd";
+            tile.ratingDescriptors = {"Violência", "Drogas Lícitas"};
+            g_ui->showDetails(tile);
+            ++step;
+        } else if (step == 2 && now - since > 7000) {
+            saveCanvas("game_details_rating.ppm");
+            ui::NavInput back;
+            back.back = true;
+            g_ui->handle(back);
+            g_ui->showHome();
+            g_autoplay.block3Test = false;
+            XC_LOGI("AUTOPLAY END: block3 test");
+            ++step;
         }
     }
     if (g_autoplay.streamMenuTest && uiSaved) {

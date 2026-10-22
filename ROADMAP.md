@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-21, v1.3.4.
+Last update: 2026-10-21, v1.4.0.
 
 ## Now
 
@@ -255,12 +255,13 @@ is rolled back at the next start), then the app restarts itself
 | **Network test in Settings** (done) | Round trip, jitter and loss to each region, and the bandwidth a stream would get, with a suggestion (region, bitrate cap); also kept in the report, for troubleshooting | small–medium |
 | **Achievements on the game page** (done) | Progress and gamerscore for the game, the unlocked / locked list; popup achievement viewer with L3, gamerscore disc pill on details | medium |
 | **Store wishlist** (done) | Toggle titles on Details with R3, dedicated Wishlist row in Library, notify on sales or Game Pass entry | small–medium |
-| **Playtime per game on the card** (done) | The time played (the app already measures it) shown on each card and on the game page | small |
-| **Web configuration panel via QR code** | A QR code in Settings that opens a local web interface on a phone/PC browser to view live session stats, adjust controller mappings, tweak network settings and options comfortably | medium |
-| **Steam Deck + AppImage** | The Linux build as an AppImage (one file, runs on SteamOS and most distributions; glibc baseline from CI's ubuntu-24.04), attached to each release by the Linux workflow; on the Deck: gamescope / Game Mode, the 1280x800 screen (UI scale), the Deck's own controls and gyro through SDL, added to Steam as a non-Steam game | small–medium |
+| **Web configuration panel via QR code** (done) | Embedded micro HTTP server on port 8080 with QR Code in Settings, remote keyboard for TV search, interactive controller and keyboard remapping, direct sanitized log download | medium |
+| **Steam Deck + AppImage** (done) | Standalone universal AppImage packaging script (`tools/desktop/package-appimage.sh`), bundling SDL3, AppRun, icon, desktop file, full compatibility with SteamOS/Steam Deck gamescope and Linux distros | small–medium |
+| **Age rating on game details** (done) | Official age classification badge (ClassInd for Brazil, ESRB for US, PEGI for EU) with color coding and content descriptors on the details page | small–medium |
 | **Discord Rich Presence (desktop)** | "Playing Fortnite on PSBox" with the game's art and elapsed time, through the local Discord client's IPC (no account data sent); an on/off in Settings; desktop only (capability-gated, a no-op on the PS5) | small |
 | **Mouse in the desktop UI** | Today the mouse only goes to the game (native MKB / mouse as a stick); on desktop menus, hover moves the focus and a click presses (cards, rows, buttons, dropdowns, the search keys), the wheel scrolls; never on the PS5, never during a game | small–medium |
-| **Windows (M2)** | The desktop app for Windows, cross-built with llvm-mingw, tested under wine (`docs/multiplatform.md`) | medium |
+| **Windows (planned)** | The desktop app for Windows, cross-built with llvm-mingw, tested under wine (`docs/multiplatform.md`) | medium |
+| **Android (planned)** | Native Android client with touch overlay, controller support and hardware video decoding | medium |
 | Ideas to weigh (no decision yet) | A first-run guide (sign-in, region, controls) | — |
 
 ## Dropped (and why)

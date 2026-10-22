@@ -22,8 +22,8 @@ mkdir -p "$app/sce_sys" "$app/sce_module" "$app/assets"
 cp "$build/eboot.bin" "$app/eboot.bin"
 cp "$param" "$app/sce_sys/param.json"
 cp "$root/ps5/sce_sys/icon0.png" "$app/sce_sys/icon0.png"
-# Home-screen backgrounds (tools/ps5/home-art.sh).
-for f in pic0.dds pic1.dds; do
+# Home-screen backgrounds and audio (tools/ps5/home-art.sh, snd0.at9).
+for f in pic0.dds pic1.dds snd0.at9; do
     [[ -f "$root/ps5/sce_sys/$f" ]] && cp "$root/ps5/sce_sys/$f" "$app/sce_sys/$f"
 done
 cp "$vk/runtime/libc.prx" "$app/sce_module/libc.prx"

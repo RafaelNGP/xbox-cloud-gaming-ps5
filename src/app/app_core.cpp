@@ -16,6 +16,7 @@
 #include "app/settings.h"
 #include "app/shell.h"
 #include "app/stream_screen.h"
+#include "app/web_server.h"
 #include "display/display.h"
 #include "input/controller.h"
 #include "input/input_ext.h"
@@ -26,6 +27,7 @@
 #include "ui/pad_glyphs.h"
 #include "input/tuning.h"
 #include "net/http.h"
+#include "media/audio_out.h"
 #include "platform/platform.h"
 #include "ui/app_ui.h"
 #include "ui/strings.h"
@@ -74,7 +76,9 @@ void openReport(const std::string& what, bool previousSession, const std::string
     info.title = what.empty() ? "Problem report" : report::shorten(info.what, 70);
     info.release = XC_APP_VERSION;
     info.firmware = platform::firmwareVersion();
-    info.log = report::sanitize(report::logExcerpt(logText, previousSession), privateWords);
+    info.platform = platform::platformName();
+    std::string platHeader = "[Platform: " + info.platform + "]\n";
+    info.log = platHeader + report::sanitize(report::logExcerpt(logText, previousSession), privateWords);
     info.crash = report::sanitize(crash, privateWords);
     std::string url = report::issueUrl(info);
     std::string detail = info.crash;
@@ -257,6 +261,7 @@ bool coreStartup() {
         XC_LOGW("settings: %s could not be read; defaults used, the file kept as %s", settingsPath().c_str(), bad.c_str());
     }
     ui::setLanguage(ui::languageFromCode(g_settings.language));
+    media::setPadSpeakerVolume(g_settings.padSpeakerVolume);
     XC_LOGI("settings: language %s, %s, region %s", g_settings.language.c_str(), g_settings.resolution.c_str(),
             g_settings.region.empty() ? "auto" : g_settings.region.c_str());
     shell::beforeDisplay(g_settings);  // the PS5: the splash screen hidden, the video mode (120 Hz) settled
@@ -289,6 +294,96 @@ bool coreStartup() {
     g_ui = std::make_unique<ui::AppUi>(fonts, *g_images);
     g_ui->showSplash(ui::tr(ui::Str::SigningIn));
     startPriceLoop();
+    setWebServerHooks({
+        /*getSettings=*/[](json::Value& root) {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            root.set("language", g_settings.language);
+            root.set("resolution", g_settings.resolution);
+            root.set("padMap", input::padMapJson(g_settings.padMap));
+            root.set("keyMap", keyMapToJson(g_settings.keyMap));
+        },
+        /*updateSettings=*/[](const json::Value& root) -> bool {
+            bool changed = false;
+            {
+                std::lock_guard<std::mutex> lock(g_settingsMutex);
+                if (root.has("padMap")) {
+                    input::PadMap newPad;
+                    if (input::readPadMap(root["padMap"], newPad)) {
+                        g_settings.padMap = newPad;
+                        changed = true;
+                    }
+                }
+                if (root.has("keyMap")) {
+                    g_settings.keyMap = keyMapFromJson(root["keyMap"], g_settings.keyMap);
+                    changed = true;
+                }
+                if (changed) {
+                    g_settings.save(settingsPath());
+                    refreshSettingsUiLocked();
+                }
+            }
+            return true;
+        },
+        /*getSearchQuery=*/[]() -> std::string {
+            return g_ui ? g_ui->searchQuery() : "";
+        },
+        /*setSearchQuery=*/[](const std::string& q) {
+            if (g_ui) {
+                g_ui->setSearchQuery(q);
+            }
+        },
+        /*setSearchParams=*/[](const std::string* q, const std::string* tab, const json::Value* filters) {
+            if (!g_ui) return;
+            ui::Tab targetTab = g_ui->tab();
+            const ui::Tab* tabPtr = nullptr;
+            if (tab) {
+                if (*tab == "gamepass" || *tab == "0") {
+                    targetTab = ui::Tab::GamePass;
+                    tabPtr = &targetTab;
+                } else if (*tab == "library" || *tab == "meus_jogos" || *tab == "1") {
+                    targetTab = ui::Tab::Library;
+                    tabPtr = &targetTab;
+                }
+            }
+            std::vector<std::pair<ui::AppUi::Filter, int>> filterList;
+            if (filters && filters->isObject()) {
+                auto checkField = [&](const char* f1, const char* f2, ui::AppUi::Filter filter) {
+                    if (filters->has(f1)) {
+                        const auto& val = (*filters)[f1];
+                        filterList.push_back({filter, val.isBool() ? (val.asBool() ? 1 : 0) : val.asInt()});
+                    } else if (f2 && filters->has(f2)) {
+                        const auto& val = (*filters)[f2];
+                        filterList.push_back({filter, val.isBool() ? (val.asBool() ? 1 : 0) : val.asInt()});
+                    }
+                };
+                checkField("wishlist", "filterWishlist", ui::AppUi::Filter::Wishlist);
+                checkField("free", "filterFree", ui::AppUi::Filter::Free);
+                checkField("cheapest", "filterCheapest", ui::AppUi::Filter::Cheapest);
+                checkField("mouseKeyboard", "filterMouseKeyboard", ui::AppUi::Filter::MouseKeyboard);
+                checkField("plan", "filterPlan", ui::AppUi::Filter::Plan);
+                checkField("console", "filterConsole", ui::AppUi::Filter::Console);
+                checkField("mode", "filterMode", ui::AppUi::Filter::Mode);
+                checkField("language", "filterLanguage", ui::AppUi::Filter::Language);
+            }
+            g_ui->setSearchState(q, tabPtr, (filters || !filterList.empty()) ? &filterList : nullptr);
+        },
+        /*getSearchParams=*/[](std::string& outQuery, std::string& outTab, json::Value& outFilters) {
+            if (!g_ui) return;
+            outQuery = g_ui->searchQuery();
+            outTab = (g_ui->tab() == ui::Tab::Library) ? "library" : "gamepass";
+            outFilters = json::Value::object();
+            outFilters.set("wishlist", g_ui->filterSelectedPublic(ui::AppUi::Filter::Wishlist) != 0);
+            outFilters.set("free", g_ui->filterSelectedPublic(ui::AppUi::Filter::Free) != 0);
+            outFilters.set("cheapest", g_ui->filterSelectedPublic(ui::AppUi::Filter::Cheapest) != 0);
+            outFilters.set("mouseKeyboard", g_ui->filterSelectedPublic(ui::AppUi::Filter::MouseKeyboard) != 0);
+            outFilters.set("plan", g_ui->filterSelectedPublic(ui::AppUi::Filter::Plan));
+            outFilters.set("console", g_ui->filterSelectedPublic(ui::AppUi::Filter::Console));
+            outFilters.set("mode", g_ui->filterSelectedPublic(ui::AppUi::Filter::Mode));
+            outFilters.set("language", g_ui->filterSelectedPublic(ui::AppUi::Filter::Language));
+        }
+    });
+    startWebServer();
+    g_ui->setWebUrl(webServerUrl());
     {
         g_ui->setAllow1440(allow1440Locked());
         g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
@@ -765,6 +860,7 @@ void coreShutdown() {
     // _exit() afterwards, so no static destructor races a thread still
     // running.
     XC_LOGI("=== PSBox Cloud Gaming closing ===");
+    stopWebServer();
     const uint64_t start = platform::nowMs();
     requestQuit();
     bool workerDone = waitForWorker(5000);

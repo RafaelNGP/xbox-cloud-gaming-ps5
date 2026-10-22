@@ -12,11 +12,14 @@
 
 namespace xc::app {
 
-namespace {
+json::Value keyMapToJson(const input::KeyMap& m) {
+    json::Value v = json::Value::array();
+    for (const auto& keys : m)
+        for (uint8_t k : keys) v.push(static_cast<int>(k));
+    return v;
+}
 
-// "keyMap": each input's two keys, in KeyAction order (flat). Anything else
-// (an older file, another count) keeps `fallback`.
-input::KeyMap readKeyMap(const json::Value& v, const input::KeyMap& fallback) {
+input::KeyMap keyMapFromJson(const json::Value& v, const input::KeyMap& fallback) {
     const auto& items = v.items();
     if (items.size() != static_cast<size_t>(input::kKeyActions) * 2) return fallback;
     input::KeyMap m{};
@@ -25,12 +28,7 @@ input::KeyMap readKeyMap(const json::Value& v, const input::KeyMap& fallback) {
     return m;
 }
 
-json::Value keyMapJson(const input::KeyMap& m) {
-    json::Value v = json::Value::array();
-    for (const auto& keys : m)
-        for (uint8_t k : keys) v.push(static_cast<int>(k));
-    return v;
-}
+namespace {
 
 // "padMap": absent keeps `fallback`; present but not a complete map of
 // this version (an edited or damaged file) gives the default map.
@@ -91,9 +89,9 @@ bool Settings::load(const std::string& path) {
     micEnabled = (*j)["micEnabled"].asBool(micEnabled);
     highRefresh = (*j)["highRefresh"].asBool(highRefresh);
     desktopFullscreen = (*j)["desktopFullscreen"].asBool(desktopFullscreen);
-    maxBitrateMbps = static_cast<int>(std::clamp<int64_t>((*j)["maxBitrateMbps"].asInt(maxBitrateMbps), 0, 40));
+    maxBitrateMbps = static_cast<int>(std::clamp<int64_t>((*j)["maxBitrateMbps"].asInt(maxBitrateMbps), 0, 50));
     gameVolume = static_cast<int>(std::clamp<int64_t>((*j)["gameVolume"].asInt(gameVolume), 0, 200));
-    keyMap = readKeyMap((*j)["keyMap"], input::defaultKeyMap());
+    keyMap = keyMapFromJson((*j)["keyMap"], input::defaultKeyMap());
     padMap = readPadMapOr((*j)["padMap"], input::defaultPadMap(), "the settings");
     keyboardPlayer = static_cast<int>(std::clamp<int64_t>((*j)["keyboardPlayer"].asInt(keyboardPlayer), 0, 3));
     gyroMode = static_cast<int>(std::clamp<int64_t>((*j)["gyroMode"].asInt(gyroMode), 0, 2));
@@ -101,6 +99,7 @@ bool Settings::load(const std::string& path) {
     touchpadMouse = (*j)["touchpadMouse"].asBool(touchpadMouse);
     micGain = static_cast<int>(std::clamp<int64_t>((*j)["micGain"].asInt(micGain), 0, 2));
     audioRoute = static_cast<int>(std::clamp<int64_t>((*j)["audioRoute"].asInt(audioRoute), 0, 1));
+    padSpeakerVolume = static_cast<int>(std::clamp<int64_t>((*j)["padSpeakerVolume"].asInt(padSpeakerVolume), 0, 100));
     skippedUpdate = (*j)["skippedUpdate"].str();
     maxHeightCloud = static_cast<int>((*j)["maxHeightCloud"].asInt(0));
     maxHeightHome = static_cast<int>((*j)["maxHeightHome"].asInt(0));
@@ -142,7 +141,7 @@ bool Settings::load(const std::string& path) {
         p.triggerProfile = static_cast<int>(std::clamp<int64_t>(obj["triggerProfile"].asInt(triggerProfile), 0, 2));
         p.circleConfirms = obj["circleConfirms"].asBool(circleConfirms);
         p.highRefresh = obj["highRefresh"].asBool(highRefresh);
-        p.keyMap = readKeyMap(obj["keyMap"], keyMap);
+        p.keyMap = keyMapFromJson(obj["keyMap"], keyMap);
         p.padMap = readPadMapOr(obj["padMap"], padMap, id.c_str());
         p.gyroMode = static_cast<int>(std::clamp<int64_t>(obj["gyroMode"].asInt(gyroMode), 0, 2));
         p.gyroLevel = static_cast<int>(std::clamp<int64_t>(obj["gyroLevel"].asInt(gyroLevel), 1, 10));
@@ -243,7 +242,7 @@ bool Settings::save(const std::string& path) const {
     v.set("desktopFullscreen", desktopFullscreen);
     v.set("maxBitrateMbps", maxBitrateMbps);
     v.set("gameVolume", gameVolume);
-    v.set("keyMap", keyMapJson(keyMap));
+    v.set("keyMap", keyMapToJson(keyMap));
     v.set("padMap", input::padMapJson(padMap));
     v.set("keyboardPlayer", keyboardPlayer);
     v.set("gyroMode", gyroMode);
@@ -251,6 +250,7 @@ bool Settings::save(const std::string& path) const {
     v.set("touchpadMouse", touchpadMouse);
     v.set("micGain", micGain);
     v.set("audioRoute", audioRoute);
+    v.set("padSpeakerVolume", padSpeakerVolume);
     v.set("queueReadyAlert", queueReadyAlert);
     json::Value pt = json::Value::object();
     for (const auto& [id, sec] : titlePlaytime)
@@ -277,7 +277,7 @@ bool Settings::save(const std::string& path) const {
         obj.set("triggerProfile", p.triggerProfile);
         obj.set("circleConfirms", p.circleConfirms);
         obj.set("highRefresh", p.highRefresh);
-        obj.set("keyMap", keyMapJson(p.keyMap));
+        obj.set("keyMap", keyMapToJson(p.keyMap));
         obj.set("padMap", input::padMapJson(p.padMap));
         obj.set("gyroMode", p.gyroMode);
         obj.set("gyroLevel", p.gyroLevel);

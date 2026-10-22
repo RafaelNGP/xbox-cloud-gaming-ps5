@@ -79,7 +79,17 @@ void loop() {
     }
 }
 
+std::atomic<int> g_padSpeakerVolume{100};
+
 }  // namespace
+
+void setPadSpeakerVolume(int percent) {
+    g_padSpeakerVolume = std::clamp(percent, 0, 100);
+}
+
+int padSpeakerVolume() {
+    return g_padSpeakerVolume.load();
+}
 
 bool audioStart() {
     if (g_running) return true;
@@ -122,8 +132,10 @@ void audioStop() {
 
 bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
     if (!interleavedStereo || frames == 0) return false;
+    int volPercent = g_padSpeakerVolume.load();
+    if (volPercent <= 0) return true;  // 0% volume: silenced
 
-    std::thread([pcm = std::vector<float>(interleavedStereo, interleavedStereo + frames * 2)]() {
+    std::thread([pcm = std::vector<float>(interleavedStereo, interleavedStereo + frames * 2), volPercent]() {
         platform::setThreadAffinity(platform::ThreadRole::Audio, "ps5_pad_audio");
 
         static bool initialised = false;
@@ -156,19 +168,23 @@ bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
             XC_LOGW("pad speaker: failed to open controller speaker port, fallback to main audio");
             audioStart();
             constexpr size_t kChunk = (kRate * 20) / 1000;
-            size_t total = pcm.size() / 2;
+            float gain = volPercent / 100.0f;
+            std::vector<float> scaledPcm(pcm.size());
+            for (size_t i = 0; i < pcm.size(); ++i) scaledPcm[i] = pcm[i] * gain;
+            size_t total = scaledPcm.size() / 2;
             size_t off = 0;
             while (off < total) {
                 size_t n = std::min(kChunk, total - off);
-                audioPush(pcm.data() + off * 2, n);
+                audioPush(scaledPcm.data() + off * 2, n);
                 off += n;
                 if (off < total) platform::sleepMs(18);
             }
             return;
         }
 
+        int rawVol = (volPercent * 127 + 50) / 100;
         sceAudioOutSetMixLevelPadSpk(padHandle, 32768);
-        sceAudioOutSetPadSpkVolume(padHandle, 127);
+        sceAudioOutSetPadSpkVolume(padHandle, rawVol);
 
         size_t totalFrames = pcm.size() / 2;
         size_t offset = 0;

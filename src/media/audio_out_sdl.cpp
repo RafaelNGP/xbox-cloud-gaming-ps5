@@ -13,6 +13,8 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
+#include <atomic>
 #include <mutex>
 #include <vector>
 #include <thread>
@@ -80,10 +82,25 @@ void audioStop() {
     XC_LOGI("audio output closed");
 }
 
+static std::atomic<int> g_padSpeakerVolume{100};
+
+void setPadSpeakerVolume(int percent) {
+    g_padSpeakerVolume = std::clamp(percent, 0, 100);
+}
+
+int padSpeakerVolume() {
+    return g_padSpeakerVolume.load();
+}
+
 bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
     if (!interleavedStereo || frames == 0) return false;
+    int vol = g_padSpeakerVolume.load();
+    if (vol <= 0) return true;
     audioStart();
-    std::thread([pcm = std::vector<float>(interleavedStereo, interleavedStereo + frames * 2)]() {
+    float gain = vol / 100.0f;
+    std::vector<float> pcm(frames * 2);
+    for (size_t i = 0; i < frames * 2; ++i) pcm[i] = interleavedStereo[i] * gain;
+    std::thread([pcm = std::move(pcm)]() {
         constexpr size_t kRate = AudioQueue::kRate;
         constexpr size_t kChunk = (kRate * 20) / 1000;
         size_t total = pcm.size() / 2;

@@ -60,6 +60,7 @@ bool findLatestRelease(Release& out, std::string& err, const std::string& feedUr
     }
     out = {};
     out.tag = (*j)["tag_name"].str();
+    out.notes = (*j)["body"].str();
     const auto& assets = (*j)["assets"];
     for (size_t i = 0; i < assets.size(); ++i) {
         const auto& a = assets[i];
@@ -71,6 +72,117 @@ bool findLatestRelease(Release& out, std::string& err, const std::string& feedUr
         }
     }
     return true;
+}
+
+std::string filterReleaseNotes(const std::string& notes, const std::string& langCode) {
+    if (notes.empty()) return {};
+
+    struct Section {
+        std::string tag;
+        std::string content;
+    };
+    std::vector<Section> sections;
+
+    size_t pos = 0;
+    while (pos < notes.size()) {
+        size_t commentStart = notes.find("<!--", pos);
+        if (commentStart == std::string::npos) break;
+
+        size_t commentEnd = notes.find("-->", commentStart + 4);
+        if (commentEnd == std::string::npos) break;
+
+        size_t p = commentStart + 4;
+        while (p < commentEnd && (notes[p] == ' ' || notes[p] == '\t' || notes[p] == '\r' || notes[p] == '\n')) ++p;
+
+        if (p + 4 <= commentEnd &&
+            (notes[p] == 'L' || notes[p] == 'l') &&
+            (notes[p+1] == 'A' || notes[p+1] == 'a') &&
+            (notes[p+2] == 'N' || notes[p+2] == 'n') &&
+            (notes[p+3] == 'G' || notes[p+3] == 'g')) {
+            p += 4;
+            while (p < commentEnd && (notes[p] == ' ' || notes[p] == '\t')) ++p;
+            if (p < commentEnd && notes[p] == ':') {
+                ++p;
+                while (p < commentEnd && (notes[p] == ' ' || notes[p] == '\t')) ++p;
+                size_t tagStart = p;
+                while (p < commentEnd && notes[p] != ' ' && notes[p] != '\t' && notes[p] != '\r' && notes[p] != '\n' && notes[p] != '-') {
+                    ++p;
+                }
+                if (p < commentEnd && notes[p] == '-' && p + 1 < commentEnd && notes[p+1] != '-') {
+                    ++p;
+                    while (p < commentEnd && notes[p] != ' ' && notes[p] != '\t' && notes[p] != '\r' && notes[p] != '\n' && notes[p] != '-') {
+                        ++p;
+                    }
+                }
+                std::string tag;
+                for (size_t ti = tagStart; ti < p; ++ti) {
+                    char c = notes[ti];
+                    if (c == '_') c = '-';
+                    tag += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+                }
+
+                if (!tag.empty()) {
+                    if (!sections.empty()) {
+                        sections.back().content = notes.substr(pos, commentStart - pos);
+                    }
+                    sections.push_back({tag, {}});
+                    pos = commentEnd + 3;
+                    continue;
+                }
+            }
+        }
+        pos = commentEnd + 3;
+    }
+
+    if (sections.empty()) {
+        return notes;
+    }
+
+    sections.back().content = notes.substr(pos);
+
+    auto trim = [](std::string s) -> std::string {
+        while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) {
+            s.pop_back();
+        }
+        size_t lead = 0;
+        while (lead < s.size() && (s[lead] == ' ' || s[lead] == '\t' || s[lead] == '\r' || s[lead] == '\n')) {
+            ++lead;
+        }
+        return lead > 0 ? s.substr(lead) : s;
+    };
+
+    for (auto& sec : sections) {
+        sec.content = trim(sec.content);
+    }
+
+    std::string primaryCode;
+    for (char c : langCode) {
+        if (c == '-' || c == '_') break;
+        primaryCode += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+    std::string fullCode;
+    for (char c : langCode) {
+        if (c == '_') c = '-';
+        fullCode += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+
+    auto findSec = [&](const std::string& t) -> const Section* {
+        for (const auto& sec : sections) {
+            if (sec.tag == t) return &sec;
+        }
+        return nullptr;
+    };
+
+    if (!fullCode.empty()) {
+        if (auto* s = findSec(fullCode)) return s->content;
+    }
+    if (!primaryCode.empty()) {
+        if (auto* s = findSec(primaryCode)) return s->content;
+    }
+    if (auto* s = findSec("EN")) return s->content;
+    if (auto* s = findSec("EN-US")) return s->content;
+
+    return sections[0].content;
 }
 
 }  // namespace xc::app

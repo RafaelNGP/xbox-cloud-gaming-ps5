@@ -11,7 +11,14 @@
 #include <string>
 #include <vector>
 
+namespace xc::json {
+class Value;
+}
+
 namespace xc::app {
+
+json::Value keyMapToJson(const input::KeyMap& m);
+input::KeyMap keyMapFromJson(const json::Value& v, const input::KeyMap& fallback);
 
 struct GameProfile {
     // Picture
@@ -91,7 +98,7 @@ struct Settings {
     // Voice chat & Audio routing
     bool micEnabled = true;
     bool highRefresh = false;  // 119.88 Hz output (VRR where the console turns it on) while streaming
-    int maxBitrateMbps = 0;    // the stream's bitrate cap: 0 automatic (the tier's), else 30, 25, 22, 20, 15, 10 or 5
+    int maxBitrateMbps = 0;    // the stream's bitrate cap: 0 automatic (the tier's), else 50, 45, 40, 35, 30, 25, 20, 15, 10 or 5
     int gameVolume = 100;      // percent: 25, 50, 75, 100 or 150
     input::KeyMap keyMap = input::defaultKeyMap();  // the keys when the keyboard is a player's controller
     // Which pad button plays which Xbox button in a game (input/pad_map.h;
@@ -103,6 +110,7 @@ struct Settings {
     bool touchpadMouse = false; // touchpad as mouse in games with native MKB support
     int micGain = 1;        // 0: 50%, 1: 100%, 2: 150%
     int audioRoute = 0;     // 0: TV/HDMI (Main), 1: DualSense Speaker / Headset (Pad)
+    int padSpeakerVolume = 100; // 0 to 100% (DualSense controller speaker)
     bool queueReadyAlert = true; // Queue-ready chime and rumble alert
     std::map<std::string, uint64_t> titlePlaytime; // accumulated playtime in seconds (productId or titleId -> seconds)
 

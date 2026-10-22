@@ -142,14 +142,26 @@ std::string issueUrl(const Info& info, size_t maxLength) {
         what.find(info.release) == std::string::npos) {
         what += " (v" + info.release + ")";
     }
-    std::string head = std::string(kForm) + "&title=" + encode(info.title) + "&what=" + encode(what) +
-                       "&release=" + encode(info.release) + "&firmware=" + encode(info.firmware) + "&log=";
+    std::string head = std::string(kForm) + "&title=" + encode(info.title) + "&what=" + encode(what);
+    if (!info.platform.empty()) head += "&platform=" + encode(info.platform);
+    head += "&release=" + encode(info.release) + "&firmware=" + encode(info.firmware) + "&log=";
     // The log's end matters most: whole lines are dropped from its start
-    // until the link fits.
+    // until the link fits. Preserve the [Platform: ...] header if present.
     std::string log = info.log;
+    std::string platHeader;
+    if (log.rfind("[Platform:", 0) == 0) {
+        size_t nl = log.find('\n');
+        if (nl != std::string::npos) {
+            platHeader = log.substr(0, nl + 1);
+            log = log.substr(nl + 1);
+        }
+    } else if (!info.platform.empty()) {
+        platHeader = "[Platform: " + info.platform + "]\n";
+    }
     for (;;) {
-        std::string url = head + encode(log);
-        if (url.size() <= maxLength || log.empty()) return url.size() <= maxLength ? url : head;
+        std::string fullLog = platHeader + log;
+        std::string url = head + encode(fullLog);
+        if (url.size() <= maxLength || log.empty()) return url.size() <= maxLength ? url : head + encode(platHeader);
         size_t nl = log.find('\n', log.compare(0, 4, "...\n") == 0 ? 4 : 0);
         log = nl == std::string::npos ? std::string() : "...\n" + log.substr(nl + 1);
     }

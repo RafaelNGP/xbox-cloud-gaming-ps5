@@ -184,7 +184,8 @@ def cmd_test(args):
         "padmaptest", "detailtest", "gridtest", "crashtest", "searchtest",
         "tunetest", "confirmtest", "pickertest", "menutest", "regiontest",
         "friendstest", "publishertest", "scrolltest", "quicktest", "tlscheck",
-        "padspktest", "queuetest", "queueuitest", "wishlisttest",
+        "padspktest", "queuetest", "queueuitest", "wishlisttest", "block1test",
+        "block2test", "block3test", "bitratetest",
     }
     bitrate_opt = f" bitrate={args.bitrate}" if getattr(args, "bitrate", 0) > 0 else ""
     if target.startswith("AUTOTEST") or target.startswith("BENCH") or " " in target:
@@ -206,7 +207,9 @@ def cmd_test(args):
         old_file.unlink(missing_ok=True)
     (out_dir / "xcloud.log").unlink(missing_ok=True)
 
-    print("  2. Packaging fresh build...")
+    print("  2. Building, linking and packaging fresh build...")
+    run_cmd("ninja -C build-ps5 xcloud_app", cwd=ROOT)
+    run_cmd("bash tools/ps5/link.sh build-ps5", cwd=ROOT)
     run_cmd("XC_INCLUDE_ACCOUNT=1 bash tools/ps5/package.sh build-ps5", cwd=ROOT)
     run_cmd(f"PS5_HOST={host} ./tools/ps5/deploy.sh build-ps5", cwd=ROOT)
 
@@ -221,7 +224,11 @@ def cmd_test(args):
     # Delete old artifacts on PS5
     for name in ("xcloud.log", "frame.ppm", "frame2.ppm", "frame3.ppm", "frame4.ppm", "screen.ppm", "ui.ppm", "launch.ppm", "detail.ppm",
                  "detail_after.ppm", "settings.ppm", "game_settings.ppm", "game_settings_custom.ppm", "library.ppm",
-                 "wishlist_empty.ppm", "wishlist_active.ppm", "confirm2.ppm", "home.ppm"):
+                 "wishlist_empty.ppm", "wishlist_active.ppm", "confirm2.ppm", "home.ppm",
+                 "search_grid3x3.ppm", "settings_desc_row0.ppm", "settings_desc_row1.ppm", "detail_free.ppm",
+                 "launch_tip1.ppm", "launch_tip2.ppm",
+                 "update_prompt_3buttons.ppm", "update_notes_modal.ppm", "stream_menu_spk100.ppm", "stream_menu_spk50.ppm",
+                 "settings_bitrate_caps.ppm", "settings_web_qr.ppm", "game_details_rating.ppm"):
         try:
             ftp.sendcmd(f"DELE {name}")
         except (error_perm, error_reply):
@@ -257,7 +264,11 @@ def cmd_test(args):
     # Fetch all PPMs and log
     ppm_names = ["ui.ppm", "launch.ppm", "frame.ppm", "frame2.ppm", "frame3.ppm", "frame4.ppm", "screen.ppm", "detail.ppm",
                  "detail_after.ppm", "settings.ppm", "game_settings.ppm", "game_settings_custom.ppm",
-                 "library.ppm", "wishlist_empty.ppm", "wishlist_active.ppm", "error.ppm", "confirm2.ppm", "home.ppm"]
+                 "library.ppm", "wishlist_empty.ppm", "wishlist_active.ppm", "error.ppm", "confirm2.ppm", "home.ppm",
+                 "search_grid3x3.ppm", "settings_desc_row0.ppm", "settings_desc_row1.ppm", "detail_free.ppm",
+                 "launch_tip1.ppm", "launch_tip2.ppm",
+                 "update_prompt_3buttons.ppm", "update_notes_modal.ppm", "stream_menu_spk100.ppm", "stream_menu_spk50.ppm",
+                 "settings_bitrate_caps.ppm", "settings_web_qr.ppm", "game_details_rating.ppm"]
     ftp = get_ftp(host, port)
     ftp.cwd("/data/psbox")
     for name in ppm_names + ["xcloud.log"]:

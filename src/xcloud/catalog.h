@@ -11,6 +11,10 @@
 #include <string>
 #include <vector>
 
+namespace xc::json {
+class Value;
+}
+
 namespace xc::xcloud {
 
 struct Product {
@@ -31,6 +35,9 @@ struct Product {
     int64_t detailedAt = 0;  // when the full details were fetched (unix s)
     uint32_t modes = 0;
     uint8_t plan = 0;  // kPlanEssential..kPlanUltimate from PassMetadataByPassProductId
+    std::string ratingAge;
+    std::string ratingSystem;
+    std::vector<std::string> ratingDescriptors;
     std::map<std::string, uint8_t> languages;
 };
 
@@ -86,5 +93,11 @@ bool fetchList(const std::string& siglId, const std::string& market, const std::
 // per product instead of ~2 KB).
 bool fetchProducts(const std::vector<std::string>& ids, const std::string& market, const std::string& language,
                    std::map<std::string, Product>& out, std::string& err, bool full = true);
+
+// Parses official age classification and content descriptors from catalog JSON
+// (preferring ClassInd for BR, ESRB for US, PEGI for EU).
+void parseContentRatings(const json::Value& productJson, const std::string& market,
+                         std::string& outAge, std::string& outSystem,
+                         std::vector<std::string>& outDescriptors);
 
 }  // namespace xc::xcloud

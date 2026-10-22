@@ -25,5 +25,8 @@ void audioPush(const float* interleaved, size_t frames);
 // Plays a short audio sample or chime directly through the DualSense controller speaker,
 // falling back to main output if the pad speaker port is not available.
 bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames);
+// Sets the DualSense pad speaker volume (0 to 100%).
+void setPadSpeakerVolume(int percent);
+int padSpeakerVolume();
 
 }  // namespace xc::media

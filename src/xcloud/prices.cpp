@@ -31,7 +31,10 @@ bool fetchPrices(const std::vector<std::string>& productIds, const std::string& 
                 bool found = false;
                 for (const auto& av : dsa["Availabilities"].items()) {
                     bool purchase = false;
-                    for (const auto& a : av["Actions"].items()) purchase |= a.str() == "Purchase";
+                    for (const auto& a : av["Actions"].items()) {
+                        const auto act = a.str();
+                        purchase |= (act == "Purchase" || act == "Browse" || act == "Fulfill" || act == "License");
+                    }
                     const auto& price = av["OrderManagementData"]["Price"];
                     if (!purchase || !price.isObject()) continue;
                     Price pr;
