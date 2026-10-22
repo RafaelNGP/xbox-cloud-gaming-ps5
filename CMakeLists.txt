@@ -181,7 +181,7 @@ else()
     endif()
 
     add_executable(xcloud-cli src/app/cli_main.cpp)
-    target_link_libraries(xcloud-cli PRIVATE xcloud_stream xcloud_media xcloud_ui xc_ffmpeg)
+    target_link_libraries(xcloud-cli PRIVATE xcloud_stream xcloud_media xcloud_ui xcloud_backends_null xc_ffmpeg)
 
     enable_testing()
     add_executable(xcloud-tests tests/test_main.cpp)

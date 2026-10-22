@@ -16,7 +16,14 @@ std::mutex& frameMutex() {
 bool init(bool) { return true; }
 void shutdown() {}
 void present() { platform::sleepMs(16); }
-bool drawYuv420(const uint8_t*, const uint8_t*, const uint8_t*, int, int, int, int, int, bool) { return true; }
+bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int strideY, int strideU, int strideV, int width, int height, bool) {
+    if (!y || !u || !v || width <= 0 || height <= 0 || strideY < width) return false;
+    return true;
+}
+bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV, int width, int height, bool) {
+    if (!y || !uv || width <= 0 || height <= 0 || strideY < width || strideUV < width) return false;
+    return true;
+}
 void drawRgba(const uint32_t*) {}
 void pump() {}
 void idleWait(uint32_t ms) { platform::sleepMs(ms); }

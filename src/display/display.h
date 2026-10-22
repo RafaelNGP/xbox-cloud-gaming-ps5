@@ -43,6 +43,8 @@ void idleWait(uint32_t ms);
 // returns false and draws nothing.
 bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int strideY, int strideU, int strideV,
                 int width, int height, bool wait);
+bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
+              int width, int height, bool wait);
 
 // A picture laid over every video frame drawYuv420() draws from now on (the
 // in-game menu, the statistics): `w` x `h` RGBA pixels at (x, y), blended at

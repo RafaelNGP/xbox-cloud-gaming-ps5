@@ -318,6 +318,29 @@ void drawRgba(const uint32_t* pixels) {
     g_back.rgba.assign(pixels, pixels + static_cast<size_t>(kWidth) * kHeight);
 }
 
+bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
+              int width, int height, bool) {
+    if (!y || !uv || width <= 0 || height <= 0 || strideY < width || strideUV < width) return false;
+    const int cw = (width + 1) / 2, ch = (height + 1) / 2;
+    g_back.kind = Kind::Video;
+    g_back.width = width, g_back.height = height;
+    g_back.y.resize(static_cast<size_t>(width) * height);
+    g_back.u.resize(static_cast<size_t>(cw) * ch);
+    g_back.v.resize(static_cast<size_t>(cw) * ch);
+    for (int r = 0; r < height; ++r)
+        std::memcpy(&g_back.y[static_cast<size_t>(r) * width], y + static_cast<size_t>(r) * strideY, width);
+    for (int r = 0; r < ch; ++r) {
+        const uint8_t* src = uv + static_cast<size_t>(r) * strideUV;
+        uint8_t* du = &g_back.u[static_cast<size_t>(r) * cw];
+        uint8_t* dv = &g_back.v[static_cast<size_t>(r) * cw];
+        for (int c = 0; c < cw; ++c) {
+            du[c] = src[c * 2];
+            dv[c] = src[c * 2 + 1];
+        }
+    }
+    return true;
+}
+
 bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int strideY, int strideU, int strideV,
                 int width, int height, bool) {
     // Never waits for the screen: the mailbox keeps the newest frame.

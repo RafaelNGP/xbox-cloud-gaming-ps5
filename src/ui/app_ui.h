@@ -128,6 +128,7 @@ struct SettingsChoice {
     int sharpness = 0;
     int deband = 3;
     int upscaler = 2;
+    int videoDecoder = 0;      // 0 Hardware, 1 Software
     bool highRefresh = false;  // 120 Hz output while a game streams
     int maxBitrateMbps = 0;    // 0 automatic, else 5 / 10 / 15 / 20 / 25 / 30 / 35 / 40 / 45 / 50
     int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
@@ -192,10 +193,10 @@ std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool cus
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 20;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+constexpr int kSettingRows = 21;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
                                   // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys,
                                   // display mode (a desktop's window), controller buttons, gyro aiming, queue chime,
-                                  // check sign-in, network test, support project
+                                  // check sign-in, network test, support project, video decoder
 
 struct SignInStage {
     std::string name;

@@ -40,6 +40,8 @@ void probe(int frames);
 // swapchain image is free yet.
 bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int strideY, int strideU, int strideV,
                 int width, int height, bool wait);
+bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
+              int width, int height, bool wait);
 void drawRgba(const uint32_t* pixels);  // 1920x1080, 0xAABBGGRR
 void present();
 

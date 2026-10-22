@@ -105,9 +105,13 @@ void loadAutoplay() {
         if (opt == "wishlisttest") g_autoplay.wishlistTest = true;
         if (opt == "vibetest") g_autoplay.vibeTest = true;
         if (opt == "vktest") g_autoplay.vkTest = true;
-        if (opt == "cpudisplay") g_autoplay.cpuDisplay = true;
-        if (opt == "hwdecode") g_autoplay.hwDecode = true;
-        if (opt == "droptest") g_autoplay.dropTest = true;
+        if (opt == "hwdecode") { g_autoplay.preferHwDecode = true; g_autoplay.swDecode = false; g_autoplay.hwDecode = true; }
+        if (opt == "swdecode") { g_autoplay.preferHwDecode = false; g_autoplay.swDecode = true; }
+        if (opt.rfind("decoder=", 0) == 0) {
+            std::string d = opt.substr(8);
+            if (d == "hw" || d == "hardware") { g_autoplay.preferHwDecode = true; g_autoplay.swDecode = false; }
+            else if (d == "sw" || d == "software") { g_autoplay.preferHwDecode = false; g_autoplay.swDecode = true; }
+        }
         if (opt == "kbhints") ui::g_keyboardHints = g_autoplay.kbHints = true;  // the hints and slots as with a keyboard (screenshots)
         if (opt.rfind("loss=", 0) == 0) g_autoplay.videoLoss = std::atoi(opt.c_str() + 5);
         if (opt == "ai") g_autoplay.upscaler = 1;

@@ -8,6 +8,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/cpu.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/log.h>
 #include <libavutil/error.h>
 #include <libavutil/video_enc_params.h>
@@ -91,52 +92,171 @@ void disableSimd() {
 
 // --- Video --------------------------------------------------------------------
 
-VideoDecoder::~VideoDecoder() { freeAll(ctx_, frame_, packet_); }
+static enum AVPixelFormat getHwFormat(AVCodecContext* ctx, const enum AVPixelFormat* pix_fmts) {
+    auto* self = static_cast<VideoDecoder*>(ctx->opaque);
+    if (self && self->hwPixFmt() >= 0) {
+        for (const enum AVPixelFormat* p = pix_fmts; *p != AV_PIX_FMT_NONE; ++p) {
+            if (static_cast<int>(*p) == self->hwPixFmt()) return *p;
+        }
+        // Hardware format not supported by the codec for this stream; fall back to software
+        self->setHardware(false);
+    }
+    for (const enum AVPixelFormat* p = pix_fmts; *p != AV_PIX_FMT_NONE; ++p) {
+        if (*p == AV_PIX_FMT_YUV420P || *p == AV_PIX_FMT_YUVJ420P || *p == AV_PIX_FMT_NV12) return *p;
+    }
+    return AV_PIX_FMT_NONE;
+}
 
-bool VideoDecoder::init(int threads) {
+VideoDecoder::~VideoDecoder() {
+    freeAll(ctx_, frame_, packet_);
+    if (swFrame_) av_frame_free(&swFrame_);
+    if (hwDeviceCtx_) {
+        auto* ref = reinterpret_cast<AVBufferRef*>(hwDeviceCtx_);
+        av_buffer_unref(&ref);
+        hwDeviceCtx_ = nullptr;
+    }
+}
+
+bool VideoDecoder::init(int threads, bool preferHw) {
     installLogCallback();
+    preferHw_ = preferHw;
+    isHw_ = false;
+    consecutiveHwErrors_ = 0;
+
+    // 1. Hardware video decoder (PS5 libSceVideodec2 via HwDecoder)
+    if (preferHw_) {
+        if (hw_.init(1920, 1088)) {
+            isHw_ = true;
+            XC_LOGI("h264 decoder: hardware decoder (libSceVideodec2) active");
+        } else {
+            XC_LOGI("h264 decoder: hardware decoder not available");
+        }
+    }
+
+    // 2. FFmpeg context (primary software decoder or fallback)
     const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
     if (!codec) {
         XC_LOGE("no H.264 decoder in this FFmpeg build");
-        return false;
+        return isHw_;
     }
     ctx_ = avcodec_alloc_context3(codec);
     frame_ = av_frame_alloc();
     packet_ = av_packet_alloc();
-    if (!ctx_ || !frame_ || !packet_) return false;
+    if (!ctx_ || !frame_ || !packet_) return isHw_;
+
+    // 3. If hardware requested and PS5 hardware decoder is not available, try FFmpeg HWAccel
+    if (preferHw_ && !isHw_) {
+        static const struct {
+            enum AVHWDeviceType devType;
+            enum AVPixelFormat pixFmt;
+        } kHwConfigs[] = {
+            {AV_HWDEVICE_TYPE_VAAPI, AV_PIX_FMT_VAAPI},
+            {AV_HWDEVICE_TYPE_CUDA,  AV_PIX_FMT_CUDA},
+            {AV_HWDEVICE_TYPE_VDPAU, AV_PIX_FMT_VDPAU},
+        };
+        for (const auto& cfg : kHwConfigs) {
+            AVBufferRef* hwCtx = nullptr;
+            int rc = av_hwdevice_ctx_create(&hwCtx, cfg.devType, nullptr, nullptr, 0);
+            if (rc >= 0 && hwCtx) {
+                hwDeviceCtx_ = hwCtx;
+                hwPixFmt_ = cfg.pixFmt;
+                swFrame_ = av_frame_alloc();
+                ctx_->hw_device_ctx = av_buffer_ref(hwCtx);
+                ctx_->opaque = this;
+                ctx_->get_format = getHwFormat;
+                isHw_ = true;
+                XC_LOGI("h264 decoder: FFmpeg hardware acceleration (%s) active",
+                        av_hwdevice_get_type_name(cfg.devType));
+                break;
+            }
+        }
+    }
+
     ctx_->flags2 |= AV_CODEC_FLAG2_FAST;
     ctx_->thread_count = std::max(1, threads);
-    if (threads > 1) {
-        // xCloud sends one slice per picture, so slice threads would idle:
-        // decode several pictures at once instead, one frame of latency per
-        // extra thread. (LOW_DELAY would turn frame threading off.)
+    if (threads > 1 && !isHw_) {
         ctx_->thread_type = FF_THREAD_FRAME;
     } else {
         ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
         ctx_->thread_type = FF_THREAD_SLICE;
     }
-    XC_LOGI("h264 decoder: cpu flags 0x%x, %d thread(s)", av_get_cpu_flags(), ctx_->thread_count);
-    // The quantiser of each picture, for the quality measure (lastQp()).
+    XC_LOGI("h264 decoder: cpu flags 0x%x, %d thread(s), mode: %s",
+            av_get_cpu_flags(), ctx_->thread_count, isHw_ ? "Hardware" : "Software");
     ctx_->export_side_data |= AV_CODEC_EXPORT_DATA_VIDEO_ENC_PARAMS;
     int rc = avcodec_open2(ctx_, codec, nullptr);
+    if (rc < 0 && isHw_ && !hw_.ready()) {
+        XC_LOGW("h264 decoder: avcodec_open2 with hwaccel failed (%s), retrying software", averr(rc).c_str());
+        isHw_ = false;
+        if (swFrame_) { av_frame_free(&swFrame_); swFrame_ = nullptr; }
+        if (hwDeviceCtx_) {
+            auto* ref = reinterpret_cast<AVBufferRef*>(hwDeviceCtx_);
+            av_buffer_unref(&ref);
+            hwDeviceCtx_ = nullptr;
+        }
+        avcodec_free_context(&ctx_);
+        ctx_ = avcodec_alloc_context3(codec);
+        if (!ctx_) return false;
+        ctx_->flags2 |= AV_CODEC_FLAG2_FAST;
+        ctx_->thread_count = std::max(1, threads);
+        ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
+        ctx_->thread_type = FF_THREAD_SLICE;
+        ctx_->export_side_data |= AV_CODEC_EXPORT_DATA_VIDEO_ENC_PARAMS;
+        rc = avcodec_open2(ctx_, codec, nullptr);
+    }
     if (rc < 0) {
         XC_LOGE("avcodec_open2(h264): %s", averr(rc).c_str());
-        return false;
+        if (!hw_.ready()) return false;
     }
     return true;
 }
 
 bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out, uint32_t tag) {
-    // An empty packet means "end of stream" to libavcodec and would switch it
-    // to draining for good; the RTP depacketizer emits them after packet loss.
     pending_ = false;
-    if (!ctx_ || len == 0) return false;
+    if (!data || len == 0) return false;
+
+    // --- Path 1: PS5 Hardware Decoder (libSceVideodec2) ---
+    if (isHw_ && hw_.ready()) {
+        HwDecoder::Picture hp;
+        bool ok = hw_.decode(data, len, tag, hp);
+        if (ok && !hp.error) {
+            consecutiveHwErrors_ = 0;
+            needsKeyframe_ = false;
+            out.format = Picture::Format::Nv12;
+            out.width = hp.width;
+            out.height = (hp.height == 1088) ? 1080 : hp.height;
+            out.strideY = hp.pitchBytes;
+            out.strideU = hp.pitchBytes;
+            out.strideV = 0;
+            out.y = hp.data;
+            out.u = hp.data + hp.pitchBytes * hp.height;
+            out.v = nullptr;
+            out.tag = static_cast<uint32_t>(hp.pts);
+            if (!profileLogged_) {
+                profileLogged_ = true;
+                XC_LOGI("hwdec stream active: %ux%u (pitch %u, nv12)", out.width, out.height, out.strideY);
+            }
+            return true;
+        }
+
+        needsKeyframe_ = true;
+        ++consecutiveHwErrors_;
+        if (failuresLogged_++ < 20) {
+            XC_LOGW("hwdec: frame decode failed (consecutive: %d, len: %zu)", consecutiveHwErrors_, len);
+        }
+        if (consecutiveHwErrors_ >= 5) {
+            XC_LOGE("hwdec: consecutive decode errors, falling back to CPU software decoder");
+            isHw_ = false;
+            if (ctx_) avcodec_flush_buffers(ctx_);
+        }
+        // Fall back to CPU FFmpeg decode for this packet
+    }
+
+    if (!ctx_) return false;
     packet_->data = const_cast<uint8_t*>(data);
     packet_->size = static_cast<int>(len);
     packet_->pts = tag;
     int rc = avcodec_send_packet(ctx_, packet_);
     if (rc == AVERROR_EOF) {
-        // Drained anyway: reset and retry once.
         avcodec_flush_buffers(ctx_);
         rc = avcodec_send_packet(ctx_, packet_);
     }
@@ -159,15 +279,25 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out, uint32_
         return false;
     }
     if (sent == AVERROR(EAGAIN)) {
-        // The decoder was full and didn't take this packet: now that a
-        // picture came out, hand it over again (it used to be lost, and the
-        // pictures after it decoded against a missing reference).
         int again = avcodec_send_packet(ctx_, packet_);
         if (again < 0) {
             needsKeyframe_ = true;
             if (failuresLogged_++ < 20) XC_LOGI("h264 packet dropped: %s (%zu bytes)", averr(again).c_str(), len);
         }
     }
+
+    AVFrame* targetFrame = frame_;
+    if (hwDeviceCtx_ && frame_->format == hwPixFmt_ && swFrame_) {
+        int trans = av_hwframe_transfer_data(swFrame_, frame_, 0);
+        if (trans < 0) {
+            needsKeyframe_ = true;
+            XC_LOGW("ffmpeg: av_hwframe_transfer_data failed: %s", averr(trans).c_str());
+            return false;
+        }
+        targetFrame = swFrame_;
+        targetFrame->pts = frame_->pts;
+    }
+
     if (AVFrameSideData* sd = av_frame_get_side_data(frame_, AV_FRAME_DATA_VIDEO_ENC_PARAMS)) {
         auto* par = reinterpret_cast<AVVideoEncParams*>(sd->data);
         double sum = 0;
@@ -179,23 +309,38 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out, uint32_
     } else if (frame_->flags & AV_FRAME_FLAG_KEY) {
         needsKeyframe_ = false;
     }
-    if (frame_->format != AV_PIX_FMT_YUV420P && frame_->format != AV_PIX_FMT_YUVJ420P) {
-        if (failuresLogged_++ < 20) XC_LOGW("unexpected pixel format %d", frame_->format);
+
+    if (targetFrame->format == AV_PIX_FMT_NV12) {
+        out.format = Picture::Format::Nv12;
+        out.y = targetFrame->data[0];
+        out.u = targetFrame->data[1];
+        out.v = nullptr;
+        out.strideY = targetFrame->linesize[0];
+        out.strideU = targetFrame->linesize[1];
+        out.strideV = 0;
+        out.width = targetFrame->width;
+        out.height = targetFrame->height;
+    } else if (targetFrame->format == AV_PIX_FMT_YUV420P || targetFrame->format == AV_PIX_FMT_YUVJ420P) {
+        out.format = Picture::Format::Yuv420p;
+        out.y = targetFrame->data[0];
+        out.u = targetFrame->data[1];
+        out.v = targetFrame->data[2];
+        out.strideY = targetFrame->linesize[0];
+        out.strideU = targetFrame->linesize[1];
+        out.strideV = targetFrame->linesize[2];
+        out.width = targetFrame->width;
+        out.height = targetFrame->height;
+    } else {
+        if (failuresLogged_++ < 20) XC_LOGW("unexpected pixel format %d", targetFrame->format);
         return false;
     }
-    out.y = frame_->data[0];
-    out.u = frame_->data[1];
-    out.v = frame_->data[2];
-    out.strideY = frame_->linesize[0];
-    out.strideU = frame_->linesize[1];
-    out.strideV = frame_->linesize[2];
-    out.width = frame_->width;
-    out.height = frame_->height;
+
     if (!profileLogged_) {
         profileLogged_ = true;
-        XC_LOGI("h264 stream: profile %d, level %d", ctx_->profile, ctx_->level);
+        XC_LOGI("h264 stream: profile %d, level %d (%s)", ctx_->profile, ctx_->level,
+                out.format == Picture::Format::Nv12 ? "NV12" : "YUV420P");
     }
-    out.tag = frame_->pts == AV_NOPTS_VALUE ? 0 : static_cast<uint32_t>(frame_->pts);
+    out.tag = targetFrame->pts == AV_NOPTS_VALUE ? 0 : static_cast<uint32_t>(targetFrame->pts);
     return true;
 }
 

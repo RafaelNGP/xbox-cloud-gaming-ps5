@@ -27,6 +27,7 @@
 #include "display/shaders/easu.spv.h"
 #include "display/shaders/rcas.spv.h"
 #include "display/shaders/yuv2rgb.spv.h"
+#include "display/shaders/nv122rgb.spv.h"
 
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
@@ -130,7 +131,7 @@ struct State {
     uint64_t presented = 0;  // the last present id
 
     VkSampler nearest = VK_NULL_HANDLE, linear = VK_NULL_HANDLE;
-    Pipeline yuv, easu, rcas;
+    Pipeline yuv, nv12, easu, rcas;
     // Anime4K x2 (S): four convolutions at the picture's size, then the
     // depth-to-space into the 2x image (or straight into upscaled when the
     // display box is already 2x); in place of EASU when chosen.
@@ -143,10 +144,10 @@ struct State {
     VkDescriptorSet restoreSets[4]{};
     bool restoreReady = false;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
-    VkDescriptorSet yuvSet = VK_NULL_HANDLE, easuVideoSet = VK_NULL_HANDLE, easuUiSet = VK_NULL_HANDLE;
+    VkDescriptorSet yuvSet = VK_NULL_HANDLE, nv12Set = VK_NULL_HANDLE, easuVideoSet = VK_NULL_HANDLE, easuUiSet = VK_NULL_HANDLE;
     VkDescriptorSet rcasSets[8]{};
 
-    Image luma, chromaU, chromaV, rgb;  // the video picture, at its size
+    Image luma, chromaU, chromaV, chromaUV, rgb;  // the video picture, at its size
     Image features[2];                  // Anime4K's feature maps, ping-ponged
     Image a4k;                          // 2x intermediate when the display box != 2x stream
     Image ui, upscaled, overlay;
@@ -706,9 +707,11 @@ bool createPipelines() {
     const VkDescriptorType sampled = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, storage = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     const VkDescriptorSetLayoutBinding yuv[] = {binding(0, sampled), binding(1, sampled), binding(2, sampled),
                                                 binding(3, storage)};
+    const VkDescriptorSetLayoutBinding nv12[] = {binding(0, sampled), binding(1, sampled), binding(2, storage)};
     const VkDescriptorSetLayoutBinding easu[] = {binding(0, sampled), binding(1, storage)};
     const VkDescriptorSetLayoutBinding rcas[] = {binding(0, storage), binding(1, sampled), binding(2, storage)};
     if (!createPipeline(g.yuv, kShader_yuv2rgb, sizeof kShader_yuv2rgb, yuv, 4, 20) ||
+        !createPipeline(g.nv12, kShader_nv122rgb, sizeof kShader_nv122rgb, nv12, 3, 20) ||
         !createPipeline(g.easu, kShader_easu, sizeof kShader_easu, easu, 2, 64) ||
         !createPipeline(g.rcas, kShader_rcas, sizeof kShader_rcas, rcas, 3, 24)) {
         XC_LOGE("gpu: the FSR pipelines");
@@ -738,6 +741,7 @@ bool createPipelines() {
     pool.pPoolSizes = sizes;
     if (vkCreateDescriptorPool(g.device, &pool, nullptr, &g.descriptors) != VK_SUCCESS) return false;
     g.yuvSet = allocateSet(g.yuv);
+    g.nv12Set = allocateSet(g.nv12);
     g.easuVideoSet = allocateSet(g.easu);
     g.easuUiSet = allocateSet(g.easu);
     for (uint32_t i = 0; i < 8; ++i) g.rcasSets[i] = allocateSet(g.rcas);
@@ -806,6 +810,7 @@ bool videoImages(uint32_t w, uint32_t h) {
     destroyImage(g.luma);
     destroyImage(g.chromaU);
     destroyImage(g.chromaV);
+    destroyImage(g.chromaUV);
     destroyImage(g.rgb);
     destroyImage(g.features[0]);
     destroyImage(g.features[1]);
@@ -815,6 +820,7 @@ bool videoImages(uint32_t w, uint32_t h) {
     if (!createImage(g.luma, VK_FORMAT_R8_UNORM, w, h, upload) ||
         !createImage(g.chromaU, VK_FORMAT_R8_UNORM, cw, ch, upload) ||
         !createImage(g.chromaV, VK_FORMAT_R8_UNORM, cw, ch, upload) ||
+        !createImage(g.chromaUV, VK_FORMAT_R8G8_UNORM, cw, ch, upload) ||
         !createImage(g.rgb, VK_FORMAT_R8G8B8A8_UNORM, w, h,
                      VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)) {
         XC_LOGE("gpu: video images %ux%u", w, h);
@@ -824,6 +830,9 @@ bool videoImages(uint32_t w, uint32_t h) {
     writeSampled(g.yuvSet, 1, g.chromaU.view, g.linear);
     writeSampled(g.yuvSet, 2, g.chromaV.view, g.linear);
     writeStorage(g.yuvSet, 3, g.rgb.view);
+    writeSampled(g.nv12Set, 0, g.luma.view, g.linear);
+    writeSampled(g.nv12Set, 1, g.chromaUV.view, g.linear);
+    writeStorage(g.nv12Set, 2, g.rgb.view);
     writeSampled(g.easuVideoSet, 0, g.rgb.view, g.linear);
     if (g.a4kReady) {
         if (!createImage(g.features[0], VK_FORMAT_R16G16B16A16_SFLOAT, w, h, VK_IMAGE_USAGE_STORAGE_BIT) ||
@@ -1092,12 +1101,12 @@ bool init(const Wsi& wsi) {
 void shutdown() {
     if (g.device) {
         if (vkDeviceWaitIdle) vkDeviceWaitIdle(g.device);
-        for (Image* img : {&g.luma, &g.chromaU, &g.chromaV, &g.rgb, &g.features[0], &g.features[1], &g.a4k, &g.ui,
+        for (Image* img : {&g.luma, &g.chromaU, &g.chromaV, &g.chromaUV, &g.rgb, &g.features[0], &g.features[1], &g.a4k, &g.ui,
                            &g.upscaled, &g.overlay})
             destroyImage(*img);
         for (Buffer* buf : {&g.staging, &g.overlayStaging, &g.readback}) destroyBuffer(*buf);
         if (g.descriptors && vkDestroyDescriptorPool) vkDestroyDescriptorPool(g.device, g.descriptors, nullptr);
-        for (Pipeline* p : {&g.yuv, &g.easu, &g.rcas, &g.a4kD2s}) destroyPipeline(*p);
+        for (Pipeline* p : {&g.yuv, &g.nv12, &g.easu, &g.rcas, &g.a4kD2s}) destroyPipeline(*p);
         for (int i = 0; i < 4; ++i) {
             destroyPipeline(g.a4kConv[i]);
             destroyPipeline(g.restoreConv[i]);
@@ -1154,6 +1163,39 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int stride
     } yuvPc{deband >= 2 ? 2u : deband == 1 ? 1u : 0u, deband >= 2 ? 0.016f : 0.008f, 16.0f,
             deband >= 2 ? 0.005f : 0.003f, ++g_frame};
     vkCmdPushConstants(g.cmd, g.yuv.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof yuvPc, &yuvPc);
+    vkCmdDispatch(g.cmd, (g.rgb.w + 7) / 8, (g.rgb.h + 7) / 8, 1);
+    memoryBarrier();
+    if (g_restore) recordRestore(g.rgb.w, g.rgb.h);
+    recordUpscale(g.easuVideoSet, g.rgb.w, g.rgb.h, g_sharpness, overlay, g_upscaler == 1);
+    return true;
+}
+
+bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
+              int width, int height, bool wait) {
+    if (!y || !uv || width <= 0 || height <= 0 || strideY < width || strideUV < width) return false;
+    size_t ySize = static_cast<size_t>(strideY) * height;
+    size_t uvSize = static_cast<size_t>(strideUV) * ((height + 1) / 2);
+    if (ySize + uvSize > g.staging.size) return false;
+    if (!beginFrame(wait)) return false;
+    if (!videoImages(static_cast<uint32_t>(width), static_cast<uint32_t>(height))) return false;
+    std::memcpy(g.staging.map, y, ySize);
+    std::memcpy(g.staging.map + ySize, uv, uvSize);
+    copyToImage(g.staging, 0, static_cast<uint32_t>(strideY), g.luma);
+    copyToImage(g.staging, ySize, static_cast<uint32_t>(strideUV / 2), g.chromaUV);
+    bool overlay = false;
+    recordOverlay(overlay);
+    barrier(g.rgb.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    memoryBarrier();  // the planes copied
+    vkCmdBindPipeline(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.nv12.pipeline);
+    vkCmdBindDescriptorSets(g.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, g.nv12.layout, 0, 1, &g.nv12Set, 0, nullptr);
+    int deband = g_deband;
+    struct {
+        uint32_t iterations;
+        float threshold, radius, grain;
+        uint32_t frame;
+    } yuvPc{deband >= 2 ? 2u : deband == 1 ? 1u : 0u, deband >= 2 ? 0.016f : 0.008f, 16.0f,
+            deband >= 2 ? 0.005f : 0.003f, ++g_frame};
+    vkCmdPushConstants(g.cmd, g.nv12.layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof yuvPc, &yuvPc);
     vkCmdDispatch(g.cmd, (g.rgb.w + 7) / 8, (g.rgb.h + 7) / 8, 1);
     memoryBarrier();
     if (g_restore) recordRestore(g.rgb.w, g.rgb.h);

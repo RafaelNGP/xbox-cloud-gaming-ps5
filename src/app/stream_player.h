@@ -84,6 +84,7 @@ public:
         uint64_t displayAvgUs = 0, displayMaxUs = 0;
         // The pictures' average quantiser since the last call (lower: finer); -1 none.
         double qpAvg = -1;
+        bool isHwDecode = false;
     };
     Stats stats() const;
     // Before start(): H.264 decoder threads (more than 1 = frame threading).
@@ -95,6 +96,10 @@ public:
     // Before start(): also run every frame through the PS5's hardware
     // decoder and log how it does (the picture still comes from FFmpeg).
     void setHwDecodeProbe(bool on);
+    // Before start(): prefer hardware video decoding (libSceVideodec2 on PS5,
+    // FFmpeg HWAccel on Desktop) with automatic software CPU fallback.
+    void setPreferHwDecode(bool on);
+    bool preferHwDecode() const;
     // Recent presentation frametimes (ms, up to 60 frames)
     void getRecentFrametimes(std::vector<float>& out) const;
 

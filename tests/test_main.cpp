@@ -346,6 +346,7 @@ static void testSettingsChoiceRoundTrip() {
     s.circleConfirms = true;
     s.lightBarMode = 1, s.lightBarColour = 0xFF112233;
     s.sharpness = 3, s.deband = 1, s.upscaler = 0;
+    s.videoDecoder = 1;
     s.highRefresh = true;
     s.maxBitrateMbps = 15, s.gameVolume = 150;
     assignKey(s.keyMap, KeyAction::A, 0, 'E');
@@ -364,6 +365,7 @@ static void testSettingsChoiceRoundTrip() {
     ui::SettingsChoice c = ui::choiceFromSettings(s);
     CHECK(c.language == static_cast<int>(ui::Language::PortugueseBR));
     CHECK(c.resolution == 1 && c.triggerProfile == 2 && c.lightBarColour == 0xFF112233u && !c.fullscreen);
+    CHECK(c.videoDecoder == 1);
     CHECK(!c.queueReadyAlert && c.titlePlaytime.at("game1") == 3600);
 
     xc::app::Settings back;  // defaults, then what the screen carries
@@ -381,6 +383,7 @@ static void testSettingsChoiceRoundTrip() {
     CHECK(back.circleConfirms == s.circleConfirms);
     CHECK(back.lightBarMode == s.lightBarMode && back.lightBarColour == s.lightBarColour);
     CHECK(back.sharpness == s.sharpness && back.deband == s.deband && back.upscaler == s.upscaler);
+    CHECK(back.videoDecoder == s.videoDecoder);
     CHECK(back.highRefresh == s.highRefresh);
     CHECK(back.maxBitrateMbps == s.maxBitrateMbps && back.gameVolume == s.gameVolume);
     CHECK(back.queueReadyAlert == s.queueReadyAlert && back.titlePlaytime == s.titlePlaytime);
@@ -431,6 +434,7 @@ static void testPerGameSettings() {
     s.sharpness = 1;
     s.deband = 2;
     s.upscaler = 0;
+    s.videoDecoder = 0;
     s.deadzoneLeft = 12;
     s.deadzoneRight = 18;
     s.triggerStrength = 3;
@@ -438,7 +442,7 @@ static void testPerGameSettings() {
 
     // Default profile reflects global settings.
     auto def = s.defaultProfile();
-    CHECK(def.sharpness == 1 && def.deband == 2 && def.upscaler == 0);
+    CHECK(def.sharpness == 1 && def.deband == 2 && def.upscaler == 0 && def.videoDecoder == 0);
     CHECK(def.deadzoneLeft == 12 && def.deadzoneRight == 18 && def.triggerStrength == 3);
     CHECK(!def.circleConfirms);
     CHECK(!def.highRefresh);  // off unless chosen
@@ -448,13 +452,14 @@ static void testPerGameSettings() {
     bool hasCustom = true;
     auto prof1 = s.profileForGame("GAME1", "", &hasCustom);
     CHECK(!hasCustom);
-    CHECK(prof1.sharpness == 1 && prof1.deadzoneLeft == 12);
+    CHECK(prof1.sharpness == 1 && prof1.deadzoneLeft == 12 && prof1.videoDecoder == 0);
 
     // Add per-game profile for GAME1.
     xc::app::GameProfile p1;
     p1.sharpness = 3;
     p1.deband = 0;
     p1.upscaler = 3;
+    p1.videoDecoder = 1;  // override global HW with SW
     p1.deadzoneLeft = 5;
     p1.deadzoneRight = 8;
     p1.triggerStrength = 1;
@@ -470,18 +475,19 @@ static void testPerGameSettings() {
     CHECK(hasCustom);
     CHECK(prof1Custom.sharpness == 3 && prof1Custom.upscaler == 3 && prof1Custom.circleConfirms);
     CHECK(prof1Custom.deadzoneLeft == 5 && prof1Custom.triggerStrength == 1 && prof1Custom.touchpadMouse);
+    CHECK(prof1Custom.videoDecoder == 1);
     CHECK(prof1Custom.locale == "pt-BR");
 
     hasCustom = true;
     auto prof2 = s.profileForGame("GAME2", "", &hasCustom);
     CHECK(!hasCustom);
-    CHECK(prof2.sharpness == 1 && !prof2.circleConfirms && !prof2.touchpadMouse && prof2.locale.empty());
+    CHECK(prof2.sharpness == 1 && !prof2.circleConfirms && !prof2.touchpadMouse && prof2.locale.empty() && prof2.videoDecoder == 0);
 
     // Title ID fallback when productId is empty.
     s.perGame["CONSOLE_SERVER_1"] = p1;
     auto consoleProf = s.profileForGame("", "CONSOLE_SERVER_1", &hasCustom);
     CHECK(hasCustom);
-    CHECK(consoleProf.sharpness == 3 && consoleProf.circleConfirms && consoleProf.locale == "pt-BR");
+    CHECK(consoleProf.sharpness == 3 && consoleProf.circleConfirms && consoleProf.locale == "pt-BR" && consoleProf.videoDecoder == 1);
 
     // Save to disk and reload.
     CHECK(s.desktopFullscreen);  // a desktop window starts fullscreen unless chosen otherwise
@@ -495,14 +501,14 @@ static void testPerGameSettings() {
     auto loadedP1 = reloaded.profileForGame("GAME1", "", &hasCustom);
     CHECK(hasCustom);
     CHECK(loadedP1.sharpness == 3 && loadedP1.upscaler == 3 && loadedP1.circleConfirms);
-    CHECK(loadedP1.highRefresh && loadedP1.touchpadMouse && loadedP1.locale == "pt-BR");
+    CHECK(loadedP1.highRefresh && loadedP1.touchpadMouse && loadedP1.locale == "pt-BR" && loadedP1.videoDecoder == 1);
     CHECK(loadedP1.deadzoneLeft == 5 && loadedP1.deadzoneRight == 8 && loadedP1.triggerStrength == 1);
 
     // Remove game profile restores default.
     reloaded.perGame.erase("GAME1");
     auto afterErase = reloaded.profileForGame("GAME1", "", &hasCustom);
     CHECK(!hasCustom);
-    CHECK(afterErase.sharpness == reloaded.sharpness && afterErase.locale.empty());
+    CHECK(afterErase.sharpness == reloaded.sharpness && afterErase.locale.empty() && afterErase.videoDecoder == reloaded.videoDecoder);
 
     std::remove(path.c_str());
 }
@@ -2061,44 +2067,44 @@ static void testVisibleSettingsRows() {
     };
     const ui::UiCaps ps5;
     auto all = ui::visibleSettingsRows(ps5);
-    CHECK((ids(all) == std::vector<int>{0, 8, 17, 1, 9, 10, 2, 18, 14, 12, 3, 15, 4, 5, 6, 16, 19, 7}));
-    CHECK((groups(all) == std::vector<bool>{false, false, false, true, false, false, false, false, true, false, false, false, false, false, false, false, true, false}));
+    CHECK((ids(all) == std::vector<int>{0, 8, 17, 1, 20, 9, 10, 2, 18, 14, 12, 3, 15, 4, 5, 6, 16, 19, 7}));
+    CHECK((groups(all) == std::vector<bool>{false, false, false, true, false, false, false, false, false, true, false, false, false, false, false, false, false, true, false}));
     ui::UiCaps pc;
     pc.lightBar = pc.triggerRumble = pc.adaptiveTriggers = pc.gyro = pc.touchpad = false;
     pc.upscalers = pc.sharpen = pc.deband = pc.highRefresh = pc.console = pc.selfUpdate = false;
     pc.openUrl = true;
     auto desk = ui::visibleSettingsRows(pc);
-    CHECK((ids(desk) == std::vector<int>{0, 8, 17, 1, 10, 2, 18, 14, 12, 3, 5, 16, 19, 7}));
-    CHECK((groups(desk) == std::vector<bool>{false, false, false, true, false, false, false, true, false, false, false, false, true, false}));
+    CHECK((ids(desk) == std::vector<int>{0, 8, 17, 1, 20, 10, 2, 18, 14, 12, 3, 5, 16, 19, 7}));
+    CHECK((groups(desk) == std::vector<bool>{false, false, false, true, false, false, false, false, true, false, false, false, false, true, false}));
     // The desktop app's window: Display mode after the resolution, in the stream's group.
     ui::UiCaps win = pc;
     win.desktopWindow = true;
     auto w = ui::visibleSettingsRows(win);
-    CHECK((ids(w) == std::vector<int>{0, 8, 17, 1, 13, 10, 2, 18, 14, 12, 3, 5, 16, 19, 7}));
-    CHECK((groups(w) == std::vector<bool>{false, false, false, true, false, false, false, false, true, false, false, false, false, true, false}));
+    CHECK((ids(w) == std::vector<int>{0, 8, 17, 1, 20, 13, 10, 2, 18, 14, 12, 3, 5, 16, 19, 7}));
+    CHECK((groups(w) == std::vector<bool>{false, false, false, true, false, false, false, false, false, true, false, false, false, false, true, false}));
     ui::UiCaps xbox = pc;  // an Xbox pad: impulse triggers, no light bar
     xbox.triggerRumble = true;
     auto x = ids(ui::visibleSettingsRows(xbox));
     CHECK(std::find(x.begin(), x.end(), 4) != x.end() && std::find(x.begin(), x.end(), 6) == x.end());
     // A game's settings.
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, false)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, true)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 13, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, false)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, true)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 7, 12, 11, 13, 9, 10}));
     CHECK((groups(ui::visibleGameSettingsRows(ps5, true, true)) ==
-           std::vector<bool>{false, true, false, false, true, false, false, true, false, false, false, false, false, false, true}));
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9}));
+           std::vector<bool>{false, true, false, false, false, true, false, false, true, false, false, false, false, false, false, true}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9}));
     ui::UiCaps noTouch = ps5;
     noTouch.touchpad = false;
-    CHECK((ids(ui::visibleGameSettingsRows(noTouch, true, true)) == std::vector<int>{0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(noTouch, true, true)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
     auto game = ui::visibleGameSettingsRows(pc, false);
-    CHECK((ids(game) == std::vector<int>{0, 4, 14, 5, 7, 11, 9}));
-    CHECK((groups(game) == std::vector<bool>{false, true, false, true, false, false, false}));
+    CHECK((ids(game) == std::vector<int>{0, 4, 15, 14, 5, 7, 11, 9}));
+    CHECK((groups(game) == std::vector<bool>{false, true, false, false, true, false, false, false}));
     // How far down the autoplay tests walk to each row (autoplay.cpp's downsTo).
-    CHECK(ui::settingsRowPosition(ps5, 1) == 3 && ui::settingsRowPosition(ps5, 3) == 10);
-    CHECK(ui::settingsRowPosition(ps5, 16) == 15);
-    CHECK(ui::settingsRowPosition(ps5, 5) == 13 && ui::settingsRowPosition(ps5, 6) == 14);
-    CHECK(ui::settingsRowPosition(ps5, 12) == 9 && ui::settingsRowPosition(ps5, 14) == 8);
-    CHECK(ui::settingsRowPosition(ps5, 7) == 17 && ui::settingsRowPosition(ps5, 19) == 16 && ui::settingsRowPosition(ps5, 2) == 6);
-    CHECK(ui::settingsRowPosition(pc, 5) == 10 && ui::settingsRowPosition(pc, 6) == -1 && ui::settingsRowPosition(pc, 4) == -1);
+    CHECK(ui::settingsRowPosition(ps5, 1) == 3 && ui::settingsRowPosition(ps5, 3) == 11);
+    CHECK(ui::settingsRowPosition(ps5, 16) == 16);
+    CHECK(ui::settingsRowPosition(ps5, 5) == 14 && ui::settingsRowPosition(ps5, 6) == 15);
+    CHECK(ui::settingsRowPosition(ps5, 12) == 10 && ui::settingsRowPosition(ps5, 14) == 9);
+    CHECK(ui::settingsRowPosition(ps5, 7) == 18 && ui::settingsRowPosition(ps5, 19) == 17 && ui::settingsRowPosition(ps5, 2) == 7);
+    CHECK(ui::settingsRowPosition(pc, 5) == 11 && ui::settingsRowPosition(pc, 6) == -1 && ui::settingsRowPosition(pc, 4) == -1);
 }
 
 // The controller's glyphs by pad kind (ui/pad_glyphs.h).
@@ -2188,6 +2194,45 @@ static void testNullBackends() {
     display::DisplayCaps caps = display::caps();
     CHECK(!caps.upscalers && !caps.deband && !caps.sharpen && !caps.highRefreshSwitch && !caps.presentTiming);
     CHECK(!display::canSwitchRefresh() && !display::setHighRefresh(true) && !display::bringUpTest(1));
+}
+
+static void testVideoDecoder() {
+    media::VideoDecoder dec;
+    CHECK(dec.init(1, false));
+    CHECK(!dec.isHardware());
+    CHECK(dec.needsKeyframe());
+
+    media::Picture pic;
+    CHECK(!dec.decode(nullptr, 0, pic));
+    CHECK(!dec.decode(nullptr, 100, pic));
+    uint8_t garbage[16] = {0, 0, 0, 1, 0xFF, 0xFF, 0xFF, 0xFF};
+    CHECK(!dec.decode(garbage, 0, pic));
+    CHECK(!dec.decode(garbage, sizeof garbage, pic));
+    CHECK(dec.needsKeyframe());
+
+    // Hardware init preference test (on non-PS5 desktop without HW device it gracefully stays/falls back to software)
+    media::VideoDecoder hwDec;
+    CHECK(hwDec.init(1, true));
+
+    // splitAccessUnits tests
+    std::vector<uint8_t> stream = {0, 0, 0, 1, 9, 0x10, 0, 0, 0, 1, 7, 0x42, 0, 0, 0, 1, 8, 0xCE, 0, 0, 0, 1, 5, 0x88};
+    auto aus = media::splitAccessUnits(stream.data(), stream.size());
+    CHECK(!aus.empty());
+}
+
+static void testDrawNv12() {
+    // Boundary and parameter checks
+    CHECK(!display::drawNv12(nullptr, nullptr, 0, 0, 0, 0, false));
+    CHECK(!display::drawNv12(nullptr, nullptr, 1920, 1920, 1920, 1080, false));
+    uint8_t dummy[16] = {};
+    CHECK(!display::drawNv12(dummy, dummy, 10, 10, -1, 1080, false));
+    CHECK(!display::drawNv12(dummy, dummy, 10, 10, 1920, -1, false));
+    CHECK(!display::drawNv12(dummy, dummy, 100, 100, 1920, 1080, false));  // stride < width
+
+    // Valid dummy frame in null display backend
+    std::vector<uint8_t> y(1920 * 1080, 128);
+    std::vector<uint8_t> uv(1920 * 540, 128);
+    CHECK(display::drawNv12(y.data(), uv.data(), 1920, 1920, 1920, 1080, false));
 }
 
 // --- M1 input / audio backends (pure parts, null backends) ----------------
@@ -3509,6 +3554,8 @@ int main() {
     testPadMap();
     testTeredo();
     testBlock1Features();
+    testVideoDecoder();
+    testDrawNv12();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

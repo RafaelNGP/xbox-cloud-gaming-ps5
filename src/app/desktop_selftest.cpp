@@ -343,6 +343,21 @@ int desktopSelftest(const std::string& dir) {
     bool barsOk = screenshot(dir, "3-video.png", shot);
     for (int b = 0; b < 8 && barsOk; ++b) barsOk = barMatches(shot, b, 540);
     check(barsOk, "colour bars through drawYuv420 + pump (3-video.png)");
+
+    // An NV12 video frame (hardware decoder format) through drawNv12.
+    std::vector<uint8_t> nv12Uv(static_cast<size_t>(bars.w) * (bars.h / 2));
+    for (size_t i = 0; i < bars.u.size(); ++i) {
+        nv12Uv[i * 2] = bars.u[i];
+        nv12Uv[i * 2 + 1] = bars.v[i];
+    }
+    {
+        std::lock_guard<std::mutex> lock(display::frameMutex());
+        display::drawNv12(bars.y.data(), nv12Uv.data(), bars.w, bars.w, bars.w, bars.h, false);
+        display::present();
+    }
+    bool nv12Ok = screenshot(dir, "3-video-nv12.png", shot);
+    for (int b = 0; b < 8 && nv12Ok; ++b) nv12Ok = barMatches(shot, b, 540);
+    check(nv12Ok, "colour bars through drawNv12 + pump (3-video-nv12.png)");
     check(display::lastPresentId() > 0, "present ids counted");
     if (dc.upscalers) {
         display::setSharpness(176);

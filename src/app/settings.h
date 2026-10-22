@@ -26,6 +26,7 @@ struct GameProfile {
     int deband = 3;              // 0 off, 1 low, 2 high, 3 auto
     int upscaler = 2;            // 0 FSR 1, 1 Anime4K, 2 FSR + clean, 3 Anime4K + clean
     int resolution = 0;          // 0 1080p, 1 720p, 2 1440p
+    int videoDecoder = 0;        // 0 Hardware, 1 Software
     // Controller: dead zone (percent), triggers, confirm button
     int deadzoneLeft = 15, deadzoneRight = 15;
     int triggerStrength = 2;     // 0 off .. 4 max
@@ -79,6 +80,7 @@ struct Settings {
     // Upscaling to the 4K display (GPU): 0 FSR 1, 1 Anime4K, 2 FSR and 3
     // Anime4K after Anime4K Restore (the clean-up of compression artefacts).
     int upscaler = 2;
+    int videoDecoder = 0;  // 0 Hardware, 1 Software
     // Controller: stick dead zone (percent), vibration in the triggers,
     // Circle as the confirm button (Xbox A).
     int deadzoneLeft = 15, deadzoneRight = 15;  // percent, each stick's own

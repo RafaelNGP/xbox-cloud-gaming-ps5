@@ -430,6 +430,25 @@ void drawRgba(const uint32_t* pixels) {
     });
 }
 
+bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
+              int width, int height, bool wait) {
+    if (gpu::ready()) return gpu::drawNv12(y, uv, strideY, strideUV, width, height, wait);
+    if (!g_mappedMemory || width <= 0 || height <= 0) return false;
+    int cw = (width + 1) / 2, ch = (height + 1) / 2;
+    std::vector<uint8_t> u(static_cast<size_t>(cw) * ch);
+    std::vector<uint8_t> v(static_cast<size_t>(cw) * ch);
+    for (int r = 0; r < ch; ++r) {
+        const uint8_t* src = uv + static_cast<size_t>(r) * strideUV;
+        uint8_t* du = &u[static_cast<size_t>(r) * cw];
+        uint8_t* dv = &v[static_cast<size_t>(r) * cw];
+        for (int c = 0; c < cw; ++c) {
+            du[c] = src[c * 2];
+            dv[c] = src[c * 2 + 1];
+        }
+    }
+    return drawYuv420(y, u.data(), v.data(), strideY, cw, cw, width, height, wait);
+}
+
 bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int strideY, int strideU, int strideV,
                 int width, int height, bool wait) {
     if (gpu::ready()) return gpu::drawYuv420(y, u, v, strideY, strideU, strideV, width, height, wait);

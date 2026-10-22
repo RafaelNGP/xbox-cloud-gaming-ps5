@@ -62,16 +62,16 @@ constexpr int kResolutionOrder[3] = {1, 0, 2};
 // stream (resolution, a desktop's display mode, 120 Hz, bitrate, region, network test);
 // the controller, keyboard and queue-ready alert; support and updates last. A group starts at each
 // kSettingsGroupStart.
-constexpr int kSettingsCount = 19;
-constexpr int kSettingsOrder[kSettingsCount] = {0, 8, 17, 1, 13, 9, 10, 2, 18, 14, 12, 3, 15, 4, 5, 6, 16, 19, 7};
-constexpr bool kSettingsGroupStart[kSettingsCount] = {false, false, false, true, false, false, false, false, false,
+constexpr int kSettingsCount = 20;
+constexpr int kSettingsOrder[kSettingsCount] = {0, 8, 17, 1, 20, 13, 9, 10, 2, 18, 14, 12, 3, 15, 4, 5, 6, 16, 19, 7};
+constexpr bool kSettingsGroupStart[kSettingsCount] = {false, false, false, true, false, false, false, false, false, false,
                                                      true, false, false, false, false, false, false, false, true, false};
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
 // sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7
 // confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default, 11 controller
-// buttons, 12 gyro aiming, 13 touchpad as mouse, 14 game language).
-constexpr int kGameRowOrder[15] = {0, 4, 8, 14, 1, 2, 3, 5, 6, 7, 12, 11, 13, 9, 10};
-constexpr bool kGameGroupStart[15] = {false, true, false, false, true, false, false, true, false, false, false, false, false, false, true};
+// buttons, 12 gyro aiming, 13 touchpad as mouse, 14 game language, 15 video decoder).
+constexpr int kGameRowOrder[16] = {0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 7, 12, 11, 13, 9, 10};
+constexpr bool kGameGroupStart[16] = {false, true, false, false, false, true, false, false, true, false, false, false, false, false, false, true};
 // The keyboard keys' screen: two columns of inputs, then "Reset to default".
 constexpr int kKeysPerColumn = input::kKeyActions / 2;
 // Updates on a desktop: the newest release's page (the app doesn't install it there).
@@ -1828,6 +1828,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         out = {tr(Str::RunTest)};
     } else if (row == 19) {
         out = {tr(Str::SupportKoFi)};
+    } else if (row == 20) {
+        out = {tr(Str::VideoDecoderHw), tr(Str::VideoDecoderSw)};
     } else if (row == 8) {
         out.push_back(loginCountryOffText());
         for (const char* country : kLoginCountries) out.push_back(loginCountryName(country));
@@ -1856,6 +1858,7 @@ int AppUi::settingSelected(int row) const {
     if (row == 13) return settings_.fullscreen ? 1 : 0;
     if (row == 15) return std::clamp(settings_.gyroMode, 0, 2);
     if (row == 16) return settings_.queueReadyAlert ? 1 : 0;
+    if (row == 20) return std::clamp(settings_.videoDecoder, 0, 1);
     if (row == 10) {
         if (settings_.maxBitrateMbps <= 0) return 0;
         int closest = 1;
@@ -1916,6 +1919,8 @@ void AppUi::applySetting(int row, int index) {
         settings_.gameVolume = kVolumes[index];
     } else if (row == 16) {
         settings_.queueReadyAlert = (index == 1);
+    } else if (row == 20) {
+        settings_.videoDecoder = index;
     } else if (row == 8) {
         settings_.loginCountry = index == 0 ? std::string() : kLoginCountries[index - 1];
     } else {
@@ -2664,6 +2669,11 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             dirty_ = true;
             break;
         }
+        case 15: // Video decoder (0 Hardware, 1 Software)
+            activeGameProfile_.videoDecoder = (activeGameProfile_.videoDecoder == 0 ? 1 : 0);
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
         default: break;
         }
     }
@@ -2755,6 +2765,11 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             dirty_ = true;
             break;
         }
+        case 15:
+            activeGameProfile_.videoDecoder = (activeGameProfile_.videoDecoder == 0 ? 1 : 0);
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
         case 9: // Keyboard keys: their own screen, on this game's
             openTester(Tester::Keys);
             settings_.keyMap = activeGameProfile_.keyMap;
@@ -4524,17 +4539,18 @@ void AppUi::drawError(Canvas& c) {
 void AppUi::drawSettings(Canvas& c) {
     drawBackground(c);
     drawTopBar(c);
-    fonts_.bold.draw(c, tr(Str::Settings), kMargin, 146, 52, kWhite);
+    fonts_.bold.draw(c, tr(Str::Settings), kMargin, 136, 48, kWhite);
     const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
                                         tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry),
                                         tr(Str::HighRefresh),   tr(Str::BitrateCap),    tr(Str::GameVolume),
                                         tr(Str::KeyboardKeys),  tr(Str::DisplayMode),   tr(Str::ControllerButtons),
                                         tr(Str::Gyro),          tr(Str::QueueReadyNotification),
-                                        tr(Str::CheckSignIn),   tr(Str::NetworkTest),   tr(Str::SupportProject)};
-    constexpr int kRowW = 1200, kRowH = 36, kGap = 3, kGroupGap = 7, kRowPx = 24;
+                                        tr(Str::CheckSignIn),   tr(Str::NetworkTest),   tr(Str::SupportProject),
+                                        tr(Str::VideoDecoder)};
+    constexpr int kRowW = 1200, kRowH = 34, kGap = 2, kGroupGap = 6, kRowPx = 23;
     Rect rows[kSettingRows];  // by row id
-    int y = 200;
+    int y = 190;
     for (const auto& [i, groupStart] : visibleSettingsRows(caps_)) {  // what caps_ rules out is hidden
         if (groupStart) y += kGroupGap;
         Rect r{kMargin, y, kRowW, kRowH};
@@ -4621,13 +4637,14 @@ void AppUi::drawSettings(Canvas& c) {
         Str::SettingDescCheckSignIn,
         Str::SettingDescNetworkTest,
         Str::SettingDescSupportProject,
+        Str::SettingDescVideoDecoder,
     };
     if (settingsRow_ >= 0 && settingsRow_ < kSettingRows) {
-        int dy = 936;
+        int dy = 925;
         const char* desc = tr(kSettingDescs[settingsRow_]);
         for (const auto& line : fonts_.regular.wrap(desc, 22, kRowW, 3)) {
             fonts_.regular.draw(c, line, kMargin, dy, 22, kDim);
-            dy += 28;
+            dy += 26;
         }
     }
 
@@ -5604,7 +5621,7 @@ void AppUi::drawGameSettings(Canvas& c) {
         }
     }
     constexpr int kModalW = 1140, kModalH = 960;
-    constexpr int kRowH = 46, kGap = 5, kGroupGap = 10;
+    constexpr int kRowH = 43, kGap = 4, kGroupGap = 8;
     // The rows caps_ allows; the panel loses the height of those it hides
     // (the same as ever with all of them, "Reset to default" or not).
     const auto rows = visibleGameSettingsRows(caps_, activeGameHasCustom_, activeGameMouseSupported_);
@@ -5615,7 +5632,7 @@ void AppUi::drawGameSettings(Canvas& c) {
     const int modalH = kModalH - static_cast<int>(all.size() - most.size()) * (kRowH + kGap) -
                        (groups(all) - groups(most)) * kGroupGap;
     Rect panel = drawModal(c, kModalW, modalH, title);
-    int y = panel.y + 106;
+    int y = panel.y + 92;
 
     for (int pos = 0; pos < static_cast<int>(rows.size()); ++pos) {
         const int i = rows[static_cast<size_t>(pos)].row;
@@ -5723,6 +5740,10 @@ void AppUi::drawGameSettings(Canvas& c) {
             }
             break;
         }
+        case 15:
+            label = tr(Str::VideoDecoder);
+            value = activeGameProfile_.videoDecoder == 1 ? tr(Str::VideoDecoderSw) : tr(Str::VideoDecoderHw);
+            break;
         default: break;
         }
 

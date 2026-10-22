@@ -402,7 +402,7 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
     if (info.width > 0) frames = std::to_string(info.width) + "x" + std::to_string(info.height) + "  " + frames;
     line(Str::StatFrameRate, frames);
     line(Str::StatLoss, fmt("%.1f %%", info.lossPct));
-    line(Str::StatDecode, info.decodeMs > 0 ? fmt("%.1f ms", info.decodeMs) : none);
+    line(Str::StatDecode, info.decodeMs > 0 ? (fmt("%.1f ms", info.decodeMs) + (info.isHwDecode ? " (HW)" : " (SW)")) : none);
     line(Str::StatOnScreen, info.onScreenMs > 0 ? fmt("%.1f ms", info.onScreenMs) : none);
 
     // The controllers: numbered pads, each connected one with its user.
@@ -535,7 +535,7 @@ Canvas StreamMenu::renderStats(const StreamInfo& info) const {
         }
         if (info.decodeMs > 0) {
             if (!text.empty()) text += "  ";
-            text += "Dec " + fmt("%.1f ms", info.decodeMs);
+            text += "Dec " + fmt("%.1f ms", info.decodeMs) + (info.isHwDecode ? " HW" : " SW");
         }
     }
     if ((statsMask_ & StatsMic) && !micMuted_) {

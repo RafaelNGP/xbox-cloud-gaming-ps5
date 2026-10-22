@@ -93,6 +93,8 @@ struct StreamPlayer::Impl {
     int simulatedLoss = 0;
     int maxBitrateMbps = 0;
     bool hwProbe = false;
+    bool preferHwDecode = true;
+    std::atomic<bool> isHwDecode{false};
 
     static void atomicMax(std::atomic<uint64_t>& a, uint64_t v) {
         uint64_t cur = a;
@@ -281,18 +283,19 @@ struct StreamPlayer::Impl {
     void videoLoop() {
         platform::setThreadAffinity(platform::ThreadRole::VideoDecode, "xcloud_vdec");
         media::VideoDecoder decoder;
-        if (!decoder.init(decodeThreads)) {
+        if (!decoder.init(decodeThreads, preferHwDecode)) {
             end("could not start the H.264 decoder");
             return;
         }
+        isHwDecode = decoder.isHardware();
         VideoFrame frame;
         std::vector<uint8_t>& au = frame.data;
         // Timings of the frames handed to the decoder, by RTP timestamp:
         // pictures can come out later than their input.
         std::deque<stream::FrameMetadata> inFlight;
         media::HwDecoder hw;
-        bool hwOk = hwProbe && hw.init(1920, 1088);
-        if (hwProbe) XC_LOGI("hwdec: probe %s", hwOk ? "running" : "failed to start");
+        bool hwOk = hwProbe && !decoder.isHardware() && hw.init(1920, 1088);
+        if (hwProbe && !decoder.isHardware()) XC_LOGI("hwdec: probe %s", hwOk ? "running" : "failed to start");
         uint64_t hwUs = 0, hwMaxUs = 0, hwPictures = 0, hwCalls = 0, hwLogAt = platform::nowMs() + 1000;
         constexpr uint64_t kShownRing = 8;
         std::pair<uint64_t, uint64_t> inScreenQueue[kShownRing] = {};  // present id, arrival us
@@ -344,6 +347,7 @@ struct StreamPlayer::Impl {
             if (inFlight.size() > 16) inFlight.pop_front();
             uint64_t t0 = platform::nowUs();
             bool ok = decoder.decode(au.data(), au.size(), pic, frame.rtpTimestamp);
+            isHwDecode = decoder.isHardware();
             uint64_t t1 = platform::nowUs();
             bool known = false;
             if (ok) {
@@ -390,14 +394,22 @@ struct StreamPlayer::Impl {
             }
             bool screenshot = saveSnapshotIfAsked(pic);
             std::lock_guard<std::mutex> lock(display::frameMutex());
-            if (decodedFrames == 1) XC_LOGI("first draw %dx%d", pic.width, pic.height);
+            if (decodedFrames == 1) {
+                XC_LOGI("first draw %dx%d (%s, %s)", pic.width, pic.height,
+                        pic.format == media::Picture::Format::Nv12 ? "NV12" : "YUV420P",
+                        decoder.isHardware() ? "hardware" : "software");
+            }
             uint64_t t2 = platform::nowUs();
             // Try acquire with zero wait first; if not ready, wait for swapchain image.
-            bool drawn = display::drawYuv420(pic.y, pic.u, pic.v, pic.strideY, pic.strideU, pic.strideV,
-                                             pic.width, pic.height, false);
+            auto drawPic = [](const media::Picture& p, bool wait) {
+                if (p.format == media::Picture::Format::Nv12) {
+                    return display::drawNv12(p.y, p.u, p.strideY, p.strideU, p.width, p.height, wait);
+                }
+                return display::drawYuv420(p.y, p.u, p.v, p.strideY, p.strideU, p.strideV, p.width, p.height, wait);
+            };
+            bool drawn = drawPic(pic, false);
             if (!drawn) {
-                drawn = display::drawYuv420(pic.y, pic.u, pic.v, pic.strideY, pic.strideU, pic.strideV,
-                                            pic.width, pic.height, true);
+                drawn = drawPic(pic, true);
             }
             if (!drawn) {
                 ++lateFrames;
@@ -650,11 +662,14 @@ struct StreamPlayer::Impl {
         screenPath = path.substr(0, path.rfind('/') + 1) + "screen.ppm";
         int w = pic.width / 2, h = pic.height / 2;
         std::vector<uint8_t> rgb(static_cast<size_t>(w) * h * 3);
+        const bool isNv12 = (pic.format == media::Picture::Format::Nv12);
         for (int y = 0; y < h; ++y)
             for (int x = 0; x < w; ++x) {
                 int c = (pic.y[(2 * y) * pic.strideY + 2 * x] - 16) * 1192;
-                int d = pic.u[y * pic.strideU + x] - 128;
-                int e = pic.v[y * pic.strideV + x] - 128;
+                int d = isNv12 ? (pic.u[y * pic.strideU + 2 * x] - 128)
+                               : (pic.u[y * pic.strideU + x] - 128);
+                int e = isNv12 ? (pic.u[y * pic.strideU + 2 * x + 1] - 128)
+                               : (pic.v[y * pic.strideV + x] - 128);
                 auto clamp = [](int v) { return static_cast<uint8_t>(v < 0 ? 0 : v > 255 ? 255 : v); };
                 uint8_t* o = &rgb[(static_cast<size_t>(y) * w + x) * 3];
                 o[0] = clamp((c + 1836 * e + 512) >> 10);
@@ -864,6 +879,8 @@ void StreamPlayer::requestSnapshot(const std::string& path) {
 void StreamPlayer::stop() { impl_->stop(); }
 
 void StreamPlayer::setHwDecodeProbe(bool on) { impl_->hwProbe = on; }
+void StreamPlayer::setPreferHwDecode(bool on) { impl_->preferHwDecode = on; }
+bool StreamPlayer::preferHwDecode() const { return impl_->preferHwDecode; }
 
 void StreamPlayer::setDecodeThreads(int threads) { impl_->decodeThreads = std::max(1, threads); }
 void StreamPlayer::setMaxBitrate(int mbps) { impl_->maxBitrateMbps = std::clamp(mbps, 0, 50); }
@@ -882,6 +899,7 @@ StreamPlayer::Stats StreamPlayer::stats() const {
     st.lateFrames = impl_->lateFrames;
     st.width = static_cast<int>(impl_->pictureSize >> 16);
     st.height = static_cast<int>(impl_->pictureSize & 0xFFFF);
+    st.isHwDecode = impl_->isHwDecode.load();
     // Timings since the previous call.
     uint64_t dc = impl_->decodeCalls.exchange(0), du = impl_->decodeUs.exchange(0);
     uint64_t rc = impl_->drawCalls.exchange(0), ru = impl_->drawUs.exchange(0);

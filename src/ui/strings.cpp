@@ -411,6 +411,10 @@ constexpr Column kEnglish = {
     "Web Control",                                    // WebControlTitle
     "Connect from your phone",                        // WebControlSubtitle
     "Connect to the same Wi-Fi to type search, remap buttons or download logs.", // WebControlDesc
+    "Video Decoder",                                  // VideoDecoder
+    "Hardware (Recommended)",                         // VideoDecoderHw
+    "Software (CPU)",                                 // VideoDecoderSw
+    "Selects hardware decoding (libSceVideodec2 on PS5, HWAccel on Desktop) or CPU software decoding", // SettingDescVideoDecoder
 };
 
 constexpr Column kPortugueseBR = {
@@ -792,6 +796,10 @@ constexpr Column kPortugueseBR = {
     "Configuração Web",                               // WebControlTitle
     "Acesse pelo celular",                            // WebControlSubtitle
     "Conecte no mesmo Wi-Fi para pesquisar, remapear botões ou baixar logs.", // WebControlDesc
+    "Decodificação de Vídeo",                         // VideoDecoder
+    "Hardware (Recomendado)",                         // VideoDecoderHw
+    "Software (CPU)",                                 // VideoDecoderSw
+    "Seleciona decodificação por hardware (libSceVideodec2 no PS5, HWAccel no Desktop) ou por software (CPU)", // SettingDescVideoDecoder
 };
 
 constexpr Column kSpanish = {
@@ -1173,6 +1181,10 @@ constexpr Column kSpanish = {
     "Control Web",                                    // WebControlTitle
     "Conectar desde el móvil",                        // WebControlSubtitle
     "Conéctate al mismo Wi-Fi para buscar, reasignar botones o descargar registros.", // WebControlDesc
+    "Decodificación de vídeo",                        // VideoDecoder
+    "Hardware (Recomendado)",                         // VideoDecoderHw
+    "Software (CPU)",                                 // VideoDecoderSw
+    "Selecciona decodificación por hardware (libSceVideodec2 en PS5, HWAccel en Desktop) o software (CPU)", // SettingDescVideoDecoder
 };
 
 constexpr Column kFrench = {
@@ -1554,6 +1566,10 @@ constexpr Column kFrench = {
     "Contrôle Web",                                   // WebControlTitle
     "Connexion mobile",                               // WebControlSubtitle
     "Connectez-vous au même Wi-Fi pour la recherche, remapper ou télécharger les logs.", // WebControlDesc
+    "Décodage vidéo",                                 // VideoDecoder
+    "Matériel (Recommandé)",                          // VideoDecoderHw
+    "Logiciel (CPU)",                                 // VideoDecoderSw
+    "Sélectionne le décodage matériel (libSceVideodec2 sur PS5, HWAccel sur Desktop) ou logiciel (CPU)", // SettingDescVideoDecoder
 };
 
 constexpr Column kGerman = {
@@ -1935,6 +1951,10 @@ constexpr Column kGerman = {
     "Web-Steuerung",                                  // WebControlTitle
     "Über Smartphone verbinden",                      // WebControlSubtitle
     "Mit demselben WLAN verbinden, um zu suchen, Tasten zu belegen oder Logs zu laden.", // WebControlDesc
+    "Videodekodierung",                               // VideoDecoder
+    "Hardware (Empfohlen)",                           // VideoDecoderHw
+    "Software (CPU)",                                 // VideoDecoderSw
+    "Wählt Hardware-Dekodierung (libSceVideodec2 auf PS5, HWAccel auf Desktop) oder Software-Dekodierung (CPU)", // SettingDescVideoDecoder
 };
 
 constexpr Column kItalian = {
@@ -2316,6 +2336,10 @@ constexpr Column kItalian = {
     "Controllo Web",                                  // WebControlTitle
     "Connetti dallo smartphone",                      // WebControlSubtitle
     "Connettiti allo stesso Wi-Fi per cercare, rimappare i pulsanti o scaricare i log.", // WebControlDesc
+    "Decodifica video",                               // VideoDecoder
+    "Hardware (Consigliato)",                         // VideoDecoderHw
+    "Software (CPU)",                                 // VideoDecoderSw
+    "Seleziona decodifica hardware (libSceVideodec2 su PS5, HWAccel su Desktop) o software (CPU)", // SettingDescVideoDecoder
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

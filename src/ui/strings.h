@@ -388,6 +388,10 @@ enum class Str {
     WebControlTitle,
     WebControlSubtitle,
     WebControlDesc,
+    VideoDecoder,
+    VideoDecoderHw,
+    VideoDecoderSw,
+    SettingDescVideoDecoder,
     Count
 };
 

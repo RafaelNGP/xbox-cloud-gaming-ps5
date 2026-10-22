@@ -162,6 +162,18 @@ std::string stream(xcloud::GssvClient& gssv) {
     player.setHwDecodeProbe(g_autoplay.hwDecode);
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
+        bool hasCustom = false;
+        GameProfile prof = g_settings.profileForGame(g_stageProduct, g_stageTitle, &hasCustom);
+        bool preferHw = true;
+        if (g_autoplay.swDecode) {
+            preferHw = false;
+        } else if (g_autoplay.preferHwDecode) {
+            preferHw = (hasCustom ? (prof.videoDecoder == 0) : (g_settings.videoDecoder == 0));
+        } else {
+            preferHw = false;
+        }
+        player.setPreferHwDecode(preferHw);
+        XC_LOGI("stream: video decoder %s", preferHw ? "hardware preferred" : "software (CPU)");
         player.setMicGain(g_settings.micGainFactor());
         player.setMicEnabled(g_settings.micEnabled);
         int cap = g_autoplay.bitrateMbps > 0 ? g_autoplay.bitrateMbps : g_settings.maxBitrateMbps;
@@ -265,7 +277,7 @@ std::string stream(xcloud::GssvClient& gssv) {
             auto st = player.stats();
             XC_LOGI("stream: %llu frames, %llu decoded, %llu skipped, %llu failed, %llu resets, %llu kf req, "
                     "%llu queued, %llu audio; rtp %llu pkts, %llu lost, %llu recovered, %llu nacks, "
-                    "%llu frames dropped; %llu kbps (remb %llu); %llu rumble; decode %.1f/%.1f ms, draw %.1f/%.1f ms, %llu late; "
+                    "%llu frames dropped; %llu kbps (remb %llu); %llu rumble; decode %.1f/%.1f ms (%s), draw %.1f/%.1f ms, %llu late; "
                     "rtt %d ms; %dx%d; on screen %.1f/%.1f ms after arrival; qp %.1f",
                     static_cast<unsigned long long>(st.videoFrames), static_cast<unsigned long long>(st.decodedFrames),
                     static_cast<unsigned long long>(st.droppedFrames), static_cast<unsigned long long>(st.decodeFailures),
@@ -275,7 +287,8 @@ std::string stream(xcloud::GssvClient& gssv) {
                     static_cast<unsigned long long>(st.rtpRecovered), static_cast<unsigned long long>(st.rtpNacks),
                     static_cast<unsigned long long>(st.rtpDroppedFrames), static_cast<unsigned long long>(st.rtpKbps),
                     static_cast<unsigned long long>(st.rembKbps), static_cast<unsigned long long>(st.vibrations),
-                    st.decodeAvgUs / 1000.0, st.decodeMaxUs / 1000.0, st.drawAvgUs / 1000.0, st.drawMaxUs / 1000.0,
+                    st.decodeAvgUs / 1000.0, st.decodeMaxUs / 1000.0, st.isHwDecode ? "HW" : "SW",
+                    st.drawAvgUs / 1000.0, st.drawMaxUs / 1000.0,
                     static_cast<unsigned long long>(st.lateFrames), st.rttMs, st.width, st.height,
                     st.displayAvgUs / 1000.0, st.displayMaxUs / 1000.0, st.qpAvg);
             if (st.rttMs > 0 && (bestRtt < 0 || st.rttMs < bestRtt)) bestRtt = st.rttMs;
@@ -297,6 +310,7 @@ std::string stream(xcloud::GssvClient& gssv) {
                 uint64_t lost = st.rtpLost - last.rtpLost, got = st.rtpPackets - last.rtpPackets;
                 info.lossPct = got + lost ? 100.0 * lost / (got + lost) : 0;
                 info.decodeMs = st.decodeAvgUs / 1000.0;
+                info.isHwDecode = st.isHwDecode;
                 info.onScreenMs = st.displayAvgUs / 1000.0;
                 info.width = st.width;
                 info.height = st.height;

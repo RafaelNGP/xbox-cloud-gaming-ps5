@@ -58,6 +58,8 @@ struct Autoplay {
     bool restore = false;        // restore: Anime4K Restore before the upscale
     bool dropTest = false;       // droptest: the connection dropped at 20 s
     bool hwDecode = false;       // hwdecode: the hardware decoder alongside, logged
+    bool preferHwDecode = true;  // hardware video decoding preferred by default
+    bool swDecode = false;       // swdecode: force software CPU decoding
     bool vibeTest = false;       // each motor alone, with a notification
     bool imeTest = false;        // open the system keyboard on the home screen
     bool menuTest = false;       // in the game: open the menu, switch to 720p
