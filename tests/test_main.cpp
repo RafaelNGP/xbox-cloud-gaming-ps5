@@ -2068,8 +2068,8 @@ static void testVisibleSettingsRows() {
     };
     const ui::UiCaps ps5;
     auto all = ui::visibleSettingsRows(ps5);
-    CHECK((ids(all) == std::vector<int>{0, 8, 17, 1, 20, 9, 10, 2, 18, 14, 12, 3, 15, 4, 5, 6, 16, 19, 7}));
-    CHECK((groups(all) == std::vector<bool>{false, false, false, true, false, false, false, false, false, true, false, false, false, false, false, false, false, true, false}));
+    CHECK((ids(all) == std::vector<int>{0, 8, 17, 1, 20, 9, 10, 2, 18, 14, 12, 3, 15, 4, 21, 5, 6, 16, 19, 7}));
+    CHECK((groups(all) == std::vector<bool>{false, false, false, true, false, false, false, false, false, true, false, false, false, false, false, false, false, false, true, false}));
     ui::UiCaps pc;
     pc.lightBar = pc.triggerRumble = pc.adaptiveTriggers = pc.gyro = pc.touchpad = false;
     pc.upscalers = pc.sharpen = pc.deband = pc.highRefresh = pc.console = pc.selfUpdate = false;
@@ -2088,23 +2088,24 @@ static void testVisibleSettingsRows() {
     auto x = ids(ui::visibleSettingsRows(xbox));
     CHECK(std::find(x.begin(), x.end(), 4) != x.end() && std::find(x.begin(), x.end(), 6) == x.end());
     // A game's settings.
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, false)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, true)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 7, 12, 11, 13, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, false)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 16, 7, 12, 11, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, true)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 16, 7, 12, 11, 13, 9, 10}));
     CHECK((groups(ui::visibleGameSettingsRows(ps5, true, true)) ==
-           std::vector<bool>{false, true, false, false, false, true, false, false, true, false, false, false, false, false, false, true}));
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9}));
+           std::vector<bool>{false, true, false, false, false, true, false, false, true, false, false, false, false, false, false, false, true}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 16, 7, 12, 11, 9}));
     ui::UiCaps noTouch = ps5;
     noTouch.touchpad = false;
-    CHECK((ids(ui::visibleGameSettingsRows(noTouch, true, true)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 7, 12, 11, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(noTouch, true, true)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 16, 7, 12, 11, 9, 10}));
     auto game = ui::visibleGameSettingsRows(pc, false);
     CHECK((ids(game) == std::vector<int>{0, 4, 15, 14, 5, 7, 11, 9}));
     CHECK((groups(game) == std::vector<bool>{false, true, false, false, true, false, false, false}));
     // How far down the autoplay tests walk to each row (autoplay.cpp's downsTo).
     CHECK(ui::settingsRowPosition(ps5, 1) == 3 && ui::settingsRowPosition(ps5, 3) == 11);
-    CHECK(ui::settingsRowPosition(ps5, 16) == 16);
-    CHECK(ui::settingsRowPosition(ps5, 5) == 14 && ui::settingsRowPosition(ps5, 6) == 15);
+    CHECK(ui::settingsRowPosition(ps5, 16) == 17);
+    CHECK(ui::settingsRowPosition(ps5, 5) == 15 && ui::settingsRowPosition(ps5, 6) == 16);
     CHECK(ui::settingsRowPosition(ps5, 12) == 10 && ui::settingsRowPosition(ps5, 14) == 9);
-    CHECK(ui::settingsRowPosition(ps5, 7) == 18 && ui::settingsRowPosition(ps5, 19) == 17 && ui::settingsRowPosition(ps5, 2) == 7);
+    CHECK(ui::settingsRowPosition(ps5, 7) == 19 && ui::settingsRowPosition(ps5, 19) == 18 && ui::settingsRowPosition(ps5, 2) == 7);
+    CHECK(ui::settingsRowPosition(ps5, 21) == 14);
     CHECK(ui::settingsRowPosition(pc, 5) == 11 && ui::settingsRowPosition(pc, 6) == -1 && ui::settingsRowPosition(pc, 4) == -1);
 }
 
@@ -4035,6 +4036,418 @@ static void testDesktopMouseNav() {
     }
 }
 
+static void testWebSocketRFC6455() {
+    // 1. RFC 6455 Handshake Accept Key test vector
+    // Standard test vector from RFC 6455 Section 4.2.2:
+    // Key: "dGhlIHNhbXBsZSBub25jZQ==" -> Accept: "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+    std::string accept = app::ws::computeAccept("dGhlIHNhbXBsZSBub25jZQ==");
+    CHECK(accept == "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
+
+    // 2. Unmasked Text Frame
+    std::string textMsg = "{\"type\":\"ping\"}";
+    std::vector<uint8_t> frameText = app::ws::makeTextFrame(textMsg);
+    app::ws::Frame parsed;
+    size_t consumed = 0;
+    CHECK(app::ws::parseFrame(frameText.data(), frameText.size(), parsed, consumed));
+    CHECK(consumed == frameText.size());
+    CHECK(parsed.fin);
+    CHECK(parsed.opcode == app::ws::Opcode::Text);
+    CHECK(std::string(parsed.payload.begin(), parsed.payload.end()) == textMsg);
+
+    // 3. Masked Text Frame (as sent from client / browser)
+    uint8_t maskKey[4] = {0x37, 0xfa, 0x21, 0x3d};
+    std::string rawPayload = "Hello WebSocket";
+    std::vector<uint8_t> maskedFrame;
+    maskedFrame.push_back(static_cast<uint8_t>(0x81)); // FIN + Text
+    maskedFrame.push_back(static_cast<uint8_t>(0x80 | rawPayload.size())); // Masked + len
+    for (int i = 0; i < 4; ++i) maskedFrame.push_back(maskKey[i]);
+    for (size_t i = 0; i < rawPayload.size(); ++i) {
+        maskedFrame.push_back(static_cast<uint8_t>(rawPayload[i] ^ maskKey[i % 4]));
+    }
+    CHECK(app::ws::parseFrame(maskedFrame.data(), maskedFrame.size(), parsed, consumed));
+    CHECK(consumed == maskedFrame.size());
+    CHECK(std::string(parsed.payload.begin(), parsed.payload.end()) == rawPayload);
+
+    // 4. Binary Frame
+    std::vector<uint8_t> binData = {0x00, 0x01, 0x02, 0x03, 0x04, 0xFF, 0xFE};
+    std::vector<uint8_t> frameBin = app::ws::makeBinaryFrame(binData.data(), binData.size());
+    CHECK(app::ws::parseFrame(frameBin.data(), frameBin.size(), parsed, consumed));
+    CHECK(parsed.opcode == app::ws::Opcode::Binary);
+    CHECK(parsed.payload == binData);
+
+    // 5. Ping & Pong Frames
+    std::string pingStr = "heartbeat";
+    std::vector<uint8_t> pingPayload(pingStr.begin(), pingStr.end());
+    std::vector<uint8_t> framePing = app::ws::makeFrame(app::ws::Opcode::Ping, pingPayload.data(), pingPayload.size(), true);
+    CHECK(app::ws::parseFrame(framePing.data(), framePing.size(), parsed, consumed));
+    CHECK(parsed.opcode == app::ws::Opcode::Ping);
+    CHECK(parsed.payload == pingPayload);
+
+    std::vector<uint8_t> framePong = app::ws::makePongFrame(pingPayload);
+    CHECK(app::ws::parseFrame(framePong.data(), framePong.size(), parsed, consumed));
+    CHECK(parsed.opcode == app::ws::Opcode::Pong);
+    CHECK(parsed.payload == pingPayload);
+
+    // 6. Close Frame
+    std::vector<uint8_t> frameClose = app::ws::makeCloseFrame(1000);
+    CHECK(app::ws::parseFrame(frameClose.data(), frameClose.size(), parsed, consumed));
+    CHECK(parsed.opcode == app::ws::Opcode::Close);
+
+    // 7. parseGamepadJson test
+    std::string gpJson = R"({
+        "buttons": {
+            "a": true, "b": false, "x": true, "y": false,
+            "lb": true, "rb": false, "view": true, "menu": false,
+            "dpad_up": true, "dpad_down": false, "dpad_left": false, "dpad_right": true
+        },
+        "axes": {
+            "lx": -0.5, "ly": 0.75, "rx": 0.25, "ry": -0.8,
+            "lt": 0.6, "rt": 1.0
+        }
+    })";
+    auto j = json::parse(gpJson);
+    CHECK(j.has_value());
+    int slot = -1;
+    input::ControllerState cs{};
+    CHECK(app::parseGamepadJson(*j, slot, cs));
+    CHECK(slot == 0);
+    CHECK(cs.btnA == true);
+    CHECK(cs.btnB == false);
+    CHECK(cs.btnX == true);
+    CHECK(cs.btnY == false);
+    CHECK(cs.btnL1 == true);
+    CHECK(cs.btnR1 == false);
+    CHECK(cs.btnTouchpad == true);
+    CHECK(cs.btnOptions == false);
+    CHECK(cs.dpadUp == true);
+    CHECK(cs.dpadRight == true);
+    CHECK(std::abs(cs.leftStickX - (-0.5f)) < 0.01f);
+    CHECK(std::abs(cs.leftStickY - 0.75f) < 0.01f);
+    CHECK(std::abs(cs.rightStickX - 0.25f) < 0.01f);
+    CHECK(std::abs(cs.rightStickY - (-0.8f)) < 0.01f);
+    CHECK(std::abs(cs.triggerL2 - 0.6f) < 0.01f);
+    CHECK(std::abs(cs.triggerR2 - 1.0f) < 0.01f);
+
+    // 8. W3C Gamepad API standard arrays
+    std::string w3cJson = R"({
+        "player": 2,
+        "buttons": [
+            {"pressed": true, "value": 1.0},
+            {"pressed": false, "value": 0.0},
+            {"pressed": true, "value": 1.0},
+            {"pressed": false, "value": 0.0},
+            {"pressed": true, "value": 1.0},
+            {"pressed": false, "value": 0.0},
+            {"pressed": true, "value": 0.85},
+            {"pressed": true, "value": 0.95},
+            {"pressed": true, "value": 1.0},
+            {"pressed": false, "value": 0.0},
+            {"pressed": false, "value": 0.0},
+            {"pressed": true, "value": 1.0},
+            {"pressed": true, "value": 1.0},
+            {"pressed": false, "value": 0.0},
+            {"pressed": false, "value": 0.0},
+            {"pressed": true, "value": 1.0},
+            {"pressed": true, "value": 1.0}
+        ],
+        "axes": [0.45, -0.65, -0.3, 0.8]
+    })";
+    auto jW3c = json::parse(w3cJson);
+    CHECK(jW3c.has_value());
+    int w3cSlot = -1;
+    input::ControllerState csW3c{};
+    CHECK(app::parseGamepadJson(*jW3c, w3cSlot, csW3c));
+    CHECK(w3cSlot == 1); // player 2 -> slot 1
+    CHECK(csW3c.btnA == true);
+    CHECK(csW3c.btnB == false);
+    CHECK(csW3c.btnX == true);
+    CHECK(csW3c.btnY == false);
+    CHECK(csW3c.btnL1 == true);
+    CHECK(csW3c.btnR1 == false);
+    CHECK(std::abs(csW3c.triggerL2 - 0.85f) < 0.01f);
+    CHECK(std::abs(csW3c.triggerR2 - 0.95f) < 0.01f);
+    CHECK(csW3c.btnTouchpad == true); // index 8 View
+    CHECK(csW3c.btnOptions == false); // index 9 Menu
+    CHECK(csW3c.btnL3 == false);       // index 10
+    CHECK(csW3c.btnR3 == true);        // index 11
+    CHECK(csW3c.dpadUp == true);       // index 12
+    CHECK(csW3c.dpadDown == false);    // index 13
+    CHECK(csW3c.dpadLeft == false);    // index 14
+    CHECK(csW3c.dpadRight == true);    // index 15
+    CHECK(csW3c.btnNexus == true);     // index 16 Guide
+    CHECK(std::abs(csW3c.leftStickX - 0.45f) < 0.01f);
+    CHECK(std::abs(csW3c.leftStickY - (-0.65f)) < 0.01f);
+    CHECK(std::abs(csW3c.rightStickX - (-0.3f)) < 0.01f);
+    CHECK(std::abs(csW3c.rightStickY - 0.8f) < 0.01f);
+}
+
+static void testExpandedUsbControllers() {
+    // 1. Xbox 360 controller report decoding (14 bytes)
+    uint8_t x360[14] = {
+        0x00, 0x14,
+        0x11, // A (0x10) | DPAD_UP (0x01)
+        0x12, // Start (0x10) | RB (0x02)
+        128,  // LT (50%)
+        255,  // RT (100%)
+        0x00, 0x40, // LX = +16384 (~0.5)
+        0x00, 0xC0, // LY = -16384 (-0.5 raw -> +0.5 normalised)
+        0x00, 0x00, 0x00, 0x00
+    };
+    input::ControllerState cs360{};
+    CHECK(input::parseXbox360Report(x360, sizeof(x360), cs360));
+    CHECK(cs360.btnA == true);
+    CHECK(cs360.dpadUp == true);
+    CHECK(cs360.btnOptions == true);
+    CHECK(cs360.btnR1 == true);
+    CHECK(std::abs(cs360.triggerL2 - 0.5019f) < 0.01f);
+    CHECK(std::abs(cs360.triggerR2 - 1.0f) < 0.01f);
+    CHECK(std::abs(cs360.leftStickX - 0.5f) < 0.02f);
+    CHECK(std::abs(cs360.leftStickY - 0.5f) < 0.02f);
+
+    // 2. Xbox One / Series controller report decoding (18 bytes min, 0x20 header)
+    uint8_t xone[18] = {
+        0x20, 0x00, 0x01, 0x0c,
+        0x50, // A (0x10) | X (0x40)
+        0x01, // D-pad Up
+        0x00, 0x02, // LT = 512 (~0.5)
+        0xFF, 0x03, // RT = 1023 (1.0)
+        0x00, 0x40, // LX = +16384 (0.5)
+        0x00, 0x80, // LY = -32768 (1.0)
+        0x00, 0x00, 0x00, 0x00
+    };
+    input::ControllerState csOne{};
+    CHECK(input::parseXboxOneReport(xone, sizeof(xone), csOne));
+    CHECK(csOne.btnA == true);
+    CHECK(csOne.btnX == true);
+    CHECK(csOne.btnB == false);
+    CHECK(csOne.dpadUp == true);
+    CHECK(std::abs(csOne.triggerL2 - 0.5f) < 0.02f);
+    CHECK(std::abs(csOne.triggerR2 - 1.0f) < 0.01f);
+    CHECK(std::abs(csOne.leftStickX - 0.5f) < 0.02f);
+    CHECK(std::abs(csOne.leftStickY - 1.0f) < 0.02f);
+
+    // 3. DualShock 4 controller report decoding (10 bytes min)
+    uint8_t ds4[10] = {
+        0x01,
+        255, // LX full right (+1.0)
+        0,   // LY full up (-1.0 -> inverted is -1.0)
+        128, 128,
+        0x20 | 0x02, // Cross (Xbox A) | D-pad East (Right)
+        0x02 | 0x20, // R1 (RB) | Options (Menu)
+        0x00,
+        0, 255       // RT = 1.0
+    };
+    input::ControllerState csDs4{};
+    CHECK(input::parseDualShock4Report(ds4, sizeof(ds4), csDs4));
+    CHECK(csDs4.btnA == true);
+    CHECK(csDs4.dpadRight == true);
+    CHECK(csDs4.btnR1 == true);
+    CHECK(csDs4.btnOptions == true);
+    CHECK(std::abs(csDs4.triggerR2 - 1.0f) < 0.01f);
+    CHECK(std::abs(csDs4.leftStickX - 1.0f) < 0.02f);
+
+    // 4. Generic Arcade Stick (6 bytes min)
+    uint8_t arcade[6] = {
+        0,   // Left
+        128, // Center Y
+        128, 128,
+        0x01 | 0x04, // Button 1 (A) | Button 3 (X)
+        0x01         // Button 9 (Select/View)
+    };
+    input::ControllerState csArcade{};
+    CHECK(input::parseGenericArcadeReport(arcade, sizeof(arcade), csArcade));
+    CHECK(csArcade.btnA == true);
+    CHECK(csArcade.btnX == true);
+    CHECK(csArcade.btnTouchpad == true);
+    CHECK(csArcade.dpadLeft == true);
+
+    // 5. parseUsbPadReport auto-detection
+    input::ControllerState csAuto{};
+    CHECK(input::parseUsbPadReport(x360, sizeof(x360), csAuto));
+    CHECK(csAuto.btnA == true);
+    CHECK(csAuto.btnR1 == true);
+
+    CHECK(input::parseUsbPadReport(xone, sizeof(xone), csAuto));
+    CHECK(csAuto.btnA == true);
+    CHECK(csAuto.btnX == true);
+
+    CHECK(input::parseUsbPadReport(ds4, sizeof(ds4), csAuto));
+    // 6. Wireless receiver on non-zero slot (slot 1)
+    uint8_t x360WirelessSlot1[18] = {
+        0x00, 0x01, 0x00, 0x14,
+        0x01,       // b1: D-pad Up (0x01)
+        0x12,       // b2: A (0x10) | RB (0x02)
+        0, 255,     // LT=0, RT=255
+        0x00, 0x40, // LX = +16384 (0.5)
+        0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    };
+    input::ControllerState csWireless{};
+    CHECK(input::parseXbox360Report(x360WirelessSlot1, sizeof(x360WirelessSlot1), csWireless));
+    CHECK(csWireless.dpadUp == true);
+    CHECK(csWireless.btnA == true);
+    CHECK(csWireless.btnR1 == true);
+    CHECK(std::abs(csWireless.triggerR2 - 1.0f) < 0.01f);
+    CHECK(input::parseUsbPadReport(x360WirelessSlot1, sizeof(x360WirelessSlot1), csWireless));
+    CHECK(csWireless.dpadUp == true);
+    CHECK(csWireless.btnA == true);
+
+    // 7. Multi-slot simultaneous UHID injection & merging (Xbox 360 on slot 0 + DS4 on slot 1)
+    input::padUsbInit();
+    input::padUsbInjectSlotReportForTesting(0, x360, sizeof(x360));
+    input::padUsbInjectSlotReportForTesting(1, ds4, sizeof(ds4));
+
+    input::ControllerState mergedSlots{};
+    CHECK(input::pollUsbPad(mergedSlots));
+    CHECK(mergedSlots.connected);
+    CHECK(mergedSlots.btnA == true);        // From slot 0 (x360) and slot 1 (ds4)
+    CHECK(mergedSlots.btnR1 == true);       // From slot 0 & slot 1
+    CHECK(mergedSlots.dpadUp == true);      // From slot 0
+    CHECK(mergedSlots.dpadRight == true);   // From slot 1
+    CHECK(std::abs(mergedSlots.leftStickX - 1.0f) < 0.02f); // Further(0.5, 1.0) -> 1.0
+    CHECK(std::abs(mergedSlots.triggerR2 - 1.0f) < 0.01f);
+
+    // Unplug slot 0 -> slot 1 remains active
+    input::padUsbInjectSlotReportForTesting(0, nullptr, 0);
+    input::ControllerState slot1Only{};
+    CHECK(input::pollUsbPad(slot1Only));
+    CHECK(slot1Only.connected);
+    CHECK(slot1Only.dpadUp == false);       // Slot 0 gone
+    CHECK(slot1Only.dpadRight == true);     // Slot 1 still present
+    CHECK(slot1Only.btnR1 == true);
+
+    input::padUsbShutdown();
+}
+
+static void testAudioToHaptics() {
+    media::AudioToHaptics filter;
+    filter.init(48000.0f, 120.0f);
+
+    // 1. Frequency response: 50 Hz sine wave (sub-bass in passband)
+    constexpr size_t kSamples = 960; // 20 ms
+    std::vector<float> sine50(kSamples * 2);
+    for (size_t i = 0; i < kSamples; ++i) {
+        float s = std::sin(2.0f * 3.14159265f * 50.0f * i / 48000.0f);
+        sine50[i * 2] = s;
+        sine50[i * 2 + 1] = s;
+    }
+    float energyPass = 0.0f;
+    for (size_t i = 0; i < kSamples; ++i) {
+        float filtered = filter.processSample(sine50[i * 2]);
+        if (i >= 480) energyPass += filtered * filtered;
+    }
+    energyPass /= 480.0f;
+    CHECK(energyPass > 0.35f); // High passband transmission
+
+    // 2. Frequency response: 1000 Hz sine wave (treble in stopband)
+    filter.reset();
+    std::vector<float> sine1000(kSamples * 2);
+    for (size_t i = 0; i < kSamples; ++i) {
+        float s = std::sin(2.0f * 3.14159265f * 1000.0f * i / 48000.0f);
+        sine1000[i * 2] = s;
+        sine1000[i * 2 + 1] = s;
+    }
+    float energyStop = 0.0f;
+    for (size_t i = 0; i < kSamples; ++i) {
+        float filtered = filter.processSample(sine1000[i * 2]);
+        if (i >= 480) energyStop += filtered * filtered;
+    }
+    energyStop /= 480.0f;
+    CHECK(energyStop < 0.005f); // > 20 dB strong high-frequency attenuation
+
+    // 3. Envelope decay (~100 ms decay test)
+    filter.reset();
+    constexpr size_t kBurstSamples = 2400; // 50 ms of 50 Hz sub-bass burst
+    std::vector<float> burst(kBurstSamples * 2);
+    for (size_t i = 0; i < kBurstSamples; ++i) {
+        float s = std::sin(2.0f * 3.14159265f * 50.0f * i / 48000.0f);
+        burst[i * 2] = s;
+        burst[i * 2 + 1] = s;
+    }
+    filter.process(burst.data(), kBurstSamples, 2);
+    float envPeak = filter.envelope();
+    CHECK(envPeak > 0.0f);
+    std::vector<float> silence(4800 * 2, 0.0f); // 100 ms of silence
+    filter.process(silence.data(), 4800, 2);
+    float envDecayed = filter.envelope();
+    CHECK(envDecayed < envPeak * 0.40f); // Decayed significantly over ~100 ms
+
+    // 4. Sensitivity levels & kick activation
+    media::setAudioHapticsLevel(0);
+    CHECK(media::audioHapticsLevel() == 0);
+    CHECK(!input::audioHapticsEnabled());
+
+    media::setAudioHapticsLevel(2); // Medium
+    CHECK(media::audioHapticsLevel() == 2);
+    CHECK(input::audioHapticsEnabled());
+
+    // 5. Settings and GameProfile serialization roundtrip
+    app::Settings s;
+    s.audioHaptics = 3; // Alto
+    app::GameProfile gp = s.defaultProfile();
+    CHECK(gp.audioHaptics == 3);
+    gp.audioHaptics = 1; // Baixo
+    s.perGame["TEST_GAME"] = gp;
+
+    std::string testPath = "/tmp/test_haptics_settings.json";
+    CHECK(s.save(testPath));
+
+    app::Settings sLoaded;
+    CHECK(sLoaded.load(testPath));
+    CHECK(sLoaded.audioHaptics == 3);
+    CHECK(sLoaded.perGame["TEST_GAME"].audioHaptics == 1);
+    ::unlink(testPath.c_str());
+}
+
+static void testLibraryOfflineCache() {
+    std::string cacheFile = "/tmp/test_library_cache.json";
+    ::unlink(cacheFile.c_str());
+
+    // 1. Populate a library instance and save cache
+    {
+        app::Library lib;
+        lib.setCachePath(cacheFile);
+        lib.markAsOwned("PROD_1001", "TITLE_1001");
+        lib.markAsOwned("PROD_1002", "TITLE_1002");
+        CHECK(lib.ownedKnown());
+        CHECK(lib.owned().size() == 2);
+        lib.saveCache();
+    }
+
+    // 2. Instant-resume load from library_cache.json without network
+    {
+        app::Library libResume;
+        libResume.setCachePath(cacheFile);
+        CHECK(libResume.loadCache(true));
+        CHECK(libResume.ownedKnown());
+        CHECK(libResume.owned().size() == 2);
+    }
+
+    // 3. Fallback to library.json when cachePath doesn't exist
+    std::string legacyFile = "/tmp/library.json";
+    ::rename(cacheFile.c_str(), legacyFile.c_str());
+    {
+        app::Library libFallback;
+        libFallback.setCachePath(cacheFile); // pointing to non-existent library_cache.json
+        CHECK(libFallback.loadCache(true));  // should successfully fall back to library.json
+        CHECK(libFallback.ownedKnown());
+        CHECK(libFallback.owned().size() == 2);
+    }
+    ::unlink(legacyFile.c_str());
+
+    // 4. Empty cache robustness test
+    std::string emptyCacheFile = "/tmp/test_empty_cache.json";
+    ::unlink(emptyCacheFile.c_str());
+    {
+        app::Library libEmpty;
+        libEmpty.setCachePath(emptyCacheFile);
+        CHECK(!libEmpty.loadCache(true)); // no file
+        platform::writeFileAtomic(emptyCacheFile, "{}");
+        CHECK(!libEmpty.loadCache(true)); // version mismatch
+    }
+    ::unlink(emptyCacheFile.c_str());
+}
+
 int main() {
     testBlock3Features();
     testWishlist();
@@ -4107,6 +4520,10 @@ int main() {
     testVoiceRouting();
     testUsbPad8BitDo();
     testDesktopMouseNav();
+    testWebSocketRFC6455();
+    testExpandedUsbControllers();
+    testAudioToHaptics();
+    testLibraryOfflineCache();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

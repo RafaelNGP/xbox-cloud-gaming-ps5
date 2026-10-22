@@ -14,6 +14,7 @@
 #include "auth/auth_manager.h"
 #include "input/controller.h"
 #include "media/audio_out.h"
+#include "media/audio_queue.h"
 #include "net/http.h"
 #include "platform/platform.h"
 #include "ui/strings.h"
@@ -145,6 +146,11 @@ void updateLibraryWishlist(const std::vector<std::string>& wishlist) {
     }
 }
 
+void setInitialLibrary(std::shared_ptr<Library> lib) {
+    std::lock_guard<std::mutex> lock(s_libraryMutex);
+    s_library = std::move(lib);
+}
+
 namespace {
 
 // Streams until the player ends or the user leaves; returns a status line.
@@ -184,6 +190,8 @@ std::string stream(xcloud::GssvClient& gssv) {
                 g_settings.gameVolume);
         media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
         media::audioSetVoiceRouting(g_settings.voiceRouting);
+        int hapticLvl = hasCustom ? prof.audioHaptics : g_settings.audioHaptics;
+        media::setAudioHapticsLevel(hapticLvl);
     }
     std::string err;
     if (!player.start(err)) return "ERROR: " + ui::trf(ui::Str::StreamFailed, err);
@@ -362,6 +370,10 @@ std::string stream(xcloud::GssvClient& gssv) {
     if (!probeDone && player.stats().decodedFrames > 0) recordProbe();  // a short stream still measured
     std::string reason = g_cancel ? "left the game" : autoplayDone ? "autoplay finished" : player.endReason();
     player.stop();
+    {
+        std::lock_guard<std::mutex> lock(g_settingsMutex);
+        media::setAudioHapticsLevel(g_settings.audioHaptics);
+    }
     if (session.seconds >= 5 && (!g_stageTitle.empty() || !g_stageProduct.empty())) {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         uint64_t newTotal = prevPlaytime + session.seconds;
@@ -753,7 +765,11 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         platform::notify(ui::trf(ui::Str::StorageNotWritable, pathAndErr),
                          "storage not writable (notification)");
     }
-    g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
+    if (g_ui->screen() != ui::Screen::Home) {
+        g_ui->showSplash(ui::tr(am.hasStoredAccount() ? ui::Str::SigningIn : ui::Str::RequestingCode));
+    } else {
+        g_ui->setLoading(true, 0, 0);
+    }
     std::string err;
     auto onCode = [](const auth::DeviceCode& dc) { g_ui->showSignIn(dc.userCode, dc.verificationUri); };
     std::string country;
@@ -764,6 +780,12 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     gssv.setLoginCountry(country);
     if (!am.signIn(gssv, onCode, err, &g_cancel)) {
         XC_LOGE("sign-in failed: %s", err.c_str());
+        if (g_ui->screen() == ui::Screen::Home) {
+            platform::notify("Offline mode: sign-in failed (" + err + ")");
+            g_ui->setLoading(false, 0, 0);
+            if (!g_autoplay.title.empty()) XC_LOGI("AUTOPLAY END: sign-in failed");
+            return;
+        }
         if (gssv.loginRefused()) {
             // xCloud said no: maybe not offered in this country. Offers to
             // sign in as another (or, already as one, says it's likely the
@@ -875,7 +897,7 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         std::lock_guard<std::mutex> lock(s_libraryMutex);
         s_library = library;
     }
-    library->setCachePath(platform::dataDir() + "/library.json");
+    library->setCachePath(platform::dataDir() + "/library_cache.json");
     library->setSubscription(g_subscription);
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);
@@ -906,6 +928,11 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv) {
                             },
                             err);
     if (!ok) {
+        if (g_ui->screen() == ui::Screen::Home) {
+            platform::notify("Offline mode: using cached library");
+            g_ui->setLoading(false, 0, 0);
+            return;
+        }
         if (isDnsOrSinkholeError(err)) {
             g_ui->showError(ui::tr(ui::Str::DnsBlockedNanoDns));
         } else {
@@ -1311,6 +1338,11 @@ void worker() {
                 setQueueClient(nullptr);
                 am.signOut();
                 ::unlink((platform::dataDir() + "/library.json").c_str());
+                ::unlink((platform::dataDir() + "/library_cache.json").c_str());
+                {
+                    std::lock_guard<std::mutex> lock(s_libraryMutex);
+                    s_library.reset();
+                }
                 {
                     std::lock_guard<std::mutex> lock(g_argMutex);
                     g_xblAuth.clear();

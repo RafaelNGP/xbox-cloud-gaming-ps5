@@ -62,16 +62,17 @@ constexpr int kResolutionOrder[3] = {1, 0, 2};
 // stream (resolution, a desktop's display mode, 120 Hz, bitrate, region, network test);
 // the controller, keyboard and queue-ready alert; support and updates last. A group starts at each
 // kSettingsGroupStart.
-constexpr int kSettingsCount = 20;
-constexpr int kSettingsOrder[kSettingsCount] = {0, 8, 17, 1, 20, 13, 9, 10, 2, 18, 14, 12, 3, 15, 4, 5, 6, 16, 19, 7};
+constexpr int kSettingsCount = 21;
+constexpr int kSettingsOrder[kSettingsCount] = {0, 8, 17, 1, 20, 13, 9, 10, 2, 18, 14, 12, 3, 15, 4, 21, 5, 6, 16, 19, 7};
 constexpr bool kSettingsGroupStart[kSettingsCount] = {false, false, false, true, false, false, false, false, false, false,
-                                                     true, false, false, false, false, false, false, false, true, false};
+                                                     true, false, false, false, false, false, false, false, false, true, false};
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
 // sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7
 // confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default, 11 controller
-// buttons, 12 gyro aiming, 13 touchpad as mouse, 14 game language, 15 video decoder).
-constexpr int kGameRowOrder[16] = {0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 7, 12, 11, 13, 9, 10};
-constexpr bool kGameGroupStart[16] = {false, true, false, false, false, true, false, false, true, false, false, false, false, false, false, true};
+// buttons, 12 gyro aiming, 13 touchpad as mouse, 14 game language, 15 video decoder, 16 audio-to-haptics).
+constexpr int kGameRowCount = 17;
+constexpr int kGameRowOrder[kGameRowCount] = {0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 16, 7, 12, 11, 13, 9, 10};
+constexpr bool kGameGroupStart[kGameRowCount] = {false, true, false, false, false, true, false, false, true, false, false, false, false, false, false, false, true};
 // The keyboard keys' screen: two columns of inputs, then "Reset to default".
 constexpr int kKeysPerColumn = input::kKeyActions / 2;
 // Updates on a desktop: the newest release's page (the app doesn't install it there).
@@ -244,6 +245,7 @@ std::vector<SettingsRowPos> visibleSettingsRows(const UiCaps& caps) {
     return filterRows(kSettingsOrder, kSettingsGroupStart, [&](int row) {
         switch (row) {
         case 4: return caps.triggerRumble || caps.adaptiveTriggers;  // trigger vibration and its tester
+        case 21: return caps.triggerRumble || caps.adaptiveTriggers; // audio-to-haptics
         case 6: return caps.lightBar;
         case 9: return caps.highRefresh;
         case 13: return caps.desktopWindow;
@@ -267,6 +269,7 @@ std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool cus
         case 2: return caps.sharpen;
         case 3: return caps.deband;
         case 6: return caps.triggerRumble || caps.adaptiveTriggers;
+        case 16: return caps.triggerRumble || caps.adaptiveTriggers; // audio-to-haptics
         case 8: return caps.highRefresh;
         case 10: return custom;
         case 12: return caps.gyro;
@@ -1718,6 +1721,7 @@ void AppUi::openGameSettings() {
         activeGameProfile_.triggerHz = settings_.triggerHz;
         activeGameProfile_.triggerResistance = settings_.triggerResistance;
         activeGameProfile_.triggerPulses = settings_.triggerPulses;
+        activeGameProfile_.audioHaptics = settings_.audioHaptics;
         activeGameProfile_.circleConfirms = settings_.circleConfirms;
         activeGameProfile_.highRefresh = settings_.highRefresh;
         activeGameProfile_.keyMap = settings_.keyMap;
@@ -1854,6 +1858,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         out = {tr(Str::SupportKoFi)};
     } else if (row == 20) {
         out = {tr(Str::VideoDecoderHw), tr(Str::VideoDecoderSw)};
+    } else if (row == 21) {
+        out = {tr(Str::Off), tr(Str::SharpLow), tr(Str::SharpMedium), tr(Str::SharpHigh)};
     } else if (row == 8) {
         out.push_back(loginCountryOffText());
         for (const char* country : kLoginCountries) out.push_back(loginCountryName(country));
@@ -1883,6 +1889,7 @@ int AppUi::settingSelected(int row) const {
     if (row == 15) return std::clamp(settings_.gyroMode, 0, 2);
     if (row == 16) return settings_.queueReadyAlert ? 1 : 0;
     if (row == 20) return std::clamp(settings_.videoDecoder, 0, 1);
+    if (row == 21) return std::clamp(settings_.audioHaptics, 0, 3);
     if (row == 10) {
         if (settings_.maxBitrateMbps <= 0) return 0;
         int closest = 1;
@@ -1945,6 +1952,8 @@ void AppUi::applySetting(int row, int index) {
         settings_.queueReadyAlert = (index == 1);
     } else if (row == 20) {
         settings_.videoDecoder = index;
+    } else if (row == 21) {
+        settings_.audioHaptics = std::clamp(index, 0, 3);
     } else if (row == 8) {
         settings_.loginCountry = index == 0 ? std::string() : kLoginCountries[index - 1];
     } else {
@@ -2660,6 +2669,11 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             activeGameHasCustom_ = true;
             dirty_ = true;
             break;
+        case 16: // Audio-to-Haptics (0..3)
+            activeGameProfile_.audioHaptics = std::clamp(activeGameProfile_.audioHaptics + dir, 0, 3);
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
         case 7: // Confirm button
             activeGameProfile_.circleConfirms = !activeGameProfile_.circleConfirms;
             activeGameHasCustom_ = true;
@@ -2756,6 +2770,11 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             dirty_ = true;
             break;
         }
+        case 16:
+            activeGameProfile_.audioHaptics = (activeGameProfile_.audioHaptics + 1) % 4;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
         case 7:
             activeGameProfile_.circleConfirms = !activeGameProfile_.circleConfirms;
             activeGameHasCustom_ = true;
@@ -2817,6 +2836,7 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             activeGameProfile_.triggerResistance = settings_.triggerResistance;
             activeGameProfile_.triggerPulses = settings_.triggerPulses;
             activeGameProfile_.triggerProfile = settings_.triggerProfile;
+            activeGameProfile_.audioHaptics = settings_.audioHaptics;
             activeGameProfile_.circleConfirms = settings_.circleConfirms;
             activeGameProfile_.highRefresh = settings_.highRefresh;
             activeGameProfile_.gyroMode = gyroMode_;
@@ -5028,7 +5048,7 @@ void AppUi::drawSettings(Canvas& c) {
                                         tr(Str::KeyboardKeys),  tr(Str::DisplayMode),   tr(Str::ControllerButtons),
                                         tr(Str::Gyro),          tr(Str::QueueReadyNotification),
                                         tr(Str::CheckSignIn),   tr(Str::NetworkTest),   tr(Str::SupportProject),
-                                        tr(Str::VideoDecoder)};
+                                        tr(Str::VideoDecoder),  tr(Str::AudioHaptics)};
     constexpr int kRowW = 1200, kRowH = 34, kGap = 2, kGroupGap = 6, kRowPx = 23;
     Rect rows[kSettingRows];  // by row id
     int y = 190;
@@ -5119,6 +5139,7 @@ void AppUi::drawSettings(Canvas& c) {
         Str::SettingDescNetworkTest,
         Str::SettingDescSupportProject,
         Str::SettingDescVideoDecoder,
+        Str::SettingDescAudioHaptics,
     };
     if (settingsRow_ >= 0 && settingsRow_ < kSettingRows) {
         int dy = 925;
@@ -6174,6 +6195,12 @@ void AppUi::drawGameSettings(Canvas& c) {
             static constexpr Str kStrengths[] = {Str::Deactivated, Str::TriggerLight, Str::TriggerMedium,
                                                  Str::TriggerStrong, Str::TriggerMax};
             value = tr(kStrengths[std::clamp(activeGameProfile_.triggerStrength, 0, 4)]);
+            break;
+        }
+        case 16: {
+            label = tr(Str::AudioHaptics);
+            static constexpr Str kHapticsLevels[] = {Str::Off, Str::SharpLow, Str::SharpMedium, Str::SharpHigh};
+            value = tr(kHapticsLevels[std::clamp(activeGameProfile_.audioHaptics, 0, 3)]);
             break;
         }
         case 7:

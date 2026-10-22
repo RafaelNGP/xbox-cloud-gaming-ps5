@@ -42,7 +42,6 @@ void loop() {
     platform::setThreadRealtimePriority();
     std::vector<float> grain(kGrain * 2);
     AudioQueue& queue = audioQueue();
-    float lowPass = 0.0f;
     while (g_running) {
         queue.pull(grain.data(), kGrain);  // silence past what is queued
         int h = g_handle;
@@ -51,19 +50,10 @@ void loop() {
             continue;
         }
 
-        // Audio-to-Haptics: detect deep sub-bass impacts (cutoff ~100 Hz at 48 kHz)
-        if (input::audioHapticsEnabled()) {
-            float energy = 0.0f;
-            for (unsigned i = 0; i < kGrain; ++i) {
-                float mono = 0.5f * (grain[i * 2] + grain[i * 2 + 1]);
-                lowPass += 0.013f * (mono - lowPass);
-                energy += lowPass * lowPass;
-            }
-            energy /= static_cast<float>(kGrain);
-            if (energy > 0.06f) {
-                uint8_t kick = static_cast<uint8_t>(std::clamp((energy - 0.06f) * 1400.0f, 40.0f, 180.0f));
-                input::setAudioHaptics(kick, 60);
-            }
+        // Audio-to-Haptics on DualSense: 2nd-order IIR biquad lowpass filter & envelope kick
+        int hapticsLvl = media::audioHapticsLevel();
+        if (hapticsLvl > 0) {
+            media::audioToHaptics().process(grain.data(), kGrain, hapticsLvl);
         }
 
         // Blocks until the hardware wants the next grain (5.3 ms).

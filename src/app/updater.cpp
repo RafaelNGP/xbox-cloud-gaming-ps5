@@ -187,7 +187,7 @@ bool updatablePath(const std::string& path) {
         start = slash + 1;
     }
     static const std::set<std::string> kUsers = {"account.json", "settings.json",  "library.json",
-                                                 "prices.json",  "xcloud.log",     "autoplay.txt",
+                                                 "library_cache.json", "prices.json",  "xcloud.log",     "autoplay.txt",
                                                  "update.journal", "store_import.done", "settings.json.bad"};
     std::string top = path.substr(0, path.find('/'));
     return !kUsers.count(path) && top != "imgcache" && top.rfind("update.", 0) != 0 && path.find(".ppm") == std::string::npos;
@@ -359,7 +359,7 @@ bool importStoreLeftovers(const std::string& dir, const std::string& previousDir
     platform::writeFileAtomic(done, "1\n");
     if (signedIn) return false;
     int copied = 0;
-    for (const char* name : {"account.json", "settings.json", "library.json", "prices.json"})
+    for (const char* name : {"account.json", "settings.json", "library.json", "library_cache.json", "prices.json"})
         if (platform::readFile(previousDir + "/" + name, text) && platform::writeFileAtomic(dir + "/" + name, text))
             ++copied;
     XC_LOGI("store update: %d user file(s) brought back from the previous version's folder", copied);

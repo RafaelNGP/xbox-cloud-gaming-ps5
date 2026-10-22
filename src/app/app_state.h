@@ -20,6 +20,7 @@
 namespace xc::app {
 
 class StreamPlayer;
+class Library;
 
 extern std::unique_ptr<ui::AppUi> g_ui;
 
@@ -53,6 +54,8 @@ void skipOfferedUpdate();
 void updateLibraryFavorites(const std::vector<std::string>& favorites);
 // Updates the running library's wishlist and refreshes UI rows.
 void updateLibraryWishlist(const std::vector<std::string>& wishlist);
+// Sets the initial library loaded from offline cache before worker thread runs.
+void setInitialLibrary(std::shared_ptr<Library> lib);
 
 // The running stream, for the input thread.
 extern std::mutex g_playerMutex;

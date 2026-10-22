@@ -10,16 +10,27 @@
 #include "util/json.h"
 #include "util/log.h"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
+#include <mbedtls/base64.h>
+#include <mbedtls/sha1.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <thread>
 #include <unistd.h>
 
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
 namespace xc::app {
+
+static WebServerHooks s_hooks;
 
 namespace {
 
@@ -1190,17 +1201,49 @@ function loadStreamMenuState() {
   }).catch(() => {});
 }
 
+function renderTelemetry(data) {
+  if (!data) return;
+  if (data.fps !== undefined) document.getElementById('telFps').textContent = data.fps;
+  if (data.rttMs !== undefined) document.getElementById('telRtt').textContent = data.rttMs + ' ms';
+  if (data.mbps !== undefined) document.getElementById('telMbps').textContent = (typeof data.mbps === 'number' ? data.mbps.toFixed(1) : data.mbps) + ' Mbps';
+  if (data.lossPct !== undefined) document.getElementById('telLoss').textContent = (typeof data.lossPct === 'number' ? data.lossPct.toFixed(1) : data.lossPct) + '%';
+  if (data.qp !== undefined) document.getElementById('telQp').textContent = data.qp;
+  if (data.decodeMs !== undefined) document.getElementById('telDec').textContent = (typeof data.decodeMs === 'number' ? data.decodeMs.toFixed(1) : data.decodeMs) + ' ms';
+}
+
+let ws = null;
+function initWs() {
+  try {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(proto + '//' + location.host + '/ws');
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'telemetry' && msg.stats) {
+          renderTelemetry(msg.stats);
+        } else if (msg.fps !== undefined) {
+          renderTelemetry(msg);
+        }
+      } catch (_) {}
+    };
+    ws.onclose = () => {
+      ws = null;
+      setTimeout(initWs, 2000);
+    };
+    ws.onerror = () => {
+      try { ws.close(); } catch(_) {}
+    };
+  } catch (_) {
+    ws = null;
+  }
+}
+initWs();
+
 function pollStats() {
+  if (ws && ws.readyState === WebSocket.OPEN) return;
   const streamTab = document.getElementById('tab-stream');
   if (!streamTab || streamTab.style.display === 'none') return;
-  fetch('/api/stats').then(r => r.json()).then(data => {
-    if (data.fps !== undefined) document.getElementById('telFps').textContent = data.fps;
-    if (data.rttMs !== undefined) document.getElementById('telRtt').textContent = data.rttMs + ' ms';
-    if (data.mbps !== undefined) document.getElementById('telMbps').textContent = (typeof data.mbps === 'number' ? data.mbps.toFixed(1) : data.mbps) + ' Mbps';
-    if (data.lossPct !== undefined) document.getElementById('telLoss').textContent = (typeof data.lossPct === 'number' ? data.lossPct.toFixed(1) : data.lossPct) + '%';
-    if (data.qp !== undefined) document.getElementById('telQp').textContent = data.qp;
-    if (data.decodeMs !== undefined) document.getElementById('telDec').textContent = (typeof data.decodeMs === 'number' ? data.decodeMs.toFixed(1) : data.decodeMs) + ' ms';
-  }).catch(() => {});
+  fetch('/api/stats').then(r => r.json()).then(renderTelemetry).catch(() => {});
 }
 setInterval(pollStats, 1000);
 
@@ -1365,11 +1408,15 @@ function setVirtualPlayer(p) {
 
 function sendPadState() {
   const payload = { player: activePlayer, ...padState };
-  fetch('/api/gamepad', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  }).catch(() => {});
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload));
+  } else {
+    fetch('/api/gamepad', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
+  }
 }
 
 function schedulePadSend() {
@@ -1620,12 +1667,266 @@ bool WebServer::start(uint16_t port) {
     return true;
 }
 
+namespace ws {
+
+std::string computeAccept(const std::string& key) {
+    std::string trimmed = key;
+    while (!trimmed.empty() && (trimmed.front() == ' ' || trimmed.front() == '\t' || trimmed.front() == '\r' || trimmed.front() == '\n')) {
+        trimmed.erase(trimmed.begin());
+    }
+    while (!trimmed.empty() && (trimmed.back() == ' ' || trimmed.back() == '\t' || trimmed.back() == '\r' || trimmed.back() == '\n')) {
+        trimmed.pop_back();
+    }
+    trimmed += "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+    unsigned char sha[20];
+    mbedtls_sha1(reinterpret_cast<const unsigned char*>(trimmed.data()), trimmed.size(), sha);
+    unsigned char b64[64];
+    size_t olen = 0;
+    mbedtls_base64_encode(b64, sizeof(b64), &olen, sha, sizeof(sha));
+    return std::string(reinterpret_cast<char*>(b64), olen);
+}
+
+std::vector<uint8_t> makeFrame(Opcode opcode, const uint8_t* data, size_t len, bool fin) {
+    std::vector<uint8_t> frame;
+    uint8_t b0 = (fin ? 0x80 : 0x00) | (static_cast<uint8_t>(opcode) & 0x0F);
+    frame.push_back(b0);
+    if (len < 126) {
+        frame.push_back(static_cast<uint8_t>(len));
+    } else if (len <= 0xFFFF) {
+        frame.push_back(126);
+        frame.push_back(static_cast<uint8_t>((len >> 8) & 0xFF));
+        frame.push_back(static_cast<uint8_t>(len & 0xFF));
+    } else {
+        frame.push_back(127);
+        for (int i = 7; i >= 0; --i) {
+            frame.push_back(static_cast<uint8_t>((static_cast<uint64_t>(len) >> (i * 8)) & 0xFF));
+        }
+    }
+    if (data && len > 0) {
+        frame.insert(frame.end(), data, data + len);
+    }
+    return frame;
+}
+
+std::vector<uint8_t> makeTextFrame(const std::string& text) {
+    return makeFrame(Opcode::Text, reinterpret_cast<const uint8_t*>(text.data()), text.size());
+}
+
+std::vector<uint8_t> makeBinaryFrame(const uint8_t* data, size_t len) {
+    return makeFrame(Opcode::Binary, data, len);
+}
+
+std::vector<uint8_t> makePongFrame(const std::vector<uint8_t>& pingPayload) {
+    return makeFrame(Opcode::Pong, pingPayload.data(), pingPayload.size());
+}
+
+std::vector<uint8_t> makeCloseFrame(uint16_t code) {
+    uint8_t payload[2];
+    payload[0] = static_cast<uint8_t>((code >> 8) & 0xFF);
+    payload[1] = static_cast<uint8_t>(code & 0xFF);
+    return makeFrame(Opcode::Close, payload, sizeof(payload));
+}
+
+bool parseFrame(const uint8_t* data, size_t len, Frame& outFrame, size_t& bytesConsumed) {
+    if (!data || len < 2) return false;
+    bool fin = (data[0] & 0x80) != 0;
+    Opcode opcode = static_cast<Opcode>(data[0] & 0x0F);
+    bool masked = (data[1] & 0x80) != 0;
+    uint8_t lenField = data[1] & 0x7F;
+
+    size_t headerSize = 2;
+    uint64_t payloadLen = 0;
+    if (lenField < 126) {
+        payloadLen = lenField;
+    } else if (lenField == 126) {
+        if (len < headerSize + 2) return false;
+        payloadLen = (static_cast<uint64_t>(data[2]) << 8) | data[3];
+        headerSize += 2;
+    } else {
+        if (len < headerSize + 8) return false;
+        payloadLen = 0;
+        for (int i = 0; i < 8; ++i) {
+            payloadLen = (payloadLen << 8) | data[headerSize + i];
+        }
+        headerSize += 8;
+    }
+    if (payloadLen > 1048576) return false;
+
+    uint8_t maskKey[4] = {0, 0, 0, 0};
+    if (masked) {
+        if (len < headerSize + 4) return false;
+        std::memcpy(maskKey, data + headerSize, 4);
+        headerSize += 4;
+    }
+
+    if (len < headerSize + payloadLen) return false;
+
+    outFrame.fin = fin;
+    outFrame.opcode = opcode;
+    outFrame.payload.resize(static_cast<size_t>(payloadLen));
+    for (size_t i = 0; i < payloadLen; ++i) {
+        uint8_t b = data[headerSize + i];
+        if (masked) b ^= maskKey[i % 4];
+        outFrame.payload[i] = b;
+    }
+    bytesConsumed = headerSize + static_cast<size_t>(payloadLen);
+    return true;
+}
+
+}  // namespace ws
+
+bool parseGamepadJson(const json::Value& val, int& outSlot, input::ControllerState& outState) {
+    if (!val.isObject()) return false;
+    int slot = 0;
+    if (val.has("playerIndex")) {
+        slot = static_cast<int>(val["playerIndex"].asInt(0));
+    } else if (val.has("player")) {
+        int p = static_cast<int>(val["player"].asInt(1));
+        slot = (p == 2) ? 1 : 0;
+    }
+    if (slot < 0) slot = 0;
+    if (slot > 1) slot = 1;
+    outSlot = slot;
+
+    outState = input::ControllerState{};
+    outState.connected = true;
+
+    auto readButton = [](const json::Value& b) -> bool {
+        if (b.isBool()) return b.asBool();
+        if (b.isNumber()) return b.asNumber() > 0.5;
+        if (b.isObject()) {
+            if (b.has("pressed")) return b["pressed"].asBool();
+            if (b.has("value")) return b["value"].asNumber() > 0.5;
+        }
+        return false;
+    };
+
+    auto readTrigger = [](const json::Value& b) -> float {
+        if (b.isNumber()) return static_cast<float>(b.asNumber(0.0));
+        if (b.isBool()) return b.asBool() ? 1.0f : 0.0f;
+        if (b.isObject() && b.has("value")) return static_cast<float>(b["value"].asNumber(0.0));
+        if (b.isObject() && b.has("pressed")) return b["pressed"].asBool() ? 1.0f : 0.0f;
+        return 0.0f;
+    };
+
+    // 1. W3C Gamepad API standard arrays
+    if (val.has("buttons") && val["buttons"].isArray()) {
+        const auto& arr = val["buttons"];
+        size_t n = arr.size();
+        if (n > 0) outState.btnA = readButton(arr[0]);
+        if (n > 1) outState.btnB = readButton(arr[1]);
+        if (n > 2) outState.btnX = readButton(arr[2]);
+        if (n > 3) outState.btnY = readButton(arr[3]);
+        if (n > 4) outState.btnL1 = readButton(arr[4]);
+        if (n > 5) outState.btnR1 = readButton(arr[5]);
+        if (n > 6) outState.triggerL2 = readTrigger(arr[6]);
+        if (n > 7) outState.triggerR2 = readTrigger(arr[7]);
+        if (n > 8) outState.btnTouchpad = readButton(arr[8]); // Select / View
+        if (n > 9) outState.btnOptions = readButton(arr[9]);   // Start / Menu
+        if (n > 10) outState.btnL3 = readButton(arr[10]);
+        if (n > 11) outState.btnR3 = readButton(arr[11]);
+        if (n > 12) outState.dpadUp = readButton(arr[12]);
+        if (n > 13) outState.dpadDown = readButton(arr[13]);
+        if (n > 14) outState.dpadLeft = readButton(arr[14]);
+        if (n > 15) outState.dpadRight = readButton(arr[15]);
+        if (n > 16) outState.btnNexus = readButton(arr[16]);   // Xbox / Guide
+    }
+
+    if (val.has("axes") && val["axes"].isArray()) {
+        const auto& arr = val["axes"];
+        size_t n = arr.size();
+        if (n > 0) outState.leftStickX = static_cast<float>(arr[0].asNumber(0.0));
+        if (n > 1) outState.leftStickY = static_cast<float>(arr[1].asNumber(0.0));
+        if (n > 2) outState.rightStickX = static_cast<float>(arr[2].asNumber(0.0));
+        if (n > 3) outState.rightStickY = static_cast<float>(arr[3].asNumber(0.0));
+    }
+
+    // 2. Named / object mappings and flat fields
+    auto getBool = [&](const char* k1, const char* k2 = nullptr, const char* k3 = nullptr) -> bool {
+        if (val.has(k1)) return val[k1].asBool(false);
+        if (k2 && val.has(k2)) return val[k2].asBool(false);
+        if (k3 && val.has(k3)) return val[k3].asBool(false);
+        if (val.has("buttons") && val["buttons"].isObject()) {
+            const auto& b = val["buttons"];
+            if (b.has(k1)) return b[k1].asBool(false);
+            if (k2 && b.has(k2)) return b[k2].asBool(false);
+            if (k3 && b.has(k3)) return b[k3].asBool(false);
+        }
+        return false;
+    };
+
+    auto getFloat = [&](const char* k1, const char* k2 = nullptr) -> float {
+        if (val.has(k1)) return static_cast<float>(val[k1].asNumber(0.0));
+        if (k2 && val.has(k2)) return static_cast<float>(val[k2].asNumber(0.0));
+        if (val.has("axes") && val["axes"].isObject()) {
+            const auto& a = val["axes"];
+            if (a.has(k1)) return static_cast<float>(a[k1].asNumber(0.0));
+            if (k2 && a.has(k2)) return static_cast<float>(a[k2].asNumber(0.0));
+        }
+        return 0.0f;
+    };
+
+    if (getBool("btnA", "a")) outState.btnA = true;
+    if (getBool("btnB", "b")) outState.btnB = true;
+    if (getBool("btnX", "x")) outState.btnX = true;
+    if (getBool("btnY", "y")) outState.btnY = true;
+
+    if (getBool("dpadUp", "dpad_up", "up")) outState.dpadUp = true;
+    if (getBool("dpadDown", "dpad_down", "down")) outState.dpadDown = true;
+    if (getBool("dpadLeft", "dpad_left", "left")) outState.dpadLeft = true;
+    if (getBool("dpadRight", "dpad_right", "right")) outState.dpadRight = true;
+
+    if (getBool("btnL1", "lb", "l1")) outState.btnL1 = true;
+    if (getBool("btnR1", "rb", "r1")) outState.btnR1 = true;
+    if (getBool("btnL3", "ls", "l3")) outState.btnL3 = true;
+    if (getBool("btnR3", "rs", "r3")) outState.btnR3 = true;
+
+    if (getBool("btnTouchpad", "btnView", "view")) outState.btnTouchpad = true;
+    if (getBool("btnOptions", "btnMenu", "menu")) outState.btnOptions = true;
+    if (getBool("btnNexus", "xbox", "guide")) outState.btnNexus = true;
+
+    float tL = getFloat("triggerL2", "lt");
+    if (tL > 0.0f) outState.triggerL2 = tL;
+    float tR = getFloat("triggerR2", "rt");
+    if (tR > 0.0f) outState.triggerR2 = tR;
+
+    if (val.has("leftStickX") || val.has("lx") || (val.has("axes") && val["axes"].isObject())) {
+        float lx = getFloat("leftStickX", "lx");
+        if (std::abs(lx) > 0.001f) outState.leftStickX = lx;
+    }
+    if (val.has("leftStickY") || val.has("ly") || (val.has("axes") && val["axes"].isObject())) {
+        float ly = getFloat("leftStickY", "ly");
+        if (std::abs(ly) > 0.001f) outState.leftStickY = ly;
+    }
+    if (val.has("rightStickX") || val.has("rx") || (val.has("axes") && val["axes"].isObject())) {
+        float rx = getFloat("rightStickX", "rx");
+        if (std::abs(rx) > 0.001f) outState.rightStickX = rx;
+    }
+    if (val.has("rightStickY") || val.has("ry") || (val.has("axes") && val["axes"].isObject())) {
+        float ry = getFloat("rightStickY", "ry");
+        if (std::abs(ry) > 0.001f) outState.rightStickY = ry;
+    }
+
+    outState.rawLeftX = outState.leftStickX;
+    outState.rawLeftY = outState.leftStickY;
+    outState.rawRightX = outState.rightStickX;
+    outState.rawRightY = outState.rightStickY;
+    return true;
+}
+
 void WebServer::stop() {
     if (!running_.exchange(false)) return;
     if (listenFd_ >= 0) {
         ::shutdown(listenFd_, SHUT_RDWR);
         ::close(listenFd_);
         listenFd_ = -1;
+    }
+    {
+        std::lock_guard<std::mutex> lock(wsMutex_);
+        for (int fd : wsClients_) {
+            ::shutdown(fd, SHUT_RDWR);
+        }
+        wsClients_.clear();
     }
     if (thread_.joinable()) {
         thread_.join();
@@ -1643,8 +1944,10 @@ void WebServer::threadLoop() {
             socklen_t clientLen = sizeof(clientAddr);
             int clientFd = ::accept(listenFd_, reinterpret_cast<sockaddr*>(&clientAddr), &clientLen);
             if (clientFd >= 0) {
-                handleClient(clientFd);
-                ::close(clientFd);
+                std::thread([this, clientFd]() {
+                    handleClient(clientFd);
+                    ::close(clientFd);
+                }).detach();
             }
         }
     }
@@ -1712,9 +2015,36 @@ void WebServer::handleClient(int clientFd) {
     auto qpos = path.find('?');
     if (qpos != std::string::npos) path = path.substr(0, qpos);
 
+    // WebSocket upgrade check
+    auto hdrEnd = req.find("\r\n\r\n");
+    if (hdrEnd != std::string::npos) {
+        std::string lowerHdr = req.substr(0, hdrEnd);
+        for (char& c : lowerHdr) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        bool isWs = (lowerHdr.find("upgrade: websocket") != std::string::npos ||
+                     (lowerHdr.find("upgrade:") != std::string::npos && lowerHdr.find("websocket") != std::string::npos));
+        if (isWs && (path == "/ws" || path == "/api/ws")) {
+            auto keyPos = lowerHdr.find("sec-websocket-key:");
+            if (keyPos != std::string::npos) {
+                size_t valStart = keyPos + 18;
+                while (valStart < hdrEnd && (req[valStart] == ' ' || req[valStart] == '\t')) valStart++;
+                size_t valEnd = req.find("\r\n", valStart);
+                if (valEnd != std::string::npos) {
+                    std::string secKey = req.substr(valStart, valEnd - valStart);
+                    std::string accept = ws::computeAccept(secKey);
+                    std::string resp = "HTTP/1.1 101 Switching Protocols\r\n"
+                                       "Upgrade: websocket\r\n"
+                                       "Connection: Upgrade\r\n"
+                                       "Sec-WebSocket-Accept: " + accept + "\r\n\r\n";
+                    ::send(clientFd, resp.data(), resp.size(), MSG_NOSIGNAL);
+                    handleWebSocket(clientFd);
+                    return;
+                }
+            }
+        }
+    }
+
     // Find body if present
     std::string body;
-    auto hdrEnd = req.find("\r\n\r\n");
     if (hdrEnd != std::string::npos) {
         body = req.substr(hdrEnd + 4);
         if (contentLength > 0 && body.size() > contentLength) {
@@ -1745,6 +2075,123 @@ void WebServer::handleClient(int clientFd) {
         ssize_t w = ::send(clientFd, response.data() + sent, response.size() - sent, 0);
         if (w <= 0) break;
         sent += static_cast<size_t>(w);
+    }
+}
+
+void WebServer::handleWebSocket(int wsFd) {
+    int nodelay = 1;
+    ::setsockopt(wsFd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
+    {
+        std::lock_guard<std::mutex> lock(wsMutex_);
+        wsClients_.push_back(wsFd);
+    }
+
+    std::vector<uint8_t> inBuf;
+    uint8_t recvBuf[4096];
+    uint64_t lastTelMs = 0;
+
+    while (running_.load()) {
+        pollfd pfd{wsFd, POLLIN, 0};
+        int pr = ::poll(&pfd, 1, 30);  // ~33 Hz tick
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
+            break;
+        }
+        if (pfd.revents & POLLIN) {
+            ssize_t n = ::recv(wsFd, recvBuf, sizeof(recvBuf), 0);
+            if (n <= 0) break;
+            if (inBuf.size() + n > 65536) inBuf.clear();
+            inBuf.insert(inBuf.end(), recvBuf, recvBuf + n);
+
+            ws::Frame frame;
+            size_t consumed = 0;
+            while (ws::parseFrame(inBuf.data(), inBuf.size(), frame, consumed)) {
+                inBuf.erase(inBuf.begin(), inBuf.begin() + consumed);
+                if (frame.opcode == ws::Opcode::Close) {
+                    auto closeResp = ws::makeCloseFrame();
+                    ::send(wsFd, closeResp.data(), closeResp.size(), MSG_NOSIGNAL);
+                    goto done;
+                } else if (frame.opcode == ws::Opcode::Ping) {
+                    auto pong = ws::makePongFrame(frame.payload);
+                    ::send(wsFd, pong.data(), pong.size(), MSG_NOSIGNAL);
+                } else if (frame.opcode == ws::Opcode::Text) {
+                    std::string jsonStr(reinterpret_cast<const char*>(frame.payload.data()), frame.payload.size());
+                    auto j = json::parse(jsonStr);
+                    if (j && j->isObject()) {
+                        int slot = 0;
+                        input::ControllerState s{};
+                        if (parseGamepadJson(*j, slot, s)) {
+                            setVirtualGamepad(slot, s);
+                            if (s_hooks.injectGamepad) s_hooks.injectGamepad(slot, s);
+                        }
+                    }
+                } else if (frame.opcode == ws::Opcode::Binary) {
+                    if (frame.payload.size() >= 13) {
+                        int slot = frame.payload[0] & 0x01;
+                        uint16_t btns = static_cast<uint16_t>(frame.payload[1]) | (static_cast<uint16_t>(frame.payload[2]) << 8);
+                        input::ControllerState s{};
+                        s.connected = true;
+                        s.btnA = (btns & 0x0001) != 0;
+                        s.btnB = (btns & 0x0002) != 0;
+                        s.btnX = (btns & 0x0004) != 0;
+                        s.btnY = (btns & 0x0008) != 0;
+                        s.dpadUp = (btns & 0x0010) != 0;
+                        s.dpadDown = (btns & 0x0020) != 0;
+                        s.dpadLeft = (btns & 0x0040) != 0;
+                        s.dpadRight = (btns & 0x0080) != 0;
+                        s.btnL1 = (btns & 0x0100) != 0;
+                        s.btnR1 = (btns & 0x0200) != 0;
+                        s.btnL3 = (btns & 0x0400) != 0;
+                        s.btnR3 = (btns & 0x0800) != 0;
+                        s.btnTouchpad = (btns & 0x1000) != 0;
+                        s.btnOptions = (btns & 0x2000) != 0;
+                        s.btnNexus = (btns & 0x4000) != 0;
+                        s.triggerL2 = static_cast<float>(frame.payload[3]) / 255.0f;
+                        s.triggerR2 = static_cast<float>(frame.payload[4]) / 255.0f;
+                        int16_t lx = static_cast<int16_t>(frame.payload[5] | (frame.payload[6] << 8));
+                        int16_t ly = static_cast<int16_t>(frame.payload[7] | (frame.payload[8] << 8));
+                        int16_t rx = static_cast<int16_t>(frame.payload[9] | (frame.payload[10] << 8));
+                        int16_t ry = static_cast<int16_t>(frame.payload[11] | (frame.payload[12] << 8));
+                        s.leftStickX = std::clamp(static_cast<float>(lx) / 32768.0f, -1.0f, 1.0f);
+                        s.leftStickY = std::clamp(static_cast<float>(ly) / 32768.0f, -1.0f, 1.0f);
+                        s.rightStickX = std::clamp(static_cast<float>(rx) / 32768.0f, -1.0f, 1.0f);
+                        s.rightStickY = std::clamp(static_cast<float>(ry) / 32768.0f, -1.0f, 1.0f);
+                        s.rawLeftX = s.leftStickX;
+                        s.rawLeftY = s.leftStickY;
+                        s.rawRightX = s.rightStickX;
+                        s.rawRightY = s.rightStickY;
+                        setVirtualGamepad(slot, s);
+                        if (s_hooks.injectGamepad) s_hooks.injectGamepad(slot, s);
+                    }
+                }
+            }
+        }
+
+        uint64_t now = platform::nowMs();
+        if (now - lastTelMs >= 30) {  // ~33 fps telemetry
+            lastTelMs = now;
+            json::Value tel = json::Value::object();
+            tel.set("type", "telemetry");
+            json::Value stats = json::Value::object();
+            if (s_hooks.getTelemetry) s_hooks.getTelemetry(stats);
+            tel.set("stats", stats);
+            auto f = ws::makeTextFrame(tel.dump());
+            ssize_t sent = ::send(wsFd, f.data(), f.size(), MSG_NOSIGNAL);
+            if (sent < 0 && (errno != EAGAIN && errno != EWOULDBLOCK)) {
+                break;
+            }
+        }
+    }
+
+done:
+    {
+        std::lock_guard<std::mutex> lock(wsMutex_);
+        auto it = std::find(wsClients_.begin(), wsClients_.end(), wsFd);
+        if (it != wsClients_.end()) wsClients_.erase(it);
     }
 }
 
@@ -1787,8 +2234,6 @@ void resetVirtualGamepads() {
     s_virtualPads[0] = {};
     s_virtualPads[1] = {};
 }
-
-static WebServerHooks s_hooks;
 
 void setWebServerHooks(WebServerHooks hooks) {
     s_hooks = std::move(hooks);
@@ -1855,6 +2300,9 @@ WebServer::HttpResponse WebServer::handleRequest(const std::string& method, cons
             }
             return {200, "application/json", "", menu.dump()};
         }
+        if (path == "/ws" || path == "/api/ws") {
+            return {101, "application/json", "", "{\"ok\":true,\"endpoint\":\"websocket\"}"};
+        }
     }
 
     if (method == "POST") {
@@ -1864,43 +2312,10 @@ WebServer::HttpResponse WebServer::handleRequest(const std::string& method, cons
                 return {400, "application/json", "", "{\"ok\":false,\"error\":\"invalid json\"}"};
             }
             int slot = 0;
-            if ((*j).has("playerIndex")) {
-                slot = static_cast<int>((*j)["playerIndex"].asInt(0));
-            } else if ((*j).has("player")) {
-                int p = static_cast<int>((*j)["player"].asInt(1));
-                slot = (p == 2) ? 1 : 0;
-            }
-            if (slot < 0) slot = 0;
-            if (slot > 1) slot = 1;
-            int player = slot + 1;
-
             input::ControllerState s{};
-            if ((*j).has("btnA")) s.btnA = (*j)["btnA"].asBool(false);
-            if ((*j).has("btnB")) s.btnB = (*j)["btnB"].asBool(false);
-            if ((*j).has("btnX")) s.btnX = (*j)["btnX"].asBool(false);
-            if ((*j).has("btnY")) s.btnY = (*j)["btnY"].asBool(false);
-
-            if ((*j).has("dpadUp")) s.dpadUp = (*j)["dpadUp"].asBool(false);
-            if ((*j).has("dpadDown")) s.dpadDown = (*j)["dpadDown"].asBool(false);
-            if ((*j).has("dpadLeft")) s.dpadLeft = (*j)["dpadLeft"].asBool(false);
-            if ((*j).has("dpadRight")) s.dpadRight = (*j)["dpadRight"].asBool(false);
-
-            if ((*j).has("btnL1")) s.btnL1 = (*j)["btnL1"].asBool(false);
-            if ((*j).has("btnR1")) s.btnR1 = (*j)["btnR1"].asBool(false);
-            if ((*j).has("btnL3")) s.btnL3 = (*j)["btnL3"].asBool(false);
-            if ((*j).has("btnR3")) s.btnR3 = (*j)["btnR3"].asBool(false);
-
-            if ((*j).has("btnView")) s.btnTouchpad = (*j)["btnView"].asBool(false);
-            if ((*j).has("btnMenu")) s.btnOptions = (*j)["btnMenu"].asBool(false);
-            if ((*j).has("btnNexus")) s.btnNexus = (*j)["btnNexus"].asBool(false);
-
-            if ((*j).has("triggerL2")) s.triggerL2 = static_cast<float>((*j)["triggerL2"].asNumber(0.0));
-            if ((*j).has("triggerR2")) s.triggerR2 = static_cast<float>((*j)["triggerR2"].asNumber(0.0));
-
-            if ((*j).has("leftStickX")) s.leftStickX = static_cast<float>((*j)["leftStickX"].asNumber(0.0));
-            if ((*j).has("leftStickY")) s.leftStickY = static_cast<float>((*j)["leftStickY"].asNumber(0.0));
-            if ((*j).has("rightStickX")) s.rightStickX = static_cast<float>((*j)["rightStickX"].asNumber(0.0));
-            if ((*j).has("rightStickY")) s.rightStickY = static_cast<float>((*j)["rightStickY"].asNumber(0.0));
+            if (!parseGamepadJson(*j, slot, s)) {
+                return {400, "application/json", "", "{\"ok\":false,\"error\":\"invalid state\"}"};
+            }
 
             setVirtualGamepad(slot, s);
             if (s_hooks.injectGamepad) {
@@ -1909,7 +2324,7 @@ WebServer::HttpResponse WebServer::handleRequest(const std::string& method, cons
 
             json::Value res = json::Value::object();
             res.set("ok", true);
-            res.set("player", player);
+            res.set("player", slot + 1);
             return {200, "application/json", "", res.dump()};
         }
         if (path == "/api/search") {

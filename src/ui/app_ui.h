@@ -122,6 +122,7 @@ struct SettingsChoice {
     int triggerResistance = 0;   // 0 off .. 3 strong
     bool triggerPulses = false;  // force pulses instead of the motor vibrating
     int triggerProfile = 0;      // 0 Standard, 1 Shooter, 2 Racing
+    int audioHaptics = 0;        // 0 Off, 1 Low, 2 Med, 3 High
     bool circleConfirms = false;  // Circle is Xbox A (and Cross is B)
     int lightBarMode = 0;         // 0 the game's colour, 1 lightBarColour, 2 off
     Color lightBarColour = rgba(0, 112, 220);
@@ -194,10 +195,10 @@ std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool cus
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 21;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+constexpr int kSettingRows = 22;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
                                   // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys,
                                   // display mode (a desktop's window), controller buttons, gyro aiming, queue chime,
-                                  // check sign-in, network test, support project, video decoder
+                                  // check sign-in, network test, support project, video decoder, audio-to-haptics
 
 struct SignInStage {
     std::string name;

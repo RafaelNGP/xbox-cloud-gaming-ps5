@@ -415,6 +415,8 @@ constexpr Column kEnglish = {
     "Hardware (Recommended)",                         // VideoDecoderHw
     "Software (CPU)",                                 // VideoDecoderSw
     "Selects hardware decoding (libSceVideodec2 on PS5, HWAccel on Desktop) or CPU software decoding", // SettingDescVideoDecoder
+    "Audio-to-Haptics",                               // AudioHaptics
+    "Converts low-frequency game audio into DualSense haptic rumble kicks", // SettingDescAudioHaptics
 };
 
 constexpr Column kPortugueseBR = {
@@ -800,6 +802,8 @@ constexpr Column kPortugueseBR = {
     "Hardware (Recomendado)",                         // VideoDecoderHw
     "Software (CPU)",                                 // VideoDecoderSw
     "Seleciona decodificação por hardware (libSceVideodec2 no PS5, HWAccel no Desktop) ou por software (CPU)", // SettingDescVideoDecoder
+    "Áudio para Vibração Háptica",                     // AudioHaptics
+    "Converte graves do áudio em vibração háptica no DualSense", // SettingDescAudioHaptics
 };
 
 constexpr Column kSpanish = {
@@ -1185,6 +1189,8 @@ constexpr Column kSpanish = {
     "Hardware (Recomendado)",                         // VideoDecoderHw
     "Software (CPU)",                                 // VideoDecoderSw
     "Selecciona decodificación por hardware (libSceVideodec2 en PS5, HWAccel en Desktop) o software (CPU)", // SettingDescVideoDecoder
+    "Audio a Vibración Háptica",                       // AudioHaptics
+    "Convierte frecuencias graves del audio en vibración háptica en DualSense", // SettingDescAudioHaptics
 };
 
 constexpr Column kFrench = {
@@ -1570,6 +1576,8 @@ constexpr Column kFrench = {
     "Matériel (Recommandé)",                          // VideoDecoderHw
     "Logiciel (CPU)",                                 // VideoDecoderSw
     "Sélectionne le décodage matériel (libSceVideodec2 sur PS5, HWAccel sur Desktop) ou logiciel (CPU)", // SettingDescVideoDecoder
+    "Audio vers vibration haptique",                  // AudioHaptics
+    "Convertit les basses fréquences audio en vibrations haptiques sur DualSense", // SettingDescAudioHaptics
 };
 
 constexpr Column kGerman = {
@@ -1955,6 +1963,8 @@ constexpr Column kGerman = {
     "Hardware (Empfohlen)",                           // VideoDecoderHw
     "Software (CPU)",                                 // VideoDecoderSw
     "Wählt Hardware-Dekodierung (libSceVideodec2 auf PS5, HWAccel auf Desktop) oder Software-Dekodierung (CPU)", // SettingDescVideoDecoder
+    "Audio-zu-Haptik",                                // AudioHaptics
+    "Wandelt tiefe Audiofrequenzen in DualSense-Haptik-Vibrationen um", // SettingDescAudioHaptics
 };
 
 constexpr Column kItalian = {
@@ -2340,6 +2350,8 @@ constexpr Column kItalian = {
     "Hardware (Consigliato)",                         // VideoDecoderHw
     "Software (CPU)",                                 // VideoDecoderSw
     "Seleziona decodifica hardware (libSceVideodec2 su PS5, HWAccel su Desktop) o software (CPU)", // SettingDescVideoDecoder
+    "Audio a vibrazione aptica",                       // AudioHaptics
+    "Converte le basse frequenze audio in vibrazioni aptiche su DualSense", // SettingDescAudioHaptics
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

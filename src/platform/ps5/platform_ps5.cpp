@@ -83,7 +83,7 @@ void migrateLegacy() {
     std::string text;
     if (readFile(done, text)) return;
     int moved = 0;
-    for (const char* name : {"account.json", "settings.json", "library.json", "prices.json"}) {
+    for (const char* name : {"account.json", "settings.json", "library.json", "library_cache.json", "prices.json"}) {
         std::string mine;
         if (readFile(legacy + "/" + name, text) && !readFile(data + "/" + name, mine) &&
             writeFileAtomic(data + "/" + name, text))

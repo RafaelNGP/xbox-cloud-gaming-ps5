@@ -61,4 +61,27 @@ private:
 // opens / closes it with its device.
 AudioQueue& audioQueue();
 
+class AudioToHaptics {
+public:
+    AudioToHaptics();
+    void init(float sampleRate = 48000.0f, float cutoffHz = 120.0f);
+    void reset();
+    float processSample(float inMono);
+    void process(const float* interleavedStereo, size_t frames, int level);
+    float envelope() const { return env_; }
+
+private:
+    float b0_ = 0.0f, b1_ = 0.0f, b2_ = 0.0f;
+    float a1_ = 0.0f, a2_ = 0.0f;
+    float x1_ = 0.0f, x2_ = 0.0f;
+    float y1_ = 0.0f, y2_ = 0.0f;
+    float env_ = 0.0f;
+    float decay_ = 0.999f;
+    uint64_t lastKickMs_ = 0;
+};
+
+void setAudioHapticsLevel(int level);
+int audioHapticsLevel();
+AudioToHaptics& audioToHaptics();
+
 }  // namespace xc::media

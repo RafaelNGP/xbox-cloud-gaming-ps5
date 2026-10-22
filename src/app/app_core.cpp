@@ -12,6 +12,7 @@
 #include "app/app_state.h"
 #include "app/autoplay.h"
 #include "app/crash_guard.h"
+#include "app/library.h"
 #include "app/report.h"
 #include "app/settings.h"
 #include "app/shell.h"
@@ -30,6 +31,7 @@
 #include "input/tuning.h"
 #include "net/http.h"
 #include "media/audio_out.h"
+#include "media/audio_queue.h"
 #include "platform/platform.h"
 #include "ui/app_ui.h"
 #include "ui/strings.h"
@@ -95,6 +97,7 @@ void applyControllerSettings() {
     input::setDeadzone(g_settings.deadzoneLeft / 100.0f, g_settings.deadzoneRight / 100.0f);
     input::setTriggerFeel(g_settings.triggerStrength, g_settings.triggerHz, g_settings.triggerResistance, g_settings.triggerPulses);
     input::setCircleConfirms(g_settings.circleConfirms);
+    media::setAudioHapticsLevel(g_settings.audioHaptics);
     if (g_ui) g_ui->setCircleConfirms(g_settings.circleConfirms);
 }
 
@@ -312,6 +315,7 @@ bool coreStartup() {
                           static_cast<unsigned>(g_settings.lightBarColour >> 8 & 0xFF), static_cast<unsigned>(g_settings.lightBarColour >> 16 & 0xFF));
             root.set("lightBarColour", std::string(hex));
             root.set("triggerStrength", g_settings.triggerStrength);
+            root.set("audioHaptics", g_settings.audioHaptics);
             root.set("queueReadyAlert", g_settings.queueReadyAlert);
             root.set("videoDecoder", g_settings.videoDecoder);
             root.set("voiceRouting", g_settings.voiceRouting);
@@ -357,6 +361,11 @@ bool coreStartup() {
                 }
                 if (root.has("triggerStrength")) {
                     g_settings.triggerStrength = static_cast<int>(std::clamp<int64_t>(root["triggerStrength"].asInt(g_settings.triggerStrength), 0, 4));
+                    changed = true;
+                }
+                if (root.has("audioHaptics")) {
+                    g_settings.audioHaptics = static_cast<int>(std::clamp<int64_t>(root["audioHaptics"].asInt(g_settings.audioHaptics), 0, 3));
+                    media::setAudioHapticsLevel(g_settings.audioHaptics);
                     changed = true;
                 }
                 if (root.has("queueReadyAlert")) {
@@ -527,6 +536,25 @@ bool coreStartup() {
                                           : g_settings.librarySort == "console" ? ui::LibrarySort::Console
                                                                                 : ui::LibrarySort::Recent,
                        g_settings.favorites, g_settings.wishlist);
+
+        // Offline Cache / Instant-Resume: immediately load cached library before network
+        std::string cacheFile = platform::dataDir() + "/library_cache.json";
+        struct stat st;
+        if (::stat(cacheFile.c_str(), &st) != 0) {
+            cacheFile = platform::dataDir() + "/library.json";
+        }
+        auto initialLib = std::make_shared<Library>();
+        initialLib->setCachePath(cacheFile);
+        if (initialLib->loadCache(true) && !initialLib->rows().empty()) {
+            setInitialLibrary(initialLib);
+            g_ui->setRows(initialLib->rows());
+            g_ui->setOwned(initialLib->owned(), initialLib->purchasable(), initialLib->ownedKnown());
+            g_ui->setMembership(initialLib->gamePassMember());
+            g_ui->setSearchPools(initialLib->gamePassSearchPool(), initialLib->librarySearchPool());
+            g_ui->showHome();
+            XC_LOGI("instant-resume: loaded offline cache (%zu rows, %zu owned) in 0.01s",
+                    initialLib->rows().size(), initialLib->owned().size());
+        }
     }
     g_ui->setCaps(uiCaps());
     g_core->canvas.emplace(display::kWidth, display::kHeight);

@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 
 namespace xc::app {
@@ -40,6 +41,35 @@ bool virtualGamepadState(int playerIndex, input::ControllerState& outState, bool
 void setVirtualGamepad(int playerIndex, const input::ControllerState& state);
 void resetVirtualGamepads();
 
+namespace ws {
+
+enum class Opcode : uint8_t {
+    Continuation = 0x0,
+    Text = 0x1,
+    Binary = 0x2,
+    Close = 0x8,
+    Ping = 0x9,
+    Pong = 0xA,
+};
+
+struct Frame {
+    bool fin = true;
+    Opcode opcode = Opcode::Text;
+    std::vector<uint8_t> payload;
+};
+
+std::string computeAccept(const std::string& key);
+std::vector<uint8_t> makeFrame(Opcode opcode, const uint8_t* data, size_t len, bool fin = true);
+std::vector<uint8_t> makeTextFrame(const std::string& text);
+std::vector<uint8_t> makeBinaryFrame(const uint8_t* data, size_t len);
+std::vector<uint8_t> makePongFrame(const std::vector<uint8_t>& pingPayload);
+std::vector<uint8_t> makeCloseFrame(uint16_t code = 1000);
+bool parseFrame(const uint8_t* data, size_t len, Frame& outFrame, size_t& bytesConsumed);
+
+}  // namespace ws
+
+bool parseGamepadJson(const json::Value& val, int& outSlot, input::ControllerState& outState);
+
 class WebServer {
 public:
     WebServer();
@@ -64,11 +94,14 @@ public:
 private:
     void threadLoop();
     void handleClient(int clientFd);
+    void handleWebSocket(int wsFd);
 
     std::atomic<bool> running_{false};
     uint16_t port_ = 8080;
     int listenFd_ = -1;
     platform::Thread thread_{};
+    std::mutex wsMutex_;
+    std::vector<int> wsClients_;
 };
 
 extern std::unique_ptr<WebServer> g_webServer;

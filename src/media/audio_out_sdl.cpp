@@ -34,6 +34,10 @@ void SDLCALL feed(void*, SDL_AudioStream* stream, int needed, int) {
     size_t frames = (static_cast<size_t>(needed) + 2 * sizeof(float) - 1) / (2 * sizeof(float));
     if (g_buffer.size() < frames * 2) g_buffer.resize(frames * 2);
     audioQueue().pull(g_buffer.data(), frames);
+    int hapticsLvl = audioHapticsLevel();
+    if (hapticsLvl > 0) {
+        audioToHaptics().process(g_buffer.data(), frames, hapticsLvl);
+    }
     SDL_PutAudioStreamData(stream, g_buffer.data(), static_cast<int>(frames * 2 * sizeof(float)));
 }
 

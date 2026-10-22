@@ -137,24 +137,29 @@ void dedupeByTitle(std::vector<ui::GameTile>& tiles) {
 
 ui::GameTile Library::tile(const std::string& productId, const std::string& titleId) const {
     ui::GameTile t;
+    t.productId = productId;
+    t.titleId = titleId;
+    static const xcloud::Product s_dummy{};
     auto it = products_.find(productId);
-    if (it == products_.end()) return t;
-    const xcloud::Product& p = it->second;
-    t.productId = p.productId;
-    t.titleId = titleId.empty() ? p.xcloudTitleId : titleId;
-    t.name = p.title;
-    t.publisher = p.publisher;
-    t.description = p.description;
-    t.tileUrl = p.tileUrl.empty() ? p.posterUrl : p.tileUrl;
-    t.heroUrl = p.heroUrl;
-    t.categories = p.categories;
-    t.detailed = p.detailed;
-    t.modes = p.modes;
-    t.ratingAge = p.ratingAge;
-    t.ratingSystem = p.ratingSystem;
-    t.ratingDescriptors = p.ratingDescriptors;
-    if (auto lang = p.languages.find(language_.substr(0, language_.find('-'))); lang != p.languages.end())
-        t.languages = lang->second;  // in the app's language
+    const xcloud::Product& p = (it != products_.end()) ? it->second : s_dummy;
+    if (it != products_.end()) {
+        if (t.titleId.empty()) t.titleId = p.xcloudTitleId;
+        t.name = p.title;
+        t.publisher = p.publisher;
+        t.description = p.description;
+        t.tileUrl = p.tileUrl.empty() ? p.posterUrl : p.tileUrl;
+        t.heroUrl = p.heroUrl;
+        t.categories = p.categories;
+        t.detailed = p.detailed;
+        t.modes = p.modes;
+        t.ratingAge = p.ratingAge;
+        t.ratingSystem = p.ratingSystem;
+        t.ratingDescriptors = p.ratingDescriptors;
+        if (auto lang = p.languages.find(language_.substr(0, language_.find('-'))); lang != p.languages.end())
+            t.languages = lang->second;  // in the app's language
+    } else {
+        t.name = productId;
+    }
     if (ownershipKnown_) t.playable = ownedTitles_.count(t.titleId) || ownedProducts_.count(t.productId);
     t.freeInStore = freeInStore_.count(productId) > 0;
     // Free-to-play games are open to every plan and to no plan, even those
@@ -318,7 +323,19 @@ void Library::sortOwned() {
 
 bool Library::loadCache(bool withLayout) {
     std::string text;
-    if (cachePath_.empty() || !platform::readFile(cachePath_, text)) return false;
+    if (cachePath_.empty() || !platform::readFile(cachePath_, text)) {
+        std::string fallback;
+        if (!cachePath_.empty()) {
+            auto pos = cachePath_.rfind('/');
+            if (pos != std::string::npos) {
+                fallback = cachePath_.substr(0, pos + 1) + "library.json";
+            }
+        }
+        if (fallback.empty() || !platform::readFile(fallback, text)) {
+            fallback = platform::dataDir().empty() ? "library.json" : (platform::dataDir() + "/library.json");
+            if (!platform::readFile(fallback, text)) return false;
+        }
+    }
     auto j = json::parse(text);
     if (!j || (*j)["version"].asInt() != kCacheVersion) return false;
     if (market_.empty()) market_ = (*j)["market"].str();
@@ -372,7 +389,7 @@ bool Library::loadCache(bool withLayout) {
         }
         layoutRows = layout_.size();
     }
-    ownershipKnown_ = !ownedTitles_.empty();
+    ownershipKnown_ = !ownedTitles_.empty() || !ownedProducts_.empty() || !owned_.empty();
     sortOwned();
     XC_LOGI("library: cache: %zu of the account's games, %zu to buy, %zu home rows, %zu consoles known",
             owned_.size(), purchasable_.size(), layoutRows, platform_.size());
@@ -442,7 +459,22 @@ void Library::saveCache() const {
 void Library::markAsOwned(const std::string& productId, const std::string& titleId) {
     if (!productId.empty()) ownedProducts_.insert(productId);
     if (!titleId.empty()) ownedTitles_.insert(titleId);
+    if (!productId.empty() && !products_.count(productId)) {
+        xcloud::Product p;
+        p.productId = productId;
+        p.xcloudTitleId = titleId;
+        p.title = productId;
+        products_[productId] = p;
+    }
+    bool inOwned = false;
+    for (const auto& item : owned_) {
+        if (item.first == productId) { inOwned = true; break; }
+    }
+    if (!inOwned && !productId.empty()) {
+        owned_.emplace_back(productId, titleId);
+    }
     ownershipKnown_ = true;
+    sortOwned();
     saveCache();
 }
 

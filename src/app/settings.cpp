@@ -78,6 +78,7 @@ bool Settings::load(const std::string& path) {
     triggerResistance = static_cast<int>(std::clamp<int64_t>((*j)["triggerResistance"].asInt(0), 0, 3));
     triggerPulses = (*j)["triggerPulses"].asBool(false);
     triggerProfile = static_cast<int>(std::clamp<int64_t>((*j)["triggerProfile"].asInt(0), 0, 2));
+    audioHaptics = static_cast<int>(std::clamp<int64_t>((*j)["audioHaptics"].asInt(audioHaptics), 0, 3));
     circleConfirms = (*j)["circleConfirms"].asBool(circleConfirms);
     // "lightBar" (on/off) until the colour could be chosen.
     lightBarMode = (*j)["lightBar"].asBool(true) ? 0 : 2;
@@ -142,6 +143,7 @@ bool Settings::load(const std::string& path) {
         p.triggerResistance = static_cast<int>(std::clamp<int64_t>(obj["triggerResistance"].asInt(triggerResistance), 0, 3));
         p.triggerPulses = obj["triggerPulses"].asBool(triggerPulses);
         p.triggerProfile = static_cast<int>(std::clamp<int64_t>(obj["triggerProfile"].asInt(triggerProfile), 0, 2));
+        p.audioHaptics = static_cast<int>(std::clamp<int64_t>(obj["audioHaptics"].asInt(audioHaptics), 0, 3));
         p.circleConfirms = obj["circleConfirms"].asBool(circleConfirms);
         p.highRefresh = obj["highRefresh"].asBool(highRefresh);
         p.keyMap = keyMapFromJson(obj["keyMap"], keyMap);
@@ -174,6 +176,7 @@ GameProfile Settings::defaultProfile() const {
     p.triggerResistance = triggerResistance;
     p.triggerPulses = triggerPulses;
     p.triggerProfile = triggerProfile;
+    p.audioHaptics = audioHaptics;
     p.circleConfirms = circleConfirms;
     p.highRefresh = highRefresh;
     p.keyMap = keyMap;
@@ -235,6 +238,7 @@ bool Settings::save(const std::string& path) const {
     v.set("triggerResistance", triggerResistance);
     v.set("triggerPulses", triggerPulses);
     v.set("triggerProfile", triggerProfile);
+    v.set("audioHaptics", audioHaptics);
     v.set("circleConfirms", circleConfirms);
     v.set("lightBarMode", lightBarMode);
     char hex[8];
@@ -282,6 +286,7 @@ bool Settings::save(const std::string& path) const {
         obj.set("triggerResistance", p.triggerResistance);
         obj.set("triggerPulses", p.triggerPulses);
         obj.set("triggerProfile", p.triggerProfile);
+        obj.set("audioHaptics", p.audioHaptics);
         obj.set("circleConfirms", p.circleConfirms);
         obj.set("highRefresh", p.highRefresh);
         obj.set("keyMap", keyMapToJson(p.keyMap));

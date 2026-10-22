@@ -392,6 +392,8 @@ enum class Str {
     VideoDecoderHw,
     VideoDecoderSw,
     SettingDescVideoDecoder,
+    AudioHaptics,
+    SettingDescAudioHaptics,
     Count
 };
 

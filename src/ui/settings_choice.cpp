@@ -21,6 +21,7 @@ SettingsChoice choiceFromSettings(const app::Settings& s) {
     c.triggerResistance = s.triggerResistance;
     c.triggerPulses = s.triggerPulses;
     c.triggerProfile = s.triggerProfile;
+    c.audioHaptics = s.audioHaptics;
     c.circleConfirms = s.circleConfirms;
     c.lightBarMode = s.lightBarMode;
     c.lightBarColour = s.lightBarColour;
@@ -55,6 +56,7 @@ void applyChoice(const SettingsChoice& c, app::Settings& s) {
     s.triggerResistance = c.triggerResistance;
     s.triggerPulses = c.triggerPulses;
     s.triggerProfile = c.triggerProfile;
+    s.audioHaptics = c.audioHaptics;
     s.circleConfirms = c.circleConfirms;
     s.lightBarMode = c.lightBarMode;
     s.lightBarColour = c.lightBarColour;

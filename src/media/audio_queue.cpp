@@ -4,10 +4,13 @@
 // backend shares: pushing, the volume, the route.
 #include "media/audio_queue.h"
 
+#include "input/controller.h"
 #include "media/audio_out.h"
+#include "platform/platform.h"
 #include "util/log.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace xc::media {
 
@@ -114,6 +117,105 @@ bool playVoiceAudio(const float* interleavedStereo, size_t frames) {
     }
     audioPush(interleavedStereo, frames);
     return true;
+}
+
+static std::atomic<int> g_audioHapticsLevel{0};
+
+void setAudioHapticsLevel(int level) {
+    g_audioHapticsLevel.store(level, std::memory_order_relaxed);
+    input::setAudioHapticsEnabled(level > 0);
+}
+
+int audioHapticsLevel() {
+    return g_audioHapticsLevel.load(std::memory_order_relaxed);
+}
+
+AudioToHaptics& audioToHaptics() {
+    static AudioToHaptics s_instance;
+    return s_instance;
+}
+
+AudioToHaptics::AudioToHaptics() {
+    init(48000.0f, 120.0f);
+}
+
+void AudioToHaptics::init(float sampleRate, float cutoffHz) {
+    float w0 = 2.0f * 3.14159265358979323846f * cutoffHz / sampleRate;
+    float cosw0 = std::cos(w0);
+    float sinw0 = std::sin(w0);
+    float alpha = sinw0 / (2.0f * 0.70710678f);
+
+    float b0 = (1.0f - cosw0) * 0.5f;
+    float b1 = 1.0f - cosw0;
+    float b2 = (1.0f - cosw0) * 0.5f;
+    float a0 = 1.0f + alpha;
+    float a1 = -2.0f * cosw0;
+    float a2 = 1.0f - alpha;
+
+    b0_ = b0 / a0;
+    b1_ = b1 / a0;
+    b2_ = b2 / a0;
+    a1_ = a1 / a0;
+    a2_ = a2 / a0;
+
+    decay_ = std::exp(-1.0f / (sampleRate * 0.100f));
+    reset();
+}
+
+void AudioToHaptics::reset() {
+    x1_ = x2_ = y1_ = y2_ = 0.0f;
+    env_ = 0.0f;
+    lastKickMs_ = 0;
+}
+
+float AudioToHaptics::processSample(float inMono) {
+    float out = b0_ * inMono + b1_ * x1_ + b2_ * x2_ - a1_ * y1_ - a2_ * y2_;
+    x2_ = x1_;
+    x1_ = inMono;
+    y2_ = y1_;
+    y1_ = out;
+    if (std::abs(y1_) < 1e-15f) y1_ = 0.0f;
+    if (std::abs(y2_) < 1e-15f) y2_ = 0.0f;
+    return out;
+}
+
+void AudioToHaptics::process(const float* interleavedStereo, size_t frames, int level) {
+    if (level <= 0 || !interleavedStereo || frames == 0) return;
+
+    for (size_t i = 0; i < frames; ++i) {
+        float mono = 0.5f * (interleavedStereo[i * 2] + interleavedStereo[i * 2 + 1]);
+        float low = processSample(mono);
+        float e = low * low;
+        if (e > env_) {
+            env_ = e;
+        } else {
+            env_ *= decay_;
+            if (env_ < 1e-9f) env_ = 0.0f;
+        }
+    }
+
+    float thresh = 0.05f;
+    float mult = 1500.0f;
+    float minKick = 45.0f;
+    float maxKick = 190.0f;
+    if (level == 1) { // Baixo
+        thresh = 0.08f;
+        mult = 1200.0f;
+        minKick = 35.0f;
+        maxKick = 130.0f;
+    } else if (level == 3) { // Alto
+        thresh = 0.025f;
+        mult = 1800.0f;
+        minKick = 60.0f;
+        maxKick = 255.0f;
+    }
+
+    uint64_t now = platform::nowMs();
+    if (env_ > thresh && now >= lastKickMs_ + 55) {
+        uint8_t kick = static_cast<uint8_t>(std::clamp((env_ - thresh) * mult, minKick, maxKick));
+        input::setAudioHaptics(kick, 60);
+        lastKickMs_ = now;
+    }
 }
 
 }  // namespace xc::media
