@@ -93,6 +93,7 @@ void mergePads(ControllerState& pad, const ControllerState& e) {
     pad.btnR3 |= e.btnR3;
     pad.btnOptions |= e.btnOptions;
     pad.btnTouchpad |= e.btnTouchpad;
+    pad.btnNexus |= e.btnNexus;
     auto further = [](float& a, float b) {
         if (std::abs(b) > std::abs(a)) a = b;
     };

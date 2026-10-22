@@ -43,7 +43,7 @@ const char* kIndexHtml = R"html(<!DOCTYPE html>
   --danger: #d93838;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-html, body { width: 100%; max-width: 100%; overflow-x: hidden; background: var(--bg); color: var(--text); padding-bottom: 40px; }
+html, body { width: 100%; max-width: 100%; overflow-x: hidden; background: var(--bg); color: var(--text); padding-bottom: 40px; overscroll-behavior: none; }
 header { box-sizing: border-box; background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; max-width: 100%; overflow-x: hidden; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; }
 .logo-icon { flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; box-shadow: 0 0 10px rgba(16, 124, 65, 0.45); }
@@ -102,6 +102,216 @@ select { background: var(--surface); color: #fff; border: 1px solid var(--border
 pre { background: #07080b; border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-family: monospace; font-size: 0.78rem; color: #c4ccdc; overflow-x: auto; max-height: 380px; white-space: pre-wrap; word-break: break-all; max-width: 100%; }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #169c53; color: #fff; padding: 10px 20px; border-radius: 24px; font-size: 0.88rem; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 1000; max-width: 90%; text-align: center; }
 .toast.show { opacity: 1; }
+
+/* Search overlay when streaming */
+.search-disabled-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(11, 13, 19, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  z-index: 50;
+  color: #fff;
+  text-align: center;
+  padding: 20px;
+}
+.search-disabled-overlay .msg {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  background: rgba(20, 23, 34, 0.95);
+  border: 1px solid var(--border);
+  padding: 12px 22px;
+  border-radius: 20px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Virtual Gamepad */
+.gamepad-container {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.player-select-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-bottom: 6px;
+}
+.player-btn {
+  flex: 1 1 0;
+  padding: 10px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text-dim);
+  font-size: clamp(0.78rem, 3.2vw, 0.88rem);
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+}
+.player-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(16, 124, 65, 0.4);
+}
+.pad-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.pad-bumper-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pad-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: transform 0.08s, background 0.08s, border-color 0.08s;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+}
+.pad-btn:active, .pad-btn.pressed {
+  transform: scale(0.92);
+  background: var(--primary) !important;
+  border-color: #4ade80 !important;
+  box-shadow: 0 0 10px rgba(16, 124, 65, 0.6) !important;
+}
+.pad-btn-sm {
+  width: 68px;
+  height: 38px;
+  font-size: 0.80rem;
+}
+.pad-center-group {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.pad-btn-center {
+  padding: 8px 12px;
+  font-size: 0.72rem;
+  border-radius: 8px;
+  background: #1e2433;
+}
+.pad-btn-nexus {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #107c41;
+  border: 2px solid #fff;
+  font-size: 0.80rem;
+  font-weight: 900;
+}
+.pad-main-row {
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  width: 100%;
+}
+.pad-side {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.dpad-cross {
+  position: relative;
+  width: 136px;
+  height: 136px;
+}
+.dpad-btn {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  font-size: 1.1rem;
+}
+.dpad-up { top: 0; left: 46px; }
+.dpad-down { bottom: 0; left: 46px; }
+.dpad-left { top: 46px; left: 0; }
+.dpad-right { top: 46px; right: 0; }
+.dpad-center {
+  position: absolute;
+  top: 46px; left: 46px;
+  width: 44px; height: 44px;
+  background: var(--surface);
+}
+.abxy-group {
+  position: relative;
+  width: 136px;
+  height: 136px;
+}
+.abxy-btn {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  font-size: 1.15rem;
+  font-weight: 900;
+  color: #fff;
+}
+.btn-y { top: 0; left: 46px; background: #c68900; border-color: #ffc400; }
+.btn-a { bottom: 0; left: 46px; background: #0e6b37; border-color: #107c41; }
+.btn-x { top: 46px; left: 0; background: #006eb8; border-color: #00a2ed; }
+.btn-b { top: 46px; right: 0; background: #b80d1b; border-color: #e81123; }
+.stick-zone {
+  position: relative;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: var(--surface-alt);
+  border: 2px solid var(--border);
+  touch-action: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stick-head {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #3a445e, #1c2130);
+  border: 2px solid #58688a;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+  pointer-events: none;
+  transform: translate(0px, 0px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.70rem;
+  font-weight: 800;
+  color: var(--text-dim);
+}
 </style>
 </head>
 <body>
@@ -121,14 +331,18 @@ pre { background: #07080b; border: 1px solid var(--border); border-radius: 10px;
 
 <div class="nav-tabs">
   <div class="nav-tab active" id="navTab-search" onclick="switchTab('search')">🔍 Busca</div>
-  <div class="nav-tab" id="navTab-remap" onclick="switchTab('remap')">🎮 Controles</div>
+  <div class="nav-tab" id="navTab-remap" onclick="switchTab('remap')">⚙️ Mapeamento</div>
+  <div class="nav-tab" id="navTab-gamepad" onclick="switchTab('gamepad')">🎮 Controle</div>
   <div class="nav-tab" id="navTab-logs" onclick="switchTab('logs')">📋 Logs</div>
 </div>
 
 <div class="content">
   <!-- TAB: SEARCH -->
   <div id="tab-search" class="tab-pane">
-    <div class="card">
+    <div class="card" id="searchCard" style="position: relative;">
+      <div id="searchOverlay" class="search-disabled-overlay" style="display: none;">
+        <div class="msg">🔒 Desativado enquanto jogando</div>
+      </div>
       <h2>🔍 Teclado Remoto para Busca</h2>
       <p>Digite no celular para atualizar a pesquisa ativa na TV em tempo real sem precisar do controle.</p>
       
@@ -274,6 +488,81 @@ pre { background: #07080b; border: 1px solid var(--border); border-radius: 10px;
     </div>
   </div>
 
+  <!-- TAB: GAMEPAD (CONTROLE VIRTUAL) -->
+  <div id="tab-gamepad" class="tab-pane" style="display:none;">
+    <div class="card">
+      <h2>🎮 Controle Virtual (Smartphone)</h2>
+      <p>Use o celular como controle tátil responsivo. Alterne entre Jogador 1 (principal) e Jogador 2 (co-op local)!</p>
+
+      <div class="player-select-row">
+        <button type="button" class="player-btn active" id="btnPlayer1" onclick="setVirtualPlayer(1)">
+          👤 Jogador 1 (Principal)
+        </button>
+        <button type="button" class="player-btn" id="btnPlayer2" onclick="setVirtualPlayer(2)">
+          👥 Jogador 2 (Co-op Local)
+        </button>
+      </div>
+
+      <div class="gamepad-container" id="gamepadArea">
+        <!-- Top row: Bumpers / Triggers / Center -->
+        <div class="pad-top-row">
+          <div class="pad-bumper-group">
+            <button type="button" class="pad-btn pad-btn-sm" id="btn_lt" data-btn="triggerL2">LT</button>
+            <button type="button" class="pad-btn pad-btn-sm" id="btn_lb" data-btn="btnL1">LB</button>
+            <button type="button" class="pad-btn pad-btn-sm" id="btn_ls" data-btn="btnL3">LS (L3)</button>
+          </div>
+          <div class="pad-center-group">
+            <button type="button" class="pad-btn pad-btn-center" id="btn_view" data-btn="btnView">VIEW</button>
+            <button type="button" class="pad-btn pad-btn-nexus" id="btn_nexus" data-btn="btnNexus">X</button>
+            <button type="button" class="pad-btn pad-btn-center" id="btn_menu" data-btn="btnMenu">MENU</button>
+          </div>
+          <div class="pad-bumper-group">
+            <button type="button" class="pad-btn pad-btn-sm" id="btn_rt" data-btn="triggerR2">RT</button>
+            <button type="button" class="pad-btn pad-btn-sm" id="btn_rb" data-btn="btnR1">RB</button>
+            <button type="button" class="pad-btn pad-btn-sm" id="btn_rs" data-btn="btnR3">RS (R3)</button>
+          </div>
+        </div>
+
+        <!-- Main row: Left (D-pad & Left Stick) and Right (ABXY & Right Stick) -->
+        <div class="pad-main-row">
+          <div class="pad-side">
+            <!-- Left Stick -->
+            <div class="stick-zone" id="leftStickZone">
+              <div class="stick-head" id="leftStickHead">L3</div>
+            </div>
+            <!-- D-Pad -->
+            <div class="dpad-cross">
+              <button type="button" class="pad-btn dpad-btn dpad-up" data-btn="dpadUp">▲</button>
+              <button type="button" class="pad-btn dpad-btn dpad-left" data-btn="dpadLeft">◀</button>
+              <div class="dpad-center"></div>
+              <button type="button" class="pad-btn dpad-btn dpad-right" data-btn="dpadRight">▶</button>
+              <button type="button" class="pad-btn dpad-btn dpad-down" data-btn="dpadDown">▼</button>
+            </div>
+          </div>
+
+          <div class="pad-side">
+            <!-- ABXY Buttons -->
+            <div class="abxy-group">
+              <button type="button" class="pad-btn abxy-btn btn-y" data-btn="btnY">Y</button>
+              <button type="button" class="pad-btn abxy-btn btn-x" data-btn="btnX">X</button>
+              <button type="button" class="pad-btn abxy-btn btn-b" data-btn="btnB">B</button>
+              <button type="button" class="pad-btn abxy-btn btn-a" data-btn="btnA">A</button>
+            </div>
+            <!-- Right Stick -->
+            <div class="stick-zone" id="rightStickZone">
+              <div class="stick-head" id="rightStickHead">R3</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="status-pill" style="margin-top: 14px;">
+        <div class="status-dot"></div>
+        <span id="gamepadStatus">Controle ativo para Jogador 1 (Principal)</span>
+      </div>
+    </div>
+  </div>
+
   <!-- TAB: LOGS -->
   <div id="tab-logs" class="tab-pane" style="display:none;">
     <div class="card">
@@ -368,6 +657,8 @@ function switchTab(name) {
   if (pane) pane.style.display = 'block';
   const tabBtn = document.getElementById('navTab-' + name);
   if (tabBtn) tabBtn.classList.add('active');
+  if (name === 'search') pollStreamingState();
+  if (name === 'gamepad') sendPadState();
 }
 
 function switchRemapSub(mode) {
@@ -715,6 +1006,204 @@ fetch('/api/settings').then(r => r.json()).then(s => {
   renderPadMap();
   renderKeyMap();
 });
+
+// --- Virtual Gamepad & Streaming Polling ---
+let activePlayer = 1;
+const padState = {
+  btnA: false, btnB: false, btnX: false, btnY: false,
+  dpadUp: false, dpadDown: false, dpadLeft: false, dpadRight: false,
+  btnL1: false, btnR1: false, btnL3: false, btnR3: false,
+  btnView: false, btnMenu: false, btnNexus: false,
+  triggerL2: 0.0, triggerR2: 0.0,
+  leftStickX: 0.0, leftStickY: 0.0,
+  rightStickX: 0.0, rightStickY: 0.0
+};
+let padSendScheduled = false;
+
+function setVirtualPlayer(p) {
+  activePlayer = p;
+  document.getElementById('btnPlayer1').classList.toggle('active', p === 1);
+  document.getElementById('btnPlayer2').classList.toggle('active', p === 2);
+  const statusEl = document.getElementById('gamepadStatus');
+  if (statusEl) {
+    statusEl.textContent = 'Controle ativo para Jogador ' + p + (p === 2 ? ' (Co-op Local)' : ' (Principal)');
+  }
+  sendPadState();
+}
+
+function sendPadState() {
+  const payload = { player: activePlayer, ...padState };
+  fetch('/api/gamepad', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).catch(() => {});
+}
+
+function schedulePadSend() {
+  if (padSendScheduled) return;
+  padSendScheduled = true;
+  requestAnimationFrame(() => {
+    padSendScheduled = false;
+    sendPadState();
+  });
+}
+
+function bindPadButtons() {
+  document.querySelectorAll('[data-btn]').forEach(el => {
+    const key = el.getAttribute('data-btn');
+    const isTrigger = key === 'triggerL2' || key === 'triggerR2';
+
+    const onDown = (e) => {
+      e.preventDefault();
+      if (isTrigger) padState[key] = 1.0;
+      else padState[key] = true;
+      el.classList.add('pressed');
+      if (navigator.vibrate) {
+        try { navigator.vibrate(14); } catch (_) {}
+      }
+      sendPadState();
+    };
+
+    const onUp = (e) => {
+      e.preventDefault();
+      if (isTrigger) padState[key] = 0.0;
+      else padState[key] = false;
+      el.classList.remove('pressed');
+      sendPadState();
+    };
+
+    el.addEventListener('touchstart', onDown, { passive: false });
+    el.addEventListener('touchend', onUp, { passive: false });
+    el.addEventListener('touchcancel', onUp, { passive: false });
+    el.addEventListener('mousedown', onDown);
+    el.addEventListener('mouseup', onUp);
+    el.addEventListener('mouseleave', onUp);
+  });
+}
+
+function setupStick(zoneId, headId, stickKeyX, stickKeyY, l3r3Key) {
+  const zone = document.getElementById(zoneId);
+  const head = document.getElementById(headId);
+  if (!zone || !head) return;
+
+  let activeTouchId = null;
+  const maxR = 34;
+
+  let touchStartMs = 0;
+  let startX = 0, startY = 0;
+
+  function updateStick(clientX, clientY) {
+    const rect = zone.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxR) {
+      dx = (dx / dist) * maxR;
+      dy = (dy / dist) * maxR;
+    }
+    head.style.transform = `translate(${dx}px, ${dy}px)`;
+    padState[stickKeyX] = Math.round((dx / maxR) * 100) / 100;
+    padState[stickKeyY] = Math.round((dy / maxR) * 100) / 100;
+    schedulePadSend();
+  }
+
+  function resetStick() {
+    head.style.transform = 'translate(0px, 0px)';
+    padState[stickKeyX] = 0.0;
+    padState[stickKeyY] = 0.0;
+    activeTouchId = null;
+    sendPadState();
+  }
+
+  zone.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (activeTouchId === null && e.changedTouches.length > 0) {
+      activeTouchId = e.changedTouches[0].identifier;
+      touchStartMs = Date.now();
+      startX = e.changedTouches[0].clientX;
+      startY = e.changedTouches[0].clientY;
+      updateStick(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+    }
+  }, { passive: false });
+
+  zone.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === activeTouchId) {
+        updateStick(e.changedTouches[i].clientX, e.changedTouches[i].clientY);
+        break;
+      }
+    }
+  }, { passive: false });
+
+  const onTouchEnd = (e) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === activeTouchId) {
+        const duration = Date.now() - touchStartMs;
+        const moveDist = Math.hypot(e.changedTouches[i].clientX - startX, e.changedTouches[i].clientY - startY);
+        resetStick();
+        if (duration < 300 && moveDist < 12) {
+          padState[l3r3Key] = true;
+          sendPadState();
+          setTimeout(() => {
+            padState[l3r3Key] = false;
+            sendPadState();
+          }, 150);
+        }
+        break;
+      }
+    }
+  };
+  zone.addEventListener('touchend', onTouchEnd, { passive: false });
+  zone.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+  // Mouse fallback
+  let isMouseDown = false;
+  zone.addEventListener('mousedown', (e) => {
+    isMouseDown = true;
+    updateStick(e.clientX, e.clientY);
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (isMouseDown) updateStick(e.clientX, e.clientY);
+  });
+  window.addEventListener('mouseup', () => {
+    if (isMouseDown) {
+      isMouseDown = false;
+      resetStick();
+    }
+  });
+}
+
+bindPadButtons();
+setupStick('leftStickZone', 'leftStickHead', 'leftStickX', 'leftStickY', 'btnL3');
+setupStick('rightStickZone', 'rightStickHead', 'rightStickX', 'rightStickY', 'btnR3');
+
+// Periodic streaming state poll and search overlay lock
+let isCurrentlyStreaming = false;
+function pollStreamingState() {
+  fetch('/api/status').then(r => r.json()).then(data => {
+    const streaming = !!data.streaming;
+    if (streaming !== isCurrentlyStreaming) {
+      isCurrentlyStreaming = streaming;
+      const overlay = document.getElementById('searchOverlay');
+      if (overlay) overlay.style.display = streaming ? 'flex' : 'none';
+      if (searchInput) searchInput.disabled = streaming;
+    }
+  }).catch(() => {});
+}
+setInterval(pollStreamingState, 1500);
+pollStreamingState();
+
+// Gamepad keepalive while gamepad tab is open (300ms ensures held buttons never drop)
+setInterval(() => {
+  const gpPane = document.getElementById('tab-gamepad');
+  if (gpPane && gpPane.style.display !== 'none') {
+    sendPadState();
+  }
+}, 300);
 </script>
 </body>
 </html>)html";
@@ -927,6 +1416,46 @@ void WebServer::handleClient(int clientFd) {
     }
 }
 
+namespace {
+struct VirtualGamepadSlot {
+    input::ControllerState state{};
+    uint64_t lastActiveMs = 0;
+};
+std::mutex s_vpadMutex;
+VirtualGamepadSlot s_virtualPads[2];
+}  // namespace
+
+bool virtualGamepadState(int playerIndex, input::ControllerState& outState, bool& isConnected) {
+    if (playerIndex < 0 || playerIndex > 1) {
+        isConnected = false;
+        outState = {};
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(s_vpadMutex);
+    uint64_t now = platform::nowMs();
+    uint64_t diff = now > s_virtualPads[playerIndex].lastActiveMs ? now - s_virtualPads[playerIndex].lastActiveMs : 0;
+    isConnected = (s_virtualPads[playerIndex].lastActiveMs > 0 && diff < 4000);
+    if (diff < 2000) {
+        outState = s_virtualPads[playerIndex].state;
+    } else {
+        outState = {};
+    }
+    return isConnected;
+}
+
+void setVirtualGamepad(int playerIndex, const input::ControllerState& state) {
+    if (playerIndex < 0 || playerIndex > 1) return;
+    std::lock_guard<std::mutex> lock(s_vpadMutex);
+    s_virtualPads[playerIndex].state = state;
+    s_virtualPads[playerIndex].lastActiveMs = platform::nowMs();
+}
+
+void resetVirtualGamepads() {
+    std::lock_guard<std::mutex> lock(s_vpadMutex);
+    s_virtualPads[0] = {};
+    s_virtualPads[1] = {};
+}
+
 static WebServerHooks s_hooks;
 
 void setWebServerHooks(WebServerHooks hooks) {
@@ -943,9 +1472,11 @@ WebServer::HttpResponse WebServer::handleRequest(const std::string& method, cons
         if (path == "/" || path == "/index.html") {
             return {200, "text/html; charset=utf-8", "", kIndexHtml};
         }
-        if (path == "/api/settings" || path == "/api/status") {
+        if (path == "/api/settings" || path == "/api/status" || path == "/api/state") {
             json::Value root = json::Value::object();
             root.set("ok", true);
+            bool streaming = s_hooks.isStreaming ? s_hooks.isStreaming() : false;
+            root.set("streaming", streaming);
             if (s_hooks.getSettings) {
                 s_hooks.getSettings(root);
             } else {
@@ -981,7 +1512,69 @@ WebServer::HttpResponse WebServer::handleRequest(const std::string& method, cons
     }
 
     if (method == "POST") {
+        if (path == "/api/gamepad" || path == "/api/input") {
+            auto j = json::parse(body);
+            if (!j || !j->isObject()) {
+                return {400, "application/json", "", "{\"ok\":false,\"error\":\"invalid json\"}"};
+            }
+            int slot = 0;
+            if ((*j).has("playerIndex")) {
+                slot = static_cast<int>((*j)["playerIndex"].asInt(0));
+            } else if ((*j).has("player")) {
+                int p = static_cast<int>((*j)["player"].asInt(1));
+                slot = (p == 2) ? 1 : 0;
+            }
+            if (slot < 0) slot = 0;
+            if (slot > 1) slot = 1;
+            int player = slot + 1;
+
+            input::ControllerState s{};
+            if ((*j).has("btnA")) s.btnA = (*j)["btnA"].asBool(false);
+            if ((*j).has("btnB")) s.btnB = (*j)["btnB"].asBool(false);
+            if ((*j).has("btnX")) s.btnX = (*j)["btnX"].asBool(false);
+            if ((*j).has("btnY")) s.btnY = (*j)["btnY"].asBool(false);
+
+            if ((*j).has("dpadUp")) s.dpadUp = (*j)["dpadUp"].asBool(false);
+            if ((*j).has("dpadDown")) s.dpadDown = (*j)["dpadDown"].asBool(false);
+            if ((*j).has("dpadLeft")) s.dpadLeft = (*j)["dpadLeft"].asBool(false);
+            if ((*j).has("dpadRight")) s.dpadRight = (*j)["dpadRight"].asBool(false);
+
+            if ((*j).has("btnL1")) s.btnL1 = (*j)["btnL1"].asBool(false);
+            if ((*j).has("btnR1")) s.btnR1 = (*j)["btnR1"].asBool(false);
+            if ((*j).has("btnL3")) s.btnL3 = (*j)["btnL3"].asBool(false);
+            if ((*j).has("btnR3")) s.btnR3 = (*j)["btnR3"].asBool(false);
+
+            if ((*j).has("btnView")) s.btnTouchpad = (*j)["btnView"].asBool(false);
+            if ((*j).has("btnMenu")) s.btnOptions = (*j)["btnMenu"].asBool(false);
+            if ((*j).has("btnNexus")) s.btnNexus = (*j)["btnNexus"].asBool(false);
+
+            if ((*j).has("triggerL2")) s.triggerL2 = static_cast<float>((*j)["triggerL2"].asNumber(0.0));
+            if ((*j).has("triggerR2")) s.triggerR2 = static_cast<float>((*j)["triggerR2"].asNumber(0.0));
+
+            if ((*j).has("leftStickX")) s.leftStickX = static_cast<float>((*j)["leftStickX"].asNumber(0.0));
+            if ((*j).has("leftStickY")) s.leftStickY = static_cast<float>((*j)["leftStickY"].asNumber(0.0));
+            if ((*j).has("rightStickX")) s.rightStickX = static_cast<float>((*j)["rightStickX"].asNumber(0.0));
+            if ((*j).has("rightStickY")) s.rightStickY = static_cast<float>((*j)["rightStickY"].asNumber(0.0));
+
+            setVirtualGamepad(slot, s);
+            if (s_hooks.injectGamepad) {
+                s_hooks.injectGamepad(slot, s);
+            }
+
+            json::Value res = json::Value::object();
+            res.set("ok", true);
+            res.set("player", player);
+            return {200, "application/json", "", res.dump()};
+        }
         if (path == "/api/search") {
+            bool streaming = s_hooks.isStreaming ? s_hooks.isStreaming() : false;
+            if (streaming) {
+                json::Value res = json::Value::object();
+                res.set("ok", false);
+                res.set("error", "streaming_active");
+                res.set("message", "Desativado enquanto jogando");
+                return {409, "application/json", "", res.dump()};
+            }
             auto j = json::parse(body);
             std::string q;
             std::string tab = "gamepass";

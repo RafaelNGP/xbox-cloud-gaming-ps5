@@ -341,7 +341,9 @@ public:
     // Fills in the open page when it shows `productId`, and keeps the details
     // for the next time that game's page opens.
     void setDetailInfo(const std::string& productId, const std::string& description, const std::string& publisher,
-                       const std::vector<std::string>& categories, const std::string& heroUrl);
+                       const std::vector<std::string>& categories, const std::string& heroUrl,
+                       const std::string& ratingAge = {}, const std::string& ratingSystem = {},
+                       const std::vector<std::string>& ratingDescriptors = {});
     // Opens a game's page (autoplay tests).
     void showDetails(const GameTile& tile);
     // The `index`-th game to buy, if loaded (autoplay tests).
@@ -668,6 +670,8 @@ private:
     struct DetailInfo {
         std::string description, publisher, heroUrl;
         std::vector<std::string> categories;
+        std::string ratingAge, ratingSystem;
+        std::vector<std::string> ratingDescriptors;
     };
     std::map<std::string, DetailInfo> detailInfo_;  // fetched on demand, by product id
     std::string updateCurrent_, updateAvailable_, updateNotes_;

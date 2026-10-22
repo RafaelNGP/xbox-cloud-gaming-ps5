@@ -759,7 +759,8 @@ std::vector<std::string> AppUi::pricesWanted(size_t max, bool background) {
 std::string AppUi::detailWanted(uint64_t nowMs) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (screen_ != Screen::Details || detail_.productId.empty()) return {};
-    if (!detail_.description.empty() && !detail_.heroUrl.empty()) return {};
+    if (detailInfo_.find(detail_.productId) != detailInfo_.end()) return {};
+    if (!detail_.description.empty() && !detail_.heroUrl.empty() && !detail_.ratingAge.empty()) return {};
     if (detail_.productId == detailAskedFor_ && nowMs - detailAskedAt_ < 5000) return {};
     detailAskedFor_ = detail_.productId;
     detailAskedAt_ = nowMs;
@@ -820,14 +821,19 @@ std::string AppUi::tileName(const std::string& productId) const {
 }
 
 void AppUi::setDetailInfo(const std::string& productId, const std::string& description, const std::string& publisher,
-                          const std::vector<std::string>& categories, const std::string& heroUrl) {
+                          const std::vector<std::string>& categories, const std::string& heroUrl,
+                          const std::string& ratingAge, const std::string& ratingSystem,
+                          const std::vector<std::string>& ratingDescriptors) {
     std::lock_guard<std::mutex> lock(mutex_);
-    detailInfo_[productId] = {description, publisher, heroUrl, categories};
+    detailInfo_[productId] = {description, publisher, heroUrl, categories, ratingAge, ratingSystem, ratingDescriptors};
     if (detail_.productId != productId) return;
     if (!description.empty()) detail_.description = description;
     if (!publisher.empty()) detail_.publisher = publisher;
     if (!categories.empty()) detail_.categories = categories;
     if (!heroUrl.empty()) detail_.heroUrl = heroUrl;
+    if (!ratingAge.empty()) detail_.ratingAge = ratingAge;
+    if (!ratingSystem.empty()) detail_.ratingSystem = ratingSystem;
+    if (!ratingDescriptors.empty()) detail_.ratingDescriptors = ratingDescriptors;
     dirty_ = true;
 }
 
@@ -977,6 +983,9 @@ void AppUi::openDetails(const GameTile& tile) {
         if (detail_.heroUrl.empty()) detail_.heroUrl = info->second.heroUrl;
         if (detail_.publisher.empty()) detail_.publisher = info->second.publisher;
         if (detail_.categories.empty()) detail_.categories = info->second.categories;
+        if (detail_.ratingAge.empty()) detail_.ratingAge = info->second.ratingAge;
+        if (detail_.ratingSystem.empty()) detail_.ratingSystem = info->second.ratingSystem;
+        if (detail_.ratingDescriptors.empty()) detail_.ratingDescriptors = info->second.ratingDescriptors;
     }
     detailButtonFocus_ = 0;
     screen_ = Screen::Details;
@@ -986,15 +995,30 @@ void AppUi::openDetails(const GameTile& tile) {
 void AppUi::refreshDetail() {
     // Caller holds mutex_. Hero art and descriptions arrive after the page opened.
     if (screen_ != Screen::Details || detail_.productId.empty()) return;
+    bool changed = false;
     auto take = [&](const GameTile& t) {
-        if (t.productId == detail_.productId && t.heroUrl.size() + t.description.size() >
-                                                    detail_.heroUrl.size() + detail_.description.size())
-            detail_ = t;
+        if (t.productId == detail_.productId) {
+            if (t.heroUrl.size() + t.description.size() >
+                detail_.heroUrl.size() + detail_.description.size()) {
+                detail_.heroUrl = t.heroUrl;
+                detail_.description = t.description;
+                if (!t.publisher.empty()) detail_.publisher = t.publisher;
+                if (!t.categories.empty()) detail_.categories = t.categories;
+                changed = true;
+            }
+            if (detail_.ratingAge.empty() && !t.ratingAge.empty()) {
+                detail_.ratingAge = t.ratingAge;
+                detail_.ratingSystem = t.ratingSystem;
+                detail_.ratingDescriptors = t.ratingDescriptors;
+                changed = true;
+            }
+        }
     };
     for (const auto& row : rows_)
         for (const auto& t : row.tiles) take(t);
     for (const auto* list : {&owned_, &purchasable_, &gamePassPool_, &libraryPool_})
         for (const auto& t : *list) take(t);
+    if (changed) dirty_ = true;
 }
 
 void AppUi::runSearch() {

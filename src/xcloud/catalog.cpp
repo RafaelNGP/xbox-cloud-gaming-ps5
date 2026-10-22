@@ -197,6 +197,62 @@ void parseContentRatings(const json::Value& p, const std::string& market,
     outSystem.clear();
     outDescriptors.clear();
 
+    struct Candidate {
+        std::string system;
+        std::string rawId;
+        int age = -1;
+        std::vector<std::string> descriptors;
+    };
+    std::vector<Candidate> candidates;
+
+    // Microsoft Game Pass v3 catalog API returns singular "ContentRating" object in hydration
+    const json::Value* singleRating = nullptr;
+    if (p.has("ContentRating") && p["ContentRating"].isObject()) {
+        singleRating = &p["ContentRating"];
+    } else if (p.has("MarketProperties") && p["MarketProperties"].isArray() && p["MarketProperties"].size() > 0) {
+        const auto& mp0 = p["MarketProperties"][0];
+        if (mp0.has("ContentRating") && mp0["ContentRating"].isObject()) {
+            singleRating = &mp0["ContentRating"];
+        }
+    } else if (p.has("LocalizedProperties") && p["LocalizedProperties"].isArray() && p["LocalizedProperties"].size() > 0) {
+        const auto& lp0 = p["LocalizedProperties"][0];
+        if (lp0.has("ContentRating") && lp0["ContentRating"].isObject()) {
+            singleRating = &lp0["ContentRating"];
+        }
+    }
+
+    if (singleRating) {
+        Candidate c;
+        c.system = (*singleRating)["RatingSystem"].str();
+        if (c.system.empty()) c.system = (*singleRating)["ratingSystem"].str();
+        if (c.system.empty()) c.system = (*singleRating)["RatingSystemId"].str();
+
+        c.rawId = (*singleRating)["LongName"].str();
+        if (c.rawId.empty()) c.rawId = (*singleRating)["RatingId"].str();
+        if (c.rawId.empty()) c.rawId = (*singleRating)["ratingId"].str();
+        if (c.rawId.empty()) c.rawId = (*singleRating)["Description"].str();
+
+        if ((*singleRating).has("Age")) {
+            c.age = static_cast<int>((*singleRating)["Age"].asInt(-1));
+        }
+
+        auto descVal = (*singleRating).has("LocalizedDescriptors") ? (*singleRating)["LocalizedDescriptors"]
+                       : (*singleRating).has("RatingDescriptors") ? (*singleRating)["RatingDescriptors"]
+                       : (*singleRating)["ratingDescriptors"];
+        if (descVal.isArray()) {
+            for (const auto& d : descVal.items()) {
+                if (d.isString() && !d.str().empty()) c.descriptors.push_back(d.str());
+            }
+        }
+        if ((*singleRating).has("LocalizedInteractiveElements") && (*singleRating)["LocalizedInteractiveElements"].isArray()) {
+            for (const auto& d : (*singleRating)["LocalizedInteractiveElements"].items()) {
+                if (d.isString() && !d.str().empty()) c.descriptors.push_back(d.str());
+            }
+        }
+        if (!c.rawId.empty() || c.age >= 0) candidates.push_back(std::move(c));
+    }
+
+    // Also parse array format if present ("ContentRatings")
     const json::Value* ratingsArray = nullptr;
     if (p.has("ContentRatings") && p["ContentRatings"].isArray()) {
         ratingsArray = &p["ContentRatings"];
@@ -212,44 +268,39 @@ void parseContentRatings(const json::Value& p, const std::string& market,
         }
     }
 
-    if (!ratingsArray || ratingsArray->items().empty()) return;
+    if (ratingsArray) {
+        for (const auto& item : ratingsArray->items()) {
+            Candidate c;
+            c.system = item["RatingSystem"].str();
+            if (c.system.empty()) c.system = item["ratingSystem"].str();
+            if (c.system.empty()) c.system = item["RatingSystemId"].str();
 
-    struct Candidate {
-        std::string system;
-        std::string rawId;
-        std::vector<std::string> descriptors;
-    };
-    std::vector<Candidate> candidates;
+            c.rawId = item["RatingId"].str();
+            if (c.rawId.empty()) c.rawId = item["ratingId"].str();
+            if (c.rawId.empty()) c.rawId = item["RatingName"].str();
+            if (c.rawId.empty()) c.rawId = item["ratingName"].str();
+            if (c.rawId.empty()) c.rawId = item["LongName"].str();
+            if (item.has("Age")) c.age = static_cast<int>(item["Age"].asInt(-1));
 
-    for (const auto& item : ratingsArray->items()) {
-        Candidate c;
-        c.system = item["RatingSystem"].str();
-        if (c.system.empty()) c.system = item["ratingSystem"].str();
-        if (c.system.empty()) c.system = item["RatingSystemId"].str();
-
-        c.rawId = item["RatingId"].str();
-        if (c.rawId.empty()) c.rawId = item["ratingId"].str();
-        if (c.rawId.empty()) c.rawId = item["RatingName"].str();
-        if (c.rawId.empty()) c.rawId = item["ratingName"].str();
-
-        auto descVal = item.has("RatingDescriptors") ? item["RatingDescriptors"] : item["ratingDescriptors"];
-        if (descVal.isArray()) {
-            for (const auto& d : descVal.items()) {
-                if (d.isString()) {
-                    if (!d.str().empty()) c.descriptors.push_back(d.str());
-                } else if (d.isObject()) {
-                    std::string s = d["Name"].str();
-                    if (s.empty()) s = d["Descriptor"].str();
-                    if (!s.empty()) c.descriptors.push_back(s);
+            auto descVal = item.has("RatingDescriptors") ? item["RatingDescriptors"] : item["ratingDescriptors"];
+            if (descVal.isArray()) {
+                for (const auto& d : descVal.items()) {
+                    if (d.isString()) {
+                        if (!d.str().empty()) c.descriptors.push_back(d.str());
+                    } else if (d.isObject()) {
+                        std::string s = d["Name"].str();
+                        if (s.empty()) s = d["Descriptor"].str();
+                        if (!s.empty()) c.descriptors.push_back(s);
+                    }
                 }
+            } else if (descVal.isString() && !descVal.str().empty()) {
+                c.descriptors.push_back(descVal.str());
+            } else if (item.has("RatingDescriptor") && item["RatingDescriptor"].isString()) {
+                c.descriptors.push_back(item["RatingDescriptor"].str());
             }
-        } else if (descVal.isString() && !descVal.str().empty()) {
-            c.descriptors.push_back(descVal.str());
-        } else if (item.has("RatingDescriptor") && item["RatingDescriptor"].isString()) {
-            c.descriptors.push_back(item["RatingDescriptor"].str());
-        }
 
-        if (!c.rawId.empty()) candidates.push_back(std::move(c));
+            if (!c.rawId.empty() || c.age >= 0) candidates.push_back(std::move(c));
+        }
     }
 
     if (candidates.empty()) return;
@@ -298,34 +349,44 @@ void parseContentRatings(const json::Value& p, const std::string& market,
     std::string sysLower;
     for (char ch : selected->system) sysLower += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
 
+    int ageNum = selected->age;
+    if (ageNum < 0) {
+        try {
+            ageNum = std::stoi(raw);
+        } catch (...) {}
+    }
+
     if (sysLower.find("classind") != std::string::npos || sysLower.find("djctq") != std::string::npos) {
         outSystem = "ClassInd";
-        if (rawLower.find("livre") != std::string::npos || rawLower == "l" || rawLower == "0" || rawLower == "general") outAge = "Livre";
-        else if (rawLower.find("10") != std::string::npos || rawLower == "ten") outAge = "10+";
-        else if (rawLower.find("12") != std::string::npos || rawLower == "twelve") outAge = "12+";
-        else if (rawLower.find("14") != std::string::npos || rawLower == "fourteen") outAge = "14+";
-        else if (rawLower.find("16") != std::string::npos || rawLower == "sixteen") outAge = "16+";
-        else if (rawLower.find("18") != std::string::npos || rawLower == "eighteen") outAge = "18+";
+        if (rawLower.find("livre") != std::string::npos || rawLower == "l" || rawLower == "0" || rawLower == "general" || ageNum == 0 || ageNum == 1) outAge = "Livre";
+        else if (ageNum == 10 || rawLower.find("10") != std::string::npos || rawLower == "ten") outAge = "10+";
+        else if (ageNum == 12 || rawLower.find("12") != std::string::npos || rawLower == "twelve") outAge = "12+";
+        else if (ageNum == 14 || rawLower.find("14") != std::string::npos || rawLower == "fourteen") outAge = "14+";
+        else if (ageNum == 16 || rawLower.find("16") != std::string::npos || rawLower == "sixteen") outAge = "16+";
+        else if (ageNum >= 18 || rawLower.find("18") != std::string::npos || rawLower == "eighteen") outAge = "18+";
+        else if (ageNum > 0) outAge = std::to_string(ageNum) + "+";
         else outAge = raw;
     } else if (sysLower.find("esrb") != std::string::npos) {
         outSystem = "ESRB";
-        if (rawLower.find("everyone 10") != std::string::npos || rawLower == "e10" || rawLower == "e10+" || rawLower == "everyone10plus") outAge = "E10+";
-        else if (rawLower.find("everyone") != std::string::npos || rawLower == "e") outAge = "E";
-        else if (rawLower.find("teen") != std::string::npos || rawLower == "t") outAge = "T";
-        else if (rawLower.find("mature") != std::string::npos || rawLower == "m" || rawLower == "mature 17+") outAge = "M";
+        if (ageNum == 10 || rawLower.find("everyone 10") != std::string::npos || rawLower == "e10" || rawLower == "e10+" || rawLower == "everyone10plus") outAge = "E10+";
+        else if (ageNum >= 17 || rawLower.find("mature") != std::string::npos || rawLower == "m" || rawLower == "mature 17+") outAge = "M";
+        else if (ageNum == 13 || rawLower.find("teen") != std::string::npos || rawLower == "t") outAge = "T";
+        else if ((ageNum > 0 && ageNum <= 6) || rawLower.find("everyone") != std::string::npos || rawLower == "e") outAge = "E";
         else if (rawLower.find("adult") != std::string::npos || rawLower == "ao") outAge = "AO";
         else if (rawLower.find("pending") != std::string::npos || rawLower == "rp") outAge = "RP";
+        else if (ageNum > 0) outAge = std::to_string(ageNum) + "+";
         else outAge = raw;
     } else if (sysLower.find("pegi") != std::string::npos) {
         outSystem = "PEGI";
-        if (rawLower.find("3") != std::string::npos) outAge = "3+";
-        else if (rawLower.find("7") != std::string::npos) outAge = "7+";
-        else if (rawLower.find("12") != std::string::npos) outAge = "12+";
-        else if (rawLower.find("16") != std::string::npos) outAge = "16+";
-        else if (rawLower.find("18") != std::string::npos) outAge = "18+";
+        if (ageNum == 3 || rawLower.find("3") != std::string::npos) outAge = "3+";
+        else if (ageNum == 7 || rawLower.find("7") != std::string::npos) outAge = "7+";
+        else if (ageNum == 12 || rawLower.find("12") != std::string::npos) outAge = "12+";
+        else if (ageNum == 16 || rawLower.find("16") != std::string::npos) outAge = "16+";
+        else if (ageNum >= 18 || rawLower.find("18") != std::string::npos) outAge = "18+";
+        else if (ageNum > 0) outAge = std::to_string(ageNum) + "+";
         else outAge = raw;
     } else {
-        outAge = raw;
+        outAge = raw.empty() && ageNum > 0 ? std::to_string(ageNum) + "+" : raw;
     }
 }
 

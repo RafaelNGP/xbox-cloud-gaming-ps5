@@ -243,13 +243,42 @@ is rolled back at the next start), then the app restarts itself
 | Priority | Item | Why | Size |
 | :---: | --- | --- | --- |
 | **1** | **Hardware video decoding (PS5 & other platforms)** | Integrate `libSceVideodec2` (sysmodule 207) into the active streaming pipeline (`StreamPlayer`) on PS5 to free an entire Zen 2 CPU core, reduce jitter/thermals, and map NV12 to Vulkan textures; enable VA-API / NVDEC via FFmpeg hwaccel on desktop/Steam Deck | medium–large |
-| **2** | **Expanded WebUI settings (Settings & in-stream Game Menu)** | Expand local HTTP server (port 8080): full general settings (bitrate slider, 120 Hz, dead zones, light bar, trigger vibration, queue alert) plus real-time in-stream `StreamMenu` control (CAS sharpness, FSR 1/Anime4K upscalers, deband, pad speaker volume, smart trigger profiles, live session telemetry FPS/RTT/loss) | medium |
+| **2** | **Expanded WebUI features & in-stream Game Menu** | Expand local HTTP server (port 8080): **Streaming Lock** (transparent backdrop-filter blur overlay and HTTP 409 rejection blocking search and filters while playing), **Virtual Touch Gamepad** on mobile browsers (full Xbox buttons, D-pad, dual virtual analog sticks, triggers/bumpers, View/Menu/Nexus, P1 main & P2 local co-op hot-join), full general settings (bitrate slider, 120 Hz, dead zones, light bar, trigger vibration, queue alert), real-time in-stream `StreamMenu` control (CAS sharpness, FSR 1/Anime4K upscalers, deband, pad speaker volume, smart trigger profiles), and live session telemetry (FPS/RTT/loss) | medium |
 | **3** | **Mouse navigation in desktop UI** | On desktop/Steam Deck menus, mouse hover updates focus, left click triggers cards/buttons/tabs/options, mouse wheel scrolls shelves and the 550+ title vertical grid; strictly desktop-only (`XCLOUD_DESKTOP_APP`), inactive on PS5 | small–medium |
 | **4a** | **Native Windows build (planned)** | Cross-compiled with `llvm-mingw` (or native MSVC/CMake), SDL3/Vulkan backend, XInput & DualSense controller integration, portable standalone `.zip` distribution | medium |
 | **4b** | **Native Android build (planned)** | Android NDK (C++20) + Java/Kotlin wrapper, hardware video decoding via `AMediaCodec`, customizable on-screen touch overlay controls, and Bluetooth gamepad support | large |
 | **5** | **Adaptive Voice Chat (DualSense mic & speaker with fallback)** | Optional voice routing: when using DualSense, route incoming voice chat to controller speaker while game audio stays on TV; transparent fallback for generic Xbox controllers, USB/P2 headsets or PC to use standard system mic and main audio mix without blocking | medium |
+| **5b** | **8BitDo 2.4G & Third-Party Wireless Controller Support on PS5** | Direct `/dev/uhid*` or `libusb` driver bypass on jailbroken PS5 to support 8BitDo Ultimate 2.4G USB RF dongle (`0x2DC8:0x3106`) without requiring `libScePad` authentication; alternative paths via WebUI virtual gamepad and hardware converters | medium |
 | **6** | Cloud playtime left (done in client; waiting for Microsoft) | From November 2026 cloud play is capped each month (Ultimate 15 h, Premium 10 h, Essential 5 h). Client support is ready (`AuthManager::fetchPlaytimeLimit`), waiting for Microsoft to enable quota | small–medium |
 | **7** | Home-screen tile per game (later) | The PS5 Forwarder Format (ProsperoLight): generate standalone tiles on the PS5 home screen that directly launch a cloud game (deprioritized to end of roadmap) | small |
+
+### Technical Feasibility Study: 8BitDo Ultimate 2.4G USB Dongle on PS5
+
+**Context & Hardware Architecture**:
+The 8BitDo Ultimate 2.4G wireless controller connects via its bundled 2.4 GHz USB RF adapter (`VID 0x2DC8`, `PID 0x3106`) or over Bluetooth. In standard operation, the 2.4G dongle acts as an X-Input or D-Input USB composite HID device.
+
+**PlayStation 5 Subsystem & Security Analysis**:
+1. **FreeBSD / Prospero Kernel Subsystem**:
+   - The PS5 kernel (`sys/dev/usb`) detects and enumerates the 8BitDo 2.4G USB dongle as a generic USB device (`ugen` / `uhid`).
+   - The kernel creates device nodes under `/dev/uhid*` and exposes raw USB transfer endpoints.
+2. **Sony Userland (`libScePad`) Whitelist & Security Enforcement**:
+   - Sony's userland input framework (`libScePad` and `libScePadCustom`) strictly limits pad handles to official Sony hardware: DualSense (`VID 0x054C`, `PID 0x0CE6`), DualSense Edge (`PID 0x0DF2`), and third-party controllers equipped with an authorized Sony cryptographic hardware coprocessor.
+   - The console's security coprocessor performs periodic encrypted challenge-response authentication handshakes with the controller.
+   - Unlicensed USB controllers and third-party 2.4G dongles fail this handshake or are ignored by `libScePad`, which returns invalid pad handles.
+3. **Bluetooth Pairing Limitations**:
+   - PS5 Bluetooth stack enforces Sony-specific EAP authentication handshakes and BD_ADDR filtering during device pairing.
+   - Pairing generic Bluetooth gamepads or 8BitDo controllers in Bluetooth mode directly to the PS5 fails during discovery/handshake.
+
+**Viable Implementation Paths**:
+- **Path 1: WebUI Virtual Gamepad (Zero Extra Hardware, Zero Jailbreak Dependency) — *Implemented in v1.4.0***:
+  - Users can pair the 8BitDo controller (via Bluetooth or USB OTG) to their smartphone, tablet, or laptop, open `http://<ps5-ip>:8080/`, and control the PS5 stream directly over Wi-Fi.
+  - Supports Player 1 (main control) or Player 2 (seamless co-op hot-joining in active streams).
+- **Path 2: Hardware Converter Adapters (Zero Code, 100% Native DualSense Emulation)**:
+  - Hardware translation converters (such as Brook Wingman XE 2, Brook FGC, or Mayflash Magic-S Pro 2) handle the Sony hardware challenge-response authentication while interfacing with the 8BitDo 2.4G dongle.
+  - The PS5 sees a fully authorized DualSense device with full input fidelity.
+- **Path 3: Direct Userland USB HID Driver (`uhid` / `libusb`) on Jailbroken PS5 — *Planned (Priority 5b)***:
+  - On jailbroken consoles (Prospero 3.xx–4.xx), homebrew userland can bypass `libScePad` entirely by opening `/dev/uhid*` directly or using `libusb`.
+  - A lightweight driver module (`src/input/pad_usb.cpp`) will read raw HID reports from the 8BitDo dongle in D-Input mode (16-byte report: 2 analog sticks, 2 triggers, 14 digital buttons), map them into `input::ControllerState`, and merge them directly into `input::mergePads` alongside or in place of DualSense.
 
 ## Dropped (and why)
 

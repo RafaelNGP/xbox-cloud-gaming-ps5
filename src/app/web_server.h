@@ -4,6 +4,7 @@
 // live search typing, and log download via mobile browser / QR code.
 #pragma once
 
+#include "input/controller.h"
 #include "platform/platform.h"
 #include "util/json.h"
 
@@ -22,8 +23,18 @@ struct WebServerHooks {
     std::function<void(const std::string& query)> setSearchQuery;
     std::function<void(const std::string* query, const std::string* tab, const json::Value* filters)> setSearchParams;
     std::function<void(std::string& outQuery, std::string& outTab, json::Value& outFilters)> getSearchParams;
+    std::function<bool()> isStreaming;
+    std::function<void(int playerIndex, const input::ControllerState& state)> injectGamepad;
 };
 void setWebServerHooks(WebServerHooks hooks);
+
+// Virtual gamepad input query:
+// playerIndex: 0 = Player 1, 1 = Player 2
+// outState: contains current active buttons/axes (resets to neutral after ~600ms of inactivity)
+// isConnected: true if any report/keepalive received within ~3000ms
+bool virtualGamepadState(int playerIndex, input::ControllerState& outState, bool& isConnected);
+void setVirtualGamepad(int playerIndex, const input::ControllerState& state);
+void resetVirtualGamepads();
 
 class WebServer {
 public:

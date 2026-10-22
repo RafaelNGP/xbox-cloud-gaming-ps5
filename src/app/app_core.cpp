@@ -15,6 +15,7 @@
 #include "app/report.h"
 #include "app/settings.h"
 #include "app/shell.h"
+#include "app/stream_player.h"
 #include "app/stream_screen.h"
 #include "app/web_server.h"
 #include "display/display.h"
@@ -380,7 +381,12 @@ bool coreStartup() {
             outFilters.set("console", g_ui->filterSelectedPublic(ui::AppUi::Filter::Console));
             outFilters.set("mode", g_ui->filterSelectedPublic(ui::AppUi::Filter::Mode));
             outFilters.set("language", g_ui->filterSelectedPublic(ui::AppUi::Filter::Language));
-        }
+        },
+        /*isStreaming=*/[]() -> bool {
+            return (g_ui && (g_ui->screen() == ui::Screen::Streaming || g_ui->screen() == ui::Screen::Launching)) ||
+                   (g_player && g_player->running());
+        },
+        /*injectGamepad=*/nullptr
     });
     startWebServer();
     g_ui->setWebUrl(webServerUrl());
@@ -467,6 +473,11 @@ bool Core::frame() {
     input::setGyroActive(g_ui->screen() == ui::Screen::Streaming && !streamScreen->menuOpen());
     input::poll(pad);
     autoplayPad(pad);
+    input::ControllerState vpad0;
+    bool vconn0 = false;
+    if (virtualGamepadState(0, vpad0, vconn0) && vconn0) {
+        input::mergePads(pad, vpad0);
+    }
     // USB keyboard: the app's screens (and its menu in a game) as with the
     // controller; in a game otherwise, its keys and the mouse go to the game.
     input::KbmInput kbm = input::kbmPoll();

@@ -7,6 +7,7 @@
 #include "app/autoplay.h"
 #include "app/shell.h"
 #include "app/stream_player.h"
+#include "app/web_server.h"
 #include "display/display.h"
 #include "input/input_ext.h"
 #include "input/kbm.h"
@@ -450,6 +451,17 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             if (!pad.touching) swipe_.fired = false;
             else if (pad.btnTouchpad) swipe_.fired = true;
         }
+        if (!menu_.isOpen()) {
+            input::ControllerState vpad0;
+            bool vconn0 = false;
+            if (virtualGamepadState(0, vpad0, vconn0) && vconn0) {
+                input::mergePads(sent, vpad0);
+                if (vpad0.btnNexus) {
+                    sent.btnNexus = true;
+                    g_xboxButtonUntil = platform::nowMs() + 250;
+                }
+            }
+        }
         if (platform::nowMs() < g_xboxButtonUntil) sent.btnNexus = true;
         g_player->sendInput(sent);
         // The keyboard as another player's controller (Settings): its own
@@ -502,6 +514,16 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         for (int i = 1; i < input::kMaxPads; ++i) {
             input::ControllerState other;
             bool on = input::pollPad(i, other);
+            input::ControllerState vpad;
+            bool vconn = false;
+            if (virtualGamepadState(i, vpad, vconn) && vconn) {
+                if (on) {
+                    input::mergePads(other, vpad);
+                } else {
+                    other = vpad;
+                    on = true;
+                }
+            }
             if (on) other = input::applyPadMap(other, padMap_);  // the same map as player 1's (the keys keep theirs)
             if (on && i == kbSlot) input::mergePads(other, kbPad_);  // the keyboard plays with this player's pad
             if (on != padAttached_[i]) {
@@ -510,6 +532,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 std::string who = std::to_string(i + 1);
                 std::string name = input::padUserName(i);
                 if (!name.empty()) who += " (" + name + ")";
+                else if (vconn && !input::padConnected(i)) who += " (Web Gamepad)";
                 // The PS5 user's name on the TV, not in the log.
                 platform::notify(ui::trf(on ? ui::Str::PadConnected : ui::Str::PadDisconnected, who),
                                  std::string("controller ") + std::to_string(i + 1) +
@@ -611,6 +634,7 @@ void StreamScreen::idle() {
     }
     if (wasStreaming_) {
         wasStreaming_ = false;
+        for (bool& a : padAttached_) a = false;
         overlayPlayer_ = nullptr;
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         input::setDeadzone(g_settings.deadzoneLeft / 100.0f, g_settings.deadzoneRight / 100.0f);

@@ -119,7 +119,8 @@ void priceLoop() {
             bool ok = xcloud::fetchProducts({id}, market, language, full, err, true) && full.count(id);
             if (ok) {
                 const auto& p = full[id];
-                g_ui->setDetailInfo(id, p.description, p.publisher, p.categories, p.heroUrl);
+                g_ui->setDetailInfo(id, p.description, p.publisher, p.categories, p.heroUrl,
+                                    p.ratingAge, p.ratingSystem, p.ratingDescriptors);
             }
             XC_LOGI("details of %s: %s", id.c_str(), ok ? "ok" : err.empty() ? "not in the catalog" : err.c_str());
         }

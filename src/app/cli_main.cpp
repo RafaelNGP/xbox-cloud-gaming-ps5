@@ -375,7 +375,8 @@ int cmdUiPreview(auth::AuthManager& am, const std::string& dir) {
             if (xcloud::fetchProducts({id}, gssv.session().market.empty() ? "US" : gssv.session().market,
                                       ui::catalogLanguage(), full, e, true) &&
                 full.count(id))
-                app.setDetailInfo(id, full[id].description, full[id].publisher, full[id].categories, full[id].heroUrl);
+                app.setDetailInfo(id, full[id].description, full[id].publisher, full[id].categories, full[id].heroUrl,
+                                  full[id].ratingAge, full[id].ratingSystem, full[id].ratingDescriptors);
         }
         save("details_buy", 2000);
         press([](ui::NavInput& n) { n.back = true; }, 1);

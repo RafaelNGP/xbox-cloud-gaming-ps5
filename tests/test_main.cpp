@@ -3239,6 +3239,61 @@ static void testBlock3Features() {
         xcloud::parseContentRatings(*jMature, "BR", ageFb, sysFb, descFb);
         CHECK(sysFb == "ESRB");
         CHECK(ageFb == "M");
+
+        // Microsoft Game Pass v3 catalog API singular "ContentRating" object (RemoteHighSapphire0)
+        auto jV3Br = json::parse(R"({
+            "ContentRating": {
+                "LongName": "16 anos",
+                "Description": "Para maiores de 16 anos",
+                "Age": 16,
+                "RatingSystem": "DJCTQ",
+                "LocalizedDescriptors": ["Violência"],
+                "LocalizedInteractiveElements": ["Usuários Interagem", "Compras no Jogo"]
+            }
+        })");
+        CHECK(jV3Br.has_value());
+        std::string ageV3Br, sysV3Br;
+        std::vector<std::string> descV3Br;
+        xcloud::parseContentRatings(*jV3Br, "BR", ageV3Br, sysV3Br, descV3Br);
+        CHECK(sysV3Br == "ClassInd");
+        CHECK(ageV3Br == "16+");
+        CHECK(descV3Br.size() == 3);
+        CHECK(descV3Br[0] == "Violência");
+        CHECK(descV3Br[1] == "Usuários Interagem");
+
+        // V3 Livre
+        auto jV3Livre = json::parse(R"({
+            "ContentRating": {
+                "LongName": "Livre",
+                "Description": "Para todas as idades",
+                "Age": 1,
+                "RatingSystem": "DJCTQ",
+                "LocalizedDescriptors": []
+            }
+        })");
+        CHECK(jV3Livre.has_value());
+        std::string ageLivre, sysLivre;
+        std::vector<std::string> descLivre;
+        xcloud::parseContentRatings(*jV3Livre, "BR", ageLivre, sysLivre, descLivre);
+        CHECK(sysLivre == "ClassInd");
+        CHECK(ageLivre == "Livre");
+
+        // V3 ESRB
+        auto jV3Esrb = json::parse(R"({
+            "ContentRating": {
+                "LongName": "TEEN",
+                "Age": 13,
+                "RatingSystem": "ESRB",
+                "LocalizedDescriptors": ["Blood", "Mild Violence"]
+            }
+        })");
+        CHECK(jV3Esrb.has_value());
+        std::string ageV3Us, sysV3Us;
+        std::vector<std::string> descV3Us;
+        xcloud::parseContentRatings(*jV3Esrb, "US", ageV3Us, sysV3Us, descV3Us);
+        CHECK(sysV3Us == "ESRB");
+        CHECK(ageV3Us == "T");
+        CHECK(descV3Us.size() == 2 && descV3Us[0] == "Blood");
     }
 
     // 2. Local Web Micro-Server
@@ -3489,6 +3544,156 @@ static void testBlock3Features() {
     }
 }
 
+void testWebStreamingAndGamepad() {
+    xc::app::WebServer srv;
+    bool streamingFlag = false;
+    std::string currentQuery = "";
+    std::string currentTab = "gamepass";
+    json::Value currentFilters = json::Value::object();
+
+    xc::app::WebServerHooks hooks;
+    hooks.isStreaming = [&]() { return streamingFlag; };
+    hooks.getSearchParams = [&](std::string& q, std::string& tab, json::Value& f) {
+        q = currentQuery;
+        tab = currentTab;
+        f = currentFilters;
+    };
+    hooks.setSearchParams = [&](const std::string* q, const std::string* tab, const json::Value* f) {
+        if (q) currentQuery = *q;
+        if (tab) currentTab = *tab;
+        if (f) currentFilters = *f;
+    };
+    xc::app::setWebServerHooks(hooks);
+
+    // 1. GET /api/status when not streaming
+    {
+        auto res = srv.handleRequest("GET", "/api/status", "");
+        CHECK(res.status == 200);
+        auto j = json::parse(res.body);
+        CHECK(j && j->isObject());
+        CHECK((*j)["ok"].asBool(false) == true);
+        CHECK((*j)["streaming"].asBool(true) == false);
+    }
+
+    // 2. POST /api/search when not streaming should succeed
+    {
+        auto res = srv.handleRequest("POST", "/api/search", "{\"query\":\"halo\",\"tab\":\"gamepass\"}");
+        CHECK(res.status == 200);
+        auto j = json::parse(res.body);
+        CHECK(j && (*j)["ok"].asBool(false) == true);
+        CHECK(currentQuery == "halo");
+    }
+
+    // 3. GET /api/status when streaming is active
+    streamingFlag = true;
+    {
+        auto res = srv.handleRequest("GET", "/api/status", "");
+        CHECK(res.status == 200);
+        auto j = json::parse(res.body);
+        CHECK(j && (*j)["streaming"].asBool(false) == true);
+    }
+
+    // 4. POST /api/search when streaming must be blocked with 409 Conflict
+    {
+        auto res = srv.handleRequest("POST", "/api/search", "{\"query\":\"gears\",\"tab\":\"gamepass\"}");
+        CHECK(res.status == 409);
+        auto j = json::parse(res.body);
+        CHECK(j && (*j)["ok"].asBool(true) == false);
+        CHECK((*j)["error"].asString() == "streaming_active");
+        CHECK(currentQuery == "halo"); // Search state was preserved and not changed
+    }
+
+    // 5. Virtual gamepad: Player 1 (main controller)
+    {
+        xc::app::resetVirtualGamepads();
+        input::ControllerState s0;
+        bool conn0 = false;
+        xc::app::virtualGamepadState(0, s0, conn0);
+        CHECK(!conn0);
+
+        auto res = srv.handleRequest("POST", "/api/gamepad",
+            "{\"player\":1,\"btnA\":true,\"leftStickX\":0.75,\"leftStickY\":-0.5,\"btnNexus\":true}");
+        CHECK(res.status == 200);
+        bool ok = xc::app::virtualGamepadState(0, s0, conn0);
+        CHECK(ok);
+        CHECK(conn0);
+        CHECK(s0.btnA == true);
+        CHECK(s0.btnB == false);
+        CHECK(s0.btnNexus == true);
+        CHECK(std::abs(s0.leftStickX - 0.75f) < 0.01f);
+        CHECK(std::abs(s0.leftStickY - (-0.5f)) < 0.01f);
+    }
+
+    // 6. Virtual gamepad: Player 2 (co-op controller)
+    {
+        input::ControllerState s1;
+        bool conn1 = false;
+        xc::app::virtualGamepadState(1, s1, conn1);
+        CHECK(!conn1);
+
+        auto res = srv.handleRequest("POST", "/api/gamepad",
+            "{\"player\":2,\"btnB\":true,\"triggerR2\":0.9,\"btnView\":true,\"dpadUp\":true}");
+        CHECK(res.status == 200);
+        bool ok = xc::app::virtualGamepadState(1, s1, conn1);
+        CHECK(ok);
+        CHECK(conn1);
+        CHECK(s1.btnB == true);
+        CHECK(s1.btnA == false);
+        CHECK(s1.btnTouchpad == true); // btnView maps to btnTouchpad
+        CHECK(s1.dpadUp == true);
+        CHECK(std::abs(s1.triggerR2 - 0.9f) < 0.01f);
+        // Test L3 and R3 buttons on Virtual Gamepad
+        input::ControllerState s0;
+        bool conn0 = false;
+        auto resL3R3 = srv.handleRequest("POST", "/api/gamepad",
+            "{\"player\":1,\"btnL3\":true,\"btnR3\":true}");
+        CHECK(resL3R3.status == 200);
+        bool okL3R3 = xc::app::virtualGamepadState(0, s0, conn0);
+        CHECK(okL3R3);
+        CHECK(s0.btnL3 == true);
+        CHECK(s0.btnR3 == true);
+    }
+
+    // 7. Reset virtual gamepads
+    {
+        xc::app::resetVirtualGamepads();
+        input::ControllerState s0, s1;
+        bool conn0 = false, conn1 = false;
+        xc::app::virtualGamepadState(0, s0, conn0);
+        xc::app::virtualGamepadState(1, s1, conn1);
+        CHECK(!conn0);
+        CHECK(!conn1);
+    }
+
+    // 8. Test AppUi::detailWanted prevents infinite re-fetching when detailInfo_ exists
+    {
+        ui::Fonts dummyFonts{};
+        ui::ImageCache images([] {});
+        ui::AppUi uiApp(dummyFonts, images);
+        ui::GameTile tile;
+        tile.productId = "PROD_UNRATED";
+        tile.name = "Unrated Game";
+        tile.description = "Short desc";
+        tile.heroUrl = "http://example.com/hero.jpg";
+        tile.ratingAge = ""; // Empty age rating
+
+        uiApp.showDetails(tile);
+        // First wanted call should ask for details
+        std::string asked = uiApp.detailWanted(1000);
+        CHECK(asked == "PROD_UNRATED");
+
+        // Simulate priceLoop fetching details and storing in detailInfo_
+        uiApp.setDetailInfo("PROD_UNRATED", "Longer desc", "Publisher X", {"Indie"}, "http://example.com/hero.jpg",
+                            "", "", {});
+
+        // Subsequent detailWanted calls (even after 5000ms) must NOT ask again
+        std::string askedAfter = uiApp.detailWanted(10000);
+        CHECK(askedAfter.empty());
+    }
+
+    xc::app::setWebServerHooks({});
+}
+
 int main() {
     testBlock3Features();
     testWishlist();
@@ -3556,6 +3761,7 @@ int main() {
     testBlock1Features();
     testVideoDecoder();
     testDrawNv12();
+    testWebStreamingAndGamepad();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;
