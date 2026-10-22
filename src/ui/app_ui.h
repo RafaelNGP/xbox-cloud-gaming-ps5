@@ -139,6 +139,7 @@ struct SettingsChoice {
     int gyroLevel = 5;  // intensity, 1..10
     bool fullscreen = true;    // a desktop's window fullscreen (UiCaps::desktopWindow; F11 switches it too)
     bool touchpadMouse = false;
+    int voiceRouting = 0;      // 0 Auto (DualSense pad speaker if available), 1 Always TV/Headset
     std::map<std::string, uint64_t> titlePlaytime; // accumulated playtime in seconds
 };
 
@@ -459,6 +460,9 @@ public:
 
     // --- UI thread -----------------------------------------------------------
     UiEvent handle(const NavInput& in);
+    UiEvent onMouseMove(float x, float y);
+    UiEvent onMouseDown(float x, float y, int button);
+    UiEvent onMouseWheel(float dx, float dy);
     // The keyboard keys' screen waits for a key: the main loop gives it the
     // next key or mouse button pressed (input::kMouseLeft..) instead of
     // moving through the screens with it.

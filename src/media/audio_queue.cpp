@@ -97,11 +97,23 @@ namespace {
 // main port follows the system's own routing, the desktop plays on the
 // default device).
 std::atomic<AudioRoute> g_route{AudioRoute::Main};
+std::atomic<int> g_voiceRouting{0};
 }  // namespace
 
 void audioSetVolume(float gain) { audioQueue().setVolume(gain); }
 void audioSetRoute(AudioRoute route) { g_route.store(route); }
 AudioRoute audioRoute() { return g_route.load(); }
+void audioSetVoiceRouting(int routing) { g_voiceRouting.store(std::clamp(routing, 0, 1)); }
+int audioVoiceRouting() { return g_voiceRouting.load(); }
 void audioPush(const float* interleaved, size_t frames) { audioQueue().push(interleaved, frames); }
+
+bool playVoiceAudio(const float* interleavedStereo, size_t frames) {
+    if (!interleavedStereo || frames == 0) return false;
+    if (g_voiceRouting.load() == 0 && hasPadSpeaker()) {
+        return playPadSpeakerAudio(interleavedStereo, frames);
+    }
+    audioPush(interleavedStereo, frames);
+    return true;
+}
 
 }  // namespace xc::media

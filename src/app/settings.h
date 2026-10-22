@@ -112,6 +112,7 @@ struct Settings {
     bool touchpadMouse = false; // touchpad as mouse in games with native MKB support
     int micGain = 1;        // 0: 50%, 1: 100%, 2: 150%
     int audioRoute = 0;     // 0: TV/HDMI (Main), 1: DualSense Speaker / Headset (Pad)
+    int voiceRouting = 0;   // 0: Auto (DualSense Speaker if available), 1: Always TV/Headset
     int padSpeakerVolume = 100; // 0 to 100% (DualSense controller speaker)
     bool queueReadyAlert = true; // Queue-ready chime and rumble alert
     std::map<std::string, uint64_t> titlePlaytime; // accumulated playtime in seconds (productId or titleId -> seconds)

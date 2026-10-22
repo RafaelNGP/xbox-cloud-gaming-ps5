@@ -24,5 +24,6 @@ void sdlRepaint();
 void sdlSetFullscreen(bool on);
 void sdlToggleFullscreen();
 bool sdlIsFullscreen();
+bool sdlWindowToLogical(float winX, float winY, float& logX, float& logY);
 
 }  // namespace xc::display

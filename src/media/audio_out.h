@@ -28,5 +28,15 @@ bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames);
 // Sets the DualSense pad speaker volume (0 to 100%).
 void setPadSpeakerVolume(int percent);
 int padSpeakerVolume();
+// Returns true if the controller speaker is physically available (DualSense with valid audio port).
+bool hasPadSpeaker();
+// Voice routing: 0 = Auto (DualSense pad speaker if available, fallback to main), 1 = Always Main (TV/Headset)
+void audioSetVoiceRouting(int routing);
+int audioVoiceRouting();
+// Adaptive voice audio playback: routes to the DualSense controller speaker when
+// voice routing is Auto and the controller speaker is physically available,
+// or transparently mixes into the main audio channel when voice routing is Always Main
+// or when using headsets / third-party controllers without a controller speaker.
+bool playVoiceAudio(const float* interleavedStereo, size_t frames);
 
 }  // namespace xc::media

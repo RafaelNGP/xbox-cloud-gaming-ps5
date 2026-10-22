@@ -100,6 +100,7 @@ bool Settings::load(const std::string& path) {
     touchpadMouse = (*j)["touchpadMouse"].asBool(touchpadMouse);
     micGain = static_cast<int>(std::clamp<int64_t>((*j)["micGain"].asInt(micGain), 0, 2));
     audioRoute = static_cast<int>(std::clamp<int64_t>((*j)["audioRoute"].asInt(audioRoute), 0, 1));
+    voiceRouting = static_cast<int>(std::clamp<int64_t>((*j)["voiceRouting"].asInt(voiceRouting), 0, 1));
     padSpeakerVolume = static_cast<int>(std::clamp<int64_t>((*j)["padSpeakerVolume"].asInt(padSpeakerVolume), 0, 100));
     skippedUpdate = (*j)["skippedUpdate"].str();
     maxHeightCloud = static_cast<int>((*j)["maxHeightCloud"].asInt(0));
@@ -254,6 +255,7 @@ bool Settings::save(const std::string& path) const {
     v.set("touchpadMouse", touchpadMouse);
     v.set("micGain", micGain);
     v.set("audioRoute", audioRoute);
+    v.set("voiceRouting", voiceRouting);
     v.set("padSpeakerVolume", padSpeakerVolume);
     v.set("queueReadyAlert", queueReadyAlert);
     json::Value pt = json::Value::object();

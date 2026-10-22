@@ -115,4 +115,8 @@ bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
     return true;
 }
 
+bool hasPadSpeaker() {
+    return false;
+}
+
 }  // namespace xc::media

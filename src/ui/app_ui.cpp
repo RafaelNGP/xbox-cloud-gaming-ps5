@@ -2844,6 +2844,463 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
     }
 }
 
+UiEvent AppUi::onMouseMove(float x, float y) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    UiEvent ev;
+    if (!caps_.desktopWindow || screen_ == Screen::Streaming || screen_ == Screen::Splash) {
+        return ev;
+    }
+    if (screen_ == Screen::Home) {
+        if (tab_ == Tab::GamePass) {
+            constexpr int kGridW = kLibraryCols * kCardPitch - kCardGap;
+            const int gridLeft = (kW - kGridW) / 2;
+            int afterGridOffset = 0;
+            for (size_t r = 0; r < rows_.size(); ++r) {
+                float rel = static_cast<float>(r) - rowY_.value;
+                int rowBaseY = kRowTop + static_cast<int>(std::lround(rel * kRowPitch)) + afterGridOffset;
+                const GameRow& row = rows_[r];
+                if (row.isGrid) {
+                    int offset = static_cast<int>(std::lround(rowScroll_[r].value));
+                    int cardY = rowBaseY - offset + 48;
+                    for (size_t i = 0; i < row.tiles.size(); ++i) {
+                        int c_col = static_cast<int>(i) % kLibraryCols;
+                        int c_row = static_cast<int>(i) / kLibraryCols;
+                        int cy = cardY + c_row * kGridPitchY;
+                        int cx = gridLeft + c_col * kCardPitch;
+                        if (x >= cx && x < cx + kCard && y >= cy && y < cy + kCard) {
+                            if (focusRow_ != static_cast<int>(r) || focusCol_[r] != static_cast<int>(i)) {
+                                focusRow_ = static_cast<int>(r);
+                                focusCol_[r] = static_cast<int>(i);
+                                retarget();
+                                dirty_ = true;
+                            }
+                            return ev;
+                        }
+                    }
+                    int gridHeight = 48 + ((static_cast<int>(row.tiles.size()) + kLibraryCols - 1) / kLibraryCols) * kGridPitchY;
+                    afterGridOffset += gridHeight - offset - kRowPitch;
+                } else {
+                    int cardY = rowBaseY + 48;
+                    int scroll = static_cast<int>(std::lround(rowScroll_[r].value));
+                    int firstCol = std::max(0, scroll / kCardPitch - 1);
+                    for (size_t col = static_cast<size_t>(firstCol); col < row.tiles.size(); ++col) {
+                        int cx = kMargin + static_cast<int>(col) * kCardPitch - scroll;
+                        if (cx > kW) break;
+                        if (x >= cx && x < cx + kCard && y >= cardY && y < cardY + kCard) {
+                            if (focusRow_ != static_cast<int>(r) || focusCol_[r] != static_cast<int>(col)) {
+                                focusRow_ = static_cast<int>(r);
+                                focusCol_[r] = static_cast<int>(col);
+                                retarget();
+                                dirty_ = true;
+                            }
+                            return ev;
+                        }
+                    }
+                }
+            }
+        } else if (tab_ == Tab::Library) {
+            constexpr int kGridW = kLibraryCols * kCardPitch - kCardGap;
+            const int left = (kW - kGridW) / 2;
+            LibraryLayout L = libraryLayout();
+            int offset = static_cast<int>(std::lround(gridScroll_.value));
+            for (size_t i = 0; i < L.rowOf.size(); ++i) {
+                int cy = kLibraryTop + L.rowY[static_cast<size_t>(L.rowOf[i])] - offset;
+                int cx = left + L.colOf[i] * kCardPitch;
+                if (x >= cx && x < cx + kCard && y >= cy && y < cy + kCard) {
+                    if (gridFocus_ != static_cast<int>(i)) {
+                        gridFocus_ = static_cast<int>(i);
+                        dirty_ = true;
+                    }
+                    return ev;
+                }
+            }
+        }
+    } else if (screen_ == Screen::Settings) {
+        constexpr int kRowW = 1200, kRowH = 34, kGap = 2, kGroupGap = 6;
+        int curY = 190;
+        for (const auto& [i, groupStart] : visibleSettingsRows(caps_)) {
+            if (groupStart) curY += kGroupGap;
+            if (x >= kMargin && x < kMargin + kRowW && y >= curY && y < curY + kRowH) {
+                if (settingsRow_ != i) {
+                    settingsRow_ = i;
+                    dirty_ = true;
+                }
+                return ev;
+            }
+            curY += kRowH + kGap;
+        }
+    } else if (screen_ == Screen::Details) {
+        if (gameSettingsOpen_) {
+            constexpr int kModalW = 1140, kModalH = 960;
+            constexpr int kRowH = 43, kGap = 4, kGroupGap = 8;
+            const auto rows = visibleGameSettingsRows(caps_, activeGameHasCustom_, activeGameMouseSupported_);
+            const auto most = visibleGameSettingsRows(caps_, true, activeGameMouseSupported_), all = visibleGameSettingsRows(UiCaps{}, true, true);
+            auto groups = [](const std::vector<SettingsRowPos>& v) {
+                return static_cast<int>(std::count_if(v.begin(), v.end(), [](const SettingsRowPos& r) { return r.groupStart; }));
+            };
+            const int modalH = kModalH - static_cast<int>(all.size() - most.size()) * (kRowH + kGap) -
+                               (groups(all) - groups(most)) * kGroupGap;
+            Rect panel{(kW - kModalW) / 2, (kH - modalH) / 2, kModalW, modalH};
+            int curY = panel.y + 92;
+            for (int pos = 0; pos < static_cast<int>(rows.size()); ++pos) {
+                if (rows[static_cast<size_t>(pos)].groupStart) curY += kGroupGap;
+                Rect r{panel.x + 50, curY, panel.w - 100, kRowH};
+                if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
+                    if (gameSettingsRow_ != pos) {
+                        gameSettingsRow_ = pos;
+                        dirty_ = true;
+                    }
+                    return ev;
+                }
+                curY += kRowH + kGap;
+            }
+            return ev;
+        }
+        Rect play{kMargin, 620, 300, 76};
+        if (x >= play.x && x < play.x + play.w && y >= play.y && y < play.y + play.h) {
+            if (detailButtonFocus_ != 0) {
+                detailButtonFocus_ = 0;
+                dirty_ = true;
+            }
+        }
+    }
+    return ev;
+}
+
+UiEvent AppUi::onMouseDown(float x, float y, int button) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    UiEvent ev;
+    if (!caps_.desktopWindow || screen_ == Screen::Streaming || screen_ == Screen::Splash) {
+        return ev;
+    }
+    if (button == 3) {
+        // Right click: Back
+        if (dropdownOpen_) {
+            dropdownOpen_ = false;
+            dirty_ = true;
+            return ev;
+        }
+        if (achievementsOpen_) {
+            achievementsOpen_ = false;
+            dirty_ = true;
+            return ev;
+        }
+        if (gameSettingsOpen_) {
+            closeGameSettings();
+            dirty_ = true;
+            return ev;
+        }
+        if (reportOpen_) {
+            reportOpen_ = false;
+            dirty_ = true;
+            return ev;
+        }
+        if (searching_) {
+            searching_ = false;
+            dirty_ = true;
+            return ev;
+        }
+        if (screen_ == Screen::Details || screen_ == Screen::Settings) {
+            screen_ = Screen::Home;
+            dirty_ = true;
+            return ev;
+        }
+        return ev;
+    }
+    if (button != 1) return ev;
+
+    // Check avatar / profile click to open settings
+    if (screen_ == Screen::Home) {
+        constexpr int kAvatar = 52;
+        if (x >= kW - kMargin - kAvatar && x <= kW - kMargin && y >= 40 && y <= 100) {
+            screen_ = Screen::Settings;
+            settingsRow_ = 0;
+            settingsFromError_ = false;
+            settingsCountry_ = settings_.loginCountry;
+            dropdownOpen_ = false;
+            filterList_ = -1;
+            dirty_ = true;
+            return ev;
+        }
+    }
+
+    // Check top bar tabs
+    if (screen_ == Screen::Home && y >= 45 && y <= 95) {
+        const char* labels[3] = {tr(Str::TabGamePass), tr(Str::YourGames), tr(Str::TabConsoles)};
+        constexpr int kPx = 22, kPad = 26, kGap = 12, kH = 44, kY = 50;
+        int widths[3], total = 0;
+        for (int i = 0; i < 3; ++i) {
+            widths[i] = fonts_.semibold.measure(labels[i], kPx) + 2 * kPad;
+            total += widths[i] + (i ? kGap : 0);
+        }
+        int tabX = (kW - total) / 2;
+        for (int i = 0; i < 3; ++i) {
+            if (x >= tabX && x < tabX + widths[i] && y >= kY && y < kY + kH) {
+                showTab(static_cast<Tab>(i));
+                if (tab_ == Tab::Consoles) ev.action = Action::ConsolesShown;
+                return ev;
+            }
+            tabX += widths[i] + kGap;
+        }
+    }
+
+    if (screen_ == Screen::Home) {
+        if (tab_ == Tab::GamePass) {
+            constexpr int kGridW = kLibraryCols * kCardPitch - kCardGap;
+            const int gridLeft = (kW - kGridW) / 2;
+            int afterGridOffset = 0;
+            for (size_t r = 0; r < rows_.size(); ++r) {
+                float rel = static_cast<float>(r) - rowY_.value;
+                int rowBaseY = kRowTop + static_cast<int>(std::lround(rel * kRowPitch)) + afterGridOffset;
+                const GameRow& row = rows_[r];
+                if (row.isGrid) {
+                    int offset = static_cast<int>(std::lround(rowScroll_[r].value));
+                    int cardY = rowBaseY - offset + 48;
+                    for (size_t i = 0; i < row.tiles.size(); ++i) {
+                        int c_col = static_cast<int>(i) % kLibraryCols;
+                        int c_row = static_cast<int>(i) / kLibraryCols;
+                        int cy = cardY + c_row * kGridPitchY;
+                        int cx = gridLeft + c_col * kCardPitch;
+                        if (x >= cx && x < cx + kCard && y >= cy && y < cy + kCard) {
+                            focusRow_ = static_cast<int>(r);
+                            focusCol_[r] = static_cast<int>(i);
+                            openDetails(row.tiles[i]);
+                            return ev;
+                        }
+                    }
+                    int gridHeight = 48 + ((static_cast<int>(row.tiles.size()) + kLibraryCols - 1) / kLibraryCols) * kGridPitchY;
+                    afterGridOffset += gridHeight - offset - kRowPitch;
+                } else {
+                    int cardY = rowBaseY + 48;
+                    int scroll = static_cast<int>(std::lround(rowScroll_[r].value));
+                    int firstCol = std::max(0, scroll / kCardPitch - 1);
+                    for (size_t col = static_cast<size_t>(firstCol); col < row.tiles.size(); ++col) {
+                        int cx = kMargin + static_cast<int>(col) * kCardPitch - scroll;
+                        if (cx > kW) break;
+                        if (x >= cx && x < cx + kCard && y >= cardY && y < cardY + kCard) {
+                            focusRow_ = static_cast<int>(r);
+                            focusCol_[r] = static_cast<int>(col);
+                            openDetails(row.tiles[col]);
+                            return ev;
+                        }
+                    }
+                }
+            }
+        } else if (tab_ == Tab::Library) {
+            constexpr int kGridW = kLibraryCols * kCardPitch - kCardGap;
+            const int left = (kW - kGridW) / 2;
+            LibraryLayout L = libraryLayout();
+            int offset = static_cast<int>(std::lround(gridScroll_.value));
+            for (size_t i = 0; i < L.rowOf.size(); ++i) {
+                int cy = kLibraryTop + L.rowY[static_cast<size_t>(L.rowOf[i])] - offset;
+                int cx = left + L.colOf[i] * kCardPitch;
+                if (x >= cx && x < cx + kCard && y >= cy && y < cy + kCard) {
+                    gridFocus_ = static_cast<int>(i);
+                    const GameTile* t = libraryTile(static_cast<int>(i));
+                    if (t) openDetails(*t);
+                    return ev;
+                }
+            }
+            constexpr int kAvatar = 52;
+            int right = kW - kMargin - kAvatar - 16;
+            if (x >= right - 200 && x <= right && y >= 110 && y <= 145) {
+                librarySort_ = static_cast<LibrarySort>((static_cast<int>(librarySort_) + 1) %
+                                                       static_cast<int>(LibrarySort::Count));
+                rebuild(true);
+                prefsEvent(ev);
+                dirty_ = true;
+                return ev;
+            }
+        }
+    } else if (screen_ == Screen::Details) {
+        if (gameSettingsOpen_) {
+            constexpr int kModalW = 1140, kModalH = 960;
+            constexpr int kRowH = 43, kGap = 4, kGroupGap = 8;
+            const auto rows = visibleGameSettingsRows(caps_, activeGameHasCustom_, activeGameMouseSupported_);
+            const auto most = visibleGameSettingsRows(caps_, true, activeGameMouseSupported_), all = visibleGameSettingsRows(UiCaps{}, true, true);
+            auto groups = [](const std::vector<SettingsRowPos>& v) {
+                return static_cast<int>(std::count_if(v.begin(), v.end(), [](const SettingsRowPos& r) { return r.groupStart; }));
+            };
+            const int modalH = kModalH - static_cast<int>(all.size() - most.size()) * (kRowH + kGap) -
+                               (groups(all) - groups(most)) * kGroupGap;
+            Rect panel{(kW - kModalW) / 2, (kH - modalH) / 2, kModalW, modalH};
+            int curY = panel.y + 92;
+            for (int pos = 0; pos < static_cast<int>(rows.size()); ++pos) {
+                if (rows[static_cast<size_t>(pos)].groupStart) curY += kGroupGap;
+                Rect r{panel.x + 50, curY, panel.w - 100, kRowH};
+                if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) {
+                    gameSettingsRow_ = pos;
+                    handleGameSettings(NavInput{.accept = true}, ev);
+                    dirty_ = true;
+                    return ev;
+                }
+                curY += kRowH + kGap;
+            }
+            if (x < panel.x || x >= panel.x + panel.w || y < panel.y || y >= panel.y + panel.h) {
+                closeGameSettings();
+                dirty_ = true;
+            }
+            return ev;
+        }
+        const GameTile* g = &detail_;
+        if (g->productId.empty()) return ev;
+        bool free = isFreeGame(*g);
+        if (!g->playable && free) {
+            ev.action = Action::ClaimFreeGame;
+            ev.game = detail_;
+            return ev;
+        } else if (g->playable) {
+            int btnY = 620;
+            Rect play{kMargin, btnY, 300, 76};
+            if (x >= play.x && x < play.x + play.w && y >= play.y - 20 && y < play.y + play.h + 20) {
+                ev.action = Action::Play;
+                ev.game = detail_;
+                return ev;
+            }
+        }
+    } else if (screen_ == Screen::Settings) {
+        if (dropdownOpen_) {
+            auto options = settingOptions(settingsRow_);
+            constexpr int kItemH = 62, kVisible = 8, kListW = 640;
+            int n = static_cast<int>(options.size());
+            int visible = std::min(n, kVisible);
+            constexpr int kRowW = 1200;
+            Rect panel{kMargin + kRowW - kListW, 190, kListW, visible * kItemH + 16};
+            int curY = 190;
+            for (const auto& [i, groupStart] : visibleSettingsRows(caps_)) {
+                if (groupStart) curY += 6;
+                if (i == settingsRow_) {
+                    panel.y = curY + 34 + 8;
+                    break;
+                }
+                curY += 34 + 2;
+            }
+            if (panel.y + panel.h > kH - 100) panel.y = std::max(120, kH - 100 - panel.h);
+
+            if (x >= panel.x && x < panel.x + panel.w && y >= panel.y && y < panel.y + panel.h) {
+                for (int k = 0; k < visible; ++k) {
+                    int i = dropdownTop_ + k;
+                    Rect item{panel.x + 8, panel.y + 8 + k * kItemH, panel.w - 16, kItemH};
+                    if (x >= item.x && x < item.x + item.w && y >= item.y && y < item.y + item.h && i < n) {
+                        applySetting(settingsRow_, i);
+                        dropdownOpen_ = false;
+                        dirty_ = true;
+                        ev.action = Action::SettingsChanged;
+                        ev.settings = settings_;
+                        return ev;
+                    }
+                }
+            } else {
+                dropdownOpen_ = false;
+                dirty_ = true;
+                return ev;
+            }
+        }
+        constexpr int kRowW = 1200, kRowH = 34, kGap = 2, kGroupGap = 6;
+        int curY = 190;
+        for (const auto& [i, groupStart] : visibleSettingsRows(caps_)) {
+            if (groupStart) curY += kGroupGap;
+            if (x >= kMargin && x < kMargin + kRowW && y >= curY && y < curY + kRowH) {
+                settingsRow_ = i;
+                if (i == 17) {
+                    ev.action = Action::CheckSignIn;
+                    return ev;
+                } else if (i == 18) {
+                    ev.action = Action::RunNetworkTest;
+                    return ev;
+                } else if (i == 19) {
+                    ev.action = Action::OpenUrl;
+                    ev.url = "https://ko-fi.com/rafaelngp";
+                    return ev;
+                } else if (i == 5) {
+                    settings_.circleConfirms = !settings_.circleConfirms;
+                    ev.action = Action::SettingsChanged;
+                    ev.settings = settings_;
+                    dirty_ = true;
+                    return ev;
+                } else {
+                    auto opts = settingOptions(i);
+                    if (opts.size() > 2 && i != 10) {
+                        dropdownOpen_ = true;
+                        dropdownIndex_ = settingSelected(i);
+                        dropdownTop_ = std::max(0, dropdownIndex_ - 4);
+                        dirty_ = true;
+                        return ev;
+                    }
+                    changeSetting(1);
+                    ev.action = Action::SettingsChanged;
+                    ev.settings = settings_;
+                    dirty_ = true;
+                    return ev;
+                }
+            }
+            curY += kRowH + kGap;
+        }
+    }
+    return ev;
+}
+
+UiEvent AppUi::onMouseWheel(float dx, float dy) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    UiEvent ev;
+    if (!caps_.desktopWindow || screen_ == Screen::Streaming || screen_ == Screen::Splash) {
+        return ev;
+    }
+    if (screen_ == Screen::Home) {
+        if (tab_ == Tab::Library) {
+            LibraryLayout L = libraryLayout();
+            float maxScroll = L.rowY.empty() ? 0.0f : static_cast<float>(std::max(0, L.rowY.back() + kGridPitchY - (kH - kLibraryTop)));
+            gridScroll_.target = std::clamp(gridScroll_.target - dy * 140.0f, 0.0f, maxScroll);
+            animating_ = true;
+            dirty_ = true;
+        } else if (tab_ == Tab::GamePass) {
+            if (!rows_.empty()) {
+                const GameRow& curRow = rows_[static_cast<size_t>(focusRow_)];
+                if (curRow.isGrid) {
+                    int totalRows = (static_cast<int>(curRow.tiles.size()) + kLibraryCols - 1) / kLibraryCols;
+                    float maxScroll = std::max(0.0f, static_cast<float>(totalRows * kGridPitchY - (kH - kRowTop - 48)));
+                    if (dy > 0 && rowScroll_[static_cast<size_t>(focusRow_)].target <= 0.0f) {
+                        if (focusRow_ > 0) {
+                            --focusRow_;
+                            retarget();
+                            animating_ = true;
+                            dirty_ = true;
+                        }
+                    } else {
+                        rowScroll_[static_cast<size_t>(focusRow_)].target =
+                            std::clamp(rowScroll_[static_cast<size_t>(focusRow_)].target - dy * 140.0f, 0.0f, maxScroll);
+                        animating_ = true;
+                        dirty_ = true;
+                    }
+                } else {
+                    if (std::abs(dy) > std::abs(dx)) {
+                        int nextRow = std::clamp(static_cast<int>(rowY_.target - dy), 0, static_cast<int>(rows_.size()) - 1);
+                        if (nextRow != focusRow_) {
+                            focusRow_ = nextRow;
+                            retarget();
+                            animating_ = true;
+                            dirty_ = true;
+                        }
+                    } else if (dx != 0.0f) {
+                        float maxScroll = std::max(0.0f, static_cast<float>(static_cast<int>(curRow.tiles.size()) * kCardPitch - (kW - kMargin)));
+                        rowScroll_[static_cast<size_t>(focusRow_)].target =
+                            std::clamp(rowScroll_[static_cast<size_t>(focusRow_)].target - dx * 160.0f, 0.0f, maxScroll);
+                        animating_ = true;
+                        dirty_ = true;
+                    }
+                }
+            }
+        }
+    } else if (screen_ == Screen::Details && achievementsOpen_) {
+        achScroll_ = std::max(0, achScroll_ - static_cast<int>(dy * 3));
+        dirty_ = true;
+    } else if (screen_ == Screen::Home && updatePrompt_ && showingUpdateNotes_) {
+        updateNotesScroll_ = std::clamp(updateNotesScroll_ - static_cast<int>(dy * 2), 0, updateNotesMaxScroll_);
+        dirty_ = true;
+    }
+    return ev;
+}
+
 UiEvent AppUi::handle(const NavInput& in) {
     std::lock_guard<std::mutex> lock(mutex_);
     UiEvent ev;

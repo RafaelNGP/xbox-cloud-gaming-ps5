@@ -241,4 +241,24 @@ bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
     return true;
 }
 
+bool hasPadSpeaker() {
+    int32_t userId = input::padUserId(0);
+    if (userId < 0) return false;
+    static std::atomic<uint64_t> lastCheckMs{0};
+    static std::atomic<bool> lastResult{false};
+    uint64_t now = platform::nowMs();
+    if (now - lastCheckMs.load() < 2000) {
+        return lastResult.load();
+    }
+    lastCheckMs.store(now);
+    int padHandle = sceAudioOutOpen(userId, 4 /* PADSPK */, 0, kGrain, kRate, 3);
+    if (padHandle >= 0) {
+        sceAudioOutClose(padHandle);
+        lastResult.store(true);
+        return true;
+    }
+    lastResult.store(false);
+    return false;
+}
+
 }  // namespace xc::media

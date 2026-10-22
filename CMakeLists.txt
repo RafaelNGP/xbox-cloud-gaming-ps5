@@ -41,10 +41,10 @@ add_library(xcloud_core STATIC
     src/input/key_map.cpp
     src/input/pad_map.cpp
     src/input/keyboard_nav.cpp
+    src/input/pad_usb.cpp
     src/input/sdl_mapping.cpp
     src/xcloud/social.cpp
     src/xcloud/achievements.cpp
-    src/platform/posix_common.cpp
     src/platform/toasts.cpp
     src/input/gyro.cpp
 )
@@ -144,13 +144,19 @@ if(XCLOUD_PS5)
         src/media/audio_out_ps5.cpp
         src/media/audio_in_ps5.cpp
     )
+    target_sources(xcloud_core PRIVATE src/platform/posix_common.cpp)
     target_include_directories(xcloud_app PRIVATE "${PS5_RADV}/include")
     # The USB keyboard / mouse backend kept the warnings it had in xcloud_core.
     set_source_files_properties(src/input/kbm_ps5.cpp PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Wno-unused-parameter")
     target_link_libraries(xcloud_app PUBLIC xcloud_stream xcloud_media xcloud_ui)
 else()
     target_link_libraries(xcloud_core PUBLIC Threads::Threads)
-    target_sources(xcloud_core PRIVATE src/platform/linux/platform_linux.cpp)
+    if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        target_link_libraries(xcloud_core PUBLIC ws2_32 crypt32 iphlpapi winmm secur32)
+        target_sources(xcloud_core PRIVATE src/platform/windows/platform_windows.cpp)
+    else()
+        target_sources(xcloud_core PRIVATE src/platform/posix_common.cpp src/platform/linux/platform_linux.cpp)
+    endif()
 
     # No screen, pads, USB keyboard or hardware decoder: what a desktop
     # build links in place of the PS5's backends (docs/multiplatform.md).

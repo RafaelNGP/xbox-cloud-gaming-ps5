@@ -20,6 +20,7 @@
 #include "input/controller.h"
 #include "input/gyro.h"
 #include "input/tuning.h"
+#include "input/pad_usb.h"
 #include "net/http.h"
 #include "platform/platform.h"
 #include "platform/toasts.h"
@@ -3694,6 +3695,346 @@ void testWebStreamingAndGamepad() {
     xc::app::setWebServerHooks({});
 }
 
+static void testWebSettingsAndStreamMenu() {
+    xc::app::WebServer srv;
+    bool streamMenuUpdated = false;
+    std::string lastStreamAction;
+    json::Value lastStreamUpdate;
+    json::Value currentSettings = json::Value::object();
+    currentSettings.set("bitrateMbps", 25);
+    currentSettings.set("resolution", "1080p");
+    currentSettings.set("voiceRouting", 1);
+
+    xc::app::WebServerHooks hooks;
+    hooks.isStreaming = []() { return true; };
+    hooks.getSettings = [&](json::Value& out) {
+        out = currentSettings;
+    };
+    hooks.updateSettings = [&](const json::Value& root) {
+        if (root.has("bitrateMbps")) currentSettings.set("bitrateMbps", root["bitrateMbps"].asInt());
+        if (root.has("voiceRouting")) currentSettings.set("voiceRouting", root["voiceRouting"].asInt());
+        return true;
+    };
+    hooks.getTelemetry = [](json::Value& stats) {
+        stats = json::Value::object();
+        stats.set("fps", 60.0);
+        stats.set("decodeMs", 3.2);
+        stats.set("rtt", 14.5);
+        stats.set("packetLoss", 0.0);
+        stats.set("bitrateKbps", 15200);
+    };
+    hooks.getStreamMenuState = [](json::Value& state) {
+        state = json::Value::object();
+        state.set("volume", 80);
+        state.set("micMuted", false);
+        state.set("sharpness", 2);
+        state.set("casSharpness", 3);
+        state.set("deband", true);
+        state.set("stats", true);
+        state.set("statsMode", 1);
+        state.set("touchPadMouse", false);
+        state.set("virtualGamepad", true);
+    };
+    hooks.updateStreamMenu = [&](const json::Value& update) {
+        streamMenuUpdated = true;
+        lastStreamUpdate = update;
+        return true;
+    };
+    hooks.streamAction = [&](const std::string& action) {
+        lastStreamAction = action;
+    };
+    xc::app::setWebServerHooks(hooks);
+
+    // 1. GET /api/settings
+    {
+        auto res = srv.handleRequest("GET", "/api/settings", "");
+        CHECK(res.status == 200);
+        auto j = json::parse(res.body);
+        CHECK(j && j->isObject());
+        CHECK((*j)["bitrateMbps"].asInt() == 25);
+        CHECK((*j)["resolution"].str() == "1080p");
+        CHECK((*j)["voiceRouting"].asInt() == 1);
+    }
+
+    // 2. POST /api/settings
+    {
+        auto res = srv.handleRequest("POST", "/api/settings", R"({"bitrateMbps":40,"voiceRouting":2})");
+        CHECK(res.status == 200);
+        auto j = json::parse(res.body);
+        CHECK(j && (*j)["ok"].asBool() == true);
+        CHECK(currentSettings["bitrateMbps"].asInt() == 40);
+        CHECK(currentSettings["voiceRouting"].asInt() == 2);
+    }
+
+    // 3. GET /api/stats
+    {
+        auto res = srv.handleRequest("GET", "/api/stats", "");
+        CHECK(res.status == 200);
+        auto j = json::parse(res.body);
+        CHECK(j && j->isObject());
+        CHECK((*j)["fps"].asNumber() == 60.0);
+        CHECK((*j)["decodeMs"].asNumber() == 3.2);
+        CHECK((*j)["rtt"].asNumber() == 14.5);
+    }
+
+    // 4. GET /api/stream
+    {
+        auto res = srv.handleRequest("GET", "/api/stream", "");
+        CHECK(res.status == 200);
+        auto j = json::parse(res.body);
+        CHECK(j && j->isObject());
+        CHECK((*j)["volume"].asInt() == 80);
+        CHECK((*j)["micMuted"].asBool() == false);
+        CHECK((*j)["sharpness"].asInt() == 2);
+        CHECK((*j)["casSharpness"].asInt() == 3);
+        CHECK((*j)["virtualGamepad"].asBool() == true);
+    }
+
+    // 5. POST /api/stream with action
+    {
+        lastStreamAction.clear();
+        auto res = srv.handleRequest("POST", "/api/stream", R"({"action":"disconnect"})");
+        CHECK(res.status == 200);
+        auto j = json::parse(res.body);
+        CHECK(j && (*j)["ok"].asBool() == true);
+        CHECK(lastStreamAction == "disconnect");
+    }
+
+    // 6. POST /api/stream with stream menu update
+    {
+        streamMenuUpdated = false;
+        auto res = srv.handleRequest("POST", "/api/stream", R"({"volume":65,"sharpness":1})");
+        CHECK(res.status == 200);
+        CHECK(streamMenuUpdated == true);
+        CHECK(lastStreamUpdate["volume"].asInt() == 65);
+        CHECK(lastStreamUpdate["sharpness"].asInt() == 1);
+    }
+
+    // 7. Error handling: invalid JSON
+    {
+        auto res = srv.handleRequest("POST", "/api/stream", "invalid{json");
+        CHECK(res.status == 400);
+    }
+
+    xc::app::setWebServerHooks({});
+}
+
+static void testVoiceRouting() {
+    // Default should be 0 (All Audio to TV / Main)
+    media::audioSetVoiceRouting(0);
+    CHECK(media::audioVoiceRouting() == 0);
+
+    // Test routing switching: 1 = Pad Voice / Speaker
+    media::audioSetVoiceRouting(1);
+    CHECK(media::audioVoiceRouting() == 1);
+
+    // Values > 1 clamp to 1, < 0 clamp to 0
+    media::audioSetVoiceRouting(5);
+    CHECK(media::audioVoiceRouting() == 1);
+
+    media::audioSetVoiceRouting(-1);
+    CHECK(media::audioVoiceRouting() == 0);
+
+    // Test Settings JSON persistence
+    std::string testPath = "/tmp/xcloud-tests-voice.json";
+    app::Settings s;
+    s.voiceRouting = 1;
+    CHECK(s.save(testPath));
+
+    app::Settings loaded;
+    CHECK(loaded.load(testPath));
+    CHECK(loaded.voiceRouting == 1);
+    std::remove(testPath.c_str());
+
+    // Test playVoiceAudio fallback on platforms without pad speaker
+    std::vector<float> samplePcm(480 * 2, 0.1f);
+    CHECK(media::playVoiceAudio(samplePcm.data(), 480));
+
+    // Test SettingsChoice round-trip
+    app::Settings st;
+    st.voiceRouting = 1;
+    ui::SettingsChoice ch = ui::choiceFromSettings(st);
+    CHECK(ch.voiceRouting == 1);
+    ch.voiceRouting = 0;
+    ui::applyChoice(ch, st);
+    CHECK(st.voiceRouting == 0);
+}
+
+static void testUsbPad8BitDo() {
+    input::ControllerState state{};
+
+    // Null and undersized buffers
+    CHECK(!input::parse8BitDoDInputReport(nullptr, 0, state));
+    uint8_t shortBuf[10] = {0};
+    CHECK(!input::parse8BitDoDInputReport(shortBuf, sizeof(shortBuf), state));
+
+    // Centered sticks, neutral hat, no buttons
+    uint8_t neutralReport[16] = {
+        128, 128, 128, 128,  // Left X, Y, Right X, Y (center)
+        0, 0,                // L2, R2 trigger
+        0x08,                // Hat neutral (0x08 > 7, no bitmask)
+        0x00,                // Action buttons
+        0x00,                // System buttons
+        0, 0, 0, 0, 0, 0, 0  // Reserved / telemetry
+    };
+    CHECK(input::parse8BitDoDInputReport(neutralReport, sizeof(neutralReport), state));
+    CHECK(state.connected == true);
+    CHECK(std::abs(state.leftStickX) < 0.001f);
+    CHECK(std::abs(state.leftStickY) < 0.001f);
+    CHECK(std::abs(state.rightStickX) < 0.001f);
+    CHECK(std::abs(state.rightStickY) < 0.001f);
+    CHECK(state.triggerL2 == 0.0f);
+    CHECK(state.triggerR2 == 0.0f);
+    CHECK(!state.btnA && !state.btnB && !state.btnX && !state.btnY);
+    CHECK(!state.dpadUp && !state.dpadDown && !state.dpadLeft && !state.dpadRight);
+
+    // Deflected sticks & triggers
+    uint8_t motionReport[16] = {
+        255, 0, 0, 255,      // Left stick right/up, Right stick left/down
+        255, 128,            // L2 fully pressed, R2 half
+        0x08,
+        0x00,
+        0x00,
+        0, 0, 0, 0, 0, 0, 0
+    };
+    CHECK(input::parse8BitDoDInputReport(motionReport, sizeof(motionReport), state));
+    CHECK(state.leftStickX > 0.95f);
+    CHECK(state.leftStickY < -0.95f);
+    CHECK(state.rightStickX < -0.95f);
+    CHECK(state.rightStickY > 0.95f);
+    CHECK(state.triggerL2 == 1.0f);
+    CHECK(std::abs(state.triggerR2 - (128.0f / 255.0f)) < 0.02f);
+
+    // Action buttons (data[7])
+    uint8_t btnReport[16] = {
+        128, 128, 128, 128,
+        0, 0,
+        0x08,
+        0x01 | 0x02 | 0x04 | 0x08 | 0x10 | 0x20, // A, B, X, Y, L1, R1
+        0x00,
+        0, 0, 0, 0, 0, 0, 0
+    };
+    CHECK(input::parse8BitDoDInputReport(btnReport, sizeof(btnReport), state));
+    CHECK(state.btnA && state.btnB && state.btnX && state.btnY && state.btnL1 && state.btnR1);
+
+    // D-Pad Hat Switch (0 = Up, 2 = Right, 4 = Down, 6 = Left)
+    uint8_t dpadReports[4][16] = {
+        {128, 128, 128, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // Up
+        {128, 128, 128, 128, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // Right
+        {128, 128, 128, 128, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // Down
+        {128, 128, 128, 128, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0}  // Left
+    };
+    CHECK(input::parse8BitDoDInputReport(dpadReports[0], 16, state) && state.dpadUp && !state.dpadDown);
+    CHECK(input::parse8BitDoDInputReport(dpadReports[1], 16, state) && state.dpadRight && !state.dpadLeft);
+    CHECK(input::parse8BitDoDInputReport(dpadReports[2], 16, state) && state.dpadDown && !state.dpadUp);
+    CHECK(input::parse8BitDoDInputReport(dpadReports[3], 16, state) && state.dpadLeft && !state.dpadRight);
+
+    // System buttons (data[8])
+    uint8_t sysReport[16] = {
+        128, 128, 128, 128,
+        0, 0,
+        0x08,
+        0x00,
+        0x01 | 0x02 | 0x04 | 0x08 | 0x10, // Touchpad/Select, Options/Start, Nexus/Home, L3, R3
+        0, 0, 0, 0, 0, 0, 0
+    };
+    CHECK(input::parse8BitDoDInputReport(sysReport, sizeof(sysReport), state));
+    CHECK(state.btnTouchpad && state.btnOptions && state.btnNexus && state.btnL3 && state.btnR3);
+
+    // Test injection & polling API
+    input::padUsbInit();
+    input::padUsbInjectReportForTesting(sysReport, sizeof(sysReport));
+    input::ControllerState polled{};
+    CHECK(input::pollUsbPad(polled));
+    CHECK(polled.btnNexus == true);
+    CHECK(polled.btnL3 == true);
+
+    input::padUsbInjectReportForTesting(nullptr, 0);
+    input::padUsbShutdown();
+}
+
+static void testDesktopMouseNav() {
+    ui::Fonts dummyFonts{};
+    ui::ImageCache images([] {});
+    ui::AppUi uiApp(dummyFonts, images);
+
+    ui::GameRow row;
+    row.title = "Test Row";
+    row.isGrid = false;
+    ui::GameTile tile1;
+    tile1.productId = "GAME_001";
+    tile1.name = "First Game";
+    ui::GameTile tile2;
+    tile2.productId = "GAME_002";
+    tile2.name = "Second Game";
+    row.tiles.push_back(tile1);
+    row.tiles.push_back(tile2);
+    uiApp.setRows({row});
+    uiApp.showHome();
+
+    // 1. In default PS5 mode (caps_.desktopWindow == false), mouse events must be ignored
+    {
+        auto evMove = uiApp.onMouseMove(300.0f, 300.0f);
+        CHECK(evMove.action == ui::Action::None);
+        auto evClick = uiApp.onMouseDown(300.0f, 300.0f, 1);
+        CHECK(evClick.action == ui::Action::None);
+        auto evWheel = uiApp.onMouseWheel(0.0f, 1.0f);
+        CHECK(evWheel.action == ui::Action::None);
+    }
+
+    // 2. Enable desktopWindow capability (Desktop / Steam Deck mode)
+    ui::UiCaps caps{};
+    caps.desktopWindow = true;
+    uiApp.setCaps(caps);
+
+    // 3. Hovering over a card updates focus
+    {
+        // First card is at kMargin (96) + 0, cardY = kRowTop (470) + 48 = 518
+        auto ev = uiApp.onMouseMove(120.0f, 550.0f);
+        CHECK(ev.action == ui::Action::None);
+    }
+
+    // 4. Clicking a card opens details
+    {
+        auto ev = uiApp.onMouseDown(120.0f, 550.0f, 1);
+        CHECK(ev.action == ui::Action::None);
+        // AppUi should now be showing details
+        CHECK(uiApp.detailWanted(100) == "GAME_001");
+    }
+
+    // 5. Right-click (button 3) returns back to Home screen
+    {
+        auto ev = uiApp.onMouseDown(500.0f, 500.0f, 3);
+        CHECK(ev.action == ui::Action::None);
+        // After returning to Home, detailWanted should be empty
+        CHECK(uiApp.detailWanted(100).empty());
+    }
+
+    // 6. Mouse wheel scrolling
+    {
+        auto evWheel = uiApp.onMouseWheel(0.0f, 2.0f);
+        CHECK(evWheel.action == ui::Action::None);
+    }
+
+    // 7. Avatar / profile click opens Settings screen
+    {
+        auto evClick = uiApp.onMouseDown(1920 - 96 - 20, 60.0f, 1);
+        CHECK(uiApp.screen() == ui::Screen::Settings);
+    }
+
+    // 8. In Settings, clicking a dropdown setting opens the dropdown
+    {
+        // Language row (row 0) at y = 190
+        auto evClick = uiApp.onMouseDown(200.0f, 200.0f, 1);
+        // First right click closes the dropdown
+        auto evClose = uiApp.onMouseDown(200.0f, 200.0f, 3);
+        CHECK(uiApp.screen() == ui::Screen::Settings);
+        // Second right click exits back to Home
+        auto evBack = uiApp.onMouseDown(200.0f, 200.0f, 3);
+        CHECK(uiApp.screen() == ui::Screen::Home);
+    }
+}
+
 int main() {
     testBlock3Features();
     testWishlist();
@@ -3762,6 +4103,10 @@ int main() {
     testVideoDecoder();
     testDrawNv12();
     testWebStreamingAndGamepad();
+    testWebSettingsAndStreamMenu();
+    testVoiceRouting();
+    testUsbPad8BitDo();
+    testDesktopMouseNav();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

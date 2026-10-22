@@ -30,6 +30,7 @@ int g_switchedTo = -1;            // F11 / Alt+Enter: the fullscreen state asked
 std::atomic<bool> g_focus{true};  // the window has the keyboard
 bool g_textOn = false;            // SDL text input started (main thread)
 std::string g_typed;              // typed since takeTextInput() (main thread)
+std::function<void(const MouseEvent&)> g_mouseHandler;
 volatile std::sig_atomic_t g_signalled = 0;
 void onSignal(int) { g_signalled = 1; }
 }  // namespace
@@ -99,6 +100,43 @@ bool pumpEvents() {
         case SDL_EVENT_TEXT_INPUT:
             if (g_textOn && ev.text.text) g_typed += ev.text.text;
             break;
+        case SDL_EVENT_MOUSE_MOTION: {
+            if (g_mouseHandler) {
+                float lx = 0, ly = 0;
+                if (display::sdlWindowToLogical(ev.motion.x, ev.motion.y, lx, ly)) {
+                    g_mouseHandler({MouseEvent::Kind::Move, lx, ly, 0, 0, 0});
+                }
+            }
+            break;
+        }
+        case SDL_EVENT_MOUSE_BUTTON_DOWN: {
+            if (g_mouseHandler) {
+                float lx = 0, ly = 0;
+                if (display::sdlWindowToLogical(ev.button.x, ev.button.y, lx, ly)) {
+                    g_mouseHandler({MouseEvent::Kind::ButtonDown, lx, ly, ev.button.button, 0, 0});
+                }
+            }
+            break;
+        }
+        case SDL_EVENT_MOUSE_BUTTON_UP: {
+            if (g_mouseHandler) {
+                float lx = 0, ly = 0;
+                if (display::sdlWindowToLogical(ev.button.x, ev.button.y, lx, ly)) {
+                    g_mouseHandler({MouseEvent::Kind::ButtonUp, lx, ly, ev.button.button, 0, 0});
+                }
+            }
+            break;
+        }
+        case SDL_EVENT_MOUSE_WHEEL: {
+            if (g_mouseHandler) {
+                float mx = 0, my = 0;
+                SDL_GetMouseState(&mx, &my);
+                float lx = 0, ly = 0;
+                display::sdlWindowToLogical(mx, my, lx, ly);
+                g_mouseHandler({MouseEvent::Kind::Wheel, lx, ly, 0, ev.wheel.x, ev.wheel.y});
+            }
+            break;
+        }
         default: break;
         }
         input::sdlInputEvent(ev);
@@ -155,6 +193,10 @@ std::string takeTextInput() {
     std::string s;
     s.swap(g_typed);
     return s;
+}
+
+void setMouseHandler(std::function<void(const MouseEvent&)> handler) {
+    g_mouseHandler = std::move(handler);
 }
 
 void restartOrExit() {

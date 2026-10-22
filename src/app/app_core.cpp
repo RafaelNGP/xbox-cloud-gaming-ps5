@@ -24,6 +24,7 @@
 #include "input/kbm.h"
 #include "input/keyboard_nav.h"
 #include "input/pad_map.h"
+#include "input/pad_usb.h"
 #include "ui/input_mode.h"
 #include "ui/pad_glyphs.h"
 #include "input/tuning.h"
@@ -159,6 +160,7 @@ struct Core {
     bool quitAsked_ = false;  // desktop: "Close PSBox?" confirmed on the home screen
     explicit Core(bool withDisplay) : haveDisplay(withDisplay) {}
     bool frame();
+    void dispatchUiAction(const ui::UiEvent& ev);
 
     // The slot showing the keyboard (-1 none): the keyboard's player, while
     // the keyboard was used after that player's own controller (or it has none).
@@ -300,6 +302,19 @@ bool coreStartup() {
             std::lock_guard<std::mutex> lock(g_settingsMutex);
             root.set("language", g_settings.language);
             root.set("resolution", g_settings.resolution);
+            root.set("maxBitrateMbps", g_settings.maxBitrateMbps);
+            root.set("highRefresh", g_settings.highRefresh);
+            root.set("deadzoneLeft", g_settings.deadzoneLeft);
+            root.set("deadzoneRight", g_settings.deadzoneRight);
+            root.set("lightBarMode", g_settings.lightBarMode);
+            char hex[8];
+            std::snprintf(hex, sizeof hex, "#%02X%02X%02X", static_cast<unsigned>(g_settings.lightBarColour & 0xFF),
+                          static_cast<unsigned>(g_settings.lightBarColour >> 8 & 0xFF), static_cast<unsigned>(g_settings.lightBarColour >> 16 & 0xFF));
+            root.set("lightBarColour", std::string(hex));
+            root.set("triggerStrength", g_settings.triggerStrength);
+            root.set("queueReadyAlert", g_settings.queueReadyAlert);
+            root.set("videoDecoder", g_settings.videoDecoder);
+            root.set("voiceRouting", g_settings.voiceRouting);
             root.set("padMap", input::padMapJson(g_settings.padMap));
             root.set("keyMap", keyMapToJson(g_settings.keyMap));
         },
@@ -307,6 +322,51 @@ bool coreStartup() {
             bool changed = false;
             {
                 std::lock_guard<std::mutex> lock(g_settingsMutex);
+                if (root.has("voiceRouting")) {
+                    g_settings.voiceRouting = static_cast<int>(std::clamp<int64_t>(root["voiceRouting"].asInt(g_settings.voiceRouting), 0, 1));
+                    media::audioSetVoiceRouting(g_settings.voiceRouting);
+                    changed = true;
+                }
+                if (root.has("maxBitrateMbps")) {
+                    g_settings.maxBitrateMbps = static_cast<int>(std::clamp<int64_t>(root["maxBitrateMbps"].asInt(g_settings.maxBitrateMbps), 0, 50));
+                    changed = true;
+                }
+                if (root.has("highRefresh")) {
+                    g_settings.highRefresh = root["highRefresh"].asBool(g_settings.highRefresh);
+                    changed = true;
+                }
+                if (root.has("deadzoneLeft")) {
+                    g_settings.deadzoneLeft = static_cast<int>(std::clamp<int64_t>(root["deadzoneLeft"].asInt(g_settings.deadzoneLeft), 0, 50));
+                    changed = true;
+                }
+                if (root.has("deadzoneRight")) {
+                    g_settings.deadzoneRight = static_cast<int>(std::clamp<int64_t>(root["deadzoneRight"].asInt(g_settings.deadzoneRight), 0, 50));
+                    changed = true;
+                }
+                if (root.has("lightBarMode")) {
+                    g_settings.lightBarMode = static_cast<int>(std::clamp<int64_t>(root["lightBarMode"].asInt(g_settings.lightBarMode), 0, 2));
+                    changed = true;
+                }
+                if (root.has("lightBarColour") && root["lightBarColour"].isString()) {
+                    std::string hexStr = root["lightBarColour"].str();
+                    if (hexStr.size() == 7 && hexStr[0] == '#') {
+                        uint32_t rgb = static_cast<uint32_t>(std::strtoul(hexStr.c_str() + 1, nullptr, 16));
+                        g_settings.lightBarColour = 0xFF000000u | (rgb >> 16 & 0xFF) | (rgb & 0xFF00) | (rgb & 0xFF) << 16;
+                        changed = true;
+                    }
+                }
+                if (root.has("triggerStrength")) {
+                    g_settings.triggerStrength = static_cast<int>(std::clamp<int64_t>(root["triggerStrength"].asInt(g_settings.triggerStrength), 0, 4));
+                    changed = true;
+                }
+                if (root.has("queueReadyAlert")) {
+                    g_settings.queueReadyAlert = root["queueReadyAlert"].asBool(g_settings.queueReadyAlert);
+                    changed = true;
+                }
+                if (root.has("videoDecoder")) {
+                    g_settings.videoDecoder = static_cast<int>(std::clamp<int64_t>(root["videoDecoder"].asInt(g_settings.videoDecoder), 0, 1));
+                    changed = true;
+                }
                 if (root.has("padMap")) {
                     input::PadMap newPad;
                     if (input::readPadMap(root["padMap"], newPad)) {
@@ -320,6 +380,7 @@ bool coreStartup() {
                 }
                 if (changed) {
                     g_settings.save(settingsPath());
+                    applyControllerSettings();
                     refreshSettingsUiLocked();
                 }
             }
@@ -386,7 +447,71 @@ bool coreStartup() {
             return (g_ui && (g_ui->screen() == ui::Screen::Streaming || g_ui->screen() == ui::Screen::Launching)) ||
                    (g_player && g_player->running());
         },
-        /*injectGamepad=*/nullptr
+        /*injectGamepad=*/nullptr,
+        /*getTelemetry=*/[](json::Value& stats) {
+            std::lock_guard<std::mutex> lock(g_infoMutex);
+            stats.set("fps", g_streamInfo.fps);
+            stats.set("rttMs", g_streamInfo.rttMs);
+            stats.set("mbps", g_streamInfo.mbps);
+            stats.set("lossPct", g_streamInfo.lossPct);
+            stats.set("qp", g_streamInfo.qp);
+            stats.set("decodeMs", g_streamInfo.decodeMs);
+            stats.set("isHwDecode", g_streamInfo.isHwDecode);
+            stats.set("width", g_streamInfo.width);
+            stats.set("height", g_streamInfo.height);
+        },
+        /*getStreamMenuState=*/[](json::Value& menu) {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            menu.set("sharpness", g_settings.sharpness);
+            menu.set("upscaler", g_settings.upscaler);
+            menu.set("deband", g_settings.deband);
+            menu.set("padSpeakerVolume", g_settings.padSpeakerVolume);
+            menu.set("triggerProfile", g_settings.triggerProfile);
+        },
+        /*updateStreamMenu=*/[](const json::Value& update) -> bool {
+            bool changed = false;
+            {
+                std::lock_guard<std::mutex> lock(g_settingsMutex);
+                if (update.has("sharpness")) {
+                    g_settings.sharpness = static_cast<int>(std::clamp<int64_t>(update["sharpness"].asInt(g_settings.sharpness), 0, 3));
+                    display::setSharpness(g_settings.sharpness);
+                    changed = true;
+                }
+                if (update.has("upscaler")) {
+                    g_settings.upscaler = static_cast<int>(std::clamp<int64_t>(update["upscaler"].asInt(g_settings.upscaler), 0, 3));
+                    display::setUpscaler(g_settings.upscaler & 1);
+                    display::setRestore((g_settings.upscaler & 2) != 0);
+                    changed = true;
+                }
+                if (update.has("deband")) {
+                    g_settings.deband = static_cast<int>(std::clamp<int64_t>(update["deband"].asInt(g_settings.deband), 0, 3));
+                    display::setDeband(g_settings.deband);
+                    changed = true;
+                }
+                if (update.has("padSpeakerVolume")) {
+                    g_settings.padSpeakerVolume = static_cast<int>(std::clamp<int64_t>(update["padSpeakerVolume"].asInt(g_settings.padSpeakerVolume), 0, 100));
+                    media::setPadSpeakerVolume(g_settings.padSpeakerVolume);
+                    changed = true;
+                }
+                if (update.has("triggerProfile")) {
+                    g_settings.triggerProfile = static_cast<int>(std::clamp<int64_t>(update["triggerProfile"].asInt(g_settings.triggerProfile), 0, 2));
+                    input::setTriggerProfile(g_settings.triggerProfile);
+                    changed = true;
+                }
+                if (changed) {
+                    g_settings.save(settingsPath());
+                    refreshSettingsUiLocked();
+                }
+            }
+            return true;
+        },
+        /*streamAction=*/[](const std::string& action) {
+            if (action == "xbox_guide" || action == "guide") {
+                g_xboxButtonUntil = platform::nowMs() + 300;
+            } else if (action == "end_session" || action == "leave") {
+                g_cancel = true;
+            }
+        }
     });
     startWebServer();
     g_ui->setWebUrl(webServerUrl());
@@ -405,6 +530,20 @@ bool coreStartup() {
     }
     g_ui->setCaps(uiCaps());
     g_core->canvas.emplace(display::kWidth, display::kHeight);
+    shell::setMouseHandler([](const shell::MouseEvent& mev) {
+        if (!g_ui || g_ui->screen() == ui::Screen::Streaming) return;
+        ui::UiEvent ev;
+        if (mev.kind == shell::MouseEvent::Kind::Move) {
+            ev = g_ui->onMouseMove(mev.x, mev.y);
+        } else if (mev.kind == shell::MouseEvent::Kind::ButtonDown) {
+            ev = g_ui->onMouseDown(mev.x, mev.y, mev.button);
+        } else if (mev.kind == shell::MouseEvent::Kind::Wheel) {
+            ev = g_ui->onMouseWheel(mev.wheelX, mev.wheelY);
+        }
+        if (ev.action != ui::Action::None && g_core) {
+            g_core->dispatchUiAction(ev);
+        }
+    });
 
     if (!net::initTls(g_autoplay.badCa ? platform::assetDir() + "/missing.pem" : platform::caBundlePath())) {
         // The step that failed, and where the log is: what a bug report needs.
@@ -421,6 +560,112 @@ bool coreStartup() {
     g_core->streamScreen->setCaps(uiCaps());
     crash::startWatchdog(15000);  // a main loop stuck for 15 s leaves a marker
     return true;
+}
+
+void Core::dispatchUiAction(const ui::UiEvent& ev) {
+    switch (ev.action) {
+        case ui::Action::Play: {
+            std::lock_guard<std::mutex> lock(g_argMutex);
+            g_playTile = ev.game;
+            g_command = kPlay;
+            break;
+        }
+        case ui::Action::ClaimFreeGame: {
+            std::lock_guard<std::mutex> lock(g_argMutex);
+            g_playTile = ev.game;
+            g_command = kClaimFree;
+            break;
+        }
+        case ui::Action::SignOut:
+            g_cancel = true;
+            g_command = kSignOut;
+            break;
+        case ui::Action::Retry: g_command = kSignIn; break;
+        case ui::Action::ConsolesShown: {
+            int idle = kNone;
+            g_command.compare_exchange_strong(idle, kConsoles);  // not over a pending command
+            break;
+        }
+        case ui::Action::CancelLaunch: g_cancel = true; break;
+        case ui::Action::PrefsChanged: {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            g_settings.hidden = ev.hidden;
+            g_settings.favorites = ev.favorites;
+            g_settings.wishlist = ev.wishlist;
+            g_settings.librarySort = ev.librarySort == ui::LibrarySort::AZ        ? "az"
+                                     : ev.librarySort == ui::LibrarySort::Console ? "console"
+                                                                                   : "recent";
+            g_settings.save(settingsPath());  // warns itself
+            XC_LOGI("prefs saved: %zu hidden, %zu favorites, %zu wishlist, sort %s", g_settings.hidden.size(),
+                    g_settings.favorites.size(), g_settings.wishlist.size(), g_settings.librarySort.c_str());
+            updateLibraryFavorites(g_settings.favorites);
+            updateLibraryWishlist(g_settings.wishlist);
+            break;
+        }
+        case ui::Action::GameSettingsChanged: {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            std::string key = app::gameProfileKey(ev.game.productId, ev.game.titleId);
+            if (ev.hasGameProfile) {
+                g_settings.perGame[key] = ev.gameProfile;
+                XC_LOGI("per-game profile saved for %s (%s)", ev.game.name.c_str(), key.c_str());
+            } else {
+                g_settings.perGame.erase(key);
+                XC_LOGI("per-game profile reset to default for %s (%s)", ev.game.name.c_str(), key.c_str());
+            }
+            g_settings.save(settingsPath());  // warns itself
+            break;
+        }
+        case ui::Action::SettingsChanged:
+            // Row titles and game details come from the catalog in the
+            // chosen language.
+            if (saveSettings(ev.settings)) g_command = kReloadLibrary;
+            break;
+        case ui::Action::UpdateNow: {
+            if (g_ui->screen() == ui::Screen::Settings) saveSettings(ev.settings);
+            int idle = kNone;
+            if (!g_command.compare_exchange_strong(idle, kUpdate)) XC_LOGW("update: the worker is busy");
+            break;
+        }
+        case ui::Action::UpdateLater: skipOfferedUpdate(); break;
+        case ui::Action::LoginCountry:
+            // A new sign-in, as the country chosen (or the console's own).
+            saveSettings(ev.settings);
+            XC_LOGI("sign-in country: %s", ev.settings.loginCountry.empty() ? "off" : ev.settings.loginCountry.c_str());
+            g_command = kSignIn;
+            break;
+        case ui::Action::Report: openReport(ev.reportWhat, false, ui::tr(ui::Str::ReportProblem)); break;
+        case ui::Action::Quit: quitAsked_ = true; break;  // desktop only (the PS5 never asks)
+        case ui::Action::OpenUrl: {
+            // A desktop: the sign-in page, the report form, the release page.
+            bool ok = shell::openUrl(ev.url);
+            XC_LOGI("browser: %s (a link of %zu characters)", ok ? "opened" : "could not be opened", ev.url.size());
+            break;
+        }
+        case ui::Action::RefreshLibrary: {
+            XC_LOGI("library: manual refresh requested");
+            g_command = kReloadLibrary;
+            platform::notify(ui::tr(ui::Str::RefreshingLibrary));
+            break;
+        }
+        case ui::Action::CheckSignIn: {
+            XC_LOGI("sign-in check: requested from Settings");
+            int idle = kNone;
+            if (!g_command.compare_exchange_strong(idle, kCheckSignIn)) XC_LOGW("sign-in check: worker is busy");
+            break;
+        }
+        case ui::Action::RunNetworkTest: {
+            XC_LOGI("network test: requested from Settings");
+            int idle = kNone;
+            if (!g_command.compare_exchange_strong(idle, kNetworkTest)) XC_LOGW("network test: worker is busy");
+            break;
+        }
+        case ui::Action::TestQueueAlert: {
+            XC_LOGI("settings: manual queue-ready alert test requested");
+            playQueueReadyAlert();
+            break;
+        }
+        case ui::Action::None: break;
+    }
 }
 
 bool Core::frame() {
@@ -477,6 +722,10 @@ bool Core::frame() {
     bool vconn0 = false;
     if (virtualGamepadState(0, vpad0, vconn0) && vconn0) {
         input::mergePads(pad, vpad0);
+    }
+    input::ControllerState usbPad;
+    if (input::pollUsbPad(usbPad)) {
+        input::mergePads(pad, usbPad);
     }
     // USB keyboard: the app's screens (and its menu in a game) as with the
     // controller; in a game otherwise, its keys and the mouse go to the game.
@@ -733,110 +982,7 @@ bool Core::frame() {
         std::swap(prev.btnA, prev.btnB);
         XC_LOGI("confirm button: %s", circle ? "circle" : "cross");
     }
-    switch (ev.action) {
-        case ui::Action::Play: {
-            std::lock_guard<std::mutex> lock(g_argMutex);
-            g_playTile = ev.game;
-            g_command = kPlay;
-            break;
-        }
-        case ui::Action::ClaimFreeGame: {
-            std::lock_guard<std::mutex> lock(g_argMutex);
-            g_playTile = ev.game;
-            g_command = kClaimFree;
-            break;
-        }
-        case ui::Action::SignOut:
-            g_cancel = true;
-            g_command = kSignOut;
-            break;
-        case ui::Action::Retry: g_command = kSignIn; break;
-        case ui::Action::ConsolesShown: {
-            int idle = kNone;
-            g_command.compare_exchange_strong(idle, kConsoles);  // not over a pending command
-            break;
-        }
-        case ui::Action::CancelLaunch: g_cancel = true; break;
-        case ui::Action::PrefsChanged: {
-            std::lock_guard<std::mutex> lock(g_settingsMutex);
-            g_settings.hidden = ev.hidden;
-            g_settings.favorites = ev.favorites;
-            g_settings.wishlist = ev.wishlist;
-            g_settings.librarySort = ev.librarySort == ui::LibrarySort::AZ        ? "az"
-                                     : ev.librarySort == ui::LibrarySort::Console ? "console"
-                                                                                   : "recent";
-            g_settings.save(settingsPath());  // warns itself
-            XC_LOGI("prefs saved: %zu hidden, %zu favorites, %zu wishlist, sort %s", g_settings.hidden.size(),
-                    g_settings.favorites.size(), g_settings.wishlist.size(), g_settings.librarySort.c_str());
-            updateLibraryFavorites(g_settings.favorites);
-            updateLibraryWishlist(g_settings.wishlist);
-            break;
-        }
-        case ui::Action::GameSettingsChanged: {
-            std::lock_guard<std::mutex> lock(g_settingsMutex);
-            std::string key = app::gameProfileKey(ev.game.productId, ev.game.titleId);
-            if (ev.hasGameProfile) {
-                g_settings.perGame[key] = ev.gameProfile;
-                XC_LOGI("per-game profile saved for %s (%s)", ev.game.name.c_str(), key.c_str());
-            } else {
-                g_settings.perGame.erase(key);
-                XC_LOGI("per-game profile reset to default for %s (%s)", ev.game.name.c_str(), key.c_str());
-            }
-            g_settings.save(settingsPath());  // warns itself
-            break;
-        }
-        case ui::Action::SettingsChanged:
-            // Row titles and game details come from the catalog in the
-            // chosen language.
-            if (saveSettings(ev.settings)) g_command = kReloadLibrary;
-            break;
-        case ui::Action::UpdateNow: {
-            if (g_ui->screen() == ui::Screen::Settings) saveSettings(ev.settings);
-            int idle = kNone;
-            if (!g_command.compare_exchange_strong(idle, kUpdate)) XC_LOGW("update: the worker is busy");
-            break;
-        }
-        case ui::Action::UpdateLater: skipOfferedUpdate(); break;
-        case ui::Action::LoginCountry:
-            // A new sign-in, as the country chosen (or the console's own).
-            saveSettings(ev.settings);
-            XC_LOGI("sign-in country: %s", ev.settings.loginCountry.empty() ? "off" : ev.settings.loginCountry.c_str());
-            g_command = kSignIn;
-            break;
-        case ui::Action::Report: openReport(ev.reportWhat, false, ui::tr(ui::Str::ReportProblem)); break;
-        case ui::Action::Quit: quitAsked_ = true; break;  // desktop only (the PS5 never asks)
-        case ui::Action::OpenUrl: {
-            // A desktop: the sign-in page, the report form, the release page.
-            bool ok = shell::openUrl(ev.url);
-            XC_LOGI("browser: %s (a link of %zu characters)", ok ? "opened" : "could not be opened", ev.url.size());
-            break;
-        }
-        case ui::Action::RefreshLibrary: {
-            XC_LOGI("library: manual refresh requested");
-            g_command = kReloadLibrary;
-            platform::notify(ui::tr(ui::Str::RefreshingLibrary));
-            break;
-        }
-        case ui::Action::CheckSignIn: {
-            XC_LOGI("sign-in check: requested from Settings");
-            int idle = kNone;
-            if (!g_command.compare_exchange_strong(idle, kCheckSignIn)) XC_LOGW("sign-in check: worker is busy");
-            break;
-        }
-        case ui::Action::RunNetworkTest: {
-            XC_LOGI("network test: requested from Settings");
-            int idle = kNone;
-            if (!g_command.compare_exchange_strong(idle, kNetworkTest)) XC_LOGW("network test: worker is busy");
-            break;
-        }
-        case ui::Action::TestQueueAlert: {
-            XC_LOGI("settings: manual queue-ready alert test requested");
-            playQueueReadyAlert();
-            break;
-        }
-        case ui::Action::None: break;
-    }
-
+    dispatchUiAction(ev);
     autoplayScreens(*canvas, now);
 
     if (haveDisplay && g_ui->needsRedraw(now)) {

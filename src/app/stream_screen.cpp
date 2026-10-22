@@ -12,6 +12,7 @@
 #include "input/input_ext.h"
 #include "input/kbm.h"
 #include "input/keyboard_nav.h"
+#include "input/pad_usb.h"
 #include "media/audio_out.h"
 #include "platform/platform.h"
 #include "platform/toasts.h"
@@ -157,6 +158,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         highRefresh_ = want120 && display::setHighRefresh(true);
 
         media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
+        media::audioSetVoiceRouting(g_settings.voiceRouting);
         if (g_player) {
             g_player->setMicGain(g_settings.micGainFactor());
         }
@@ -457,6 +459,14 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             if (virtualGamepadState(0, vpad0, vconn0) && vconn0) {
                 input::mergePads(sent, vpad0);
                 if (vpad0.btnNexus) {
+                    sent.btnNexus = true;
+                    g_xboxButtonUntil = platform::nowMs() + 250;
+                }
+            }
+            input::ControllerState usbPad;
+            if (input::pollUsbPad(usbPad)) {
+                input::mergePads(sent, usbPad);
+                if (usbPad.btnNexus) {
                     sent.btnNexus = true;
                     g_xboxButtonUntil = platform::nowMs() + 250;
                 }

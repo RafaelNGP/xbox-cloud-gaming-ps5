@@ -67,6 +67,7 @@ bool fullscreenSwitched(bool&) { return false; }
 bool openUrl(const std::string&) { return false; }
 bool setTextInput(bool) { return false; }  // the USB keyboard keeps moving through the screens
 std::string takeTextInput() { return {}; }
+void setMouseHandler(std::function<void(const MouseEvent&)>) {}
 
 bool isInstalledCopy(const std::string& dir) {
     // /app0 is the folder the system started the app from.

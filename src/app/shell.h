@@ -10,6 +10,7 @@
 
 #include "app/settings.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -72,5 +73,14 @@ bool setTextInput(bool on);
 // The text typed since the last call, UTF-8, with "\b" for each Backspace
 // and "\n" for Enter pressed while text input is on. Empty elsewhere.
 std::string takeTextInput();
+
+struct MouseEvent {
+    enum class Kind { Move, ButtonDown, ButtonUp, Wheel };
+    Kind kind = Kind::Move;
+    float x = 0, y = 0;
+    int button = 0;
+    float wheelX = 0, wheelY = 0;
+};
+void setMouseHandler(std::function<void(const MouseEvent&)> handler);
 
 }  // namespace xc::app::shell

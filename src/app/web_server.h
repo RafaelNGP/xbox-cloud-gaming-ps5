@@ -25,6 +25,10 @@ struct WebServerHooks {
     std::function<void(std::string& outQuery, std::string& outTab, json::Value& outFilters)> getSearchParams;
     std::function<bool()> isStreaming;
     std::function<void(int playerIndex, const input::ControllerState& state)> injectGamepad;
+    std::function<void(json::Value& stats)> getTelemetry;
+    std::function<void(json::Value& streamMenu)> getStreamMenuState;
+    std::function<bool(const json::Value& update)> updateStreamMenu;
+    std::function<void(const std::string& action)> streamAction;
 };
 void setWebServerHooks(WebServerHooks hooks);
 

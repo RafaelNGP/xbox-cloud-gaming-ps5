@@ -552,4 +552,24 @@ bool readBackRgb(std::vector<uint8_t>& rgb, int& width, int& height) {
     return true;
 }
 
+bool sdlWindowToLogical(float winX, float winY, float& logX, float& logY) {
+    if (!g_window) return false;
+    if (g_renderer) {
+        return SDL_RenderCoordinatesFromWindow(g_renderer, winX, winY, &logX, &logY);
+    }
+    int winW = 0, winH = 0;
+    SDL_GetWindowSize(g_window, &winW, &winH);
+    if (winW <= 0 || winH <= 0) return false;
+    float scale = std::min(static_cast<float>(winW) / static_cast<float>(kWidth),
+                           static_cast<float>(winH) / static_cast<float>(kHeight));
+    if (scale <= 0.0f) return false;
+    float viewW = static_cast<float>(kWidth) * scale;
+    float viewH = static_cast<float>(kHeight) * scale;
+    float offsetX = (static_cast<float>(winW) - viewW) * 0.5f;
+    float offsetY = (static_cast<float>(winH) - viewH) * 0.5f;
+    logX = (winX - offsetX) / scale;
+    logY = (winY - offsetY) / scale;
+    return (logX >= 0.0f && logX <= static_cast<float>(kWidth) && logY >= 0.0f && logY <= static_cast<float>(kHeight));
+}
+
 }  // namespace xc::display

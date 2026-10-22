@@ -42,6 +42,7 @@ bool fullscreenSwitched(bool&) { return false; }
 bool openUrl(const std::string&) { return false; }
 bool setTextInput(bool) { return false; }
 std::string takeTextInput() { return {}; }
+void setMouseHandler(std::function<void(const MouseEvent&)>) {}
 
 void restartOrExit() {
     // Never asked (no update is installed here); closed as the PS5 does.

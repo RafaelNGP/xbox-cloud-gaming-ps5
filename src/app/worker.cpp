@@ -183,6 +183,7 @@ std::string stream(xcloud::GssvClient& gssv) {
                 cap ? (std::to_string(cap) + " Mbps").c_str() : "automatic",
                 g_settings.gameVolume);
         media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
+        media::audioSetVoiceRouting(g_settings.voiceRouting);
     }
     std::string err;
     if (!player.start(err)) return "ERROR: " + ui::trf(ui::Str::StreamFailed, err);

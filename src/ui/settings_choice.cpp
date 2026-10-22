@@ -38,6 +38,7 @@ SettingsChoice choiceFromSettings(const app::Settings& s) {
     c.gyroLevel = s.gyroLevel;
     c.fullscreen = s.desktopFullscreen;
     c.touchpadMouse = s.touchpadMouse;
+    c.voiceRouting = s.voiceRouting;
     c.titlePlaytime = s.titlePlaytime;
     return c;
 }
@@ -71,6 +72,7 @@ void applyChoice(const SettingsChoice& c, app::Settings& s) {
     s.gyroLevel = c.gyroLevel;
     s.desktopFullscreen = c.fullscreen;
     s.touchpadMouse = c.touchpadMouse;
+    s.voiceRouting = c.voiceRouting;
     s.titlePlaytime = c.titlePlaytime;
 }
 

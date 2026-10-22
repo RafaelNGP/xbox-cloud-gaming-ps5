@@ -103,6 +103,27 @@ pre { background: #07080b; border: 1px solid var(--border); border-radius: 10px;
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #169c53; color: #fff; padding: 10px 20px; border-radius: 24px; font-size: 0.88rem; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 1000; max-width: 90%; text-align: center; }
 .toast.show { opacity: 1; }
 
+/* Telemetry & interactive controls */
+.telemetry-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; width: 100%; }
+.tel-item { background: var(--surface-alt); border: 1px solid var(--border); border-radius: 10px; padding: 9px 6px; text-align: center; }
+.tel-val { font-size: 1.10rem; font-weight: 700; color: #4ade80; }
+.tel-lbl { font-size: 0.70rem; color: var(--text-dim); text-transform: uppercase; margin-top: 3px; }
+.slider-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; width: 100%; }
+.slider-header { display: flex; justify-content: space-between; font-size: 0.84rem; font-weight: 600; }
+.slider-val { color: #4ade80; }
+input[type="range"] { width: 100%; accent-color: var(--primary); margin: 6px 0; }
+.toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.toggle-label { font-size: 0.86rem; font-weight: 600; }
+.switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider-sw { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--surface-alt); border: 1px solid var(--border); border-radius: 24px; transition: .25s; }
+.slider-sw:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: .25s; }
+input:checked + .slider-sw { background-color: var(--primary); border-color: var(--primary); }
+input:checked + .slider-sw:before { transform: translateX(20px); }
+.btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn-danger:hover { background: #b82626; }
+
+
 /* Search overlay when streaming */
 .search-disabled-overlay {
   position: absolute;
@@ -331,12 +352,167 @@ pre { background: #07080b; border: 1px solid var(--border); border-radius: 10px;
 
 <div class="nav-tabs">
   <div class="nav-tab active" id="navTab-search" onclick="switchTab('search')">🔍 Busca</div>
-  <div class="nav-tab" id="navTab-remap" onclick="switchTab('remap')">⚙️ Mapeamento</div>
-  <div class="nav-tab" id="navTab-gamepad" onclick="switchTab('gamepad')">🎮 Controle</div>
+  <div class="nav-tab" id="navTab-settings" onclick="switchTab('settings')">⚙️ Configurações</div>
+  <div class="nav-tab" id="navTab-stream" onclick="switchTab('stream')">📺 Jogo Atual</div>
+  <div class="nav-tab" id="navTab-remap" onclick="switchTab('remap')">🎮 Mapeamento</div>
+  <div class="nav-tab" id="navTab-gamepad" onclick="switchTab('gamepad')">🕹️ Controle</div>
   <div class="nav-tab" id="navTab-logs" onclick="switchTab('logs')">📋 Logs</div>
 </div>
 
 <div class="content">
+  <!-- TAB: SETTINGS -->
+  <div id="tab-settings" class="tab-pane" style="display:none;">
+    <div class="card">
+      <h2>⚙️ Configurações Gerais</h2>
+      <p>Ajuste opções gráficas, de controle e comportamento do aplicativo.</p>
+      
+      <div class="slider-group">
+        <div class="slider-header">
+          <span>Bitrate Máximo</span>
+          <span class="slider-val" id="valBitrate">Auto</span>
+        </div>
+        <input type="range" id="inputBitrate" min="0" max="50" step="5" value="0" oninput="onBitrateInput(this.value)">
+      </div>
+
+      <div class="toggle-row">
+        <span class="toggle-label">Modo 120 Hz (High Refresh / VRR)</span>
+        <label class="switch">
+          <input type="checkbox" id="check120Hz" onchange="markSettingsChanged()">
+          <span class="slider-sw"></span>
+        </label>
+      </div>
+
+      <div class="slider-group" style="margin-top: 10px;">
+        <div class="slider-header">
+          <span>Zona Morta - Analógico Esquerdo (L)</span>
+          <span class="slider-val" id="valDeadzoneL">15%</span>
+        </div>
+        <input type="range" id="inputDeadzoneL" min="0" max="50" step="1" value="15" oninput="document.getElementById('valDeadzoneL').textContent=this.value+'%'; markSettingsChanged()">
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-header">
+          <span>Zona Morta - Analógico Direito (R)</span>
+          <span class="slider-val" id="valDeadzoneR">15%</span>
+        </div>
+        <input type="range" id="inputDeadzoneR" min="0" max="50" step="1" value="15" oninput="document.getElementById('valDeadzoneR').textContent=this.value+'%'; markSettingsChanged()">
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-header">
+          <span>Vibração dos Gatilhos</span>
+          <span class="slider-val" id="valTriggerStrength">2</span>
+        </div>
+        <input type="range" id="inputTriggerStrength" min="0" max="4" step="1" value="2" oninput="document.getElementById('valTriggerStrength').textContent=this.value; markSettingsChanged()">
+      </div>
+
+      <div class="map-item" style="margin-bottom: 10px;">
+        <label>Barra de Luz DualSense</label>
+        <select id="selectLightBarMode" onchange="onLightBarModeChange()">
+          <option value="0">Cor do Jogo</option>
+          <option value="1">Cor Personalizada</option>
+          <option value="2">Desativada</option>
+        </select>
+        <input type="color" id="inputLightBarColor" value="#0070dc" style="margin-left: 8px; height: 32px; width: 44px; border: none; border-radius: 6px; cursor: pointer; display: none;" onchange="markSettingsChanged()">
+      </div>
+
+      <div class="toggle-row">
+        <span class="toggle-label">Aviso Sonoro de Fila (Queue Chime)</span>
+        <label class="switch">
+          <input type="checkbox" id="checkQueueAlert" onchange="markSettingsChanged()">
+          <span class="slider-sw"></span>
+        </label>
+      </div>
+
+      <div class="map-item" style="margin-top: 10px;">
+        <label>Decodificador de Vídeo</label>
+        <select id="selectVideoDecoder" onchange="markSettingsChanged()">
+          <option value="0">Hardware (libSceVideodec2 / HWAccel)</option>
+          <option value="1">Software (FFmpeg CPU)</option>
+        </select>
+      </div>
+
+      <div class="map-item" style="margin-top: 10px;">
+        <label>Saída do Chat de Voz</label>
+        <select id="selectVoiceRouting" onchange="markSettingsChanged()">
+          <option value="0">Automático (Alto-falante DualSense se disponível)</option>
+          <option value="1">Sempre TV / Headset Principal</option>
+        </select>
+      </div>
+
+      <div class="btn-row" style="margin-top: 16px;">
+        <button class="btn btn-primary" onclick="saveGeneralSettings()">Salvar Configurações</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: STREAM (JOGO ATUAL) -->
+  <div id="tab-stream" class="tab-pane" style="display:none;">
+    <div class="card">
+      <h2>📺 Jogo Atual & Telemetria</h2>
+      <p>Métricas de transmissão em tempo real e ajustes do menu de jogo (StreamMenu).</p>
+
+      <div class="telemetry-grid">
+        <div class="tel-item"><div class="tel-val" id="telFps">--</div><div class="tel-lbl">FPS</div></div>
+        <div class="tel-item"><div class="tel-val" id="telRtt">-- ms</div><div class="tel-lbl">RTT (Ping)</div></div>
+        <div class="tel-item"><div class="tel-val" id="telMbps">-- Mbps</div><div class="tel-lbl">Bitrate</div></div>
+        <div class="tel-item"><div class="tel-val" id="telLoss">0.0%</div><div class="tel-lbl">Perda Pkts</div></div>
+        <div class="tel-item"><div class="tel-val" id="telQp">--</div><div class="tel-lbl">QP (Qualidade)</div></div>
+        <div class="tel-item"><div class="tel-val" id="telDec">-- ms</div><div class="tel-lbl">Decodificação</div></div>
+      </div>
+
+      <div class="slider-group" style="margin-top: 10px;">
+        <div class="slider-header">
+          <span>Nitidez CAS (FidelityFX RCAS)</span>
+          <span class="slider-val" id="valCas">Média</span>
+        </div>
+        <input type="range" id="inputCas" min="0" max="3" step="1" value="2" oninput="sendStreamParam('sharpness', parseInt(this.value)); updateCasLabel(this.value);">
+      </div>
+
+      <div class="map-item" style="margin-bottom: 10px;">
+        <label>Upscaler de Imagem</label>
+        <select id="selectUpscaler" onchange="sendStreamParam('upscaler', parseInt(this.value))">
+          <option value="0">FSR 1.0</option>
+          <option value="1">Anime4K</option>
+          <option value="2">FSR 1.0 + Clean-up</option>
+          <option value="3">Anime4K + Clean-up</option>
+        </select>
+      </div>
+
+      <div class="map-item" style="margin-bottom: 10px;">
+        <label>Suavização de Blocos (Deband)</label>
+        <select id="selectDeband" onchange="sendStreamParam('deband', parseInt(this.value))">
+          <option value="0">Desativada</option>
+          <option value="1">Baixa</option>
+          <option value="2">Alta</option>
+          <option value="3">Automática (Bitrate-adaptive)</option>
+        </select>
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-header">
+          <span>Volume Alto-falante DualSense</span>
+          <span class="slider-val" id="valPadSpeaker">100%</span>
+        </div>
+        <input type="range" id="inputPadSpeaker" min="0" max="100" step="5" value="100" oninput="document.getElementById('valPadSpeaker').textContent=this.value+'%'; sendStreamParam('padSpeakerVolume', parseInt(this.value));">
+      </div>
+
+      <div class="map-item" style="margin-bottom: 14px;">
+        <label>Perfis de Gatilho Inteligente</label>
+        <select id="selectSmartTriggers" onchange="sendStreamParam('triggerProfile', parseInt(this.value))">
+          <option value="0">Padrão (Standard Haptics)</option>
+          <option value="1">Tiro (Shooter - Hair Trigger)</option>
+          <option value="2">Corrida (Racing - Progressive Resistance)</option>
+        </select>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="sendStreamAction('xbox_guide')">Abrir Guia Xbox</button>
+        <button class="btn btn-danger" onclick="sendStreamAction('end_session')">Encerrar Sessão</button>
+      </div>
+    </div>
+  </div>
+
   <!-- TAB: SEARCH -->
   <div id="tab-search" class="tab-pane">
     <div class="card" id="searchCard" style="position: relative;">
@@ -659,6 +835,10 @@ function switchTab(name) {
   if (tabBtn) tabBtn.classList.add('active');
   if (name === 'search') pollStreamingState();
   if (name === 'gamepad') sendPadState();
+  if (name === 'stream') {
+    loadStreamMenuState();
+    pollStats();
+  }
 }
 
 function switchRemapSub(mode) {
@@ -913,6 +1093,117 @@ function saveSettings() {
   }).catch(e => showToast('Erro ao salvar configurações'));
 }
 
+function onBitrateInput(val) {
+  const v = parseInt(val, 10);
+  const el = document.getElementById('valBitrate');
+  if (el) el.textContent = (v === 0) ? 'Auto' : v + ' Mbps';
+}
+
+function onLightBarModeChange() {
+  const sel = document.getElementById('selectLightBarMode');
+  const colorInput = document.getElementById('inputLightBarColor');
+  if (sel && colorInput) {
+    colorInput.style.display = (sel.value === '1') ? 'inline-block' : 'none';
+  }
+}
+
+function markSettingsChanged() {
+}
+
+function saveGeneralSettings() {
+  const payload = {
+    maxBitrateMbps: parseInt(document.getElementById('inputBitrate').value, 10),
+    highRefresh: document.getElementById('check120Hz').checked,
+    deadzoneLeft: parseInt(document.getElementById('inputDeadzoneL').value, 10),
+    deadzoneRight: parseInt(document.getElementById('inputDeadzoneR').value, 10),
+    triggerStrength: parseInt(document.getElementById('inputTriggerStrength').value, 10),
+    lightBarMode: parseInt(document.getElementById('selectLightBarMode').value, 10),
+    lightBarColour: document.getElementById('inputLightBarColor').value,
+    queueReadyAlert: document.getElementById('checkQueueAlert').checked,
+    videoDecoder: parseInt(document.getElementById('selectVideoDecoder').value, 10),
+    voiceRouting: parseInt(document.getElementById('selectVoiceRouting').value, 10)
+  };
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(r => r.json()).then(res => {
+    if (res.ok) {
+      showToast('Configurações salvas no console!');
+    } else {
+      showToast('Erro ao salvar configurações');
+    }
+  }).catch(() => showToast('Erro ao salvar configurações'));
+}
+
+function updateCasLabel(val) {
+  const labels = ['Desativada', 'Baixa', 'Média', 'Alta'];
+  const el = document.getElementById('valCas');
+  if (el) el.textContent = labels[val] !== undefined ? labels[val] : 'Média';
+}
+
+function sendStreamParam(param, val) {
+  const body = {};
+  body[param] = val;
+  fetch('/api/stream', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  }).catch(() => {});
+}
+
+function sendStreamAction(action) {
+  fetch('/api/stream', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: action })
+  }).then(r => r.json()).then(res => {
+    if (action === 'xbox_guide') showToast('Guia Xbox acionado');
+    if (action === 'end_session') showToast('Sessão encerrada');
+  }).catch(() => {});
+}
+
+function loadStreamMenuState() {
+  fetch('/api/stream').then(r => r.json()).then(s => {
+    if (s.sharpness !== undefined) {
+      const el = document.getElementById('inputCas');
+      if (el) { el.value = s.sharpness; updateCasLabel(s.sharpness); }
+    }
+    if (s.upscaler !== undefined) {
+      const el = document.getElementById('selectUpscaler');
+      if (el) el.value = s.upscaler;
+    }
+    if (s.deband !== undefined) {
+      const el = document.getElementById('selectDeband');
+      if (el) el.value = s.deband;
+    }
+    if (s.padSpeakerVolume !== undefined) {
+      const el = document.getElementById('inputPadSpeaker');
+      if (el) el.value = s.padSpeakerVolume;
+      const vlbl = document.getElementById('valPadSpeaker');
+      if (vlbl) vlbl.textContent = s.padSpeakerVolume + '%';
+    }
+    if (s.triggerProfile !== undefined) {
+      const el = document.getElementById('selectSmartTriggers');
+      if (el) el.value = s.triggerProfile;
+    }
+  }).catch(() => {});
+}
+
+function pollStats() {
+  const streamTab = document.getElementById('tab-stream');
+  if (!streamTab || streamTab.style.display === 'none') return;
+  fetch('/api/stats').then(r => r.json()).then(data => {
+    if (data.fps !== undefined) document.getElementById('telFps').textContent = data.fps;
+    if (data.rttMs !== undefined) document.getElementById('telRtt').textContent = data.rttMs + ' ms';
+    if (data.mbps !== undefined) document.getElementById('telMbps').textContent = (typeof data.mbps === 'number' ? data.mbps.toFixed(1) : data.mbps) + ' Mbps';
+    if (data.lossPct !== undefined) document.getElementById('telLoss').textContent = (typeof data.lossPct === 'number' ? data.lossPct.toFixed(1) : data.lossPct) + '%';
+    if (data.qp !== undefined) document.getElementById('telQp').textContent = data.qp;
+    if (data.decodeMs !== undefined) document.getElementById('telDec').textContent = (typeof data.decodeMs === 'number' ? data.decodeMs.toFixed(1) : data.decodeMs) + ' ms';
+  }).catch(() => {});
+}
+setInterval(pollStats, 1000);
+
 function loadLogPreview() {
   const p = document.getElementById('logPreview');
   p.textContent = 'Carregando log...';
@@ -997,6 +1288,47 @@ fetch('/api/settings').then(r => r.json()).then(s => {
       const wrapLib = document.getElementById('chipSelectLangLib');
       if (wrapLib) wrapLib.classList.add('active');
     }
+  }
+  if (s.maxBitrateMbps !== undefined) {
+    const el = document.getElementById('inputBitrate');
+    if (el) { el.value = s.maxBitrateMbps; onBitrateInput(s.maxBitrateMbps); }
+  }
+  if (s.highRefresh !== undefined) {
+    const el = document.getElementById('check120Hz');
+    if (el) el.checked = !!s.highRefresh;
+  }
+  if (s.deadzoneLeft !== undefined) {
+    const el = document.getElementById('inputDeadzoneL');
+    if (el) { el.value = s.deadzoneLeft; document.getElementById('valDeadzoneL').textContent = s.deadzoneLeft + '%'; }
+  }
+  if (s.deadzoneRight !== undefined) {
+    const el = document.getElementById('inputDeadzoneR');
+    if (el) { el.value = s.deadzoneRight; document.getElementById('valDeadzoneR').textContent = s.deadzoneRight + '%'; }
+  }
+  if (s.triggerStrength !== undefined) {
+    const el = document.getElementById('inputTriggerStrength');
+    if (el) { el.value = s.triggerStrength; document.getElementById('valTriggerStrength').textContent = s.triggerStrength; }
+  }
+  if (s.lightBarMode !== undefined) {
+    const el = document.getElementById('selectLightBarMode');
+    if (el) el.value = s.lightBarMode;
+    onLightBarModeChange();
+  }
+  if (s.lightBarColour) {
+    const el = document.getElementById('inputLightBarColor');
+    if (el) el.value = s.lightBarColour;
+  }
+  if (s.queueReadyAlert !== undefined) {
+    const el = document.getElementById('checkQueueAlert');
+    if (el) el.checked = !!s.queueReadyAlert;
+  }
+  if (s.videoDecoder !== undefined) {
+    const el = document.getElementById('selectVideoDecoder');
+    if (el) el.value = s.videoDecoder;
+  }
+  if (s.voiceRouting !== undefined) {
+    const el = document.getElementById('selectVoiceRouting');
+    if (el) el.value = s.voiceRouting;
   }
   applySearchTabUI(currentSearchTab);
   updateSearchStatusText();
@@ -1509,6 +1841,20 @@ WebServer::HttpResponse WebServer::handleRequest(const std::string& method, cons
             std::string clean = report::sanitize(rawLog, {});
             return {200, "text/plain; charset=utf-8", "Content-Disposition: attachment; filename=\"xcloud.log\"\r\n", clean};
         }
+        if (path == "/api/stats") {
+            json::Value stats = json::Value::object();
+            if (s_hooks.getTelemetry) {
+                s_hooks.getTelemetry(stats);
+            }
+            return {200, "application/json", "", stats.dump()};
+        }
+        if (path == "/api/stream") {
+            json::Value menu = json::Value::object();
+            if (s_hooks.getStreamMenuState) {
+                s_hooks.getStreamMenuState(menu);
+            }
+            return {200, "application/json", "", menu.dump()};
+        }
     }
 
     if (method == "POST") {
@@ -1644,6 +1990,25 @@ WebServer::HttpResponse WebServer::handleRequest(const std::string& method, cons
                 ok = s_hooks.updateSettings(*j);
             }
             return {ok ? 200 : 400, "application/json", "", ok ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"update failed\"}"};
+        }
+        if (path == "/api/stream") {
+            auto j = json::parse(body);
+            if (!j || !j->isObject()) {
+                return {400, "application/json", "", "{\"ok\":false,\"error\":\"invalid json\"}"};
+            }
+            if ((*j).has("action") && (*j)["action"].isString()) {
+                std::string act = (*j)["action"].str();
+                if (s_hooks.streamAction) {
+                    s_hooks.streamAction(act);
+                }
+            }
+            bool ok = true;
+            if (s_hooks.updateStreamMenu) {
+                ok = s_hooks.updateStreamMenu(*j);
+            }
+            json::Value res = json::Value::object();
+            res.set("ok", ok);
+            return {ok ? 200 : 400, "application/json", "", res.dump()};
         }
     }
 
