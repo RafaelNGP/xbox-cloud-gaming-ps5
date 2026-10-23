@@ -51,7 +51,8 @@ public:
     void setWishlist(std::vector<std::string> wish) { wishlist_ = std::move(wish); }
 
     // Calls `changed` after each row arrives; false only when nothing loaded.
-    bool load(xcloud::GssvClient& gssv, const std::string& language, const Changed& changed, std::string& err);
+    bool load(xcloud::GssvClient& gssv, const std::string& language, const Changed& changed, std::string& err,
+              bool forceRefresh = false);
     // The first screen, before anything else: hero art, descriptions and
     // console badges of the first cards of every row and of "Your games".
     void loadFirstScreen(const std::string& xblAuth, const Changed& changed, const std::atomic<bool>* stop = nullptr);
@@ -96,6 +97,9 @@ public:
     void saveCache() const;
     // Marks a product/title as owned immediately upon successful purchase/claim.
     void markAsOwned(const std::string& productId, const std::string& titleId = {});
+    // Delta-sync: discovers new/updated titles, only fetches missing metadata, updates rows in-place.
+    size_t syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std::string& err);
+    void markUnclaimable(const std::string& productId);
 
 private:
     using Item = std::pair<std::string, std::string>;  // productId, titleId
@@ -139,6 +143,7 @@ private:
     // Details from a cache in another language: shown until replaced.
     std::set<std::string> otherLanguage_;
     Progress progress_;
+    std::map<std::string, std::string> cloudTitleOf_; // productId -> cloud titleId
     std::map<std::string, std::string> xboxTitleOf_;  // productId -> Xbox title id
     std::map<std::string, std::string> platform_;     // Xbox title id -> platform code
     // Xbox title ids that have a "... - Xbox Series X|S" product, rebuilt

@@ -175,7 +175,10 @@ struct Core {
             player = g_settings.keyboardPlayer;
         }
         if (player < 0 || player >= input::kMaxPads) return -1;
-        bool keyboardLast = !input::padConnected(player) || keyboardActiveAt > input::padActiveAt(player);
+        uint64_t padT = input::padConnected(player) ? input::padActiveAt(player) : 0;
+        uint64_t phoneT = virtualGamepadActiveAt(player);
+        bool keyboardLast = (keyboardActiveAt > padT && keyboardActiveAt > phoneT) ||
+                            (!input::padConnected(player) && phoneT == 0);
         return keyboardLast ? player : -1;
     }
     static uint64_t now0() { return platform::nowMs(); }
@@ -191,6 +194,9 @@ struct Core {
     bool kbmConnected = false;                              // a USB keyboard or mouse in use
     uint64_t keyboardActiveAt = 0;                          // when a key or the mouse was last used (ms)
     int keyboardIconShown = -2;  // as last drawn in the players' row
+    std::array<uint64_t, input::kMaxPads> padActiveBefore_{};
+    std::array<uint64_t, input::kMaxPads> vpadActiveBefore_{};
+    uint64_t kbActiveBefore_ = 0;
     Repeater up, down, left, right, dpadLeft, dpadRight;
     // Smooth scrolling: rows / cards still to move (fractions carry over),
     // the touchpad's last point, and its speed for the glide after release.
@@ -303,6 +309,7 @@ bool coreStartup() {
     setWebServerHooks({
         /*getSettings=*/[](json::Value& root) {
             std::lock_guard<std::mutex> lock(g_settingsMutex);
+            root.set("settingsVersion", static_cast<int64_t>(g_settingsVersion.load()));
             root.set("language", g_settings.language);
             root.set("resolution", g_settings.resolution);
             root.set("maxBitrateMbps", g_settings.maxBitrateMbps);
@@ -319,11 +326,21 @@ bool coreStartup() {
             root.set("queueReadyAlert", g_settings.queueReadyAlert);
             root.set("videoDecoder", g_settings.videoDecoder);
             root.set("voiceRouting", g_settings.voiceRouting);
+            root.set("padSpeakerVolume", g_settings.padSpeakerVolume);
+            root.set("sharpness", g_settings.sharpness);
+            root.set("upscaler", g_settings.upscaler);
+            root.set("deband", g_settings.deband);
+            root.set("triggerProfile", g_settings.triggerProfile);
+            root.set("gyroMode", g_settings.gyroMode);
+            root.set("gyroLevel", g_settings.gyroLevel);
+            root.set("touchpadMouse", g_settings.touchpadMouse);
             root.set("padMap", input::padMapJson(g_settings.padMap));
             root.set("keyMap", keyMapToJson(g_settings.keyMap));
+            root.set("touchpadShortcuts", input::touchpadShortcutsJson(g_settings.touchpadShortcuts));
         },
         /*updateSettings=*/[](const json::Value& root) -> bool {
             bool changed = false;
+            int padSpeakerVol = -1;
             {
                 std::lock_guard<std::mutex> lock(g_settingsMutex);
                 if (root.has("voiceRouting")) {
@@ -363,6 +380,11 @@ bool coreStartup() {
                     g_settings.triggerStrength = static_cast<int>(std::clamp<int64_t>(root["triggerStrength"].asInt(g_settings.triggerStrength), 0, 4));
                     changed = true;
                 }
+                if (root.has("triggerProfile")) {
+                    g_settings.triggerProfile = static_cast<int>(std::clamp<int64_t>(root["triggerProfile"].asInt(g_settings.triggerProfile), 0, 2));
+                    input::setTriggerProfile(g_settings.triggerProfile);
+                    changed = true;
+                }
                 if (root.has("audioHaptics")) {
                     g_settings.audioHaptics = static_cast<int>(std::clamp<int64_t>(root["audioHaptics"].asInt(g_settings.audioHaptics), 0, 3));
                     media::setAudioHapticsLevel(g_settings.audioHaptics);
@@ -387,10 +409,61 @@ bool coreStartup() {
                     g_settings.keyMap = keyMapFromJson(root["keyMap"], g_settings.keyMap);
                     changed = true;
                 }
+                if (root.has("touchpadShortcuts")) {
+                    input::TouchpadShortcuts newTs;
+                    if (input::readTouchpadShortcuts(root["touchpadShortcuts"], newTs)) {
+                        g_settings.touchpadShortcuts = newTs;
+                        for (auto& [k, prof] : g_settings.perGame) {
+                            prof.touchpadShortcuts = newTs;
+                        }
+                        changed = true;
+                    }
+                }
+                if (root.has("padSpeakerVolume")) {
+                    g_settings.padSpeakerVolume = static_cast<int>(std::clamp<int64_t>(root["padSpeakerVolume"].asInt(g_settings.padSpeakerVolume), 0, 100));
+                    padSpeakerVol = g_settings.padSpeakerVolume;
+                    changed = true;
+                }
+                if (root.has("sharpness")) {
+                    g_settings.sharpness = static_cast<int>(std::clamp<int64_t>(root["sharpness"].asInt(g_settings.sharpness), 0, 3));
+                    changed = true;
+                }
+                if (root.has("upscaler")) {
+                    g_settings.upscaler = static_cast<int>(std::clamp<int64_t>(root["upscaler"].asInt(g_settings.upscaler), 0, 3));
+                    changed = true;
+                }
+                if (root.has("deband")) {
+                    g_settings.deband = static_cast<int>(std::clamp<int64_t>(root["deband"].asInt(g_settings.deband), 0, 3));
+                    changed = true;
+                }
+                if (root.has("gyroMode")) {
+                    g_settings.gyroMode = static_cast<int>(std::clamp<int64_t>(root["gyroMode"].asInt(g_settings.gyroMode), 0, 2));
+                    changed = true;
+                }
+                if (root.has("gyroLevel")) {
+                    g_settings.gyroLevel = static_cast<int>(std::clamp<int64_t>(root["gyroLevel"].asInt(g_settings.gyroLevel), 1, 10));
+                    changed = true;
+                }
+                if (root.has("touchpadMouse")) {
+                    g_settings.touchpadMouse = root["touchpadMouse"].asBool(g_settings.touchpadMouse);
+                    changed = true;
+                }
                 if (changed) {
                     g_settings.save(settingsPath());
-                    applyControllerSettings();
                     refreshSettingsUiLocked();
+                }
+            }
+            if (changed) {
+                applyControllerSettings();
+                if (padSpeakerVol >= 0) {
+                    media::setPadSpeakerVolume(padSpeakerVol);
+                }
+                if (g_core && g_core->streamScreen) {
+                    g_core->streamScreen->syncFromSettings();
+                }
+                platform::notify("Configurações atualizadas (WebUI)");
+                if (g_ui && !shell::caps().console) {
+                    g_ui->showToast("Configurações atualizadas");
                 }
             }
             return true;
@@ -470,47 +543,87 @@ bool coreStartup() {
             stats.set("height", g_streamInfo.height);
         },
         /*getStreamMenuState=*/[](json::Value& menu) {
+            ui::GameTile tile;
+            {
+                std::lock_guard<std::mutex> argLock(g_argMutex);
+                tile = g_playTile;
+            }
             std::lock_guard<std::mutex> lock(g_settingsMutex);
-            menu.set("sharpness", g_settings.sharpness);
-            menu.set("upscaler", g_settings.upscaler);
-            menu.set("deband", g_settings.deband);
+            bool hasCustom = false;
+            GameProfile prof = g_settings.profileForGame(tile.productId, tile.titleId, &hasCustom);
+            menu.set("sharpness", prof.sharpness);
+            menu.set("upscaler", prof.upscaler);
+            menu.set("deband", prof.deband);
             menu.set("padSpeakerVolume", g_settings.padSpeakerVolume);
-            menu.set("triggerProfile", g_settings.triggerProfile);
+            menu.set("triggerProfile", prof.triggerProfile);
+            menu.set("touchpadShortcuts", input::touchpadShortcutsJson(prof.touchpadShortcuts));
+            menu.set("hasCustomProfile", hasCustom);
         },
         /*updateStreamMenu=*/[](const json::Value& update) -> bool {
             bool changed = false;
+            int padSpeakerVol = -1;
             {
+                ui::GameTile tile;
+                {
+                    std::lock_guard<std::mutex> argLock(g_argMutex);
+                    tile = g_playTile;
+                }
+                std::string key = gameProfileKey(tile.productId, tile.titleId);
+
                 std::lock_guard<std::mutex> lock(g_settingsMutex);
+                bool hasCustom = !key.empty() && g_settings.perGame.count(key);
+
                 if (update.has("sharpness")) {
-                    g_settings.sharpness = static_cast<int>(std::clamp<int64_t>(update["sharpness"].asInt(g_settings.sharpness), 0, 3));
-                    display::setSharpness(g_settings.sharpness);
+                    int val = static_cast<int>(std::clamp<int64_t>(update["sharpness"].asInt(g_settings.sharpness), 0, 3));
+                    if (hasCustom) g_settings.perGame[key].sharpness = val;
+                    else g_settings.sharpness = val;
                     changed = true;
                 }
                 if (update.has("upscaler")) {
-                    g_settings.upscaler = static_cast<int>(std::clamp<int64_t>(update["upscaler"].asInt(g_settings.upscaler), 0, 3));
-                    display::setUpscaler(g_settings.upscaler & 1);
-                    display::setRestore((g_settings.upscaler & 2) != 0);
+                    int val = static_cast<int>(std::clamp<int64_t>(update["upscaler"].asInt(g_settings.upscaler), 0, 3));
+                    if (hasCustom) g_settings.perGame[key].upscaler = val;
+                    else g_settings.upscaler = val;
                     changed = true;
                 }
                 if (update.has("deband")) {
-                    g_settings.deband = static_cast<int>(std::clamp<int64_t>(update["deband"].asInt(g_settings.deband), 0, 3));
-                    display::setDeband(g_settings.deband);
+                    int val = static_cast<int>(std::clamp<int64_t>(update["deband"].asInt(g_settings.deband), 0, 3));
+                    if (hasCustom) g_settings.perGame[key].deband = val;
+                    else g_settings.deband = val;
                     changed = true;
                 }
                 if (update.has("padSpeakerVolume")) {
                     g_settings.padSpeakerVolume = static_cast<int>(std::clamp<int64_t>(update["padSpeakerVolume"].asInt(g_settings.padSpeakerVolume), 0, 100));
-                    media::setPadSpeakerVolume(g_settings.padSpeakerVolume);
+                    padSpeakerVol = g_settings.padSpeakerVolume;
                     changed = true;
                 }
                 if (update.has("triggerProfile")) {
-                    g_settings.triggerProfile = static_cast<int>(std::clamp<int64_t>(update["triggerProfile"].asInt(g_settings.triggerProfile), 0, 2));
-                    input::setTriggerProfile(g_settings.triggerProfile);
+                    int val = static_cast<int>(std::clamp<int64_t>(update["triggerProfile"].asInt(g_settings.triggerProfile), 0, 2));
+                    if (hasCustom) g_settings.perGame[key].triggerProfile = val;
+                    else g_settings.triggerProfile = val;
                     changed = true;
+                }
+                if (update.has("touchpadShortcuts")) {
+                    input::TouchpadShortcuts newTs;
+                    if (input::readTouchpadShortcuts(update["touchpadShortcuts"], newTs)) {
+                        if (hasCustom) g_settings.perGame[key].touchpadShortcuts = newTs;
+                        else g_settings.touchpadShortcuts = newTs;
+                        changed = true;
+                    }
                 }
                 if (changed) {
                     g_settings.save(settingsPath());
                     refreshSettingsUiLocked();
+                    if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 }
+            }
+            if (changed) {
+                if (padSpeakerVol >= 0) {
+                    media::setPadSpeakerVolume(padSpeakerVol);
+                }
+                if (g_core && g_core->streamScreen) {
+                    g_core->streamScreen->syncFromSettings();
+                }
+                platform::notify("Configurações do jogo atualizadas (WebUI)");
             }
             return true;
         },
@@ -551,7 +664,11 @@ bool coreStartup() {
             g_ui->setOwned(initialLib->owned(), initialLib->purchasable(), initialLib->ownedKnown());
             g_ui->setMembership(initialLib->gamePassMember());
             g_ui->setSearchPools(initialLib->gamePassSearchPool(), initialLib->librarySearchPool());
-            g_ui->showHome();
+            struct stat accSt;
+            if (::stat((platform::dataDir() + "/account.json").c_str(), &accSt) == 0 && accSt.st_size > 0) {
+                g_ui->showHome();
+                g_ui->setLoading(true, 0, 0);
+            }
             XC_LOGI("instant-resume: loaded offline cache (%zu rows, %zu owned) in 0.01s",
                     initialLib->rows().size(), initialLib->owned().size());
         }
@@ -672,6 +789,10 @@ void Core::dispatchUiAction(const ui::UiEvent& ev) {
         case ui::Action::RefreshLibrary: {
             XC_LOGI("library: manual refresh requested");
             g_command = kReloadLibrary;
+            if (g_ui) {
+                g_ui->showToast(ui::tr(ui::Str::RefreshingLibrary));
+                g_ui->setLoading(true, 0, 0);
+            }
             platform::notify(ui::tr(ui::Str::RefreshingLibrary));
             break;
         }
@@ -690,6 +811,30 @@ void Core::dispatchUiAction(const ui::UiEvent& ev) {
         case ui::Action::TestQueueAlert: {
             XC_LOGI("settings: manual queue-ready alert test requested");
             playQueueReadyAlert();
+            break;
+        }
+        case ui::Action::ResetSettings: {
+            XC_LOGI("settings: restoring factory default settings");
+            bool langChanged = false;
+            {
+                std::lock_guard<std::mutex> lock(g_settingsMutex);
+                std::string prevLang = g_settings.language;
+                g_settings = app::Settings{};
+                g_settings.save(settingsPath());
+                langChanged = g_settings.language != prevLang;
+                refreshSettingsUiLocked();
+                if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
+            }
+            ui::setLanguage(ui::languageFromCode(g_settings.language));
+            applyControllerSettings();
+            media::setPadSpeakerVolume(g_settings.padSpeakerVolume);
+            if (g_core && g_core->streamScreen) {
+                g_core->streamScreen->syncFromSettings();
+            }
+            updateLibraryFavorites(g_settings.favorites);
+            updateLibraryWishlist(g_settings.wishlist);
+            platform::notify(ui::tr(ui::Str::SettingsResetNotice));
+            if (langChanged) g_command = kReloadLibrary;
             break;
         }
         case ui::Action::None: break;
@@ -850,6 +995,22 @@ bool Core::frame() {
         keyboardIconShown = shown;
         padsCheckedAt = 0;  // the players' row at once, as the device in use changes
     }
+    if (keyboardActiveAt != kbActiveBefore_) {
+        kbActiveBefore_ = keyboardActiveAt;
+        padsCheckedAt = 0;  // immediate update on keyboard input
+    }
+    for (int i = 0; i < input::kMaxPads; ++i) {
+        uint64_t pAct = input::padActiveAt(i);
+        if (pAct != padActiveBefore_[static_cast<size_t>(i)]) {
+            padActiveBefore_[static_cast<size_t>(i)] = pAct;
+            padsCheckedAt = 0;  // immediate update on pad input
+        }
+        uint64_t vAct = virtualGamepadActiveAt(i);
+        if (vAct != vpadActiveBefore_[static_cast<size_t>(i)]) {
+            vpadActiveBefore_[static_cast<size_t>(i)] = vAct;
+            padsCheckedAt = 0;  // immediate update on phone input or player switch
+        }
+    }
     streamScreen->setKbm(std::move(kbm));
     {
         // The triggers' resistance: in a game and in its Settings tester only.
@@ -884,14 +1045,49 @@ bool Core::frame() {
             input::ControllerState ignored;
             for (int i = 1; i < input::kMaxPads; ++i) input::pollPad(i, ignored);
         }
+        int kbPlayer = -1;
+        {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            kbPlayer = g_settings.keyboardPlayer;
+        }
         ui::PadSlots slots;
-        for (int i = 0; i < input::kMaxPads; ++i)
-            slots[static_cast<size_t>(i)] = {input::padConnected(i), input::padUserName(i)};
-        // The keyboard: in a slot of its own as another player's
-        // controller (Settings), else on player 1's while it's the device in use.
-        if (int kb = keyboardIconSlot(); kb >= 0) {
-            slots[static_cast<size_t>(kb)].keyboard = true;
-            slots[static_cast<size_t>(kb)].connected = true;
+        for (int i = 0; i < input::kMaxPads; ++i) {
+            bool padConn = input::padConnected(i);
+            std::string padName = input::padUserName(i);
+
+            bool vpadConn = false;
+            input::ControllerState vpadSt{};
+            virtualGamepadState(i, vpadSt, vpadConn);
+
+            uint64_t now = platform::nowMs();
+            uint64_t padT = padConn ? input::padActiveAt(i) : 0;
+            uint64_t kbT = (kbmConnected && i == kbPlayer) ? keyboardActiveAt : 0;
+            uint64_t vpadActive = virtualGamepadActiveAt(i);
+            uint64_t phoneT = (vpadConn && (now >= vpadActive) && (now - vpadActive < 15000)) ? vpadActive : 0;
+
+            bool connected = padConn || vpadConn || (kbmConnected && i == kbPlayer);
+
+            ui::PadDevice dev = ui::PadDevice::Gamepad;
+            if (phoneT > 0 && phoneT >= padT && phoneT >= kbT) {
+                dev = ui::PadDevice::Phone;
+            } else if (kbT > 0 && kbT >= padT && kbT >= phoneT) {
+                dev = ui::PadDevice::Keyboard;
+            } else if (padT > 0) {
+                dev = ui::PadDevice::Gamepad;
+            } else {
+                if (padConn) {
+                    dev = ui::PadDevice::Gamepad;
+                } else if (vpadConn) {
+                    dev = ui::PadDevice::Phone;
+                } else if (kbmConnected && i == kbPlayer) {
+                    dev = ui::PadDevice::Keyboard;
+                }
+            }
+
+            slots[static_cast<size_t>(i)].connected = connected;
+            slots[static_cast<size_t>(i)].name = std::move(padName);
+            slots[static_cast<size_t>(i)].device = dev;
+            slots[static_cast<size_t>(i)].keyboard = (dev == ui::PadDevice::Keyboard);
         }
         g_ui->setPads(slots);
         streamScreen->setPads(slots);
@@ -907,6 +1103,7 @@ bool Core::frame() {
     nav.left = left.update(pad.dpadLeft || pad.leftStickX < -0.6f, now);
     nav.right = right.update(pad.dpadRight || pad.leftStickX > 0.6f, now);
     nav.accept = pad.btnA && !prev.btnA;
+    nav.acceptHeld = pad.btnA;
     nav.back = pad.btnB && !prev.btnB;
     nav.options = pad.btnOptions && !prev.btnOptions;
     nav.l1 = pad.btnL1 && !prev.btnL1;

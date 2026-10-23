@@ -99,6 +99,151 @@ void StreamScreen::setMouseCaptured_(bool captured) {
 
 void StreamScreen::applyDeband_() { display::setDeband(deband_ == 3 ? autoDeband_.level() : deband_); }
 
+void StreamScreen::syncFromSettings() {
+    if (!wasStreaming_) return;
+    ui::GameTile tile;
+    {
+        std::lock_guard<std::mutex> argLock(g_argMutex);
+        tile = g_playTile;
+    }
+    std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+    bool hasCustom = false;
+    GameProfile prof = g_settings.profileForGame(tile.productId, tile.titleId, &hasCustom);
+    hasCustomProfile_ = hasCustom;
+    touchpadMouse_ = prof.touchpadMouse;
+
+    streamResolution_ = prof.resolution;
+    showStats_ = g_settings.streamStats;
+    menu_.setStatsOn(showStats_);
+    menu_.setStatsMask(g_settings.statsMask);
+    sharpness_ = g_autoplay.sharpness >= 0 ? g_autoplay.sharpness : prof.sharpness;
+    display::setSharpness(kSharpAmount[std::clamp(sharpness_, 0, 3)]);
+    deband_ = g_autoplay.deband >= 0 ? g_autoplay.deband : prof.deband;
+    applyDeband_();
+    upscaler_ = g_autoplay.upscaler >= 0 ? g_autoplay.upscaler : prof.upscaler;
+    if (g_autoplay.restore) upscaler_ = (upscaler_ & 1) | 2;
+    applyUpscaler(upscaler_);
+
+    triggerStrength_ = prof.triggerStrength;
+    triggerProfile_ = prof.triggerProfile;
+    deadzone_ = prof.deadzoneLeft;
+    circleConfirms_ = prof.circleConfirms;
+    keyMap_ = prof.keyMap;
+    padMap_ = prof.padMap;
+    touchpadShortcuts_ = prof.touchpadShortcuts;
+    gyroMode_ = prof.gyroMode;
+    gyroLevel_ = prof.gyroLevel;
+    input::setGyro(gyroMode_, gyroLevel_);
+    input::setDeadzone(prof.deadzoneLeft / 100.0f, prof.deadzoneRight / 100.0f);
+    input::setTriggerFeel(prof.triggerStrength, prof.triggerHz, prof.triggerResistance, prof.triggerPulses, triggerProfile_);
+    input::setCircleConfirms(prof.circleConfirms);
+    if (g_ui) g_ui->setCircleConfirms(prof.circleConfirms);
+
+    media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
+    media::audioSetVoiceRouting(g_settings.voiceRouting);
+    media::setPadSpeakerVolume(g_settings.padSpeakerVolume);
+    if (g_player) {
+        g_player->setMicGain(g_settings.micGainFactor());
+    }
+
+    menu_.setProfileValues(streamResolution_, sharpness_, deband_, upscaler_,
+                           triggerStrength_, deadzone_, circleConfirms_, hasCustomProfile_);
+    menu_.setGyro(gyroMode_, gyroLevel_);
+    menu_.setTouchpadShortcuts(touchpadShortcuts_);
+    menu_.setPadSpeakerVolume(g_settings.padSpeakerVolume);
+    overlaySeq_ = 0;
+}
+
+void StreamScreen::executeTouchpadAction_(input::TouchpadAction act, const char* triggerName) {
+    switch (act) {
+    case input::TouchpadAction::None:
+        break;
+    case input::TouchpadAction::GameMenu:
+        swipeMenu_ = true;
+        XC_LOGI("touchpad %s: game menu", triggerName);
+        break;
+    case input::TouchpadAction::XboxButton:
+        if (!menu_.isOpen()) {
+            g_xboxButtonUntil = platform::nowMs() + 250;
+            XC_LOGI("touchpad %s: Xbox button", triggerName);
+        }
+        break;
+    case input::TouchpadAction::ToggleStats:
+        showStats_ = !showStats_;
+        menu_.setStatsOn(showStats_);
+        {
+            std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+            g_settings.streamStats = showStats_;
+            g_settings.save(settingsPath());
+            refreshSettingsUiLocked();
+        }
+        overlaySeq_ = 0;
+        platform::notify(showStats_ ? "Telemetria ativada" : "Telemetria desativada",
+                         showStats_ ? "stats on" : "stats off");
+        XC_LOGI("touchpad %s: toggle stats -> %d", triggerName, showStats_ ? 1 : 0);
+        break;
+    case input::TouchpadAction::ToggleMicMute:
+        if (g_player) {
+            bool muted = !g_player->micMuted();
+            g_player->setMicMuted(muted);
+            menu_.setMicMuted(muted || g_player->isMicHardwareMuted());
+            overlaySeq_ = 0;
+            platform::notify(muted ? "Microfone silenciado" : "Microfone ativado",
+                             muted ? "mic muted" : "mic unmuted");
+            XC_LOGI("touchpad %s: toggle mic mute -> %d", triggerName, muted ? 1 : 0);
+        }
+        break;
+    case input::TouchpadAction::CycleGyro:
+        gyroMode_ = (gyroMode_ + 1) % 3;
+        input::setGyro(gyroMode_, gyroLevel_);
+        menu_.setGyro(gyroMode_, gyroLevel_);
+        {
+            std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+            if (hasCustomProfile_) g_settings.perGame[gameKey_].gyroMode = gyroMode_;
+            else g_settings.gyroMode = gyroMode_;
+            g_settings.save(settingsPath());
+            refreshSettingsUiLocked();
+            if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
+        }
+        overlaySeq_ = 0;
+        {
+            const char* gyroName = gyroMode_ == 1 ? ui::tr(ui::Str::GyroAlways)
+                                 : gyroMode_ == 2 ? ui::tr(ui::Str::GyroAiming)
+                                                  : ui::tr(ui::Str::Off);
+            platform::notify(std::string(ui::tr(ui::Str::Gyro)) + ": " + gyroName, "cycle gyro");
+        }
+        XC_LOGI("touchpad %s: cycle gyro -> %d", triggerName, gyroMode_);
+        break;
+    case input::TouchpadAction::CycleTriggerProfile:
+        triggerProfile_ = (triggerProfile_ + 1) % 3;
+        {
+            std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+            input::setTriggerFeel(triggerStrength_, g_settings.triggerHz, g_settings.triggerResistance, g_settings.triggerPulses, triggerProfile_);
+            if (hasCustomProfile_) g_settings.perGame[gameKey_].triggerProfile = triggerProfile_;
+            else g_settings.triggerProfile = triggerProfile_;
+            g_settings.save(settingsPath());
+            refreshSettingsUiLocked();
+            if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
+        }
+        overlaySeq_ = 0;
+        {
+            const char* profName = triggerProfile_ == 1 ? ui::tr(ui::Str::TriggerProfileShooter)
+                                 : triggerProfile_ == 2 ? ui::tr(ui::Str::TriggerProfileRacing)
+                                                        : ui::tr(ui::Str::TriggerProfileStd);
+            platform::notify(std::string(ui::tr(ui::Str::TriggerProfile)) + ": " + profName, "cycle trigger profile");
+        }
+        XC_LOGI("touchpad %s: cycle trigger profile -> %d", triggerName, triggerProfile_);
+        break;
+    default:
+        if (!menu_.isOpen() && input::isTouchpadButtonAction(act)) {
+            shortcutPulseAction_ = act;
+            shortcutPulseUntilMs_ = platform::nowMs() + 200;
+            XC_LOGI("touchpad %s: button %s", triggerName, ui::touchpadActionLabel(static_cast<int>(act)).c_str());
+        }
+        break;
+    }
+}
+
 void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, bool menuCombo) {
     std::lock_guard<std::mutex> lock(g_playerMutex);
     if (g_player != overlayPlayer_ || (g_player && g_player->reconnects() != playerReconnects_)) {
@@ -145,6 +290,8 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         circleConfirms_ = prof.circleConfirms;
         keyMap_ = prof.keyMap;
         padMap_ = prof.padMap;
+        touchpadShortcuts_ = prof.touchpadShortcuts;
+        menu_.setTouchpadShortcuts(touchpadShortcuts_);
         gyroMode_ = prof.gyroMode;
         gyroLevel_ = prof.gyroLevel;
         input::setGyro(gyroMode_, gyroLevel_);
@@ -167,14 +314,18 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
     }
     if (g_player) {
         updateTextInput(g_player);
+        if (pad.touching) touchLastX_ = pad.touchX;
+
         // L3 + R3 simultaneous press toggles HUD statistics overlay
         bool l3r3 = pad.btnL3 && pad.btnR3;
         if (l3r3 && !prevL3R3_ && !menu_.isOpen()) {
             showStats_ = !showStats_;
+            menu_.setStatsOn(showStats_);
             {
                 std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
                 g_settings.streamStats = showStats_;
                 g_settings.save(settingsPath());
+                refreshSettingsUiLocked();
             }
             overlaySeq_ = 0;
             platform::notify(showStats_ ? "Telemetria ativada" : "Telemetria desativada",
@@ -196,6 +347,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             bool micMuted = g_player ? (g_player->micMuted() || g_player->isMicHardwareMuted()) : false;
             menu_.setDebandInUse(autoDeband_.level());
             menu_.setGyro(gyroMode_, gyroLevel_);
+            menu_.setTouchpadShortcuts(touchpadShortcuts_);
             menu_.setStatsMask(g_settings.statsMask);
             int padVol = 100;
             {
@@ -226,6 +378,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
                 g_settings.padSpeakerVolume = vol;
                 g_settings.save(settingsPath());
+                refreshSettingsUiLocked();
                 break;
             }
             case ui::MenuAction::Close: g_player->requestKeyframe(); break;  // a clean picture back in the game
@@ -242,6 +395,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                         g_settings.perGame[gameKey_].resolution = streamResolution_;
                         g_settings.save(settingsPath());
                     }
+                    ++g_settingsVersion;
                 }
                 break;
             case ui::MenuAction::ProfileToggle: {
@@ -265,6 +419,8 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     p.highRefresh = had != g_settings.perGame.end() ? had->second.highRefresh : g_settings.highRefresh;
                     p.keyMap = had != g_settings.perGame.end() ? had->second.keyMap : g_settings.keyMap;
                     p.padMap = had != g_settings.perGame.end() ? had->second.padMap : g_settings.padMap;
+                    p.touchpadShortcuts = touchpadShortcuts_;
+                    p.touchpadMouse = touchpadMouse_;
                     p.gyroMode = gyroMode_;
                     p.gyroLevel = gyroLevel_;
                     g_settings.perGame[gameKey_] = p;
@@ -280,11 +436,14 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     triggerProfile_ = def.triggerProfile;
                     keyMap_ = def.keyMap;
                     padMap_ = def.padMap;
+                    touchpadShortcuts_ = def.touchpadShortcuts;
+                    touchpadMouse_ = def.touchpadMouse;
                     circleConfirms_ = def.circleConfirms;
                     gyroMode_ = def.gyroMode;
                     gyroLevel_ = def.gyroLevel;
                     input::setGyro(gyroMode_, gyroLevel_);
                     menu_.setGyro(gyroMode_, gyroLevel_);
+                    menu_.setTouchpadShortcuts(touchpadShortcuts_);
                     display::setSharpness(kSharpAmount[sharpness_]);
                     applyDeband_();
                     applyUpscaler(upscaler_);
@@ -295,6 +454,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                                            triggerStrength_, deadzone_, circleConfirms_, false);
                 }
                 g_settings.save(settingsPath());
+                refreshSettingsUiLocked();
                 if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 break;
             }
@@ -393,6 +553,17 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 g_settings.streamStats = showStats_;
                 g_settings.statsMask = menu_.statsMask();
                 g_settings.save(settingsPath());
+                refreshSettingsUiLocked();
+                break;
+            }
+            case ui::MenuAction::TouchpadShortcuts: {
+                touchpadShortcuts_ = menu_.touchpadShortcuts();
+                std::lock_guard<std::mutex> settingsLock(g_settingsMutex);
+                if (hasCustomProfile_) g_settings.perGame[gameKey_].touchpadShortcuts = touchpadShortcuts_;
+                else g_settings.touchpadShortcuts = touchpadShortcuts_;
+                g_settings.save(settingsPath());
+                refreshSettingsUiLocked();
+                if (g_ui) g_ui->setPerGameSettings(g_settings.perGame);
                 break;
             }
             default: break;
@@ -407,11 +578,28 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             if (touchMouse_.prevButtons != 0) touchKbm.moved = true;  // let go of any held touchpad mouse button
             touchMouse_ = {};
         }
+        // Touchpad click left / click right action resolution
+        input::TouchpadAction clickAct = (touchLastX_ >= 0.5f) ? touchpadShortcuts_.clickRight : touchpadShortcuts_.clickLeft;
+        const char* clickSide = (touchLastX_ >= 0.5f) ? "click right" : "click left";
+        if (pad.btnTouchpad && !prevTouchpad_ && !menuCombo && !touchDrag && g_keyboardFor.empty()) {
+            if (menu_.isOpen()) {
+                if (clickAct == input::TouchpadAction::GameMenu) {
+                    swipeMenu_ = true;
+                    XC_LOGI("touchpad %s: game menu", clickSide);
+                }
+            } else if (!input::isTouchpadButtonAction(clickAct) && clickAct != input::TouchpadAction::None) {
+                executeTouchpadAction_(clickAct, clickSide);
+            }
+        }
+        prevTouchpad_ = pad.btnTouchpad;
+
         // The game gets the buttons through this game's map (Settings >
         // Controller buttons); everything above (the menu's combo, the
         // menu itself) read them as they are.
         input::ControllerState padIn = pad;
-        if (touchDrag) padIn.btnTouchpad = false;  // held as a mouse button after moving the cursor, not View
+        if (touchDrag || clickAct != input::TouchpadAction::View) {
+            padIn.btnTouchpad = false;  // held as a mouse button or mapped to a custom touchpad click action
+        }
         input::ControllerState sent = input::applyPadMap(padIn, padMap_);
         if (g_syntheticA) sent.btnA = true;
         // While another window has the focus on the cloud console (a
@@ -430,23 +618,41 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         if (menu_.isOpen() || !g_keyboardFor.empty()) padReleased_ = false;
         else if (!held) padReleased_ = true;
         if (!padReleased_ || menuCombo) sent = input::ControllerState{};
-        // Swiping up or right on the touchpad is the Xbox button (once
-        // per swipe; the games never see the touchpad's touches). In MKB
-        // games the touchpad moves the mouse while the menu is closed.
+        else if (!menu_.isOpen() && !touchDrag) {
+            if (pad.btnTouchpad && input::isTouchpadButtonAction(clickAct) && clickAct != input::TouchpadAction::View) {
+                input::applyTouchpadButtonAction(sent, clickAct);
+            }
+            if (platform::nowMs() < shortcutPulseUntilMs_) {
+                input::applyTouchpadButtonAction(sent, shortcutPulseAction_);
+            }
+        }
+        // Touchpad swipe gestures (once per swipe; the games never see the
+        // touchpad's touches). In MKB games the touchpad moves the mouse while the menu is closed.
         bool swipeOn = (!mouseKeyboard_ || !touchpadMouse_) || menu_.isOpen();
         if (swipeOn && pad.touching && !pad.btnTouchpad && g_keyboardFor.empty()) {
             if (!swipe_.active) swipe_ = {true, false, pad.touchX, pad.touchY};
             float dx = pad.touchX - swipe_.x, dy = swipe_.y - pad.touchY;  // dy > 0: up
             bool right = dx > 0.30f && std::abs(dy) < 0.30f, up = dy > 0.40f && std::abs(dx) < 0.30f;
             bool left = dx < -0.30f && std::abs(dy) < 0.30f, down = dy < -0.40f && std::abs(dx) < 0.30f;
-            if (!swipe_.fired && (right || up) && !menu_.isOpen()) {
-                swipe_.fired = true;
-                g_xboxButtonUntil = platform::nowMs() + 250;
-                XC_LOGI("touchpad swipe %s: Xbox button", right ? "right" : "up");
-            } else if (!swipe_.fired && (left || down)) {
-                swipe_.fired = true;
-                swipeMenu_ = true;  // opened on the next pass, as by OPTIONS + TOUCHPAD
-                XC_LOGI("touchpad swipe %s: game menu", left ? "left" : "down");
+            if (!swipe_.fired && (up || down || left || right)) {
+                input::TouchpadAction act = up ? touchpadShortcuts_.swipeUp
+                                          : down ? touchpadShortcuts_.swipeDown
+                                          : left ? touchpadShortcuts_.swipeLeft
+                                                 : touchpadShortcuts_.swipeRight;
+                const char* dirName = up ? "swipe up" : down ? "swipe down" : left ? "swipe left" : "swipe right";
+                if (menu_.isOpen()) {
+                    if (act == input::TouchpadAction::GameMenu) {
+                        swipe_.fired = true;
+                        swipeMenu_ = true;
+                        XC_LOGI("touchpad %s: game menu", dirName);
+                    }
+                } else if (act != input::TouchpadAction::None) {
+                    swipe_.fired = true;
+                    executeTouchpadAction_(act, dirName);
+                    if (platform::nowMs() < shortcutPulseUntilMs_ && padReleased_ && !menuCombo) {
+                        input::applyTouchpadButtonAction(sent, shortcutPulseAction_);
+                    }
+                }
             }
         } else {
             swipe_.active = false;

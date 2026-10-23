@@ -44,7 +44,8 @@ enum StatsIndicator : uint32_t {
 // Close: the menu went away (Circle, OPTIONS, or the Xbox button): a fresh key frame is asked for.
 enum class MenuAction {
     None, Close, Leave, Resolution, Stats, Sharpness, Deband, Upscaler, XboxButton,
-    ProfileToggle, Triggers, Deadzone, ConfirmButton, MicToggle, Gyro, PadSpeakerVolume
+    ProfileToggle, Triggers, Deadzone, ConfirmButton, MicToggle, Gyro, PadSpeakerVolume,
+    TouchpadShortcuts
 };
 
 class StreamMenu {
@@ -66,14 +67,18 @@ public:
     void open(int resolution, bool stats, int sharpness = 0, int deband = 1, int upscaler = 0, bool homeConsole = false,
               bool allow1440 = true, bool hasCustomProfile = false, int triggerStrength = 2, int deadzone = 15,
               bool circleConfirms = false, float micLevel = 0.0f, bool micMuted = false, int padSpeakerVolume = 100);
-    void close() { open_ = false; }
+    void close() { open_ = false; statsCustomizing_ = false; touchpadCustomizing_ = false; }
     bool isOpen() const { return open_; }
     MenuAction handle(const NavInput& in);
     int resolution() const { return resolution_; }
     bool statsOn() const { return stats_; }
+    void setStatsOn(bool s) { stats_ = s; }
     uint32_t statsMask() const { return statsMask_; }
     void setStatsMask(uint32_t mask) { statsMask_ = mask; }
     bool isCustomizingStats() const { return statsCustomizing_; }
+    bool isCustomizingTouchpad() const { return touchpadCustomizing_; }
+    const input::TouchpadShortcuts& touchpadShortcuts() const { return touchpadShortcuts_; }
+    void setTouchpadShortcuts(const input::TouchpadShortcuts& ts) { touchpadShortcuts_ = ts; }
     void setFrametimes(const std::vector<float>& ft) const { frametimes_ = ft; }
     int sharpness() const { return sharpness_; }
     int deband() const { return deband_; }
@@ -133,6 +138,7 @@ private:
         GyroItem,
         GyroLevelItem,
         PadSpeakerVolumeItem,
+        TouchpadShortcutsItem,
         Leave,
         ItemCount
     };
@@ -146,6 +152,9 @@ private:
     uint32_t statsMask_ = StatsDefaultMask;
     bool statsCustomizing_ = false;
     int statsCustomIndex_ = 0;
+    bool touchpadCustomizing_ = false;
+    int touchpadCustomIndex_ = 0;
+    input::TouchpadShortcuts touchpadShortcuts_ = input::defaultTouchpadShortcuts();
     int selected_ = XboxButton;
     int resolution_ = 0, applied_ = 0;
     int sharpness_ = 0, deband_ = 1, upscaler_ = 0, debandInUse_ = 1;

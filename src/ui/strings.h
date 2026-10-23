@@ -394,6 +394,28 @@ enum class Str {
     SettingDescVideoDecoder,
     AudioHaptics,
     SettingDescAudioHaptics,
+    TouchpadShortcuts,
+    SettingDescTouchpadShortcuts,
+    TouchpadSwipeUp,
+    TouchpadSwipeDown,
+    TouchpadSwipeLeft,
+    TouchpadSwipeRight,
+    TouchpadClickLeft,
+    TouchpadClickRight,
+    TouchpadActNone,
+    TouchpadActGameMenu,
+    TouchpadActXboxButton,
+    TouchpadActToggleStats,
+    TouchpadActToggleMic,
+    TouchpadActCycleGyro,
+    TouchpadActCycleTrigger,
+    TouchpadHelp,
+    ResetSettings,
+    SettingDescResetSettings,
+    SettingsResetNotice,
+    HoldToReset,
+    LibraryUpToDate,
+    LibraryUpdatedCount,
     Count
 };
 
@@ -414,5 +436,7 @@ const char* gameLocale();
 const char* tr(Str id);
 // tr() with one "%s" substituted.
 std::string trf(Str id, const std::string& arg);
+std::string touchpadActionLabel(int actionIndex);
+const char* touchpadTriggerLabel(int triggerIndex);
 
 }  // namespace xc::ui

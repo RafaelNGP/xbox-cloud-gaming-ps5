@@ -28,6 +28,22 @@ void drawKeyboardGlyph(Canvas& c, int x, int y, int w, Color color) {
     c.fillRect({x + w / 4, y + h - t - key - key / 2, w / 2, key}, color, 1);  // the space bar
 }
 
+void drawPhoneGlyph(Canvas& c, int x, int y, int w, Color color, Color background) {
+    int ph = w * 7 / 10;
+    int pw = std::max(12, w * 11 / 24);
+    int px = x + (w - pw) / 2;
+    int py = y;
+    int r = std::max(3, pw / 5);
+    c.fillRect({px, py, pw, ph}, color, r);
+    int border = std::max(2, w / 20);
+    int topBar = std::max(3, ph / 7);
+    int botBar = std::max(4, ph / 6);
+    c.fillRect({px + border, py + topBar, std::max(2, pw - 2 * border), std::max(2, ph - topBar - botBar)},
+               background, std::max(1, border / 2));
+    c.fillRect({px + pw / 3, py + std::max(1, topBar / 3), std::max(2, pw / 3), std::max(1, topBar / 3)}, background, 1);
+    c.fillCircle(px + pw / 2.0f, py + ph - botBar / 2.0f, std::max(1.5f, pw / 10.0f), background);
+}
+
 int padIconHeight(int w) { return w * 7 / 10 + 4 + w * 3 / 10; }
 
 void drawPadIcon(Canvas& c, const Font& font, int x, int y, int w, int index, bool connected, Color background) {
@@ -76,16 +92,20 @@ void drawPadIcon(Canvas& c, const Font& font, int x, int y, int w, int index, bo
 
 void drawSlotIcon(Canvas& c, const Font& font, int x, int y, int w, int index, const PadSlot& slot, Color background,
                   const Font* icons) {
-    if (!slot.keyboard && !icons) {
+    const bool isKb = slot.keyboard || slot.device == PadDevice::Keyboard;
+    const bool isPhone = slot.device == PadDevice::Phone;
+    if (!isKb && !isPhone && !icons) {
         drawPadIcon(c, font, x, y, w, index, slot.connected, background);
         return;
     }
-    // The console's own controller or keyboard-and-mouse icon (else a drawn
-    // keyboard), in the player's colour (dim when free), numbered below.
-    bool on = slot.connected || slot.keyboard;
+    // The console's own controller, keyboard-and-mouse, or smartphone icon,
+    // in the player's colour (dim when free), numbered below.
+    bool on = slot.connected || isKb || isPhone;
     Color col = on ? playerColor(index) : rgba(70, 70, 70);
-    if (icons) {
-        const char* glyph = slot.keyboard ? kIconKeyboardMouse : kIconGamepad;
+    if (isPhone) {
+        drawPhoneGlyph(c, x, y, w, col, background);
+    } else if (icons) {
+        const char* glyph = isKb ? kIconKeyboardMouse : kIconGamepad;
         int px2 = w * 9 / 10;  // as wide as a pad, centred on its height
         icons->draw(c, glyph, x + (w - icons->measure(glyph, px2)) / 2, y - w / 10, px2, col);
     } else {

@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-21, v1.4.0.
+Last update: 2026-10-23, v1.5.0.
 
 ## Now
 
@@ -283,6 +283,48 @@ The 8BitDo Ultimate 2.4G wireless controller connects via its bundled 2.4 GHz US
   - On jailbroken consoles (Prospero 3.xx–4.xx), homebrew userland can bypass `libScePad` entirely by opening `/dev/uhid*` directly or using `libusb`.
   - A lightweight driver module (`src/input/pad_usb.cpp`) will read raw HID reports from the 8BitDo dongle in D-Input mode (16-byte report: 2 analog sticks, 2 triggers, 14 digital buttons), map them into `input::ControllerState`, and merge them directly into `input::mergePads` alongside or in place of DualSense.
 
+### Technical Feasibility Study: Multi-Phone WebUI Controllers (P1..P4)
+
+**Context & Architecture**:
+The embedded lightweight HTTP server (`src/app/web_server.cpp`) serves a zero-install touch gamepad (`/gamepad` or `/`) to local network clients (iOS Safari, Android Chrome, desktop browsers). Expanding this architecture to support concurrent multi-phone controllers allows up to 4 simultaneous players without requiring multiple physical DualSense or USB controllers.
+
+**1. Session & Player Slot Management (P1..P4)**:
+- **Slot Selection**: The WebUI client provides a player selector (`P1`, `P2`, `P3`, `P4`) or automatically claims the first free slot via query param `?player=N` or initial handshake (`GET /api/gamepad/claim`).
+- **Slot State Matrix**: The host maintains an array of `VirtualGamepadState[kMaxPads]` (4 slots), protected by per-slot atomic timestamps and mutexes.
+- **Heartbeat & Inactivity Eviction**: Each virtual pad maintains `lastSeenMs`. If a connected phone stops transmitting for > 15 seconds (browser minimized, incoming call, Wi-Fi sleep), the slot is automatically freed and the UI player indicator reflects disconnection.
+
+**2. Network Transport & Latency Optimization**:
+- **HTTP POST vs WebSocket**: Currently, gamepad states are sent via low-overhead JSON HTTP POST (`/api/gamepad`). At 60 Hz input polling, persistent HTTP/1.1 `keep-alive` connections achieve 2–6 ms latency on typical 5 GHz home Wi-Fi.
+- **Binary Report Framing**: Upgrading input payload to a 12-byte binary format (`[slot:1, buttons:2, lt:1, rt:1, lx:2, ly:2, rx:2, ry:2]`) sent via WebSocket or HTTP chunks minimizes serialization overhead and JSON parsing on the PS5 CPU.
+- **Input Concurrency**: Worker threads decode incoming packets and update `g_virtualGamepad[slot]`. The render/stream frame loop polls all slots concurrently with zero mutex contention using double-buffering or `std::atomic`.
+
+**3. In-Game Local Co-op Compatibility**:
+- xCloud supports local co-op titles (e.g. *It Takes Two*, *Overcooked: All You Can Eat*, *Halo: The Master Chief Collection*, *A Way Out*, *EA Sports FC*).
+- PSBox merges virtual pads directly into Xbox WebRTC input channels (`ChannelType::Input`), ensuring cloud instances recognize separate controller indices seamlessly.
+
+---
+
+### PSBox Layout Studio (Virtual Controller Visual Customizer)
+
+**Purpose & Architecture**:
+A browser-based visual layout editor embedded directly into the WebUI under the **Mapeamento** (Remap) section, accessible via a dedicated sub-tab with a mobile phone icon and the label **"Celular"** (alongside "Controle" and "Teclado"). It eliminates hardcoded CSS guesswork and empowers users to visually customize and persist touch gamepad layouts directly from their mobile browser or desktop.
+
+**Core Features & Integration**:
+1. **Interactive Visual Canvas**:
+   - WYSIWYG interactive canvas mirroring target device viewport resolutions (iPhone, Galaxy, iPad, landscape and portrait aspect ratios).
+   - Real-time draggable, scalable, and rotatable UI widgets: Analog Sticks (LS/RS), D-Pad, ABXY cluster, Bumpers (LB/RB), Analog Triggers (LT/RT), System buttons (Nexus/Xbox, View, Menu), and Player selector bar.
+2. **Dual-Orientation Custom Presets**:
+   - Independent custom layout presets for Portrait and Landscape orientations (`portrait-custom`, `landscape-custom`), as well as built-in presets (`default-phone`, `compact-thumb`, `tablet-split`, `claw-grip`).
+   - One-click "Restaurar padrão" (Reset to default) button to revert touch positions to factory ergonomics.
+3. **Seamless JSON Layout Export & Live Persistence**:
+   - Export and import layout profiles formatted in structured JSON (`{ portrait: { ... }, landscape: { ... } }`).
+   - Saving from the Layout Studio instantly persists custom layout configurations to the client local storage and updates the active **Controle** (Gamepad) tab live without requiring a host restart or browser page reload.
+   - Code generation mode exports formatted CSS coordinate rules (`left`, `top`, `width`, `height`, `transform: scale()`) ready for direct inclusion in `src/app/web_server.cpp`.
+4. **Ergonomic Safe Zones, Snapping & Haptics**:
+   - Visual safe-area guides (notch, Dynamic Island, navigation bar insets).
+   - Configurable snap grids, thumb radius arcs, boundary clamping, and Web Vibration API haptic pulses for real-time touch simulation.
+
+
 ## Dropped (and why)
 
 - **Discord Rich Presence (desktop)**: dropped (Xbox Live / Game Pass ecosystem already provides native activity presence).
@@ -325,6 +367,14 @@ The 8BitDo Ultimate 2.4G wireless controller connects via its bundled 2.4 GHz US
 
 ## Done
 
+- **v1.5.0**:
+  - Reorganized Settings menu with network/connectivity priority.
+  - 1-Click direct free license acquisition on `Screen::Error` for unowned free games and launchers (Call of Duty BO6 Launcher, FFXIV Online Free Trial).
+  - Instant delta-sync library update (<kbd>L3</kbd> and login) without cache flushing or UI freeze.
+  - Search "Grátis" filter refactor excluding already owned games and unclaimable token products.
+  - Red "Restaurar configurações padrões" button with 5-second hold confirmation.
+  - WebUI 2.0 with fullscreen landscape and portrait virtual touch controller supporting Players 1-4 with dynamic console icon feedback.
+  - Cleaned console notifications removing duplicate toasts.
 - "All games" (Game Pass) as an expanded vertical grid: uncapped 550+ games in 6 centered columns, 2D D-pad navigation, smooth vertical row scrolling and clean clipping under header and tabs.
 - v0.5.0: picture on the GPU, FSR 1 upscaling to 4K, block smoothing.
 - v0.4.0: game menu, PS5 keyboard in games, frame metadata reports, CAS

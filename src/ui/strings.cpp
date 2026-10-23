@@ -375,7 +375,7 @@ constexpr Column kEnglish = {
     "Test sound",                                     // TestSound
     "Wishlist is empty",                              // WishlistEmpty
     // Loading tips
-    "Touchpad gestures or L2 + R2 + Touchpad open the in-game menu and Xbox guide", // TipTouchpadMenu
+    "Touchpad: swipe ↓ (or Touchpad + Options) for the menu, ↑ for the Xbox button", // TipTouchpadMenu
     "USB keyboard and mouse plugged into the console are supported in enabled cloud games", // TipKeyboardMouse
     "Claim free games, trials, and discover store promotions directly from the app library", // TipFreeStore
     "Encountered an issue? Open Bug Report to scan a QR code with auto-attached console logs", // TipBugReportQr
@@ -410,13 +410,35 @@ constexpr Column kEnglish = {
     "Mute",                                           // Mute
     "Web Control",                                    // WebControlTitle
     "Connect from your phone",                        // WebControlSubtitle
-    "Connect to the same Wi-Fi to type search, remap buttons or download logs.", // WebControlDesc
+    "Connect to the same Wi-Fi to type search, remap buttons, use your phone as a virtual controller, report issues or view logs.", // WebControlDesc
     "Video Decoder",                                  // VideoDecoder
     "Hardware (Recommended)",                         // VideoDecoderHw
     "Software (CPU)",                                 // VideoDecoderSw
     "Selects hardware decoding (libSceVideodec2 on PS5, HWAccel on Desktop) or CPU software decoding", // SettingDescVideoDecoder
     "Audio-to-Haptics",                               // AudioHaptics
     "Converts low-frequency game audio into DualSense haptic rumble kicks", // SettingDescAudioHaptics
+    "Touchpad shortcuts",                             // TouchpadShortcuts
+    "Configures swipe gestures and left/right click actions on the DualSense touchpad", // SettingDescTouchpadShortcuts
+    "Swipe Up (↑)",                                   // TouchpadSwipeUp
+    "Swipe Down (↓)",                                 // TouchpadSwipeDown
+    "Swipe Left (←)",                                 // TouchpadSwipeLeft
+    "Swipe Right (→)",                                // TouchpadSwipeRight
+    "Left Click",                                     // TouchpadClickLeft
+    "Right Click",                                    // TouchpadClickRight
+    "Disabled",                                       // TouchpadActNone
+    "In-game menu",                                   // TouchpadActGameMenu
+    "Xbox button",                                    // TouchpadActXboxButton
+    "Toggle stats",                                   // TouchpadActToggleStats
+    "Mute/unmute mic",                                // TouchpadActToggleMic
+    "Cycle gyro mode",                                // TouchpadActCycleGyro
+    "Cycle trigger profile",                          // TouchpadActCycleTrigger
+    "Touchpad + Options always opens the in-game menu", // TouchpadHelp
+    "Restore default settings",                       // ResetSettings
+    "Restores all settings to factory defaults. Hold Cross for 5 seconds to confirm.", // SettingDescResetSettings
+    "Settings restored to factory defaults.",         // SettingsResetNotice
+    "Hold to reset",                                  // HoldToReset
+    "Library is already up to date",                  // LibraryUpToDate
+    "Library updated (%s new games)",                 // LibraryUpdatedCount
 };
 
 constexpr Column kPortugueseBR = {
@@ -762,7 +784,7 @@ constexpr Column kPortugueseBR = {
     "Testar som",                                     // TestSound
     "A lista de desejos está vazia",                  // WishlistEmpty
     // Loading tips
-    "Gestos no Touchpad ou L2 + R2 + Touchpad abrem o menu do jogo e o guia do Xbox", // TipTouchpadMenu
+    "Touchpad: deslize ↓ (ou Touchpad + Options) para o menu, ↑ para o botão Xbox", // TipTouchpadMenu
     "Teclado e mouse USB conectados ao console são suportados em jogos compatíveis da nuvem", // TipKeyboardMouse
     "Adquira jogos gratuitos, demonstrações e confira promoções da loja direto pelo aplicativo", // TipFreeStore
     "Encontrou um problema? Abra Relatar Problema para escanear um QR code com logs do console", // TipBugReportQr
@@ -797,13 +819,35 @@ constexpr Column kPortugueseBR = {
     "Mudo",                                           // Mute
     "Configuração Web",                               // WebControlTitle
     "Acesse pelo celular",                            // WebControlSubtitle
-    "Conecte no mesmo Wi-Fi para pesquisar, remapear botões ou baixar logs.", // WebControlDesc
+    "Conecte no mesmo Wi-Fi para pesquisar, remapear botões, usar o celular como controle virtual, relatar problemas ou visualizar o log.", // WebControlDesc
     "Decodificação de Vídeo",                         // VideoDecoder
     "Hardware (Recomendado)",                         // VideoDecoderHw
     "Software (CPU)",                                 // VideoDecoderSw
     "Seleciona decodificação por hardware (libSceVideodec2 no PS5, HWAccel no Desktop) ou por software (CPU)", // SettingDescVideoDecoder
     "Áudio para Vibração Háptica",                     // AudioHaptics
     "Converte graves do áudio em vibração háptica no DualSense", // SettingDescAudioHaptics
+    "Atalhos do Touchpad",                            // TouchpadShortcuts
+    "Configura gestos de deslize e cliques esquerdo e direito no Touchpad do DualSense", // SettingDescTouchpadShortcuts
+    "Deslizar para Cima (↑)",                         // TouchpadSwipeUp
+    "Deslizar para Baixo (↓)",                        // TouchpadSwipeDown
+    "Deslizar para Esquerda (←)",                     // TouchpadSwipeLeft
+    "Deslizar para Direita (→)",                      // TouchpadSwipeRight
+    "Clique Esquerdo",                                // TouchpadClickLeft
+    "Clique Direito",                                 // TouchpadClickRight
+    "Desativado",                                     // TouchpadActNone
+    "Menu do jogo",                                   // TouchpadActGameMenu
+    "Botão Xbox",                                     // TouchpadActXboxButton
+    "Alternar estatísticas",                          // TouchpadActToggleStats
+    "Mutar/desmutar microfone",                       // TouchpadActToggleMic
+    "Alternar giroscópio",                            // TouchpadActCycleGyro
+    "Alternar perfil de gatilho",                     // TouchpadActCycleTrigger
+    "Touchpad + Options sempre abre o menu do jogo",  // TouchpadHelp
+    "Restaurar configurações padrões",                // ResetSettings
+    "Restaura todas as configurações para os padrões de fábrica. Mantenha ✕ por 5 segundos para confirmar.", // SettingDescResetSettings
+    "Configurações restauradas para os padrões.",     // SettingsResetNotice
+    "Segure para restaurar",                          // HoldToReset
+    "Biblioteca já está atualizada",                  // LibraryUpToDate
+    "Biblioteca atualizada (%s novos jogos)",         // LibraryUpdatedCount
 };
 
 constexpr Column kSpanish = {
@@ -1149,7 +1193,7 @@ constexpr Column kSpanish = {
     "Probar sonido",                                  // TestSound
     "La lista de deseos está vacía",                  // WishlistEmpty
     // Loading tips
-    "Gestos en el Touchpad o L2 + R2 + Touchpad abren el menú del juego y la guía de Xbox", // TipTouchpadMenu
+    "Panel táctil: desliza ↓ (o Touchpad + Options) para el menú, ↑ para el botón Xbox", // TipTouchpadMenu
     "Teclado y ratón USB conectados a la consola son compatibles con juegos de la nube habilitados", // TipKeyboardMouse
     "Reclama juegos gratis, demos y descubre promociones de la tienda directamente desde la aplicación", // TipFreeStore
     "¿Encontraste un problema? Abre Notificar problema para escanear un QR con registros de la consola", // TipBugReportQr
@@ -1184,13 +1228,35 @@ constexpr Column kSpanish = {
     "Silenciado",                                     // Mute
     "Control Web",                                    // WebControlTitle
     "Conectar desde el móvil",                        // WebControlSubtitle
-    "Conéctate al mismo Wi-Fi para buscar, reasignar botones o descargar registros.", // WebControlDesc
+    "Conéctate al mismo Wi-Fi para buscar, reasignar botones, usar el celular como control virtual, reportar problemas o ver registros.", // WebControlDesc
     "Decodificación de vídeo",                        // VideoDecoder
     "Hardware (Recomendado)",                         // VideoDecoderHw
     "Software (CPU)",                                 // VideoDecoderSw
     "Selecciona decodificación por hardware (libSceVideodec2 en PS5, HWAccel en Desktop) o software (CPU)", // SettingDescVideoDecoder
     "Audio a Vibración Háptica",                       // AudioHaptics
     "Convierte frecuencias graves del audio en vibración háptica en DualSense", // SettingDescAudioHaptics
+    "Atajos del panel táctil",                        // TouchpadShortcuts
+    "Configura gestos de deslizamiento y clics izquierdo y derecho en el panel táctil DualSense", // SettingDescTouchpadShortcuts
+    "Deslizar arriba (↑)",                            // TouchpadSwipeUp
+    "Deslizar abajo (↓)",                             // TouchpadSwipeDown
+    "Deslizar izquierda (←)",                         // TouchpadSwipeLeft
+    "Deslizar derecha (→)",                           // TouchpadSwipeRight
+    "Clic izquierdo",                                 // TouchpadClickLeft
+    "Clic derecho",                                   // TouchpadClickRight
+    "Desactivado",                                    // TouchpadActNone
+    "Menú del juego",                                 // TouchpadActGameMenu
+    "Botón Xbox",                                     // TouchpadActXboxButton
+    "Alternar estadísticas",                          // TouchpadActToggleStats
+    "Silenciar/activar micrófono",                    // TouchpadActToggleMic
+    "Alternar giroscopio",                            // TouchpadActCycleGyro
+    "Alternar perfil de gatillo",                     // TouchpadActCycleTrigger
+    "Touchpad + Options siempre abre el menú del juego", // TouchpadHelp
+    "Restablecer ajustes predeterminados",            // ResetSettings
+    "Restablece todos los ajustes a los valores de fábrica. Mantén ✕ durante 5 segundos para confirmar.", // SettingDescResetSettings
+    "Ajustes restablecidos a los valores predeterminados.", // SettingsResetNotice
+    "Mantén para restablecer",                        // HoldToReset
+    "La biblioteca ya está actualizada",              // LibraryUpToDate
+    "Biblioteca actualizada (%s nuevos juegos)",      // LibraryUpdatedCount
 };
 
 constexpr Column kFrench = {
@@ -1536,7 +1602,7 @@ constexpr Column kFrench = {
     "Tester le son",                                  // TestSound
     "La liste de souhaits est vide",                  // WishlistEmpty
     // Loading tips
-    "Gestes sur le pavé tactile ou L2 + R2 + Pavé tactile ouvrent le menu du jeu et le guide Xbox", // TipTouchpadMenu
+    "Pavé tactile : glissez ↓ (ou Pavé tactile + Options) pour le menu, ↑ pour le bouton Xbox", // TipTouchpadMenu
     "Clavier et souris USB branchés sur la console sont pris en charge dans les jeux du cloud compatibles", // TipKeyboardMouse
     "Obtenez des jeux gratuits, démos et promotions du magasin directement depuis l'application", // TipFreeStore
     "Un problème ? Ouvrez Signaler un problème pour scanner un code QR avec les journaux de la console", // TipBugReportQr
@@ -1571,13 +1637,35 @@ constexpr Column kFrench = {
     "Muet",                                           // Mute
     "Contrôle Web",                                   // WebControlTitle
     "Connexion mobile",                               // WebControlSubtitle
-    "Connectez-vous au même Wi-Fi pour la recherche, remapper ou télécharger les logs.", // WebControlDesc
+    "Connectez-vous au même Wi-Fi pour chercher, remapper, utiliser le mobile comme manette virtuelle, signaler des soucis ou voir les logs.", // WebControlDesc
     "Décodage vidéo",                                 // VideoDecoder
     "Matériel (Recommandé)",                          // VideoDecoderHw
     "Logiciel (CPU)",                                 // VideoDecoderSw
     "Sélectionne le décodage matériel (libSceVideodec2 sur PS5, HWAccel sur Desktop) ou logiciel (CPU)", // SettingDescVideoDecoder
     "Audio vers vibration haptique",                  // AudioHaptics
     "Convertit les basses fréquences audio en vibrations haptiques sur DualSense", // SettingDescAudioHaptics
+    "Raccourcis du pavé tactile",                     // TouchpadShortcuts
+    "Configure les gestes de glissement et les clics gauche/droit sur le pavé tactile DualSense", // SettingDescTouchpadShortcuts
+    "Glisser vers le haut (↑)",                       // TouchpadSwipeUp
+    "Glisser vers le bas (↓)",                        // TouchpadSwipeDown
+    "Glisser vers la gauche (←)",                     // TouchpadSwipeLeft
+    "Glisser vers la droite (→)",                     // TouchpadSwipeRight
+    "Clic gauche",                                    // TouchpadClickLeft
+    "Clic droit",                                     // TouchpadClickRight
+    "Désactivé",                                      // TouchpadActNone
+    "Menu du jeu",                                    // TouchpadActGameMenu
+    "Bouton Xbox",                                    // TouchpadActXboxButton
+    "Afficher/masquer les stats",                     // TouchpadActToggleStats
+    "Couper/activer le micro",                        // TouchpadActToggleMic
+    "Changer le mode gyro",                           // TouchpadActCycleGyro
+    "Changer le profil de gâchette",                  // TouchpadActCycleTrigger
+    "Pavé tactile + Options ouvre toujours le menu du jeu", // TouchpadHelp
+    "Restaurer les paramètres par défaut",            // ResetSettings
+    "Restaure tous les paramètres aux valeurs d'usine. Maintenez ✕ pendant 5 secondes pour confirmer.", // SettingDescResetSettings
+    "Paramètres réinitialisés aux valeurs par défaut.", // SettingsResetNotice
+    "Maintenir pour réinitialiser",                   // HoldToReset
+    "La bibliothèque est déjà à jour",                // LibraryUpToDate
+    "Bibliothèque mise à jour (%s nouveaux jeux)",    // LibraryUpdatedCount
 };
 
 constexpr Column kGerman = {
@@ -1923,7 +2011,7 @@ constexpr Column kGerman = {
     "Ton testen",                                     // TestSound
     "Wunschliste ist leer",                           // WishlistEmpty
     // Loading tips
-    "Touchpad-Gesten oder L2 + R2 + Touchpad öffnen das Spielmenü und den Xbox-Guide", // TipTouchpadMenu
+    "Touchpad: ↓ wischen (oder Touchpad + Options) für das Menü, ↑ für die Xbox-Taste", // TipTouchpadMenu
     "USB-Tastatur und -Maus an der Konsole werden in unterstützten Cloud-Spielen unterstützt", // TipKeyboardMouse
     "Kostenlose Spiele, Demos und Store-Angebote direkt in der App-Bibliothek sichern", // TipFreeStore
     "Problem aufgetreten? Öffnen Sie 'Problem melden', um einen QR-Code mit Konsolenprotokollen zu scannen", // TipBugReportQr
@@ -1958,13 +2046,35 @@ constexpr Column kGerman = {
     "Stumm",                                          // Mute
     "Web-Steuerung",                                  // WebControlTitle
     "Über Smartphone verbinden",                      // WebControlSubtitle
-    "Mit demselben WLAN verbinden, um zu suchen, Tasten zu belegen oder Logs zu laden.", // WebControlDesc
+    "Mit demselben WLAN verbinden, um zu suchen, Tasten zu belegen, das Smartphone als Controller zu nutzen, Fehler zu melden oder Logs anzusehen.", // WebControlDesc
     "Videodekodierung",                               // VideoDecoder
     "Hardware (Empfohlen)",                           // VideoDecoderHw
     "Software (CPU)",                                 // VideoDecoderSw
     "Wählt Hardware-Dekodierung (libSceVideodec2 auf PS5, HWAccel auf Desktop) oder Software-Dekodierung (CPU)", // SettingDescVideoDecoder
     "Audio-zu-Haptik",                                // AudioHaptics
     "Wandelt tiefe Audiofrequenzen in DualSense-Haptik-Vibrationen um", // SettingDescAudioHaptics
+    "Touchpad-Kurzbefehle",                           // TouchpadShortcuts
+    "Konfiguriert Wischgesten sowie Links- und Rechtsklick auf dem DualSense-Touchpad", // SettingDescTouchpadShortcuts
+    "Nach oben wischen (↑)",                          // TouchpadSwipeUp
+    "Nach unten wischen (↓)",                         // TouchpadSwipeDown
+    "Nach links wischen (←)",                         // TouchpadSwipeLeft
+    "Nach rechts wischen (→)",                        // TouchpadSwipeRight
+    "Linksklick",                                     // TouchpadClickLeft
+    "Rechtsklick",                                    // TouchpadClickRight
+    "Deaktiviert",                                    // TouchpadActNone
+    "Spielmenü",                                      // TouchpadActGameMenu
+    "Xbox-Taste",                                     // TouchpadActXboxButton
+    "Statistiken umschalten",                         // TouchpadActToggleStats
+    "Mikrofon stumm/aktiv",                           // TouchpadActToggleMic
+    "Gyro-Modus wechseln",                            // TouchpadActCycleGyro
+    "Trigger-Profil wechseln",                        // TouchpadActCycleTrigger
+    "Touchpad + Options öffnet immer das Spielmenü",  // TouchpadHelp
+    "Standardeinstellungen wiederherstellen",         // ResetSettings
+    "Setzt alle Einstellungen auf die Werkseinstellungen zurück. 5 Sekunden ✕ gedrückt halten zur Bestätigung.", // SettingDescResetSettings
+    "Einstellungen auf Standardwerte zurückgesetzt.", // SettingsResetNotice
+    "Halten zum Zurücksetzen",                        // HoldToReset
+    "Bibliothek ist bereits aktuell",                 // LibraryUpToDate
+    "Bibliothek aktualisiert (%s neue Spiele)",       // LibraryUpdatedCount
 };
 
 constexpr Column kItalian = {
@@ -2310,7 +2420,7 @@ constexpr Column kItalian = {
     "Prova suono",                                    // TestSound
     "La lista dei desideri è vuota",                  // WishlistEmpty
     // Loading tips
-    "Gesti sul touchpad o L2 + R2 + Touchpad aprono il menu di gioco e la guida Xbox", // TipTouchpadMenu
+    "Touchpad: scorri ↓ (o Touchpad + Options) per il menu, ↑ per il pulsante Xbox", // TipTouchpadMenu
     "Tastiera e mouse USB collegati alla console sono supportati nei giochi cloud compatibili", // TipKeyboardMouse
     "Ottieni giochi gratuiti, demo e promozioni del negozio direttamente dalla libreria dell'app", // TipFreeStore
     "Hai riscontrato un problema? Apri Segnala problema per scansionare un QR code con i log della console", // TipBugReportQr
@@ -2345,13 +2455,35 @@ constexpr Column kItalian = {
     "Muto",                                           // Mute
     "Controllo Web",                                  // WebControlTitle
     "Connetti dallo smartphone",                      // WebControlSubtitle
-    "Connettiti allo stesso Wi-Fi per cercare, rimappare i pulsanti o scaricare i log.", // WebControlDesc
+    "Connettiti allo stesso Wi-Fi per cercare, rimappare pulsanti, usare il telefono come controller virtuale, segnalare problemi o visualizzare i log.", // WebControlDesc
     "Decodifica video",                               // VideoDecoder
     "Hardware (Consigliato)",                         // VideoDecoderHw
     "Software (CPU)",                                 // VideoDecoderSw
     "Seleziona decodifica hardware (libSceVideodec2 su PS5, HWAccel su Desktop) o software (CPU)", // SettingDescVideoDecoder
     "Audio a vibrazione aptica",                       // AudioHaptics
     "Converte le basse frequenze audio in vibrazioni aptiche su DualSense", // SettingDescAudioHaptics
+    "Scorciatoie del touchpad",                       // TouchpadShortcuts
+    "Configura i gesti di scorrimento e i clic sinistro/destro sul touchpad DualSense", // SettingDescTouchpadShortcuts
+    "Scorri in alto (↑)",                             // TouchpadSwipeUp
+    "Scorri in basso (↓)",                            // TouchpadSwipeDown
+    "Scorri a sinistra (←)",                          // TouchpadSwipeLeft
+    "Scorri a destra (→)",                            // TouchpadSwipeRight
+    "Clic sinistro",                                  // TouchpadClickLeft
+    "Clic destro",                                    // TouchpadClickRight
+    "Disattivato",                                    // TouchpadActNone
+    "Menu di gioco",                                  // TouchpadActGameMenu
+    "Pulsante Xbox",                                  // TouchpadActXboxButton
+    "Mostra/nascondi statistiche",                    // TouchpadActToggleStats
+    "Disattiva/attiva microfono",                     // TouchpadActToggleMic
+    "Cambia modalità giroscopio",                     // TouchpadActCycleGyro
+    "Cambia profilo grilletto",                       // TouchpadActCycleTrigger
+    "Touchpad + Options apre sempre il menu di gioco", // TouchpadHelp
+    "Ripristina impostazioni predefinite",            // ResetSettings
+    "Ripristina tutte le impostazioni ai valori di fabbrica. Tieni premuto ✕ per 5 secondi per confermare.", // SettingDescResetSettings
+    "Impostazioni ripristinate ai valori predefiniti.", // SettingsResetNotice
+    "Tieni premuto per ripristinare",                 // HoldToReset
+    "La libreria è già aggiornata",                   // LibraryUpToDate
+    "Libreria aggiornata (%s nuovi giochi)",          // LibraryUpdatedCount
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,
@@ -2398,6 +2530,45 @@ std::string trf(Str id, const std::string& arg) {
     size_t at = s.find("%s");
     if (at != std::string::npos) s.replace(at, 2, arg);
     return s;
+}
+
+std::string touchpadActionLabel(int actionIndex) {
+    switch (actionIndex) {
+    case 0: return tr(Str::TouchpadActNone);
+    case 1: return tr(Str::TouchpadActGameMenu);
+    case 2: return tr(Str::TouchpadActXboxButton);
+    case 3: return tr(Str::TouchpadActToggleStats);
+    case 4: return tr(Str::TouchpadActToggleMic);
+    case 5: return tr(Str::TouchpadActCycleGyro);
+    case 6: return tr(Str::TouchpadActCycleTrigger);
+    case 7: return "View (Select)";
+    case 8: return "Menu (Start)";
+    case 9: return "LS (L3)";
+    case 10: return "RS (R3)";
+    case 11: return "A";
+    case 12: return "B";
+    case 13: return "X";
+    case 14: return "Y";
+    case 15: return "LB (L1)";
+    case 16: return "RB (R1)";
+    case 17: return std::string(tr(Str::DPad)) + " ↑";
+    case 18: return std::string(tr(Str::DPad)) + " ↓";
+    case 19: return std::string(tr(Str::DPad)) + " ←";
+    case 20: return std::string(tr(Str::DPad)) + " →";
+    default: return tr(Str::TouchpadActNone);
+    }
+}
+
+const char* touchpadTriggerLabel(int triggerIndex) {
+    switch (triggerIndex) {
+    case 0: return tr(Str::TouchpadSwipeUp);
+    case 1: return tr(Str::TouchpadSwipeDown);
+    case 2: return tr(Str::TouchpadSwipeLeft);
+    case 3: return tr(Str::TouchpadSwipeRight);
+    case 4: return tr(Str::TouchpadClickLeft);
+    case 5: return tr(Str::TouchpadClickRight);
+    default: return "";
+    }
 }
 
 }  // namespace xc::ui

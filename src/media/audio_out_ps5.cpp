@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include <thread>
 #include <vector>
 
@@ -36,6 +37,7 @@ constexpr unsigned kGrain = 256;
 std::atomic<bool> g_running{false};
 std::thread g_thread;
 int g_handle = -1;
+std::mutex g_padSpkMutex;
 
 void loop() {
     platform::setThreadAffinity(platform::ThreadRole::Audio, "ps5_audio_out");
@@ -127,6 +129,7 @@ bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
 
     std::thread([pcm = std::vector<float>(interleavedStereo, interleavedStereo + frames * 2), volPercent]() {
         platform::setThreadAffinity(platform::ThreadRole::Audio, "ps5_pad_audio");
+        std::lock_guard<std::mutex> padLock(g_padSpkMutex);
 
         static bool initialised = false;
         if (!initialised) {
@@ -135,6 +138,12 @@ bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
                 initialised = true;
             }
         }
+
+        // Ensure main audio port (TV / headset) is also running so the alert chime
+        // is always audible even if PS5 OS controller speaker volume is muted or a
+        // headset is connected.
+        audioStart();
+        float gain = volPercent / 100.0f;
 
         int32_t userId = input::padUserId(0);
         if (userId < 0) userId = 0xFF;
@@ -156,9 +165,7 @@ bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
 
         if (padHandle < 0) {
             XC_LOGW("pad speaker: failed to open controller speaker port, fallback to main audio");
-            audioStart();
             constexpr size_t kChunk = (kRate * 20) / 1000;
-            float gain = volPercent / 100.0f;
             std::vector<float> scaledPcm(pcm.size());
             for (size_t i = 0; i < pcm.size(); ++i) scaledPcm[i] = pcm[i] * gain;
             size_t total = scaledPcm.size() / 2;
@@ -178,13 +185,19 @@ bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
 
         size_t totalFrames = pcm.size() / 2;
         size_t offset = 0;
+        std::vector<float> mainChunk(kGrain * 2, 0.0f);
 
         if (activeFormat == 4) {
             std::vector<float> chunk(kGrain * 2, 0.0f);
             while (offset < totalFrames) {
                 size_t n = std::min(static_cast<size_t>(kGrain), totalFrames - offset);
                 std::fill(chunk.begin(), chunk.end(), 0.0f);
-                std::copy(pcm.data() + offset * 2, pcm.data() + (offset + n) * 2, chunk.data());
+                for (size_t i = 0; i < n * 2; ++i) {
+                    float s = pcm[offset * 2 + i] * gain;
+                    chunk[i] = s;
+                    mainChunk[i] = s;
+                }
+                audioPush(mainChunk.data(), n);
                 sceAudioOutOutput(padHandle, chunk.data());
                 offset += n;
             }
@@ -194,8 +207,13 @@ bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
                 size_t n = std::min(static_cast<size_t>(kGrain), totalFrames - offset);
                 std::fill(chunk.begin(), chunk.end(), 0.0f);
                 for (size_t i = 0; i < n; ++i) {
-                    chunk[i] = 0.5f * (pcm[(offset + i) * 2] + pcm[(offset + i) * 2 + 1]);
+                    float l = pcm[(offset + i) * 2] * gain;
+                    float r = pcm[(offset + i) * 2 + 1] * gain;
+                    mainChunk[i * 2] = l;
+                    mainChunk[i * 2 + 1] = r;
+                    chunk[i] = 0.5f * (l + r);
                 }
+                audioPush(mainChunk.data(), n);
                 sceAudioOutOutput(padHandle, chunk.data());
                 offset += n;
             }
@@ -205,9 +223,14 @@ bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
                 size_t n = std::min(static_cast<size_t>(kGrain), totalFrames - offset);
                 std::fill(chunk.begin(), chunk.end(), 0);
                 for (size_t i = 0; i < n; ++i) {
-                    float m = 0.5f * (pcm[(offset + i) * 2] + pcm[(offset + i) * 2 + 1]);
+                    float l = pcm[(offset + i) * 2] * gain;
+                    float r = pcm[(offset + i) * 2 + 1] * gain;
+                    mainChunk[i * 2] = l;
+                    mainChunk[i * 2 + 1] = r;
+                    float m = 0.5f * (l + r);
                     chunk[i] = static_cast<int16_t>(std::clamp(m * 32767.0f, -32768.0f, 32767.0f));
                 }
+                audioPush(mainChunk.data(), n);
                 sceAudioOutOutput(padHandle, chunk.data());
                 offset += n;
             }
@@ -217,15 +240,20 @@ bool playPadSpeakerAudio(const float* interleavedStereo, size_t frames) {
                 size_t n = std::min(static_cast<size_t>(kGrain), totalFrames - offset);
                 std::fill(chunk.begin(), chunk.end(), 0);
                 for (size_t i = 0; i < n * 2; ++i) {
-                    chunk[i] = static_cast<int16_t>(std::clamp(pcm[offset * 2 + i] * 32767.0f, -32768.0f, 32767.0f));
+                    float s = pcm[offset * 2 + i] * gain;
+                    mainChunk[i] = s;
+                    chunk[i] = static_cast<int16_t>(std::clamp(s * 32767.0f, -32768.0f, 32767.0f));
                 }
+                audioPush(mainChunk.data(), n);
                 sceAudioOutOutput(padHandle, chunk.data());
                 offset += n;
             }
         }
 
+        // Drain hardware buffer before closing PADSPK port
+        sceAudioOutOutput(padHandle, nullptr);
         sceAudioOutClose(padHandle);
-        XC_LOGI("pad speaker: alert chime playback completed successfully on DualSense");
+        XC_LOGI("pad speaker: alert chime playback completed successfully on DualSense + main audio");
     }).detach();
 
     return true;
@@ -239,6 +267,13 @@ bool hasPadSpeaker() {
     uint64_t now = platform::nowMs();
     if (now - lastCheckMs.load() < 2000) {
         return lastResult.load();
+    }
+    std::unique_lock<std::mutex> lock(g_padSpkMutex, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        // Currently playing audio on PADSPK port
+        lastCheckMs.store(now);
+        lastResult.store(true);
+        return true;
     }
     lastCheckMs.store(now);
     int padHandle = sceAudioOutOpen(userId, 4 /* PADSPK */, 0, kGrain, kRate, 3);

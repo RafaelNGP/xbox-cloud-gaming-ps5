@@ -39,6 +39,13 @@ input::PadMap readPadMapOr(const json::Value& v, const input::PadMap& fallback, 
     return m;
 }
 
+input::TouchpadShortcuts readTouchpadShortcutsOr(const json::Value& v, const input::TouchpadShortcuts& fallback) {
+    if (v.isNull()) return fallback;
+    input::TouchpadShortcuts ts = fallback;
+    input::readTouchpadShortcuts(v, ts);
+    return ts;
+}
+
 }  // namespace
 
 bool Settings::load(const std::string& path) {
@@ -99,6 +106,7 @@ bool Settings::load(const std::string& path) {
     gyroMode = static_cast<int>(std::clamp<int64_t>((*j)["gyroMode"].asInt(gyroMode), 0, 2));
     gyroLevel = static_cast<int>(std::clamp<int64_t>((*j)["gyroLevel"].asInt(gyroLevel), 1, 10));
     touchpadMouse = (*j)["touchpadMouse"].asBool(touchpadMouse);
+    touchpadShortcuts = readTouchpadShortcutsOr((*j)["touchpadShortcuts"], input::defaultTouchpadShortcuts());
     micGain = static_cast<int>(std::clamp<int64_t>((*j)["micGain"].asInt(micGain), 0, 2));
     audioRoute = static_cast<int>(std::clamp<int64_t>((*j)["audioRoute"].asInt(audioRoute), 0, 1));
     voiceRouting = static_cast<int>(std::clamp<int64_t>((*j)["voiceRouting"].asInt(voiceRouting), 0, 1));
@@ -151,6 +159,7 @@ bool Settings::load(const std::string& path) {
         p.gyroMode = static_cast<int>(std::clamp<int64_t>(obj["gyroMode"].asInt(gyroMode), 0, 2));
         p.gyroLevel = static_cast<int>(std::clamp<int64_t>(obj["gyroLevel"].asInt(gyroLevel), 1, 10));
         p.touchpadMouse = obj["touchpadMouse"].asBool(touchpadMouse);
+        p.touchpadShortcuts = readTouchpadShortcutsOr(obj["touchpadShortcuts"], touchpadShortcuts);
         p.locale = obj["locale"].str();
         perGame[id] = p;
     }
@@ -184,6 +193,7 @@ GameProfile Settings::defaultProfile() const {
     p.gyroMode = gyroMode;
     p.gyroLevel = gyroLevel;
     p.touchpadMouse = touchpadMouse;
+    p.touchpadShortcuts = touchpadShortcuts;
     return p;
 }
 
@@ -257,6 +267,7 @@ bool Settings::save(const std::string& path) const {
     v.set("gyroMode", gyroMode);
     v.set("gyroLevel", gyroLevel);
     v.set("touchpadMouse", touchpadMouse);
+    v.set("touchpadShortcuts", input::touchpadShortcutsJson(touchpadShortcuts));
     v.set("micGain", micGain);
     v.set("audioRoute", audioRoute);
     v.set("voiceRouting", voiceRouting);
@@ -294,6 +305,7 @@ bool Settings::save(const std::string& path) const {
         obj.set("gyroMode", p.gyroMode);
         obj.set("gyroLevel", p.gyroLevel);
         obj.set("touchpadMouse", p.touchpadMouse);
+        obj.set("touchpadShortcuts", input::touchpadShortcutsJson(p.touchpadShortcuts));
         if (!p.locale.empty()) obj.set("locale", p.locale);
         pg.set(id, obj);
     }

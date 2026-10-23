@@ -90,7 +90,7 @@ enum class Tab { GamePass, Library, Consoles };
 
 struct NavInput {
     bool up = false, down = false, left = false, right = false;
-    bool accept = false, back = false, options = false;
+    bool accept = false, acceptHeld = false, back = false, options = false;
     bool l1 = false, r1 = false, square = false, triangle = false, r3 = false, l3 = false;
     bool l2 = false, r2 = false;  // pressed (triggers past halfway)
     bool touchpad = false;  // held right now (sign out needs a 5 s hold)
@@ -140,6 +140,7 @@ struct SettingsChoice {
     int gyroLevel = 5;  // intensity, 1..10
     bool fullscreen = true;    // a desktop's window fullscreen (UiCaps::desktopWindow; F11 switches it too)
     bool touchpadMouse = false;
+    input::TouchpadShortcuts touchpadShortcuts = input::defaultTouchpadShortcuts();
     int voiceRouting = 0;      // 0 Auto (DualSense pad speaker if available), 1 Always TV/Headset
     std::map<std::string, uint64_t> titlePlaytime; // accumulated playtime in seconds
 };
@@ -195,10 +196,11 @@ std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool cus
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 22;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+constexpr int kSettingRows = 24;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
                                   // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys,
                                   // display mode (a desktop's window), controller buttons, gyro aiming, queue chime,
-                                  // check sign-in, network test, support project, video decoder, audio-to-haptics
+                                  // check sign-in, network test, support project, video decoder, audio-to-haptics,
+                                  // touchpad shortcuts, restore defaults
 
 struct SignInStage {
     std::string name;
@@ -243,7 +245,8 @@ enum class Action {
     RefreshLibrary, // manual library refresh
     CheckSignIn,    // run sign-in diagnostic stages
     RunNetworkTest, // run regional RTT/jitter & NAT probe
-    TestQueueAlert  // play test chime and vibration for queue-ready alert
+    TestQueueAlert, // play test chime and vibration for queue-ready alert
+    ResetSettings   // restore settings to default
 };
 
 // How "Your games" is sorted (R3).
@@ -357,6 +360,7 @@ public:
     void showHome(const std::string& toast = {});
     void showToast(const std::string& toast);
     void markTileOwned(const std::string& productId, const std::string& titleId = {});
+    void markUnclaimable(const std::string& productId);
     void showLaunching(const GameTile& game, const std::string& status);
     void setLaunchStatus(const std::string& status);
     void showStreaming();
@@ -568,7 +572,7 @@ private:
     Color pickerColour() const;
     void drawColourPicker(Canvas& c);
     // The testers that Dead zone and Trigger vibration open in Settings.
-    enum class Tester { None, Sticks, Triggers, Keys, Pad, SignInCheck, NetworkTest, Donation };
+    enum class Tester { None, Sticks, Triggers, Keys, Pad, Touchpad, SignInCheck, NetworkTest, Donation };
     void openTester(Tester t);
     void handleTester(const NavInput& in);
     void drawStickTester(Canvas& c);
@@ -580,6 +584,9 @@ private:
     void openPadTester();
     void handlePadTester(const NavInput& in);
     void drawPadTester(Canvas& c);
+    void openTouchpadTester();
+    void handleTouchpadTester(const NavInput& in);
+    void drawTouchpadTester(Canvas& c);
     void drawSignInCheck(Canvas& c, uint64_t nowMs);
     void drawNetworkTest(Canvas& c, uint64_t nowMs);
     void drawDonationModal(Canvas& c);
@@ -653,6 +660,7 @@ private:
     Anim resultScroll_;
     GameTile detail_;  // the game the details page shows
     GameTile launching_;
+    uint64_t launchingStartMs_ = 0;
     std::string error_;
     std::string errorUrl_;
     GameTile errorGame_;  // showPlayError()'s game; empty for other errors
@@ -667,6 +675,7 @@ private:
     std::map<std::string, int> regionMs_;
     std::map<std::string, PriceInfo> prices_;
     std::set<std::string> pricesAsked_;
+    std::set<std::string> unclaimable_;
     std::string detailAskedFor_;
     uint64_t detailAskedAt_ = 0;
     std::string queueAskedFor_, queueTitle_;
@@ -724,6 +733,11 @@ private:
     input::PadMap padWork_ = input::defaultPadMap();
     int padRow_ = 0, padCol_ = 0;
     uint64_t padCaptureSince_ = 0;
+    input::TouchpadShortcuts touchpadWork_ = input::defaultTouchpadShortcuts();
+    int padTesterTab_ = 0; // 0 = Buttons, 1 = Touchpad
+    int touchpadRow_ = 0;
+    bool touchpadDropdownOpen_ = false;
+    int touchpadDropdownIndex_ = 0, touchpadDropdownTop_ = 0;
     int testerStick_ = 0;          // the stick tester: the one being adjusted (L1 / R1)
     float testSticks_[4] = {0, 0, 0, 0}, testL2_ = 0, testR2_ = 0;
     bool pickerOpen_ = false;
@@ -738,6 +752,7 @@ private:
     int dropdownIndex_ = 0, dropdownTop_ = 0;
     uint64_t signOutHoldStart_ = 0;  // TOUCHPAD hold in progress
     bool signOutLatched_ = false;    // fired; wait for release
+    uint64_t resetSettingsHoldStart_ = 0; // Cross hold in progress for ResetSettings
     void drawSignOutHold(Canvas& c, uint64_t nowMs);
     std::string toast_;
     uint64_t toastUntil_ = 0;

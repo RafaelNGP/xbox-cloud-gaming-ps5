@@ -70,4 +70,79 @@ json::Value padMapJson(const PadMap& map);
 // `out` the default map.
 bool readPadMap(const json::Value& v, PadMap& out);
 
+enum class TouchpadAction : uint8_t {
+    None = 0,
+    GameMenu = 1,
+    XboxButton = 2,
+    ToggleStats = 3,
+    ToggleMicMute = 4,
+    CycleGyro = 5,
+    CycleTriggerProfile = 6,
+    View = 7,
+    Menu = 8,
+    L3 = 9,
+    R3 = 10,
+    A = 11,
+    B = 12,
+    X = 13,
+    Y = 14,
+    LB = 15,
+    RB = 16,
+    DpadUp = 17,
+    DpadDown = 18,
+    DpadLeft = 19,
+    DpadRight = 20,
+    Count = 21
+};
+constexpr int kTouchpadActions = static_cast<int>(TouchpadAction::Count);
+constexpr int kTouchpadTriggers = 6;
+
+struct TouchpadShortcuts {
+    TouchpadAction swipeUp = TouchpadAction::XboxButton;
+    TouchpadAction swipeDown = TouchpadAction::GameMenu;
+    TouchpadAction swipeLeft = TouchpadAction::GameMenu;
+    TouchpadAction swipeRight = TouchpadAction::XboxButton;
+    TouchpadAction clickLeft = TouchpadAction::View;
+    TouchpadAction clickRight = TouchpadAction::View;
+
+    bool operator==(const TouchpadShortcuts& o) const {
+        return swipeUp == o.swipeUp && swipeDown == o.swipeDown &&
+               swipeLeft == o.swipeLeft && swipeRight == o.swipeRight &&
+               clickLeft == o.clickLeft && clickRight == o.clickRight;
+    }
+    bool operator!=(const TouchpadShortcuts& o) const { return !(*this == o); }
+
+    TouchpadAction get(int triggerIndex) const {
+        switch (triggerIndex) {
+        case 0: return swipeUp;
+        case 1: return swipeDown;
+        case 2: return swipeLeft;
+        case 3: return swipeRight;
+        case 4: return clickLeft;
+        case 5: return clickRight;
+        default: return TouchpadAction::None;
+        }
+    }
+
+    void set(int triggerIndex, TouchpadAction act) {
+        if (static_cast<uint8_t>(act) >= static_cast<uint8_t>(TouchpadAction::Count))
+            act = TouchpadAction::None;
+        switch (triggerIndex) {
+        case 0: swipeUp = act; break;
+        case 1: swipeDown = act; break;
+        case 2: swipeLeft = act; break;
+        case 3: swipeRight = act; break;
+        case 4: clickLeft = act; break;
+        case 5: clickRight = act; break;
+        default: break;
+        }
+    }
+};
+
+TouchpadShortcuts defaultTouchpadShortcuts();
+json::Value touchpadShortcutsJson(const TouchpadShortcuts& ts);
+bool readTouchpadShortcuts(const json::Value& v, TouchpadShortcuts& out);
+bool isTouchpadButtonAction(TouchpadAction act);
+bool applyTouchpadButtonAction(ControllerState& s, TouchpadAction act);
+
 }  // namespace xc::input

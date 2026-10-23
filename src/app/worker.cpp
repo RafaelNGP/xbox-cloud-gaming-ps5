@@ -607,7 +607,7 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
                 std::lock_guard<std::mutex> lock(g_settingsMutex);
                 alertOn = g_settings.queueReadyAlert;
             }
-            if (alertOn && wasInQueue) {
+            if (alertOn && (wasInQueue || (platform::nowMs() - provisioningSince >= 2000))) {
                 XC_LOGI("session: queue completed and provisioned; triggering queue-ready chime and rumble on DualSense");
                 playQueueReadyAlert(true);
             }
@@ -626,7 +626,7 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     return result;
 }
 
-void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv);
+void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefresh = false);
 
 // --- Updates -------------------------------------------------------------------
 
@@ -881,10 +881,46 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     loadLibrary(am, gssv);
 }
 
-void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv) {
+void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefresh) {
     std::string err;
     if (!keepSignedIn(am, gssv, err)) XC_LOGW("sign-in renewal: %s", err.c_str());
     err.clear();
+
+    std::shared_ptr<app::Library> existingLib;
+    {
+        std::lock_guard<std::mutex> lock(s_libraryMutex);
+        existingLib = s_library;
+    }
+
+    if (existingLib && existingLib->ownedKnown()) {
+        XC_LOGI("library: delta-sync against active library (forceRefresh=%d)", forceRefresh);
+        g_ui->setLoading(true, 0, 0);
+        auto publish = [](const app::Library& lib) {
+            g_ui->setRows(lib.rows());
+            g_ui->setOwned(lib.owned(), lib.purchasable(), lib.ownedKnown());
+            g_ui->setMembership(lib.gamePassMember());
+            g_ui->setSearchPools(lib.gamePassSearchPool(), lib.librarySearchPool());
+            auto p = lib.progress();
+            g_ui->setLoading(p.active, p.done, p.total);
+        };
+        size_t newCount = existingLib->syncDelta(gssv, [&] { publish(*existingLib); }, err);
+        g_ui->setLoading(false, 0, 0);
+        publish(*existingLib);
+
+        if (forceRefresh) {
+            if (newCount > 0) {
+                std::string msg = ui::trf(ui::Str::LibraryUpdatedCount, std::to_string(newCount));
+                if (!shell::caps().console) g_ui->showToast(msg);
+                platform::notify(msg);
+            } else {
+                std::string msg = ui::tr(ui::Str::LibraryUpToDate);
+                if (!shell::caps().console) g_ui->showToast(msg);
+                platform::notify(msg);
+            }
+        }
+        return;
+    }
+
     bool onSplash = (g_ui->screen() == ui::Screen::Splash);
     if (onSplash) {
         g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
@@ -926,9 +962,14 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv) {
                                     }
                                 }
                             },
-                            err);
+                            err,
+                            forceRefresh);
     if (!ok) {
-        if (g_ui->screen() == ui::Screen::Home) {
+        ui::GameTile dummy;
+        if (g_ui->screen() == ui::Screen::Home || g_ui->firstTile(dummy)) {
+            if (g_ui->screen() == ui::Screen::Splash) {
+                g_ui->showHome();
+            }
             platform::notify("Offline mode: using cached library");
             g_ui->setLoading(false, 0, 0);
             return;
@@ -976,13 +1017,14 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         library->loadPlatforms(xblAuth, changed, &g_stopHydration);
         library->hydrate(changed, &g_stopHydration);
         library->loadFriends(xblAuth, changed, &g_stopHydration);
+        g_ui->setLoading(false, 0, 0);
     });
     if (!g_autoplay.title.empty() && g_autoplay.title != "BENCH" && g_autoplay.title != "UPDATE" && g_autoplay.title != "AUTOTEST" &&
         !g_autoplay.detailTest && !g_autoplay.libraryTest &&
         !g_autoplay.consolesTab && !g_autoplay.settingsTest && !g_autoplay.keysTest && !g_autoplay.padMapTest &&
         !g_autoplay.imeTest && !g_autoplay.vibeTest && !g_autoplay.searchTest && !g_autoplay.quickTest && !g_autoplay.crashTest && !g_autoplay.scrollTest &&
         !g_autoplay.gridTest && !g_autoplay.gameSettingsTest && !g_autoplay.publisherTest && !g_autoplay.friendsTest &&
-        !g_autoplay.regionTest) {
+        !g_autoplay.regionTest && !g_autoplay.mw4Test && !g_autoplay.v150Test) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
         tile.titleId = g_autoplay.title;
@@ -1328,7 +1370,7 @@ void worker() {
             case kCheckSignIn: runSignInCheck(am, gssv); break;
             case kNetworkTest: runNetworkTest(gssv); break;
             case kReloadLibrary:
-                if (am.signedIn()) loadLibrary(am, gssv);
+                if (am.signedIn()) loadLibrary(am, gssv, true);
                 else signInAndLoad(am, gssv);
                 break;
             case kSignOut:
@@ -1475,7 +1517,9 @@ void worker() {
                     std::lock_guard<std::mutex> lock(g_argMutex);
                     tile = g_playTile;
                 }
-                g_ui->showToast(ui::tr(ui::Str::Claiming));
+                if (!shell::caps().console) {
+                    g_ui->showToast(ui::tr(ui::Str::Claiming));
+                }
                 platform::notify(ui::tr(ui::Str::Claiming));
                 XC_LOGI("claiming free game: %s (productId=%s, titleId=%s)",
                         tile.name.c_str(), tile.productId.c_str(), tile.titleId.c_str());
@@ -1523,7 +1567,9 @@ void worker() {
                 if (lib) {
                     lib->markAsOwned(tile.productId, tile.titleId);
                     g_ui->markTileOwned(tile.productId, tile.titleId);
-                    g_ui->showToast(ui::tr(ui::Str::ClaimSuccess));
+                    if (!shell::caps().console) {
+                        g_ui->showToast(ui::tr(ui::Str::ClaimSuccess));
+                    }
                     platform::notify(ui::tr(ui::Str::ClaimSuccess));
 
                     // Re-sync owned titles in background
@@ -1532,6 +1578,8 @@ void worker() {
                         g_ui->setOwned(lib->owned(), lib->purchasable(), lib->ownedKnown());
                     });
                 }
+                tile.playable = true;
+                g_ui->showDetails(tile);
                 break;
             }
             default: {

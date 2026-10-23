@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 #include "platform/platform.h"
+#include "platform/toasts.h"
 #include "util/log.h"
 
 #include <cerrno>
@@ -251,6 +252,7 @@ void notify(const std::string& text) { notify(text, text); }
 
 void notify(const std::string& text, const std::string& forLog) {
     XC_LOGI("NOTIFY: %s", forLog.c_str());
+    if (toastsEnabled() && forLog != "signed in (notification)") toasts().push(text, nowMs());
     // Same request layout as PS5_Vulkan's demo renderer.
     struct NotificationRequest {
         uint8_t reserved[45];

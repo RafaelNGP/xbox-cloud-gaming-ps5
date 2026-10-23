@@ -49,9 +49,12 @@ struct Autoplay {
     bool block1Test = false;     // "block1test": verify 3x3 filter grid, settings descriptions, free acquire button, and loading tips
     bool block2Test = false;     // "block2test": verify update prompt 3 buttons, notes modal, pad speaker volume, and bitrate caps
     bool block3Test = false;     // "block3test": verify web server qr in settings and official age rating on details
+    bool touchpadTest = false;   // "touchpadtest": verify touchpad shortcuts modal, stream menu slots with Phone icon, and loading screen
     bool bitrateTest = false;    // "bitratetest": open settings, focus Bitrate row, test slider, save settings_bitrate_caps.ppm
     bool detailTest = false;     // open a game to buy far down the list, save its page
     bool libraryTest = false;    // open "Your games", save it at 4 s and 25 s
+    bool mw4Test = false;        // "mw4test": search and open details for Call of Duty MW4
+    bool v150Test = false;       // "v150test": verify new settings order and search gratis filter
     bool vkTest = false;         // the GPU presenting instead of the CPU display
     bool cpuDisplay = false;     // the CPU display even where the GPU comes up
     int upscaler = -1;           // ai: Anime4K instead of the setting

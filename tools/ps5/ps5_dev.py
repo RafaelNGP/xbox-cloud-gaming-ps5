@@ -185,7 +185,7 @@ def cmd_test(args):
         "tunetest", "confirmtest", "pickertest", "menutest", "regiontest",
         "friendstest", "publishertest", "scrolltest", "quicktest", "tlscheck",
         "padspktest", "queuetest", "queueuitest", "wishlisttest", "block1test",
-        "block2test", "block3test", "bitratetest",
+        "block2test", "block3test", "bitratetest", "touchpadtest", "mw4test", "v150test",
     }
     bitrate_opt = f" bitrate={args.bitrate}" if getattr(args, "bitrate", 0) > 0 else ""
     if target.startswith("AUTOTEST") or target.startswith("BENCH") or " " in target:
@@ -228,7 +228,10 @@ def cmd_test(args):
                  "search_grid3x3.ppm", "settings_desc_row0.ppm", "settings_desc_row1.ppm", "detail_free.ppm",
                  "launch_tip1.ppm", "launch_tip2.ppm",
                  "update_prompt_3buttons.ppm", "update_notes_modal.ppm", "stream_menu_spk100.ppm", "stream_menu_spk50.ppm",
-                 "settings_bitrate_caps.ppm", "settings_web_qr.ppm", "game_details_rating.ppm"):
+                 "settings_bitrate_caps.ppm", "settings_web_qr.ppm", "game_details_rating.ppm",
+                 "settings_touchpad_modal.ppm", "settings_touchpad_reset.ppm", "stream_menu_slots.ppm",
+                 "stream_menu_touchpad.ppm", "launch_screen_hint.ppm", "search_mw4.ppm", "details_mw4.ppm",
+                 "v150_settings.ppm", "v150_search_free.ppm"):
         try:
             ftp.sendcmd(f"DELE {name}")
         except (error_perm, error_reply):
@@ -268,7 +271,10 @@ def cmd_test(args):
                  "search_grid3x3.ppm", "settings_desc_row0.ppm", "settings_desc_row1.ppm", "detail_free.ppm",
                  "launch_tip1.ppm", "launch_tip2.ppm",
                  "update_prompt_3buttons.ppm", "update_notes_modal.ppm", "stream_menu_spk100.ppm", "stream_menu_spk50.ppm",
-                 "settings_bitrate_caps.ppm", "settings_web_qr.ppm", "game_details_rating.ppm"]
+                 "settings_bitrate_caps.ppm", "settings_web_qr.ppm", "game_details_rating.ppm",
+                 "settings_touchpad_modal.ppm", "settings_touchpad_reset.ppm", "stream_menu_slots.ppm",
+                 "stream_menu_touchpad.ppm", "launch_screen_hint.ppm", "search_mw4.ppm", "details_mw4.ppm",
+                 "v150_settings.ppm", "v150_search_free.ppm"]
     ftp = get_ftp(host, port)
     ftp.cwd("/data/psbox")
     for name in ppm_names + ["xcloud.log"]:

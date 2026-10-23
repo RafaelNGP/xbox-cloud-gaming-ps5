@@ -42,12 +42,15 @@ public:
     void redrawMenu();
     // What the display and the pads can do: the game menu hides the rest.
     void setCaps(const ui::UiCaps& caps);
+    // Live-reload settings into the active stream session (e.g. from WebUI).
+    void syncFromSettings();
     // Each pass on any other screen: what the stream left is cleared, and a
     // console keyboard still up is closed.
     void idle();
 
 private:
     void applyDeband_();
+    void executeTouchpadAction_(input::TouchpadAction act, const char* triggerName);
     // The mouse held by the window (input::kbmSetCaptured) while it should
     // be: a game has the keyboard and mouse, its menu closed, the window focused.
     void setMouseCaptured_(bool captured);
@@ -80,6 +83,11 @@ private:
     bool circleConfirms_ = false;
     input::KeyMap keyMap_ = input::defaultKeyMap();  // this game's keys (the keyboard as a controller)
     input::PadMap padMap_ = input::defaultPadMap();  // this game's controller buttons, toward the game only
+    input::TouchpadShortcuts touchpadShortcuts_ = input::defaultTouchpadShortcuts();
+    float touchLastX_ = 0.25f;
+    bool prevTouchpad_ = false;
+    input::TouchpadAction shortcutPulseAction_ = input::TouchpadAction::None;
+    uint64_t shortcutPulseUntilMs_ = 0;
     int gyroMode_ = 0, gyroLevel_ = 5;  // gyro aiming (input/gyro.h), this game's
     bool highRefresh_ = false;  // 120 Hz turned on for this stream
     bool mouseKeyboard_ = false;  // the game takes native mouse and keyboard

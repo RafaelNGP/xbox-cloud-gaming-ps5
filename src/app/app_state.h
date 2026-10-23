@@ -27,6 +27,7 @@ extern std::unique_ptr<ui::AppUi> g_ui;
 // User settings (settings.json); read by the worker, changed by the UI thread.
 extern std::mutex g_settingsMutex;
 extern Settings g_settings;
+extern std::atomic<uint64_t> g_settingsVersion;
 std::string settingsPath();
 // Caller holds g_settingsMutex. 1440p is offered once a stream delivered it.
 bool allow1440Locked();

@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <arpa/inet.h>
 #include <cerrno>
+#include <csignal>
 #include <cstring>
 #include <fcntl.h>
 #include <mbedtls/base64.h>
@@ -40,6 +41,22 @@ const char* kIndexHtml = R"html(<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>PSBox Cloud Gaming - Web Control</title>
+<script>
+(function() {
+  function applyInitScale() {
+    var w = window.innerWidth || (document.documentElement ? document.documentElement.clientWidth : 360);
+    var h = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 640);
+    var isLand = w > h;
+    var pScale = Math.min(1, Math.max(0.4, (w - 28) / 412));
+    var lsScale = Math.min(1, Math.max(0.35, Math.min((w - 24) / 915, (h - 78) / 412)));
+    var fsScale = Math.min(1.2, Math.max(0.4, Math.min((w - 28) / 915, (h - 20) / 412)));
+    document.documentElement.style.setProperty('--gp-scale', (isLand ? lsScale : pScale).toFixed(3));
+    document.documentElement.style.setProperty('--gp-fs-scale', fsScale.toFixed(3));
+  }
+  applyInitScale();
+  window.addEventListener('resize', applyInitScale);
+})();
+</script>
 <style>
 :root {
   --bg: #0b0d13;
@@ -54,22 +71,26 @@ const char* kIndexHtml = R"html(<!DOCTYPE html>
   --danger: #d93838;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-html, body { width: 100%; max-width: 100%; overflow-x: hidden; background: var(--bg); color: var(--text); padding-bottom: 40px; overscroll-behavior: none; }
-header { box-sizing: border-box; background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; max-width: 100%; overflow-x: hidden; }
+html { width: 100%; max-width: 100%; background: var(--bg); }
+body { width: 100%; max-width: 100%; margin: 0; padding: 0; overflow-x: hidden; overflow-y: auto; background: var(--bg); color: var(--text); -webkit-overflow-scrolling: touch; overscroll-behavior-y: none; }
+header { box-sizing: border-box; background: var(--surface); border-bottom: 1px solid var(--border); padding-top: max(18px, env(safe-area-inset-top, 18px)); padding-bottom: 12px; padding-left: max(16px, env(safe-area-inset-left, 16px)); padding-right: max(16px, env(safe-area-inset-right, 16px)); display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; max-width: 100%; overflow-x: hidden; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; }
 .logo-icon { flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; box-shadow: 0 0 10px rgba(16, 124, 65, 0.45); }
 .brand-text { min-width: 0; flex: 1 1 auto; }
 .brand-text h1 { font-size: clamp(0.76rem, 3.6vw, 0.96rem); font-weight: 700; letter-spacing: 0.5px; color: #fff; text-transform: uppercase; line-height: 1.2; white-space: nowrap; }
 .brand-subtitle { font-size: 0.70rem; color: var(--text-dim); display: block; font-weight: 500; white-space: nowrap; }
 header .badge { background: var(--primary); color: #fff; font-size: 0.70rem; padding: 3px 7px; border-radius: 12px; font-weight: 600; text-transform: uppercase; flex-shrink: 0; }
-.nav-tabs { display: flex; background: var(--surface); border-bottom: 1px solid var(--border); width: 100%; max-width: 100%; overflow-x: hidden; }
-.nav-tab { flex: 1 1 0; min-width: 0; text-align: center; padding: 12px 6px; font-size: clamp(0.78rem, 3.2vw, 0.88rem); font-weight: 600; color: var(--text-dim); border-bottom: 2px solid transparent; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
+.nav-tabs { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--surface); border-bottom: 1px solid var(--border); width: 100%; max-width: 100%; overflow: hidden; }
+.nav-tab { min-width: 0; text-align: center; padding: 11px 4px; min-height: 44px; display: flex; align-items: center; justify-content: center; font-size: clamp(0.74rem, 2.8vw, 0.86rem); font-weight: 600; color: var(--text-dim); border-bottom: 2px solid transparent; border-right: 1px solid rgba(40, 47, 68, 0.45); border-top: 1px solid rgba(40, 47, 68, 0.45); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; -webkit-user-select: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .nav-tab.active { color: #fff; border-bottom-color: var(--primary); background: var(--surface-alt); }
-.content { max-width: 680px; width: 100%; margin: 14px auto; padding: 0 12px; overflow-x: hidden; }
+.tab-pane { display: none !important; height: 0 !important; max-height: 0 !important; overflow: hidden !important; width: 100%; }
+.tab-pane.active { display: block !important; height: auto !important; max-height: none !important; overflow: visible !important; }
+.content { max-width: 680px; width: 100%; margin: 12px auto 0 auto; padding: 0 12px 20px 12px; overflow-x: hidden; }
 .subnav { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; width: 100%; max-width: 100%; }
 .subnav .btn { flex: 1 1 120px; }
 .subnav .btn.active { background: var(--primary); border-color: var(--primary); }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin-bottom: 14px; width: 100%; max-width: 100%; overflow-x: hidden; }
+.card:last-child { margin-bottom: 0 !important; }
 .card h2 { font-size: 1.0rem; margin-bottom: 8px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .card p { font-size: 0.82rem; color: var(--text-dim); margin-bottom: 12px; line-height: 1.4; word-break: break-word; }
 
@@ -92,7 +113,7 @@ header .badge { background: var(--primary); color: #fff; font-size: 0.70rem; pad
 .input-group { display: flex; gap: 8px; margin-bottom: 12px; width: 100%; max-width: 100%; }
 input[type="text"] { flex: 1 1 auto; min-width: 0; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 0.92rem; color: #fff; outline: none; transition: border-color 0.2s; }
 input[type="text"]:focus { border-color: var(--primary); }
-.btn { display: inline-flex; align-items: center; justify-content: center; background: var(--surface-alt); color: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 0.86rem; font-weight: 600; cursor: pointer; text-decoration: none; transition: background 0.2s, border-color 0.2s; max-width: 100%; white-space: normal; text-align: center; }
+.btn { display: inline-flex; align-items: center; justify-content: center; background: var(--surface-alt); color: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; min-height: 44px; font-size: 0.86rem; font-weight: 600; cursor: pointer; text-decoration: none; transition: background 0.15s, border-color 0.15s; max-width: 100%; white-space: normal; text-align: center; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
 .btn:hover { background: var(--border); }
 .btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 .btn-primary:hover { background: var(--primary-hover); }
@@ -111,7 +132,7 @@ select { background: var(--surface); color: #fff; border: 1px solid var(--border
 .btn-row { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; width: 100%; max-width: 100%; }
 .btn-row .btn { flex: 1 1 130px; }
 pre { background: #07080b; border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-family: monospace; font-size: 0.78rem; color: #c4ccdc; overflow-x: auto; max-height: 380px; white-space: pre-wrap; word-break: break-all; max-width: 100%; }
-.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #169c53; color: #fff; padding: 10px 20px; border-radius: 24px; font-size: 0.88rem; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 1000; max-width: 90%; text-align: center; }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #169c53; color: #fff; padding: 10px 20px; border-radius: 24px; font-size: 0.88rem; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 10000; max-width: 90%; text-align: center; }
 .toast.show { opacity: 1; }
 
 /* Telemetry & interactive controls */
@@ -133,7 +154,7 @@ input:checked + .slider-sw { background-color: var(--primary); border-color: var
 input:checked + .slider-sw:before { transform: translateX(20px); }
 .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn-danger:hover { background: #b82626; }
-
+.section-sub { font-size: 0.86rem; font-weight: 700; color: #4ade80; margin: 14px 0 6px 0; display: flex; align-items: center; justify-content: space-between; }
 
 /* Search overlay when streaming */
 .search-disabled-overlay {
@@ -167,6 +188,14 @@ input:checked + .slider-sw:before { transform: translateX(20px); }
 }
 
 /* Virtual Gamepad */
+.gamepad-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
 .gamepad-container {
   user-select: none;
   -webkit-user-select: none;
@@ -178,23 +207,31 @@ input:checked + .slider-sw:before { transform: translateX(20px); }
   gap: 12px;
 }
 .player-select-row {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
   width: 100%;
   margin-bottom: 6px;
 }
 .player-btn {
-  flex: 1 1 0;
-  padding: 10px 8px;
+  padding: 8px 6px;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--surface-alt);
   color: var(--text-dim);
-  font-size: clamp(0.78rem, 3.2vw, 0.88rem);
+  font-size: clamp(0.74rem, 2.8vw, 0.84rem);
   font-weight: 700;
   cursor: pointer;
   text-align: center;
-  transition: all 0.2s;
+  transition: all 0.15s;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .player-btn.active {
   background: var(--primary);
@@ -202,147 +239,447 @@ input:checked + .slider-sw:before { transform: translateX(20px); }
   color: #fff;
   box-shadow: 0 2px 8px rgba(16, 124, 65, 0.4);
 }
-.pad-top-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
+/* Virtual Gamepad Viewport & Modules (Exact Layout Studio Match) */
+:root {
+  --gp-scale: 1;
+  --gp-fs-scale: 1;
+}
+#tab-gamepad #gamepadCard {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.gamepad-viewport-wrapper {
   width: 100%;
-}
-.pad-bumper-group {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.pad-btn {
-  display: inline-flex;
-  align-items: center;
   justify-content: center;
-  background: var(--surface-alt);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  color: #fff;
-  font-weight: 700;
-  cursor: pointer;
-  touch-action: none;
+  align-items: flex-start;
+  overflow: hidden;
+}
+.gamepad-container {
+  position: relative;
+  background: transparent;
   user-select: none;
   -webkit-user-select: none;
-  transition: transform 0.08s, background 0.08s, border-color 0.08s;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+  touch-action: none !important;
 }
-.pad-btn:active, .pad-btn.pressed {
-  transform: scale(0.92);
-  background: var(--primary) !important;
-  border-color: #4ade80 !important;
-  box-shadow: 0 0 10px rgba(16, 124, 65, 0.6) !important;
-}
-.pad-btn-sm {
-  width: 68px;
-  height: 38px;
-  font-size: 0.80rem;
-}
-.pad-center-group {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-.pad-btn-center {
-  padding: 8px 12px;
-  font-size: 0.72rem;
-  border-radius: 8px;
-  background: #1e2433;
-}
-.pad-btn-nexus {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: #107c41;
-  border: 2px solid #fff;
-  font-size: 0.80rem;
-  font-weight: 900;
-}
-.pad-main-row {
-  display: flex;
-  justify-content: space-around;
-  align-items: center;
-  gap: 12px;
-  margin-top: 8px;
-  width: 100%;
-}
-.pad-side {
-  flex: 1 1 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-}
-.dpad-cross {
-  position: relative;
-  width: 136px;
-  height: 136px;
-}
-.dpad-btn {
+.gamepad-module {
   position: absolute;
-  width: 44px;
-  height: 44px;
-  border-radius: 8px;
-  font-size: 1.1rem;
-}
-.dpad-up { top: 0; left: 46px; }
-.dpad-down { bottom: 0; left: 46px; }
-.dpad-left { top: 46px; left: 0; }
-.dpad-right { top: 46px; right: 0; }
-.dpad-center {
-  position: absolute;
-  top: 46px; left: 46px;
-  width: 44px; height: 44px;
-  background: var(--surface);
-}
-.abxy-group {
-  position: relative;
-  width: 136px;
-  height: 136px;
-}
-.abxy-btn {
-  position: absolute;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  font-size: 1.15rem;
-  font-weight: 900;
-  color: #fff;
-}
-.btn-y { top: 0; left: 46px; background: #c68900; border-color: #ffc400; }
-.btn-a { bottom: 0; left: 46px; background: #0e6b37; border-color: #107c41; }
-.btn-x { top: 46px; left: 0; background: #006eb8; border-color: #00a2ed; }
-.btn-b { top: 46px; right: 0; background: #b80d1b; border-color: #e81123; }
-.stick-zone {
-  position: relative;
-  width: 110px;
-  height: 110px;
-  border-radius: 50%;
-  background: var(--surface-alt);
-  border: 2px solid var(--border);
-  touch-action: none;
+  transform-origin: center center;
   display: flex;
   align-items: center;
   justify-content: center;
+  touch-action: none !important;
+  box-sizing: border-box;
+}
+
+/* Stick Styling (Matching Layout Studio) */
+.stick-base {
+  position: relative;
+  width: 146px;
+  height: 146px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #1a2233 0%, #0d121c 100%);
+  border: 2px solid #334155;
+  box-shadow: inset 0 3px 10px rgba(0,0,0,0.8), 0 3px 8px rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
 }
 .stick-head {
-  width: 50px;
-  height: 50px;
+  width: 62px;
+  height: 62px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #3a445e, #1c2130);
-  border: 2px solid #58688a;
-  box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+  background: radial-gradient(circle at 35% 35%, #475569, #1e293b);
+  border: 2px solid #64748b;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.7);
   pointer-events: none;
   transform: translate(0px, 0px);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.70rem;
+}
+.stick-head::after {
+  content: '';
+  width: 45%;
+  height: 45%;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  background: radial-gradient(circle, #1e293b 0%, #334155 100%);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.7);
+}
+
+/* D-Pad Styling (Matching Layout Studio) */
+.dpad-container {
+  position: relative;
+  width: 150px;
+  height: 150px;
+}
+.dpad-arm {
+  position: absolute;
+  border-radius: 10px;
+  background: #1e2538;
+  border: 1.5px solid #3e4d70;
+  color: #94a3b8;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+  transition: transform 0.06s, background 0.06s;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+.dpad-arm:active, .dpad-arm.pressed {
+  transform: scale(0.92);
+  background: #107c41 !important;
+  color: #fff !important;
+  border-color: #4ade80 !important;
+  box-shadow: 0 0 12px rgba(16, 124, 65, 0.8) !important;
+}
+.dpad-arm-up { top: 0; left: 33.33%; width: 33.33%; height: 35%; }
+.dpad-arm-down { bottom: 0; left: 33.33%; width: 33.33%; height: 35%; }
+.dpad-arm-left { top: 33.33%; left: 0; width: 35%; height: 33.33%; }
+.dpad-arm-right { top: 33.33%; right: 0; width: 35%; height: 33.33%; }
+.dpad-mid {
+  position: absolute;
+  top: 33.33%; left: 33.33%;
+  width: 33.33%; height: 33.33%;
+  background: #151a27;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* ABXY Styling (Matching Layout Studio) */
+.abxy-container {
+  position: relative;
+  width: 156px;
+  height: 156px;
+}
+.abxy-key {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  font-weight: 900;
+  font-size: 1.3rem;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-width: 2px;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+  transition: transform 0.06s;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+.abxy-key:active, .abxy-key.pressed {
+  transform: scale(0.90) !important;
+  box-shadow: 0 0 16px rgba(255,255,255,0.8) !important;
+  filter: brightness(1.3);
+}
+.btn-y { top: 0; left: 50%; transform: translateX(-50%); background: #c68900; border-color: #ffd000; }
+.btn-a { bottom: 0; left: 50%; transform: translateX(-50%); background: #0e6b37; border-color: #22c55e; }
+.btn-x { top: 50%; left: 0; transform: translateY(-50%); background: #006eb8; border-color: #38bdf8; }
+.btn-b { top: 50%; right: 0; transform: translateY(-50%); background: #b80d1b; border-color: #f87171; }
+
+/* Buttons & System Styling */
+.pad-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #1e2538;
+  border: 1.5px solid #3e4d70;
+  border-radius: 10px;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  transition: transform 0.06s, background 0.06s;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  width: 100%;
+  height: 100%;
+}
+.pad-btn:active, .pad-btn.pressed {
+  transform: scale(0.92);
+  background: #107c41 !important;
+  border-color: #4ade80 !important;
+  box-shadow: 0 0 12px rgba(16, 124, 65, 0.7) !important;
+}
+.pad-btn-trigger {
   font-weight: 800;
-  color: var(--text-dim);
+  font-size: 1.05rem;
+  background: linear-gradient(180deg, #2e3a54, #182030);
+  border: 1.5px solid #4a5c82;
+  border-radius: 12px;
+}
+.pad-btn-bumper {
+  font-weight: 700;
+  font-size: 0.92rem;
+  border-radius: 10px;
+}
+.pad-btn-stick-click {
+  font-size: 0.82rem;
+  color: #94a3b8;
+  border-radius: 8px;
+}
+.center-sys-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+}
+.pad-btn-sys {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  height: 36px;
+  border-radius: 8px;
+}
+.pad-btn-nexus-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #107c41;
+  border: 2px solid #ffffff;
+  font-weight: 900;
+  font-size: 12px;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: none;
+  flex-shrink: 0;
+}
+.pad-btn-nexus-btn:active, .pad-btn-nexus-btn.pressed {
+  transform: scale(0.92);
+  filter: brightness(1.2);
+}
+
+/* Player Bar Styling (Clean minimalist capsule matching studio) */
+.player-bar-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: rgba(15, 23, 42, 0.9);
+  padding: 3px 6px;
+  border-radius: 12px;
+  border: 1px solid #1e293b;
+  width: 100%;
+  height: 100%;
+}
+.player-pill {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  border: none;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.player-pill.active {
+  background: #107c41;
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(16, 124, 65, 0.6);
+}
+.fs-only-exit { display: none; }
+
+/* Portrait Layout Positions (Exact Layout Studio Alignment) */
+#gamepadArea {
+  width: 412px !important;
+  min-width: 412px !important;
+  max-width: 412px !important;
+  flex-shrink: 0 !important;
+  height: 680px;
+}
+#gamepadArea #mod_player_bar { left: 130px; top: 10px; width: 152px !important; height: 44px; transform: scale(1.0); }
+#gamepadArea #mod_center_sys { left: 115px; top: 62px; width: 182px; height: 56px; transform: scale(1.0); }
+#gamepadArea #mod_btn_ls { left: 16px; top: 132px; width: 56px; height: 52px; transform: scale(1.25); }
+#gamepadArea #mod_btn_rs { left: 340px; top: 132px; width: 56px; height: 52px; transform: scale(1.25); }
+#gamepadArea #mod_btn_lt { left: 10px; top: 206px; width: 98px; height: 56px; transform: scale(1.0); }
+#gamepadArea #mod_btn_lb { left: 116px; top: 207px; width: 78px; height: 52px; transform: scale(1.0); }
+#gamepadArea #mod_btn_rb { left: 218px; top: 207px; width: 78px; height: 52px; transform: scale(1.0); }
+#gamepadArea #mod_btn_rt { left: 304px; top: 206px; width: 98px; height: 56px; transform: scale(1.0); }
+#gamepadArea #mod_stick_left { left: 21px; top: 282px; width: 166px; height: 166px; transform: scale(1.15); }
+#gamepadArea #mod_abxy { left: 218px; top: 282px; width: 176px; height: 176px; transform: scale(1.15); }
+#gamepadArea #mod_dpad { left: 19px; top: 488px; width: 160px !important; height: 160px; transform: scale(1.0); }
+#gamepadArea #mod_stick_right { left: 225px; top: 490px; width: 166px; height: 166px; transform: scale(1.0); }
+
+/* Responsive scale wrapper for Portrait */
+@media (orientation: portrait), (max-width: 600px) and (orientation: portrait) {
+  .gamepad-viewport-wrapper {
+    height: calc(680px * var(--gp-scale, 0.82));
+  }
+  #gamepadArea {
+    transform: scale(var(--gp-scale, 0.82));
+    transform-origin: top center;
+  }
+}
+
+/* Landscape Layout Positions (Exact Layout Studio Alignment) */
+@media (orientation: landscape), (max-height: 520px) {
+  .gamepad-status-bar {
+    display: none !important;
+  }
+  .gamepad-viewport-wrapper {
+    height: calc(412px * var(--gp-scale, 0.8));
+    min-height: calc(412px * var(--gp-scale, 0.8));
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    overflow: hidden;
+  }
+  #gamepadArea {
+    width: 915px !important;
+    min-width: 915px !important;
+    max-width: 915px !important;
+    flex-shrink: 0 !important;
+    height: 412px !important;
+    transform: scale(var(--gp-scale, 0.8));
+    transform-origin: top center !important;
+  }
+  #gamepadArea #mod_btn_lt { left: 10px; top: 10px; width: 94px; height: 54px; transform: scale(1.0); }
+  #gamepadArea #mod_btn_lb { left: 110px; top: 11px; width: 76px; height: 52px; transform: scale(1.0); }
+  #gamepadArea #mod_btn_ls { left: 192px; top: 11px; width: 54px; height: 52px; transform: scale(1.0); }
+  #gamepadArea #mod_player_bar { left: 381px; top: 12px; width: 152px !important; height: 44px; transform: scale(1.0); }
+  #gamepadArea #mod_center_sys { left: 342px; top: 66px; width: 230px; height: 56px; transform: scale(1.0); }
+  #gamepadArea #mod_btn_rs { left: 669px; top: 11px; width: 54px; height: 52px; transform: scale(1.0); }
+  #gamepadArea #mod_btn_rb { left: 729px; top: 11px; width: 76px; height: 52px; transform: scale(1.0); }
+  #gamepadArea #mod_btn_rt { left: 811px; top: 10px; width: 94px; height: 54px; transform: scale(1.0); }
+  #gamepadArea #mod_stick_left { left: 32px; top: 97px; width: 166px; height: 166px; transform: scale(1.3); }
+  #gamepadArea #mod_abxy { left: 712px; top: 97px; width: 176px; height: 176px; transform: scale(1.3); }
+  #gamepadArea #mod_dpad { left: 205px; top: 242px; width: 160px !important; height: 160px; transform: scale(1.05); }
+  #gamepadArea #mod_stick_right { left: 545px; top: 240px; width: 166px; height: 166px; transform: scale(1.2); }
+}
+
+/* Fullscreen Mode (Landscape) */
+#gamepadCard.gamepad-fullscreen, #gamepadCard:fullscreen, #gamepadCard:-webkit-full-screen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-width: 100vw !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  z-index: 9999 !important;
+  background: radial-gradient(circle at 50% 35%, #161c2c 0%, #090b11 100%) !important;
+  padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 14px) env(safe-area-inset-bottom, 8px) env(safe-area-inset-left, 14px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+}
+#gamepadCard.gamepad-fullscreen .gamepad-intro,
+#gamepadCard:fullscreen .gamepad-intro,
+#gamepadCard:-webkit-full-screen .gamepad-intro,
+#gamepadCard.gamepad-fullscreen .gamepad-status-bar,
+#gamepadCard:fullscreen .gamepad-status-bar,
+#gamepadCard:-webkit-full-screen .gamepad-status-bar {
+  display: none !important;
+}
+#gamepadCard.gamepad-fullscreen .fs-only-exit,
+#gamepadCard:fullscreen .fs-only-exit,
+#gamepadCard:-webkit-full-screen .fs-only-exit {
+  display: inline-flex !important;
+}
+#gamepadCard.gamepad-fullscreen .gamepad-viewport-wrapper,
+#gamepadCard:fullscreen .gamepad-viewport-wrapper,
+#gamepadCard:-webkit-full-screen .gamepad-viewport-wrapper {
+  width: calc(915px * var(--gp-fs-scale, 0.85)) !important;
+  height: calc(412px * var(--gp-fs-scale, 0.85)) !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+  position: relative !important;
+}
+#gamepadCard.gamepad-fullscreen #gamepadArea,
+#gamepadCard:fullscreen #gamepadArea,
+#gamepadCard:-webkit-full-screen #gamepadArea {
+  width: 915px !important;
+  min-width: 915px !important;
+  max-width: 915px !important;
+  flex-shrink: 0 !important;
+  height: 412px !important;
+  transform: scale(var(--gp-fs-scale, 0.85)) !important;
+  transform-origin: top center !important;
+}
+#gamepadCard.gamepad-fullscreen #mod_btn_lt { left: 10px !important; top: 10px !important; width: 94px !important; height: 54px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_btn_lb { left: 110px !important; top: 11px !important; width: 76px !important; height: 52px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_btn_ls { left: 192px !important; top: 11px !important; width: 54px !important; height: 52px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_player_bar { left: 381px !important; top: 12px !important; width: 152px !important; height: 44px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_center_sys { left: 342px !important; top: 66px !important; width: 230px !important; height: 56px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_btn_rs { left: 669px !important; top: 11px !important; width: 54px !important; height: 52px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_btn_rb { left: 729px !important; top: 11px !important; width: 76px !important; height: 52px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_btn_rt { left: 811px !important; top: 10px !important; width: 94px !important; height: 54px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_stick_left { left: 32px !important; top: 97px !important; width: 166px !important; height: 166px !important; transform: scale(1.3) !important; }
+#gamepadCard.gamepad-fullscreen #mod_abxy { left: 712px !important; top: 97px !important; width: 176px !important; height: 176px !important; transform: scale(1.3) !important; }
+#gamepadCard.gamepad-fullscreen #mod_dpad { left: 205px !important; top: 242px !important; width: 160px !important; height: 160px !important; transform: scale(1.05) !important; }
+#gamepadCard.gamepad-fullscreen #mod_stick_right { left: 545px !important; top: 240px !important; width: 166px !important; height: 166px !important; transform: scale(1.2) !important; }
+
+@media (max-width: 600px) {
+  .nav-tabs { grid-template-columns: repeat(3, 1fr); }
+  .nav-tab { padding: 9px 4px; font-size: 0.74rem; }
+  .telemetry-grid { grid-template-columns: repeat(2, 1fr); }
+  .content { padding-left: 6px; padding-right: 6px; }
+  #tab-gamepad #gamepadCard { padding-left: 2px; padding-right: 2px; }
+}
+
+@media (orientation: landscape), (max-height: 520px) {
+  .nav-tabs {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+  }
+  .nav-tab {
+    min-height: 36px;
+    padding: 5px 2px;
+    font-size: 0.72rem;
+  }
+  header {
+    display: none !important;
+  }
+  .content {
+    max-width: 960px;
+    margin: 2px auto 0 auto;
+    padding: 0 4px 6px 4px;
+  }
+  .card {
+    padding: 4px 8px;
+    margin-bottom: 0 !important;
+  }
+  .card h2 {
+    font-size: 0.88rem;
+    margin-bottom: 4px;
+  }
+  .card p {
+    font-size: 0.76rem;
+    margin-bottom: 6px;
+  }
+  .gamepad-intro {
+    display: block;
+    margin-bottom: 2px;
+  }
+  .gamepad-toolbar {
+    margin-bottom: 2px;
+    justify-content: flex-end;
+  }
+  .gamepad-status-bar {
+    display: none !important;
+  }
 }
 </style>
 </head>
@@ -525,7 +862,7 @@ input:checked + .slider-sw:before { transform: translateX(20px); }
   </div>
 
   <!-- TAB: SEARCH -->
-  <div id="tab-search" class="tab-pane">
+  <div id="tab-search" class="tab-pane active">
     <div class="card" id="searchCard" style="position: relative;">
       <div id="searchOverlay" class="search-disabled-overlay" style="display: none;">
         <div class="msg">🔒 Desativado enquanto jogando</div>
@@ -648,6 +985,7 @@ input:checked + .slider-sw:before { transform: translateX(20px); }
     <div class="subnav">
       <button class="btn active" id="btnSubPad" onclick="switchRemapSub('pad')">🎮 DualSense</button>
       <button class="btn" id="btnSubKey" onclick="switchRemapSub('key')">⌨️ Teclado</button>
+      <button class="btn" id="btnSubTouch" onclick="switchRemapSub('touch')">👆 Touchpad</button>
     </div>
 
     <div id="subRemapPad">
@@ -673,77 +1011,124 @@ input:checked + .slider-sw:before { transform: translateX(20px); }
         </div>
       </div>
     </div>
+
+    <div id="subRemapTouch" style="display:none;">
+      <div class="card">
+        <h2>👆 Atalhos do Touchpad (DualSense)</h2>
+        <p>Configure o que cada gesto (deslizar) ou clique físico (lado esquerdo/direito) no touchpad faz durante o streaming. <strong>Touchpad + Options</strong> permanece sempre fixo para abrir o Menu do Jogo.</p>
+        <div class="grid-map" id="remapTouchpadShortcutsGrid"></div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveSettings()">Salvar no Console</button>
+          <button class="btn" onclick="resetTouchpadShortcuts()">Restaurar Touchpad Padrão</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- TAB: GAMEPAD (CONTROLE VIRTUAL) -->
   <div id="tab-gamepad" class="tab-pane" style="display:none;">
-    <div class="card">
-      <h2>🎮 Controle Virtual (Smartphone)</h2>
-      <p>Use o celular como controle tátil responsivo. Alterne entre Jogador 1 (principal) e Jogador 2 (co-op local)!</p>
-
-      <div class="player-select-row">
-        <button type="button" class="player-btn active" id="btnPlayer1" onclick="setVirtualPlayer(1)">
-          👤 Jogador 1 (Principal)
-        </button>
-        <button type="button" class="player-btn" id="btnPlayer2" onclick="setVirtualPlayer(2)">
-          👥 Jogador 2 (Co-op Local)
-        </button>
-      </div>
-
-      <div class="gamepad-container" id="gamepadArea">
-        <!-- Top row: Bumpers / Triggers / Center -->
-        <div class="pad-top-row">
-          <div class="pad-bumper-group">
-            <button type="button" class="pad-btn pad-btn-sm" id="btn_lt" data-btn="triggerL2">LT</button>
-            <button type="button" class="pad-btn pad-btn-sm" id="btn_lb" data-btn="btnL1">LB</button>
-            <button type="button" class="pad-btn pad-btn-sm" id="btn_ls" data-btn="btnL3">LS (L3)</button>
-          </div>
-          <div class="pad-center-group">
-            <button type="button" class="pad-btn pad-btn-center" id="btn_view" data-btn="btnView">VIEW</button>
-            <button type="button" class="pad-btn pad-btn-nexus" id="btn_nexus" data-btn="btnNexus">X</button>
-            <button type="button" class="pad-btn pad-btn-center" id="btn_menu" data-btn="btnMenu">MENU</button>
-          </div>
-          <div class="pad-bumper-group">
-            <button type="button" class="pad-btn pad-btn-sm" id="btn_rt" data-btn="triggerR2">RT</button>
-            <button type="button" class="pad-btn pad-btn-sm" id="btn_rb" data-btn="btnR1">RB</button>
-            <button type="button" class="pad-btn pad-btn-sm" id="btn_rs" data-btn="btnR3">RS (R3)</button>
-          </div>
-        </div>
-
-        <!-- Main row: Left (D-pad & Left Stick) and Right (ABXY & Right Stick) -->
-        <div class="pad-main-row">
-          <div class="pad-side">
-            <!-- Left Stick -->
-            <div class="stick-zone" id="leftStickZone">
-              <div class="stick-head" id="leftStickHead">L3</div>
-            </div>
-            <!-- D-Pad -->
-            <div class="dpad-cross">
-              <button type="button" class="pad-btn dpad-btn dpad-up" data-btn="dpadUp">▲</button>
-              <button type="button" class="pad-btn dpad-btn dpad-left" data-btn="dpadLeft">◀</button>
-              <div class="dpad-center"></div>
-              <button type="button" class="pad-btn dpad-btn dpad-right" data-btn="dpadRight">▶</button>
-              <button type="button" class="pad-btn dpad-btn dpad-down" data-btn="dpadDown">▼</button>
-            </div>
-          </div>
-
-          <div class="pad-side">
-            <!-- ABXY Buttons -->
-            <div class="abxy-group">
-              <button type="button" class="pad-btn abxy-btn btn-y" data-btn="btnY">Y</button>
-              <button type="button" class="pad-btn abxy-btn btn-x" data-btn="btnX">X</button>
-              <button type="button" class="pad-btn abxy-btn btn-b" data-btn="btnB">B</button>
-              <button type="button" class="pad-btn abxy-btn btn-a" data-btn="btnA">A</button>
-            </div>
-            <!-- Right Stick -->
-            <div class="stick-zone" id="rightStickZone">
-              <div class="stick-head" id="rightStickHead">R3</div>
-            </div>
-          </div>
+    <div class="card" id="gamepadCard">
+      <div class="gamepad-intro">
+        <div class="gamepad-toolbar">
+          <button type="button" class="btn btn-primary" id="btnFullscreenPad" onclick="toggleGamepadFullscreen()" style="padding: 6px 12px; font-size: 0.78rem;">
+            ⛶ Tela Cheia
+          </button>
         </div>
       </div>
 
-      <div class="status-pill" style="margin-top: 14px;">
+      <div class="gamepad-viewport-wrapper" id="gamepadScaleContainer">
+        <div class="gamepad-container" id="gamepadArea">
+
+          <!-- MODULE 1: Left Stick -->
+          <div id="mod_stick_left" class="gamepad-module">
+            <div class="stick-base" id="leftStickZone">
+              <div class="stick-head" id="leftStickHead"></div>
+            </div>
+          </div>
+
+          <!-- MODULE 2: D-Pad -->
+          <div id="mod_dpad" class="gamepad-module">
+            <div class="dpad-container" id="box_dpad">
+              <div class="dpad-arm dpad-arm-up" data-btn="dpadUp">▲</div>
+              <div class="dpad-arm dpad-arm-left" data-btn="dpadLeft">◀</div>
+              <div class="dpad-mid"></div>
+              <div class="dpad-arm dpad-arm-right" data-btn="dpadRight">▶</div>
+              <div class="dpad-arm dpad-arm-down" data-btn="dpadDown">▼</div>
+            </div>
+          </div>
+
+          <!-- MODULE 3: ABXY Diamond -->
+          <div id="mod_abxy" class="gamepad-module">
+            <div class="abxy-container" id="box_abxy">
+              <div class="abxy-key btn-y" data-btn="btnY">Y</div>
+              <div class="abxy-key btn-x" data-btn="btnX">X</div>
+              <div class="abxy-key btn-b" data-btn="btnB">B</div>
+              <div class="abxy-key btn-a" data-btn="btnA">A</div>
+            </div>
+          </div>
+
+          <!-- MODULE 4: Right Stick -->
+          <div id="mod_stick_right" class="gamepad-module">
+            <div class="stick-base" id="rightStickZone">
+              <div class="stick-head" id="rightStickHead"></div>
+            </div>
+          </div>
+
+          <!-- INDIVIDUAL SHOULDER & TRIGGER BUTTONS -->
+          <!-- MODULE 5: LT Trigger -->
+          <div id="mod_btn_lt" class="gamepad-module pad-bumper-left">
+            <button type="button" class="pad-btn pad-btn-trigger" id="btn_lt" data-btn="triggerL2">LT</button>
+          </div>
+
+          <!-- MODULE 6: LB Bumper -->
+          <div id="mod_btn_lb" class="gamepad-module pad-bumper-left">
+            <button type="button" class="pad-btn pad-btn-bumper" id="btn_lb" data-btn="btnL1">LB</button>
+          </div>
+
+          <!-- MODULE 7: LS Button -->
+          <div id="mod_btn_ls" class="gamepad-module pad-bumper-left">
+            <button type="button" class="pad-btn pad-btn-stick-click pad-btn-stick-btn" id="btn_ls" data-btn="btnL3">LS</button>
+          </div>
+
+          <!-- MODULE 8: RS Button -->
+          <div id="mod_btn_rs" class="gamepad-module pad-bumper-right">
+            <button type="button" class="pad-btn pad-btn-stick-click pad-btn-stick-btn" id="btn_rs" data-btn="btnR3">RS</button>
+          </div>
+
+          <!-- MODULE 9: RB Bumper -->
+          <div id="mod_btn_rb" class="gamepad-module pad-bumper-right">
+            <button type="button" class="pad-btn pad-btn-bumper" id="btn_rb" data-btn="btnR1">RB</button>
+          </div>
+
+          <!-- MODULE 10: RT Trigger -->
+          <div id="mod_btn_rt" class="gamepad-module pad-bumper-right">
+            <button type="button" class="pad-btn pad-btn-trigger" id="btn_rt" data-btn="triggerR2">RT</button>
+          </div>
+
+          <!-- MODULE 11: Center System Buttons (VIEW, X, MENU) -->
+          <div id="mod_center_sys" class="gamepad-module">
+            <div class="center-sys-container">
+              <button type="button" class="pad-btn pad-btn-sys" id="btn_view" data-btn="btnView">VIEW</button>
+              <button type="button" class="pad-btn-nexus-btn" id="btn_nexus" data-btn="btnNexus">X</button>
+              <button type="button" class="pad-btn pad-btn-sys" id="btn_menu" data-btn="btnMenu">MENU</button>
+              <button type="button" class="pad-btn pad-btn-sys fs-only-exit" id="btn_exit_fs" onclick="toggleGamepadFullscreen()" style="background:#451a1a;border-color:#b91c1c;color:#fca5a5;">✕ Sair</button>
+            </div>
+          </div>
+
+          <!-- MODULE 12: Player Selector (P1..P4) -->
+          <div id="mod_player_bar" class="gamepad-module">
+            <div class="player-bar-container">
+              <button type="button" class="player-pill active" id="btnPlayer1" onclick="setVirtualPlayer(1)">P1</button>
+              <button type="button" class="player-pill" id="btnPlayer2" onclick="setVirtualPlayer(2)">P2</button>
+              <button type="button" class="player-pill" id="btnPlayer3" onclick="setVirtualPlayer(3)">P3</button>
+              <button type="button" class="player-pill" id="btnPlayer4" onclick="setVirtualPlayer(4)">P4</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="status-pill gamepad-status-bar" style="margin-top: 10px;">
         <div class="status-dot"></div>
         <span id="gamepadStatus">Controle ativo para Jogador 1 (Principal)</span>
       </div>
@@ -753,13 +1138,34 @@ input:checked + .slider-sw:before { transform: translateX(20px); }
   <!-- TAB: LOGS -->
   <div id="tab-logs" class="tab-pane" style="display:none;">
     <div class="card">
-      <h2>📋 Download de Logs</h2>
-      <p>Baixe o arquivo <code>xcloud.log</code> sanitizado (sem tokens ou dados privados) para anexar em relatórios de erros no GitHub.</p>
-      <div class="btn-row" style="margin-top: 0; margin-bottom: 14px;">
-        <a href="/api/log" download="xcloud.log" class="btn btn-primary">⬇️ Baixar xcloud.log</a>
-        <button class="btn" onclick="loadLogPreview()">Visualizar Últimas Linhas</button>
+      <h2>🐛 Enviar Relatório de Erro (GitHub)</h2>
+      <p>Gere um relatório completo da sessão atual com logs sanitizados (sem dados privados, e-mails ou tokens) formatado automaticamente para o repositório oficial no GitHub.</p>
+
+      <div class="form-group" style="margin-bottom: 10px;">
+        <label for="reportTitle" style="font-weight: 600; font-size: 0.82rem; display: block; margin-bottom: 4px;">Título do Problema (Opcional):</label>
+        <input type="text" id="reportTitle" class="form-control" placeholder="Ex: Queda de transmissão ou erro de áudio" style="width: 100%; box-sizing: border-box; padding: 8px 10px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 8px; color: #fff; font-size: 0.85rem;">
       </div>
-      <pre id="logPreview">Clique em "Visualizar Últimas Linhas" para carregar o log...</pre>
+
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label for="reportWhat" style="font-weight: 600; font-size: 0.82rem; display: block; margin-bottom: 4px;">O que aconteceu? (Opcional):</label>
+        <textarea id="reportWhat" class="form-control" rows="2" placeholder="Descreva brevemente o que você estava fazendo quando o erro ocorreu..." style="width: 100%; box-sizing: border-box; padding: 8px 10px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 8px; color: #fff; font-size: 0.85rem; resize: vertical;"></textarea>
+      </div>
+
+      <div class="btn-row" style="margin-top: 0; margin-bottom: 8px; gap: 8px; display: flex; flex-wrap: wrap;">
+        <button type="button" class="btn btn-primary" onclick="openGitHubReport()" id="btnOpenReport">🚀 Abrir Relatório no GitHub</button>
+        <button type="button" class="btn" onclick="copySanitizedReport()" id="btnCopyReport">📋 Copiar Relatório</button>
+        <button type="button" class="btn" onclick="previewReport()" id="btnPreviewReport">🔍 Pré-visualizar</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>📋 Download de Logs Cru</h2>
+      <p>Baixe o arquivo <code>xcloud.log</code> sanitizado (sem tokens ou dados privados) para inspeção local ou envio manual.</p>
+      <div class="btn-row" style="margin-top: 0; margin-bottom: 14px; gap: 8px; display: flex; flex-wrap: wrap;">
+        <a href="/api/log" download="xcloud.log" class="btn btn-primary">⬇️ Baixar xcloud.log</a>
+        <button type="button" class="btn" onclick="loadLogPreview()">Visualizar Últimas Linhas</button>
+      </div>
+      <pre id="logPreview">Clique em "Visualizar Últimas Linhas" ou "Pré-visualizar" para inspecionar os dados...</pre>
     </div>
   </div>
 </div>
@@ -778,6 +1184,48 @@ const padSources = [
   {id: 8, name: "L3 (LS)"}, {id: 9, name: "R3 (RS)"}, {id: 10, name: "Touchpad (View)"}, {id: 11, name: "Options (Menu)"},
   {id: 12, name: "D-pad Cima"}, {id: 13, name: "D-pad Baixo"}, {id: 14, name: "D-pad Esquerda"}, {id: 15, name: "D-pad Direita"}
 ];
+
+const touchpadTriggers = [
+  {key: "swipeUp", label: "Deslizar ↑ (Cima)"},
+  {key: "swipeDown", label: "Deslizar ↓ (Baixo)"},
+  {key: "swipeLeft", label: "Deslizar ← (Esquerda)"},
+  {key: "swipeRight", label: "Deslizar → (Direita)"},
+  {key: "clickLeft", label: "Clique Esquerdo"},
+  {key: "clickRight", label: "Clique Direito"}
+];
+
+const touchpadActions = [
+  {id: "none", name: "Desativado"},
+  {id: "game_menu", name: "Menu do Jogo"},
+  {id: "xbox_button", name: "Botão Xbox (Guia)"},
+  {id: "toggle_stats", name: "Alternar Telemetria"},
+  {id: "toggle_mic_mute", name: "Silenciar Microfone"},
+  {id: "cycle_gyro", name: "Alternar Giroscópio"},
+  {id: "cycle_trigger_profile", name: "Alternar Perfil de Gatilho"},
+  {id: "view", name: "View"},
+  {id: "menu", name: "Menu"},
+  {id: "l3", name: "LS (L3)"},
+  {id: "r3", name: "RS (R3)"},
+  {id: "a", name: "A (Cruz)"},
+  {id: "b", name: "B (Círculo)"},
+  {id: "x", name: "X (Quadrado)"},
+  {id: "y", name: "Y (Triângulo)"},
+  {id: "lb", name: "LB (L1)"},
+  {id: "rb", name: "RB (R1)"},
+  {id: "dpad_up", name: "D-pad Cima"},
+  {id: "dpad_down", name: "D-pad Baixo"},
+  {id: "dpad_left", name: "D-pad Esquerda"},
+  {id: "dpad_right", name: "D-pad Direita"}
+];
+
+const defaultTouchpadShortcuts = {
+  swipeUp: "xbox_button",
+  swipeDown: "game_menu",
+  swipeLeft: "game_menu",
+  swipeRight: "xbox_button",
+  clickLeft: "view",
+  clickRight: "view"
+};
 
 const keyActionNames = [
   "Analógico Esq. Cima", "Analógico Esq. Baixo", "Analógico Esq. Esquerda", "Analógico Esq. Direita",
@@ -818,8 +1266,10 @@ const defaultKeyMap = [
 
 let currentSettings = {
   padMap: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
-  keyMap: [...defaultKeyMap]
+  keyMap: [...defaultKeyMap],
+  touchpadShortcuts: {...defaultTouchpadShortcuts}
 };
+let lastSettingsVersion = 0;
 
 let currentSearchTab = 'gamepass';
 let currentFilters = {
@@ -838,14 +1288,24 @@ let currentFilters = {
 };
 
 function switchTab(name) {
-  document.querySelectorAll('.tab-pane').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.tab-pane').forEach(el => {
+    el.style.display = 'none';
+    el.classList.remove('active');
+  });
   document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
   const pane = document.getElementById('tab-' + name);
-  if (pane) pane.style.display = 'block';
+  if (pane) {
+    pane.style.display = 'block';
+    pane.classList.add('active');
+  }
   const tabBtn = document.getElementById('navTab-' + name);
   if (tabBtn) tabBtn.classList.add('active');
   if (name === 'search') pollStreamingState();
-  if (name === 'gamepad') sendPadState();
+  if (name === 'gamepad') {
+    sendPadState(true);
+    updateGamepadScale();
+    setTimeout(updateGamepadScale, 10);
+  }
   if (name === 'stream') {
     loadStreamMenuState();
     pollStats();
@@ -855,8 +1315,12 @@ function switchTab(name) {
 function switchRemapSub(mode) {
   document.getElementById('subRemapPad').style.display = mode === 'pad' ? 'block' : 'none';
   document.getElementById('subRemapKey').style.display = mode === 'key' ? 'block' : 'none';
+  const subTouch = document.getElementById('subRemapTouch');
+  if (subTouch) subTouch.style.display = mode === 'touch' ? 'block' : 'none';
   document.getElementById('btnSubPad').classList.toggle('active', mode === 'pad');
   document.getElementById('btnSubKey').classList.toggle('active', mode === 'key');
+  const btnTouch = document.getElementById('btnSubTouch');
+  if (btnTouch) btnTouch.classList.toggle('active', mode === 'touch');
 }
 
 function showToast(msg) {
@@ -1006,10 +1470,71 @@ function clearSearch() {
   sendSearch(true);
 }
 
+function renderTouchpadShortcutsGrid(containerId, idPrefix, tsObj, onChangeFn) {
+  const grid = document.getElementById(containerId);
+  if (!grid) return;
+  grid.innerHTML = '';
+  const ts = Object.assign({}, defaultTouchpadShortcuts, tsObj || {});
+  touchpadTriggers.forEach(trig => {
+    const item = document.createElement('div');
+    item.className = 'map-item';
+    const label = document.createElement('label');
+    label.textContent = trig.label;
+    const select = document.createElement('select');
+    select.id = idPrefix + '_' + trig.key;
+    touchpadActions.forEach((act, idx) => {
+      const opt = document.createElement('option');
+      opt.value = act.id;
+      opt.textContent = act.name;
+      if (ts[trig.key] === act.id || ts[trig.key] === idx) opt.selected = true;
+      select.appendChild(opt);
+    });
+    select.addEventListener('change', () => {
+      currentSettings.touchpadShortcuts = currentSettings.touchpadShortcuts || {...defaultTouchpadShortcuts};
+      currentSettings.touchpadShortcuts[trig.key] = select.value;
+      syncTouchpadSelects(trig.key, select.value);
+      if (onChangeFn) onChangeFn(trig.key, select.value);
+    });
+    item.appendChild(label);
+    item.appendChild(select);
+    grid.appendChild(item);
+  });
+}
+
+function syncTouchpadSelects(trigKey, val) {
+  ['tp_remap_'].forEach(prefix => {
+    const el = document.getElementById(prefix + trigKey);
+    if (el && el.value !== String(val)) el.value = val;
+  });
+}
+
+function readTouchpadShortcutsFromPrefix(prefix) {
+  const out = {...defaultTouchpadShortcuts};
+  touchpadTriggers.forEach(trig => {
+    const el = document.getElementById(prefix + '_' + trig.key);
+    if (el) out[trig.key] = el.value;
+  });
+  return out;
+}
+
+function renderAllTouchpadGrids(tsObj) {
+  const ts = Object.assign({}, defaultTouchpadShortcuts, tsObj || currentSettings.touchpadShortcuts || {});
+  currentSettings.touchpadShortcuts = ts;
+  renderTouchpadShortcutsGrid('remapTouchpadShortcutsGrid', 'tp_remap', ts, null);
+}
+
+function resetTouchpadShortcuts() {
+  currentSettings.touchpadShortcuts = {...defaultTouchpadShortcuts};
+  renderAllTouchpadGrids(currentSettings.touchpadShortcuts);
+  saveSettings();
+}
+
 function renderPadMap() {
   const grid = document.getElementById('padGrid');
   grid.innerHTML = '';
-  const map = currentSettings.padMap || [];
+  const map = Array.isArray(currentSettings.padMap) ? currentSettings.padMap
+            : (currentSettings.padMap && Array.isArray(currentSettings.padMap.map)) ? currentSettings.padMap.map
+            : [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15];
   padFunctions.forEach((fnName, idx) => {
     const item = document.createElement('div');
     item.className = 'map-item';
@@ -1093,10 +1618,11 @@ function saveSettings() {
     keyMap.push(s0 ? parseInt(s0.value, 10) : 0);
     keyMap.push(s1 ? parseInt(s1.value, 10) : 0);
   }
+  const touchpadShortcuts = readTouchpadShortcutsFromPrefix('tp_remap');
   fetch('/api/settings', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ padMap: padMap, keyMap: keyMap })
+    body: JSON.stringify({ padMap: padMap, keyMap: keyMap, touchpadShortcuts: touchpadShortcuts })
   }).then(r => r.json()).then(res => {
     if (res.ok) {
       showToast('Configurações salvas no console!');
@@ -1160,6 +1686,8 @@ function sendStreamParam(param, val) {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body)
+  }).then(r => r.json()).then(res => {
+    if (res && res.ok) showToast('Aplicado na transmissão!');
   }).catch(() => {});
 }
 
@@ -1197,6 +1725,9 @@ function loadStreamMenuState() {
     if (s.triggerProfile !== undefined) {
       const el = document.getElementById('selectSmartTriggers');
       if (el) el.value = s.triggerProfile;
+    }
+    if (s.touchpadShortcuts) {
+      renderAllTouchpadGrids(s.touchpadShortcuts);
     }
   }).catch(() => {});
 }
@@ -1258,44 +1789,172 @@ function loadLogPreview() {
   });
 }
 
-fetch('/api/settings').then(r => r.json()).then(s => {
-  currentSettings = s;
-  if (s.query) searchInput.value = s.query;
+function getReportParams() {
+  const title = (document.getElementById('reportTitle')?.value || '').trim();
+  const what = (document.getElementById('reportWhat')?.value || '').trim();
+  return { title, what };
+}
+
+function openGitHubReport() {
+  const { title, what } = getReportParams();
+  const btn = document.getElementById('btnOpenReport');
+  btn.disabled = true;
+  btn.textContent = 'Gerando link...';
+  fetch('/api/report-issue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, what })
+  }).then(r => r.json()).then(data => {
+    btn.disabled = false;
+    btn.textContent = '🚀 Abrir Relatório no GitHub';
+    if (data && data.url) {
+      window.open(data.url, '_blank');
+      showToast('Formulário do GitHub aberto em nova aba!');
+    } else {
+      showToast('Erro ao obter link do relatório.');
+    }
+  }).catch(e => {
+    btn.disabled = false;
+    btn.textContent = '🚀 Abrir Relatório no GitHub';
+    showToast('Falha na requisição: ' + e);
+  });
+}
+
+function fallbackCopyText(text) {
+  return new Promise((resolve, reject) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.top = '0';
+      ta.style.left = '0';
+      ta.style.width = '2em';
+      ta.style.height = '2em';
+      ta.style.padding = '0';
+      ta.style.border = 'none';
+      ta.style.outline = 'none';
+      ta.style.boxShadow = 'none';
+      ta.style.background = 'transparent';
+      ta.style.opacity = '0.01';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      if (typeof ta.setSelectionRange === 'function') {
+        ta.setSelectionRange(0, text.length);
+      }
+      let ok = false;
+      try {
+        ok = document.execCommand('copy');
+      } catch (_) {
+        ok = false;
+      }
+      document.body.removeChild(ta);
+      if (ok) resolve(); else reject(new Error('execCommand copy failed'));
+    } catch (e) { reject(e); }
+  });
+}
+
+function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => fallbackCopyText(text));
+  }
+  return fallbackCopyText(text);
+}
+
+function copySanitizedReport() {
+  const { title, what } = getReportParams();
+  const btn = document.getElementById('btnCopyReport');
+  btn.disabled = true;
+  fetch('/api/report-issue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, what })
+  }).then(r => r.json()).then(data => {
+    btn.disabled = false;
+    if (data && data.excerpt) {
+      const markdown = `### ${data.title || 'Relatório de Erro'}\n\n**Plataforma:** ${data.platform || 'PlayStation 5 (PPSA99810)'}\n**Versão:** v${data.release || '1.4.0'}\n**Firmware:** ${data.firmware || 'N/A'}\n\n**O que aconteceu:**\n${what || 'Relatório enviado via WebUI'}\n\n\`\`\`\n${data.excerpt}\n\`\`\``;
+      copyTextToClipboard(markdown).then(() => {
+        showToast('Relatório copiado para a área de transferência!');
+      }).catch(() => {
+        const p = document.getElementById('logPreview');
+        if (p) {
+          p.textContent = markdown;
+          p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        try {
+          window.prompt('Copie o relatório abaixo (Ctrl+C / Toque longo):', markdown);
+          showToast('Relatório preparado!');
+        } catch (_) {
+          showToast('Relatório preparado no campo abaixo para cópia!');
+        }
+      });
+    } else {
+      showToast('Erro ao gerar relatório.');
+    }
+  }).catch(e => {
+    btn.disabled = false;
+    showToast('Falha ao copiar: ' + e);
+  });
+}
+
+function previewReport() {
+  const { title, what } = getReportParams();
+  const p = document.getElementById('logPreview');
+  p.textContent = 'Carregando resumo do relatório sanitizado...';
+  fetch('/api/report-issue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, what })
+  }).then(r => r.json()).then(data => {
+    if (data && data.excerpt) {
+      p.textContent = `=== RELATÓRIO PREPARADO ===\nTítulo: ${data.title}\nPlataforma: ${data.platform}\nVersão: v${data.release}\nFirmware: ${data.firmware}\n\n${data.excerpt}`;
+    } else {
+      p.textContent = 'Nenhum dado retornado.';
+    }
+  }).catch(e => {
+    p.textContent = 'Erro ao carregar pré-visualização: ' + e;
+  });
+}
+
+function applyLoadedSettings(s) {
+  currentSettings = Object.assign(currentSettings, s);
+  if (s.settingsVersion !== undefined) lastSettingsVersion = s.settingsVersion;
+  if (s.query !== undefined && document.activeElement !== searchInput) searchInput.value = s.query;
   if (s.tab) {
     currentSearchTab = s.tab;
   }
   if (s.filters) {
-    if (s.filters.wishlist) {
-      currentFilters.wishlist = true;
+    if (s.filters.wishlist !== undefined) {
+      currentFilters.wishlist = !!s.filters.wishlist;
       const el = document.getElementById('chipWishlist');
-      if (el) el.classList.add('active');
+      if (el) el.classList.toggle('active', currentFilters.wishlist);
     }
-    if (s.filters.free) {
-      currentFilters.free = true;
+    if (s.filters.free !== undefined) {
+      currentFilters.free = !!s.filters.free;
       const el = document.getElementById('chipFree');
-      if (el) el.classList.add('active');
+      if (el) el.classList.toggle('active', currentFilters.free);
     }
-    if (s.filters.cheapest) {
-      currentFilters.cheapest = true;
+    if (s.filters.cheapest !== undefined) {
+      currentFilters.cheapest = !!s.filters.cheapest;
       const el = document.getElementById('chipCheapest');
-      if (el) el.classList.add('active');
+      if (el) el.classList.toggle('active', currentFilters.cheapest);
     }
-    if (s.filters.mouseKeyboard) {
-      currentFilters.mouseGP = true;
-      currentFilters.mouseLib = true;
+    if (s.filters.mouseKeyboard !== undefined) {
+      currentFilters.mouseGP = !!s.filters.mouseKeyboard;
+      currentFilters.mouseLib = !!s.filters.mouseKeyboard;
       const elGP = document.getElementById('chipMouseGP');
-      if (elGP) elGP.classList.add('active');
+      if (elGP) elGP.classList.toggle('active', currentFilters.mouseGP);
       const elLib = document.getElementById('chipMouseLib');
-      if (elLib) elLib.classList.add('active');
+      if (elLib) elLib.classList.toggle('active', currentFilters.mouseLib);
     }
-    if (s.filters.plan !== undefined && s.filters.plan > 0) {
+    if (s.filters.plan !== undefined) {
       currentFilters.plan = s.filters.plan;
       const sel = document.getElementById('filterPlan');
       if (sel) sel.value = s.filters.plan;
       const wrap = document.getElementById('chipSelectPlan');
-      if (wrap) wrap.classList.add('active');
+      if (wrap) wrap.classList.toggle('active', s.filters.plan > 0);
     }
-    if (s.filters.console !== undefined && s.filters.console > 0) {
+    if (s.filters.console !== undefined) {
       currentFilters.consoleGP = s.filters.console;
       currentFilters.consoleLib = s.filters.console;
       const selGP = document.getElementById('filterConsoleGP');
@@ -1303,11 +1962,11 @@ fetch('/api/settings').then(r => r.json()).then(s => {
       const selLib = document.getElementById('filterConsoleLib');
       if (selLib) selLib.value = s.filters.console;
       const wrapGP = document.getElementById('chipSelectConsoleGP');
-      if (wrapGP) wrapGP.classList.add('active');
+      if (wrapGP) wrapGP.classList.toggle('active', s.filters.console > 0);
       const wrapLib = document.getElementById('chipSelectConsoleLib');
-      if (wrapLib) wrapLib.classList.add('active');
+      if (wrapLib) wrapLib.classList.toggle('active', s.filters.console > 0);
     }
-    if (s.filters.mode !== undefined && s.filters.mode > 0) {
+    if (s.filters.mode !== undefined) {
       currentFilters.modeGP = s.filters.mode;
       currentFilters.modeLib = s.filters.mode;
       const selGP = document.getElementById('filterModeGP');
@@ -1315,11 +1974,11 @@ fetch('/api/settings').then(r => r.json()).then(s => {
       const selLib = document.getElementById('filterModeLib');
       if (selLib) selLib.value = s.filters.mode;
       const wrapGP = document.getElementById('chipSelectModeGP');
-      if (wrapGP) wrapGP.classList.add('active');
+      if (wrapGP) wrapGP.classList.toggle('active', s.filters.mode > 0);
       const wrapLib = document.getElementById('chipSelectModeLib');
-      if (wrapLib) wrapLib.classList.add('active');
+      if (wrapLib) wrapLib.classList.toggle('active', s.filters.mode > 0);
     }
-    if (s.filters.language !== undefined && s.filters.language > 0) {
+    if (s.filters.language !== undefined) {
       currentFilters.langGP = s.filters.language;
       currentFilters.langLib = s.filters.language;
       const selGP = document.getElementById('filterLangGP');
@@ -1327,9 +1986,9 @@ fetch('/api/settings').then(r => r.json()).then(s => {
       const selLib = document.getElementById('filterLangLib');
       if (selLib) selLib.value = s.filters.language;
       const wrapGP = document.getElementById('chipSelectLangGP');
-      if (wrapGP) wrapGP.classList.add('active');
+      if (wrapGP) wrapGP.classList.toggle('active', s.filters.language > 0);
       const wrapLib = document.getElementById('chipSelectLangLib');
-      if (wrapLib) wrapLib.classList.add('active');
+      if (wrapLib) wrapLib.classList.toggle('active', s.filters.language > 0);
     }
   }
   if (s.maxBitrateMbps !== undefined) {
@@ -1377,10 +2036,17 @@ fetch('/api/settings').then(r => r.json()).then(s => {
   updateSearchStatusText();
   renderPadMap();
   renderKeyMap();
-}).catch(e => {
-  renderPadMap();
-  renderKeyMap();
-});
+  renderAllTouchpadGrids(s.touchpadShortcuts);
+}
+
+function loadAllSettingsFromServer() {
+  fetch('/api/settings').then(r => r.json()).then(applyLoadedSettings).catch(() => {
+    renderPadMap();
+    renderKeyMap();
+    renderAllTouchpadGrids(currentSettings.touchpadShortcuts);
+  });
+}
+loadAllSettingsFromServer();
 
 // --- Virtual Gamepad & Streaming Polling ---
 let activePlayer = 1;
@@ -1396,18 +2062,66 @@ const padState = {
 let padSendScheduled = false;
 
 function setVirtualPlayer(p) {
+  const prev = activePlayer;
   activePlayer = p;
-  document.getElementById('btnPlayer1').classList.toggle('active', p === 1);
-  document.getElementById('btnPlayer2').classList.toggle('active', p === 2);
+  for (let i = 1; i <= 4; i++) {
+    const btn = document.getElementById('btnPlayer' + i);
+    if (btn) btn.classList.toggle('active', p === i);
+  }
   const statusEl = document.getElementById('gamepadStatus');
   if (statusEl) {
-    statusEl.textContent = 'Controle ativo para Jogador ' + p + (p === 2 ? ' (Co-op Local)' : ' (Principal)');
+    statusEl.textContent = 'Controle ativo para Jogador ' + p + (p === 1 ? ' (Principal)' : ' (Co-op Local)');
   }
-  sendPadState();
+  sendPadState(true, prev);
 }
 
-function sendPadState() {
-  const payload = { player: activePlayer, ...padState };
+function toggleGamepadFullscreen() {
+  const card = document.getElementById('gamepadCard');
+  if (!card) return;
+  const isFs = card.classList.contains('gamepad-fullscreen') || document.fullscreenElement === card || document.webkitFullscreenElement === card;
+  if (!isFs) {
+    card.classList.add('gamepad-fullscreen');
+    if (card.requestFullscreen) {
+      card.requestFullscreen().catch(() => {});
+    } else if (card.webkitRequestFullscreen) {
+      try { card.webkitRequestFullscreen(); } catch (_) {}
+    }
+    if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('landscape').catch(() => {});
+    }
+  } else {
+    card.classList.remove('gamepad-fullscreen');
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      else if (document.webkitExitFullscreen) {
+        try { document.webkitExitFullscreen(); } catch (_) {}
+      }
+    }
+    if (screen.orientation && screen.orientation.unlock) {
+      try { screen.orientation.unlock(); } catch (_) {}
+    }
+  }
+  setTimeout(updateGamepadScale, 20);
+  setTimeout(updateGamepadScale, 150);
+}
+
+document.addEventListener('fullscreenchange', () => {
+  const card = document.getElementById('gamepadCard');
+  if (card && !document.fullscreenElement && !document.webkitFullscreenElement) {
+    card.classList.remove('gamepad-fullscreen');
+  }
+  setTimeout(updateGamepadScale, 30);
+});
+document.addEventListener('webkitfullscreenchange', () => {
+  const card = document.getElementById('gamepadCard');
+  if (card && !document.fullscreenElement && !document.webkitFullscreenElement) {
+    card.classList.remove('gamepad-fullscreen');
+  }
+  setTimeout(updateGamepadScale, 30);
+});
+
+function sendPadState(activeSwitch = false, prevPlayer = 0) {
+  const payload = { player: activePlayer, prevPlayer: prevPlayer, activeSwitch: !!activeSwitch, ...padState };
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
   } else {
@@ -1424,7 +2138,7 @@ function schedulePadSend() {
   padSendScheduled = true;
   requestAnimationFrame(() => {
     padSendScheduled = false;
-    sendPadState();
+    sendPadState(false);
   });
 }
 
@@ -1432,48 +2146,59 @@ function bindPadButtons() {
   document.querySelectorAll('[data-btn]').forEach(el => {
     const key = el.getAttribute('data-btn');
     const isTrigger = key === 'triggerL2' || key === 'triggerR2';
+    const activeTouches = new Set();
 
-    const onDown = (e) => {
-      e.preventDefault();
+    const setDown = () => {
       if (isTrigger) padState[key] = 1.0;
       else padState[key] = true;
       el.classList.add('pressed');
       if (navigator.vibrate) {
         try { navigator.vibrate(14); } catch (_) {}
       }
-      sendPadState();
+      sendPadState(false);
     };
 
-    const onUp = (e) => {
-      e.preventDefault();
+    const setUp = () => {
       if (isTrigger) padState[key] = 0.0;
       else padState[key] = false;
       el.classList.remove('pressed');
-      sendPadState();
+      sendPadState(false);
     };
 
-    el.addEventListener('touchstart', onDown, { passive: false });
-    el.addEventListener('touchend', onUp, { passive: false });
-    el.addEventListener('touchcancel', onUp, { passive: false });
-    el.addEventListener('mousedown', onDown);
-    el.addEventListener('mouseup', onUp);
-    el.addEventListener('mouseleave', onUp);
+    el.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        activeTouches.add(e.changedTouches[i].identifier);
+      }
+      setDown();
+    }, { passive: false });
+
+    const onTouchEnd = (e) => {
+      e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        activeTouches.delete(e.changedTouches[i].identifier);
+      }
+      if (activeTouches.size === 0) setUp();
+    };
+
+    el.addEventListener('touchend', onTouchEnd, { passive: false });
+    el.addEventListener('touchcancel', onTouchEnd, { passive: false });
+    el.addEventListener('mousedown', (e) => { e.preventDefault(); setDown(); });
+    el.addEventListener('mouseup', (e) => { e.preventDefault(); setUp(); });
+    el.addEventListener('mouseleave', () => { if (activeTouches.size === 0 && el.classList.contains('pressed')) setUp(); });
   });
 }
 
-function setupStick(zoneId, headId, stickKeyX, stickKeyY, l3r3Key) {
+function setupStick(zoneId, headId, stickKeyX, stickKeyY) {
   const zone = document.getElementById(zoneId);
   const head = document.getElementById(headId);
   if (!zone || !head) return;
 
   let activeTouchId = null;
-  const maxR = 34;
-
-  let touchStartMs = 0;
-  let startX = 0, startY = 0;
 
   function updateStick(clientX, clientY) {
     const rect = zone.getBoundingClientRect();
+    const maxR = Math.max(28, (rect.width - head.offsetWidth) / 2);
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
     let dx = clientX - cx;
@@ -1494,16 +2219,13 @@ function setupStick(zoneId, headId, stickKeyX, stickKeyY, l3r3Key) {
     padState[stickKeyX] = 0.0;
     padState[stickKeyY] = 0.0;
     activeTouchId = null;
-    sendPadState();
+    sendPadState(false);
   }
 
   zone.addEventListener('touchstart', (e) => {
     e.preventDefault();
     if (activeTouchId === null && e.changedTouches.length > 0) {
       activeTouchId = e.changedTouches[0].identifier;
-      touchStartMs = Date.now();
-      startX = e.changedTouches[0].clientX;
-      startY = e.changedTouches[0].clientY;
       updateStick(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
     }
   }, { passive: false });
@@ -1521,17 +2243,7 @@ function setupStick(zoneId, headId, stickKeyX, stickKeyY, l3r3Key) {
   const onTouchEnd = (e) => {
     for (let i = 0; i < e.changedTouches.length; i++) {
       if (e.changedTouches[i].identifier === activeTouchId) {
-        const duration = Date.now() - touchStartMs;
-        const moveDist = Math.hypot(e.changedTouches[i].clientX - startX, e.changedTouches[i].clientY - startY);
         resetStick();
-        if (duration < 300 && moveDist < 12) {
-          padState[l3r3Key] = true;
-          sendPadState();
-          setTimeout(() => {
-            padState[l3r3Key] = false;
-            sendPadState();
-          }, 150);
-        }
         break;
       }
     }
@@ -1557,10 +2269,10 @@ function setupStick(zoneId, headId, stickKeyX, stickKeyY, l3r3Key) {
 }
 
 bindPadButtons();
-setupStick('leftStickZone', 'leftStickHead', 'leftStickX', 'leftStickY', 'btnL3');
-setupStick('rightStickZone', 'rightStickHead', 'rightStickX', 'rightStickY', 'btnR3');
+setupStick('leftStickZone', 'leftStickHead', 'leftStickX', 'leftStickY');
+setupStick('rightStickZone', 'rightStickHead', 'rightStickX', 'rightStickY');
 
-// Periodic streaming state poll and search overlay lock
+// Periodic streaming state poll and PS5 <-> WebUI settings version sync
 let isCurrentlyStreaming = false;
 function pollStreamingState() {
   fetch('/api/status').then(r => r.json()).then(data => {
@@ -1571,6 +2283,11 @@ function pollStreamingState() {
       if (overlay) overlay.style.display = streaming ? 'flex' : 'none';
       if (searchInput) searchInput.disabled = streaming;
     }
+    if (data.settingsVersion !== undefined && data.settingsVersion !== lastSettingsVersion) {
+      lastSettingsVersion = data.settingsVersion;
+      applyLoadedSettings(data);
+      loadStreamMenuState();
+    }
   }).catch(() => {});
 }
 setInterval(pollStreamingState, 1500);
@@ -1580,9 +2297,75 @@ pollStreamingState();
 setInterval(() => {
   const gpPane = document.getElementById('tab-gamepad');
   if (gpPane && gpPane.style.display !== 'none') {
-    sendPadState();
+    sendPadState(false);
   }
 }, 300);
+
+function updateGamepadScale() {
+  const container = document.getElementById('gamepadScaleContainer');
+  const card = document.getElementById('gamepadCard');
+  if (!container || !card) return;
+  const isFs = card.classList.contains('gamepad-fullscreen') || document.fullscreenElement === card || document.webkitFullscreenElement === card;
+  const isLandscape = window.innerWidth > window.innerHeight;
+
+  if (isFs) {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const availW = container.clientWidth ? Math.max(200, container.clientWidth - 8) : (w - 28);
+    const availH = container.clientHeight ? Math.max(150, container.clientHeight - 8) : (h - 20);
+    const scale = Math.min(1.2, Math.max(0.4, Math.min(availW / 915, availH / 412)));
+    document.documentElement.style.setProperty('--gp-fs-scale', scale.toFixed(3));
+    document.documentElement.style.setProperty('--gp-scale', scale.toFixed(3));
+    return;
+  }
+
+  let availW = container.clientWidth;
+  if (!availW) {
+    const padding = window.innerWidth <= 600 ? 16 : 32;
+    availW = Math.max(0, window.innerWidth - padding);
+  }
+
+  if (!isLandscape) {
+    const targetW = Math.max(0, availW - 16);
+    const scale = Math.min(1, Math.max(0.4, targetW / 412));
+    document.documentElement.style.setProperty('--gp-scale', scale.toFixed(3));
+  } else {
+    const targetW = Math.max(0, availW - 16);
+    const availH = window.innerHeight;
+    const targetH = Math.max(120, availH - 78);
+    const scale = Math.min(1, Math.max(0.35, Math.min(targetW / 915, targetH / 412)));
+    document.documentElement.style.setProperty('--gp-scale', scale.toFixed(3));
+  }
+}
+window.addEventListener('resize', updateGamepadScale);
+window.addEventListener('orientationchange', () => setTimeout(updateGamepadScale, 50));
+window.addEventListener('DOMContentLoaded', updateGamepadScale);
+if (window.ResizeObserver) {
+  const ro = new ResizeObserver(() => updateGamepadScale());
+  const cardEl = document.getElementById('gamepadCard');
+  if (cardEl) ro.observe(cardEl);
+}
+
+// Hash & route navigation support: #gamepad, #gamepad-fs, #logs, #settings, /boost, /gamepad, etc.
+function checkHashNav() {
+  const p = (location.pathname || '').toLowerCase();
+  if (p.includes('/boost') || p.includes('/gamepad')) {
+    switchTab('gamepad');
+  }
+  const h = (location.hash || '').replace('#', '');
+  if (!h) return;
+  if (h === 'gamepad-fs') {
+    switchTab('gamepad');
+    const card = document.getElementById('gamepadCard');
+    if (card && !card.classList.contains('gamepad-fullscreen')) {
+      toggleGamepadFullscreen();
+    }
+  } else if (document.getElementById('tab-' + h)) {
+    switchTab(h);
+  }
+}
+window.addEventListener('hashchange', checkHashNav);
+checkHashNav();
 </script>
 </body>
 </html>)html";
@@ -1623,6 +2406,9 @@ std::string WebServer::url() const {
 }
 
 bool WebServer::start(uint16_t port) {
+#ifdef SIGPIPE
+    ::signal(SIGPIPE, SIG_IGN);
+#endif
     if (running_.load()) return true;
     port_ = port;
 
@@ -1782,10 +2568,9 @@ bool parseGamepadJson(const json::Value& val, int& outSlot, input::ControllerSta
         slot = static_cast<int>(val["playerIndex"].asInt(0));
     } else if (val.has("player")) {
         int p = static_cast<int>(val["player"].asInt(1));
-        slot = (p == 2) ? 1 : 0;
+        slot = p - 1;
     }
-    if (slot < 0) slot = 0;
-    if (slot > 1) slot = 1;
+    slot = std::clamp(slot, 0, 3);
     outSlot = slot;
 
     outState = input::ControllerState{};
@@ -1957,6 +2742,10 @@ void WebServer::handleClient(int clientFd) {
     timeval tv{2, 0};  // 2s timeout prevents hung clients from deadlocking server thread
     ::setsockopt(clientFd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     ::setsockopt(clientFd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+#ifdef SO_NOSIGPIPE
+    int nosig = 1;
+    ::setsockopt(clientFd, SOL_SOCKET, SO_NOSIGPIPE, &nosig, sizeof(nosig));
+#endif
 
     std::string req;
     char buf[8192];
@@ -2068,11 +2857,13 @@ void WebServer::handleClient(int clientFd) {
     response += "Access-Control-Allow-Headers: Content-Type\r\n";
     if (!res.extraHeaders.empty()) response += res.extraHeaders;
     response += "Connection: close\r\n\r\n";
-    response += res.body;
+    if (method != "HEAD") {
+        response += res.body;
+    }
 
     size_t sent = 0;
     while (sent < response.size()) {
-        ssize_t w = ::send(clientFd, response.data() + sent, response.size() - sent, 0);
+        ssize_t w = ::send(clientFd, response.data() + sent, response.size() - sent, MSG_NOSIGNAL);
         if (w <= 0) break;
         sent += static_cast<size_t>(w);
     }
@@ -2125,13 +2916,16 @@ void WebServer::handleWebSocket(int wsFd) {
                         int slot = 0;
                         input::ControllerState s{};
                         if (parseGamepadJson(*j, slot, s)) {
+                            if ((*j).has("activeSwitch") && (*j)["activeSwitch"].asBool()) {
+                                switchVirtualGamepadSlot(slot);
+                            }
                             setVirtualGamepad(slot, s);
                             if (s_hooks.injectGamepad) s_hooks.injectGamepad(slot, s);
                         }
                     }
                 } else if (frame.opcode == ws::Opcode::Binary) {
                     if (frame.payload.size() >= 13) {
-                        int slot = frame.payload[0] & 0x01;
+                        int slot = frame.payload[0] & 0x03;
                         uint16_t btns = static_cast<uint16_t>(frame.payload[1]) | (static_cast<uint16_t>(frame.payload[2]) << 8);
                         input::ControllerState s{};
                         s.connected = true;
@@ -2198,22 +2992,33 @@ done:
 namespace {
 struct VirtualGamepadSlot {
     input::ControllerState state{};
-    uint64_t lastActiveMs = 0;
+    uint64_t lastSeenMs = 0;
+    uint64_t lastInputMs = 0;
 };
 std::mutex s_vpadMutex;
-VirtualGamepadSlot s_virtualPads[2];
+VirtualGamepadSlot s_virtualPads[4];
+
+bool hasGamepadInput(const input::ControllerState& s) {
+    return s.btnA || s.btnB || s.btnX || s.btnY ||
+           s.dpadUp || s.dpadDown || s.dpadLeft || s.dpadRight ||
+           s.btnL1 || s.btnR1 || s.btnL3 || s.btnR3 ||
+           s.btnTouchpad || s.btnOptions || s.btnNexus ||
+           s.triggerL2 > 0.05f || s.triggerR2 > 0.05f ||
+           std::abs(s.leftStickX) > 0.08f || std::abs(s.leftStickY) > 0.08f ||
+           std::abs(s.rightStickX) > 0.08f || std::abs(s.rightStickY) > 0.08f;
+}
 }  // namespace
 
 bool virtualGamepadState(int playerIndex, input::ControllerState& outState, bool& isConnected) {
-    if (playerIndex < 0 || playerIndex > 1) {
+    if (playerIndex < 0 || playerIndex >= 4) {
         isConnected = false;
         outState = {};
         return false;
     }
     std::lock_guard<std::mutex> lock(s_vpadMutex);
     uint64_t now = platform::nowMs();
-    uint64_t diff = now > s_virtualPads[playerIndex].lastActiveMs ? now - s_virtualPads[playerIndex].lastActiveMs : 0;
-    isConnected = (s_virtualPads[playerIndex].lastActiveMs > 0 && diff < 4000);
+    uint64_t diff = now > s_virtualPads[playerIndex].lastSeenMs ? now - s_virtualPads[playerIndex].lastSeenMs : 0;
+    isConnected = (s_virtualPads[playerIndex].lastSeenMs > 0 && diff < 4000);
     if (diff < 2000) {
         outState = s_virtualPads[playerIndex].state;
     } else {
@@ -2223,16 +3028,47 @@ bool virtualGamepadState(int playerIndex, input::ControllerState& outState, bool
 }
 
 void setVirtualGamepad(int playerIndex, const input::ControllerState& state) {
-    if (playerIndex < 0 || playerIndex > 1) return;
+    if (playerIndex < 0 || playerIndex >= 4) return;
     std::lock_guard<std::mutex> lock(s_vpadMutex);
+    uint64_t now = platform::nowMs();
+    bool firstSeen = (s_virtualPads[playerIndex].lastSeenMs == 0);
     s_virtualPads[playerIndex].state = state;
-    s_virtualPads[playerIndex].lastActiveMs = platform::nowMs();
+    s_virtualPads[playerIndex].lastSeenMs = now;
+    if (firstSeen || hasGamepadInput(state)) {
+        s_virtualPads[playerIndex].lastInputMs = now;
+    }
+}
+
+void touchVirtualGamepad(int playerIndex) {
+    if (playerIndex < 0 || playerIndex >= 4) return;
+    std::lock_guard<std::mutex> lock(s_vpadMutex);
+    uint64_t now = platform::nowMs();
+    s_virtualPads[playerIndex].lastSeenMs = now;
+    s_virtualPads[playerIndex].lastInputMs = now;
+}
+
+void switchVirtualGamepadSlot(int newSlot) {
+    if (newSlot < 0 || newSlot >= 4) return;
+    std::lock_guard<std::mutex> lock(s_vpadMutex);
+    for (int i = 0; i < 4; ++i) {
+        if (i != newSlot) {
+            s_virtualPads[i] = {};
+        }
+    }
+    uint64_t now = platform::nowMs();
+    s_virtualPads[newSlot].lastSeenMs = now;
+    s_virtualPads[newSlot].lastInputMs = now;
+}
+
+uint64_t virtualGamepadActiveAt(int playerIndex) {
+    if (playerIndex < 0 || playerIndex >= 4) return 0;
+    std::lock_guard<std::mutex> lock(s_vpadMutex);
+    return s_virtualPads[playerIndex].lastInputMs;
 }
 
 void resetVirtualGamepads() {
     std::lock_guard<std::mutex> lock(s_vpadMutex);
-    s_virtualPads[0] = {};
-    s_virtualPads[1] = {};
+    for (auto& slot : s_virtualPads) slot = {};
 }
 
 void setWebServerHooks(WebServerHooks hooks) {
@@ -2245,8 +3081,8 @@ WebServer::HttpResponse WebServer::handleRequest(const std::string& method, cons
         return {204, "text/plain", "", ""};
     }
 
-    if (method == "GET") {
-        if (path == "/" || path == "/index.html") {
+    if (method == "GET" || method == "HEAD") {
+        if (path == "/" || path == "/index.html" || path == "/boost" || path == "/boost/" || path == "/gamepad" || path == "/gamepad/") {
             return {200, "text/html; charset=utf-8", "", kIndexHtml};
         }
         if (path == "/api/settings" || path == "/api/status" || path == "/api/state") {
@@ -2261,6 +3097,7 @@ WebServer::HttpResponse WebServer::handleRequest(const std::string& method, cons
                 root.set("resolution", "1080p");
                 root.set("padMap", input::padMapJson(input::defaultPadMap()));
                 root.set("keyMap", keyMapToJson(input::defaultKeyMap()));
+                root.set("touchpadShortcuts", input::touchpadShortcutsJson(input::defaultTouchpadShortcuts()));
             }
             if (s_hooks.getSearchParams) {
                 std::string q, tab;
@@ -2286,6 +3123,35 @@ WebServer::HttpResponse WebServer::handleRequest(const std::string& method, cons
             std::string clean = report::sanitize(rawLog, {});
             return {200, "text/plain; charset=utf-8", "Content-Disposition: attachment; filename=\"xcloud.log\"\r\n", clean};
         }
+        if (path == "/api/report-issue" || path.rfind("/api/report-issue?", 0) == 0) {
+            std::string rawLog;
+            platform::readFile(platform::dataDir() + "/xcloud.log", rawLog);
+            std::vector<std::string> privWords;
+            for (int i = 0; i < input::kMaxPads; ++i) {
+                std::string u = input::padUserName(i);
+                if (!u.empty()) privWords.push_back(std::move(u));
+            }
+
+            report::Info info;
+            info.title = "Relatório via WebUI";
+            info.what = "Enviado através do painel WebUI do PSBox";
+            info.release = XC_APP_VERSION;
+            info.firmware = platform::firmwareVersion();
+            info.platform = platform::platformName();
+            std::string platHeader = "[Platform: " + info.platform + "]\n";
+            info.log = platHeader + report::sanitize(report::logExcerpt(rawLog, false), privWords);
+            std::string url = report::issueUrl(info);
+
+            json::Value resp = json::Value::object();
+            resp.set("ok", true);
+            resp.set("url", url);
+            resp.set("title", info.title);
+            resp.set("platform", info.platform);
+            resp.set("release", info.release);
+            resp.set("firmware", info.firmware);
+            resp.set("excerpt", info.log);
+            return {200, "application/json; charset=utf-8", "", resp.dump()};
+        }
         if (path == "/api/stats") {
             json::Value stats = json::Value::object();
             if (s_hooks.getTelemetry) {
@@ -2306,6 +3172,47 @@ WebServer::HttpResponse WebServer::handleRequest(const std::string& method, cons
     }
 
     if (method == "POST") {
+        if (path == "/api/report-issue") {
+            std::string title = "Relatório via WebUI";
+            std::string what = "Enviado através do painel WebUI do PSBox";
+            auto j = json::parse(body);
+            if (j && j->isObject()) {
+                if ((*j).has("title") && (*j)["title"].isString() && !(*j)["title"].asString().empty()) {
+                    title = (*j)["title"].asString();
+                }
+                if ((*j).has("what") && (*j)["what"].isString() && !(*j)["what"].asString().empty()) {
+                    what = (*j)["what"].asString();
+                }
+            }
+            std::string rawLog;
+            platform::readFile(platform::dataDir() + "/xcloud.log", rawLog);
+
+            std::vector<std::string> privWords;
+            for (int i = 0; i < input::kMaxPads; ++i) {
+                std::string u = input::padUserName(i);
+                if (!u.empty()) privWords.push_back(std::move(u));
+            }
+
+            report::Info info;
+            info.title = report::shorten(title, 70);
+            info.what = report::sanitize(what, privWords);
+            info.release = XC_APP_VERSION;
+            info.firmware = platform::firmwareVersion();
+            info.platform = platform::platformName();
+            std::string platHeader = "[Platform: " + info.platform + "]\n";
+            info.log = platHeader + report::sanitize(report::logExcerpt(rawLog, false), privWords);
+            std::string url = report::issueUrl(info);
+
+            json::Value resp = json::Value::object();
+            resp.set("ok", true);
+            resp.set("url", url);
+            resp.set("title", info.title);
+            resp.set("platform", info.platform);
+            resp.set("release", info.release);
+            resp.set("firmware", info.firmware);
+            resp.set("excerpt", info.log);
+            return {200, "application/json; charset=utf-8", "", resp.dump()};
+        }
         if (path == "/api/gamepad" || path == "/api/input") {
             auto j = json::parse(body);
             if (!j || !j->isObject()) {
@@ -2317,6 +3224,9 @@ WebServer::HttpResponse WebServer::handleRequest(const std::string& method, cons
                 return {400, "application/json", "", "{\"ok\":false,\"error\":\"invalid state\"}"};
             }
 
+            if ((*j).has("activeSwitch") && (*j)["activeSwitch"].asBool()) {
+                switchVirtualGamepadSlot(slot);
+            }
             setVirtualGamepad(slot, s);
             if (s_hooks.injectGamepad) {
                 s_hooks.injectGamepad(slot, s);

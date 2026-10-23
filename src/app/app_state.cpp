@@ -12,9 +12,11 @@ namespace xc::app {
 std::unique_ptr<ui::AppUi> g_ui;
 std::mutex g_settingsMutex;
 Settings g_settings;
+std::atomic<uint64_t> g_settingsVersion{1};
 std::string settingsPath() { return platform::dataDir() + "/settings.json"; }
 bool allow1440Locked() { return std::max(g_settings.maxHeightCloud, g_settings.maxHeightHome) >= 1440; }
 void refreshSettingsUiLocked() {
+    ++g_settingsVersion;
     if (g_ui) g_ui->setSettings(ui::choiceFromSettings(g_settings));
 }
 std::atomic<int> g_command{kSignIn};

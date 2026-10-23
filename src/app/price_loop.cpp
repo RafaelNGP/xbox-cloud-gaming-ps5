@@ -96,8 +96,9 @@ void priceLoop() {
     json::Value kept = json::Value::object();
     for (const auto& [id, v] : cache.members()) {
         if (now - v["t"].asInt() > kPriceTtlSeconds) continue;
-        kept.set(id, v);
         xcloud::Price p{v["list"].asNumber(), v["msrp"].asNumber(), v["cur"].str()};
+        if (p.list < 0.005) continue;
+        kept.set(id, v);
         shown[id] = priceTexts(p);
     }
     cache = kept;

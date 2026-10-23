@@ -13,9 +13,9 @@ inline std::atomic<bool> g_keyboardHints{false};
 
 // The key each controller glyph stands for, as the hints show it.
 inline const char* keyLabel(int icon) {
-    // As app_ui.cpp's Icon: Cross, Circle, Options, Triangle, Touchpad, Square, R3, L3, L2 R2, DpadLR.
-    static const char* const kLabels[] = {"Enter", "Esc", "Tab", "F", "Del", "H", "R", "Shift", "Z C", "<- ->"};
-    return icon >= 0 && icon < 10 ? kLabels[icon] : "";
+    // As app_ui.cpp's Icon: Cross, Circle, Options, Triangle, Touchpad, Square, R3, L3, L2 R2, DpadLR, L1 R1.
+    static const char* const kLabels[] = {"Enter", "Esc", "Tab", "F", "Del", "H", "R", "Shift", "Z C", "<- ->", "Q E"};
+    return icon >= 0 && icon < 11 ? kLabels[icon] : "";
 }
 
 }  // namespace xc::ui

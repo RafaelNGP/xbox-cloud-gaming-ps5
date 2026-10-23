@@ -42,6 +42,7 @@ bool StreamMenu::itemShown(int item) const {
     case GyroItem:
     case GyroLevelItem: return caps_.gyro;
     case PadSpeakerVolumeItem: return caps_.triggerRumble || caps_.adaptiveTriggers;
+    case TouchpadShortcutsItem: return caps_.touchpad;
     default: return true;
     }
 }
@@ -86,6 +87,8 @@ void StreamMenu::open(int resolution, bool stats, int sharpness, int deband, int
     resolutionAsked_ = false;
     statsCustomizing_ = false;
     statsCustomIndex_ = 0;
+    touchpadCustomizing_ = false;
+    touchpadCustomIndex_ = 0;
 }
 
 MenuAction StreamMenu::handle(const NavInput& in) {
@@ -110,6 +113,42 @@ MenuAction StreamMenu::handle(const NavInput& in) {
             };
             statsMask_ ^= kMasks[statsCustomIndex_];
             return MenuAction::Stats;
+        }
+        return MenuAction::None;
+    }
+    if (touchpadCustomizing_) {
+        if (in.back) {
+            touchpadCustomizing_ = false;
+            return MenuAction::TouchpadShortcuts;
+        }
+        if (in.options) {
+            touchpadCustomizing_ = false;
+            open_ = false;
+            return MenuAction::Close;
+        }
+        constexpr int kRows = 7;  // 6 triggers + Reset to default
+        if (in.up) touchpadCustomIndex_ = (touchpadCustomIndex_ + kRows - 1) % kRows;
+        if (in.down) touchpadCustomIndex_ = (touchpadCustomIndex_ + 1) % kRows;
+        input::TouchpadAction* fields[6] = {
+            &touchpadShortcuts_.swipeUp,    &touchpadShortcuts_.swipeDown,
+            &touchpadShortcuts_.swipeLeft,  &touchpadShortcuts_.swipeRight,
+            &touchpadShortcuts_.clickLeft,  &touchpadShortcuts_.clickRight,
+        };
+        if (touchpadCustomIndex_ < 6) {
+            if (in.left || in.right || in.accept) {
+                int dir = in.left ? -1 : 1;
+                int cur = static_cast<int>(*fields[touchpadCustomIndex_]);
+                int next = (cur + input::kTouchpadActions + dir) % input::kTouchpadActions;
+                *fields[touchpadCustomIndex_] = static_cast<input::TouchpadAction>(next);
+                return MenuAction::TouchpadShortcuts;
+            }
+            if (in.square) {
+                *fields[touchpadCustomIndex_] = input::TouchpadAction::None;
+                return MenuAction::TouchpadShortcuts;
+            }
+        } else if (in.accept) {
+            touchpadShortcuts_ = input::defaultTouchpadShortcuts();
+            return MenuAction::TouchpadShortcuts;
         }
         return MenuAction::None;
     }
@@ -178,6 +217,11 @@ MenuAction StreamMenu::handle(const NavInput& in) {
         if (newVol == padSpeakerVolume_) return MenuAction::None;
         padSpeakerVolume_ = newVol;
         return MenuAction::PadSpeakerVolume;
+    }
+    if (selected_ == TouchpadShortcutsItem && (in.accept || in.left || in.right)) {
+        touchpadCustomizing_ = true;
+        touchpadCustomIndex_ = 0;
+        return MenuAction::TouchpadShortcuts;
     }
     if (selected_ == Stats && (in.left || in.right)) {
         stats_ = !stats_;
@@ -288,10 +332,54 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         return c;
     }
 
-    fonts_.bold.draw(c, tr(Str::MenuTitle), kPad, 38, 32, kWhite);
+    if (touchpadCustomizing_) {
+        fonts_.bold.draw(c, tr(Str::TouchpadShortcuts), kPad, 38, 28, kWhite);
+        auto descLines = fonts_.regular.wrap(tr(Str::SettingDescTouchpadShortcuts), 16, kMenuW - 2 * kPad, 2);
+        int dy = 74;
+        for (const auto& l : descLines) {
+            fonts_.regular.draw(c, l, kPad, dy, 16, kDim);
+            dy += 20;
+        }
+
+        const input::TouchpadAction vals[6] = {
+            touchpadShortcuts_.swipeUp,    touchpadShortcuts_.swipeDown,
+            touchpadShortcuts_.swipeLeft,  touchpadShortcuts_.swipeRight,
+            touchpadShortcuts_.clickLeft,  touchpadShortcuts_.clickRight,
+        };
+        constexpr int kRowH = 48, kTop = 126, kPx = 19;
+        for (int i = 0; i < 6; ++i) {
+            Rect row{kPad - 16, kTop + i * kRowH, kMenuW - 2 * (kPad - 16), kRowH - 4};
+            bool sel = i == touchpadCustomIndex_;
+            if (sel) c.fillRect(row, kWhite, 8);
+            Color fg = sel ? kDark : kWhite;
+            int ty = fonts_.semibold.centeredY(row.y, row.h, kPx);
+            fonts_.semibold.draw(c, touchpadTriggerLabel(i), row.x + 16, ty, kPx, fg);
+            std::string val = touchpadActionLabel(static_cast<int>(vals[i]));
+            if (sel) val = "< " + val + " >";
+            int sw = fonts_.semibold.measure(val, 18);
+            fonts_.semibold.draw(c, val, row.x + row.w - 16 - sw, ty, 18, sel ? kDark : kGray);
+        }
+        Rect resetRow{kPad - 16, kTop + 6 * kRowH + 8, kMenuW - 2 * (kPad - 16), kRowH - 4};
+        bool resetSel = (touchpadCustomIndex_ == 6);
+        if (resetSel) c.fillRect(resetRow, kWhite, 8);
+        const char* resetLabel = tr(Str::ResetToDefault);
+        int rw = fonts_.semibold.measure(resetLabel, kPx);
+        int rty = fonts_.semibold.centeredY(resetRow.y, resetRow.h, kPx);
+        fonts_.semibold.draw(c, resetLabel, resetRow.x + (resetRow.w - rw) / 2, rty, kPx,
+                             resetSel ? kDark : rgba(240, 100, 100));
+
+        int hy = kMenuH - 50, x = kPad;
+        icon(!circleConfirms_, x, hy);
+        x = fonts_.semibold.draw(c, tr(Str::Change), x + 34, hy, 20, kGray) + 32;
+        icon(circleConfirms_, x, hy);
+        fonts_.semibold.draw(c, tr(Str::Back), x + 34, hy, 20, kGray);
+        return c;
+    }
+
+    fonts_.bold.draw(c, tr(Str::MenuTitle), kPad, 34, 30, kWhite);
 
     // The items: the selected one white, like the Xbox guide.
-    constexpr int kRowH = 40, kTop = 84, kPx = 20;
+    constexpr int kRowH = 37, kTop = 78, kPx = 19;
     int shown = 0;  // the items on screen so far
     for (int i = 0; i < ItemCount; ++i) {
         if (!itemShown(i)) continue;
@@ -300,21 +388,22 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         if (sel) c.fillRect(row, kWhite, 8);
         Color fg = sel ? kDark : kWhite;
         int ty = fonts_.semibold.centeredY(row.y, row.h, kPx);
-        const char* label = i == XboxButton       ? tr(Str::MenuXboxButton)
-                            : i == Profile        ? tr(Str::Profile)
-                            : i == Stats          ? tr(Str::MenuStats)
-                            : i == Sharpness      ? tr(Str::MenuSharpness)
-                            : i == Deband         ? tr(Str::MenuDeband)
-                            : i == Upscaler       ? tr(Str::MenuUpscaler)
-                            : i == Resolution     ? tr(Str::MenuResolution)
-                            : i == Triggers       ? tr(Str::TriggerRumble)
-                            : i == DeadzoneItem   ? tr(Str::Deadzone)
-                            : i == ConfirmItem    ? tr(Str::ConfirmButton)
-                            : i == GyroItem       ? tr(Str::Gyro)
-                            : i == GyroLevelItem  ? tr(Str::GyroIntensity)
+        const char* label = i == XboxButton            ? tr(Str::MenuXboxButton)
+                            : i == Profile             ? tr(Str::Profile)
+                            : i == Stats               ? tr(Str::MenuStats)
+                            : i == Sharpness           ? tr(Str::MenuSharpness)
+                            : i == Deband              ? tr(Str::MenuDeband)
+                            : i == Upscaler            ? tr(Str::MenuUpscaler)
+                            : i == Resolution          ? tr(Str::MenuResolution)
+                            : i == Triggers            ? tr(Str::TriggerRumble)
+                            : i == DeadzoneItem        ? tr(Str::Deadzone)
+                            : i == ConfirmItem         ? tr(Str::ConfirmButton)
+                            : i == GyroItem            ? tr(Str::Gyro)
+                            : i == GyroLevelItem       ? tr(Str::GyroIntensity)
                             : i == PadSpeakerVolumeItem ? tr(Str::PadSpeakerVolume)
-                            : homeConsole_        ? tr(Str::MenuEndStream)
-                                                  : tr(Str::MenuLeave);
+                            : i == TouchpadShortcutsItem ? tr(Str::TouchpadShortcuts)
+                            : homeConsole_             ? tr(Str::MenuEndStream)
+                                                       : tr(Str::MenuLeave);
         fonts_.semibold.draw(c, label, row.x + 16, ty, kPx, fg);
         std::string value;
         if (i == Profile) {
@@ -369,6 +458,10 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
             value = padSpeakerVolume_ == 0 ? tr(Str::Mute) : std::to_string(padSpeakerVolume_) + " %";
             if (sel) value = "< " + value + " >";
         }
+        if (i == TouchpadShortcutsItem) {
+            value = tr(touchpadShortcuts_ == input::defaultTouchpadShortcuts() ? Str::ProfileDefault : Str::ProfileCustom);
+            if (sel) value = "< " + value + " >";
+        }
         if (i == ConfirmItem) {
             value = circleConfirms_ ? "○" : "×";
             if (sel) value = "< " + value + " >";
@@ -378,21 +471,21 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
             fonts_.semibold.draw(c, value, row.x + row.w - 16 - w, ty, kPx, sel ? kDark : kGray);
         }
     }
-    int y = kTop + shown * kRowH + 6;
+    int y = kTop + shown * kRowH + 4;
     if (resolutionAsked_) {
         fonts_.regular.draw(c, tr(Str::ResolutionNote), kPad, y, 16, kDim);
-        y += 22;
+        y += 20;
     }
-    y += 6;
+    y += 4;
 
     // The connection.
     c.fillRect({kPad, y, kMenuW - 2 * kPad, 2}, rgba(60, 60, 60));
-    y += 14;
+    y += 12;
     auto line = [&](Str label, const std::string& value) {
-        fonts_.regular.draw(c, tr(label), kPad, y, 18, kGray);
-        int w = fonts_.semibold.measure(value, 18);
-        fonts_.semibold.draw(c, value, kMenuW - kPad - w, y, 18, kWhite);
-        y += 24;
+        fonts_.regular.draw(c, tr(label), kPad, y, 17, kGray);
+        int w = fonts_.semibold.measure(value, 17);
+        fonts_.semibold.draw(c, value, kMenuW - kPad - w, y, 17, kWhite);
+        y += 22;
     };
     const std::string none = "-";
     line(Str::StatRegion, info.region.empty() ? none : info.region);

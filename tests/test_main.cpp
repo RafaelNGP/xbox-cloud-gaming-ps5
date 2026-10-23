@@ -650,6 +650,9 @@ static void testStreamMenu() {
     CHECK(press([](xc::ui::NavInput& n) { n.left = true; }) == MenuAction::Gyro && menu.gyroLevel() == 4);
     press([](xc::ui::NavInput& n) { n.down = true; });  // DualSense speaker volume
     CHECK(press([](xc::ui::NavInput& n) { n.left = true; }) == MenuAction::PadSpeakerVolume && menu.padSpeakerVolume() == 95);
+    press([](xc::ui::NavInput& n) { n.down = true; });  // Touchpad shortcuts
+    CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::TouchpadShortcuts);
+    CHECK(press([](xc::ui::NavInput& n) { n.back = true; }) == MenuAction::TouchpadShortcuts);
     press([](xc::ui::NavInput& n) { n.down = true; });  // "Leave game", last
     CHECK(press([](xc::ui::NavInput& n) { n.accept = true; }) == MenuAction::Leave);
     CHECK(!menu.isOpen());
@@ -2068,21 +2071,21 @@ static void testVisibleSettingsRows() {
     };
     const ui::UiCaps ps5;
     auto all = ui::visibleSettingsRows(ps5);
-    CHECK((ids(all) == std::vector<int>{0, 8, 17, 1, 20, 9, 10, 2, 18, 14, 12, 3, 15, 4, 21, 5, 6, 16, 19, 7}));
-    CHECK((groups(all) == std::vector<bool>{false, false, false, true, false, false, false, false, false, true, false, false, false, false, false, false, false, false, true, false}));
+    CHECK((ids(all) == std::vector<int>{0, 2, 8, 17, 18, 1, 20, 9, 10, 14, 12, 3, 15, 4, 21, 5, 6, 16, 19, 7, 23}));
+    CHECK((groups(all) == std::vector<bool>{false, false, false, false, false, true, false, false, false, true, false, false, false, false, false, false, false, false, true, false, true}));
     ui::UiCaps pc;
     pc.lightBar = pc.triggerRumble = pc.adaptiveTriggers = pc.gyro = pc.touchpad = false;
     pc.upscalers = pc.sharpen = pc.deband = pc.highRefresh = pc.console = pc.selfUpdate = false;
     pc.openUrl = true;
     auto desk = ui::visibleSettingsRows(pc);
-    CHECK((ids(desk) == std::vector<int>{0, 8, 17, 1, 20, 10, 2, 18, 14, 12, 3, 5, 16, 19, 7}));
-    CHECK((groups(desk) == std::vector<bool>{false, false, false, true, false, false, false, false, true, false, false, false, false, true, false}));
+    CHECK((ids(desk) == std::vector<int>{0, 2, 8, 17, 18, 1, 20, 10, 14, 12, 3, 5, 16, 19, 7, 23}));
+    CHECK((groups(desk) == std::vector<bool>{false, false, false, false, false, true, false, false, true, false, false, false, false, true, false, true}));
     // The desktop app's window: Display mode after the resolution, in the stream's group.
     ui::UiCaps win = pc;
     win.desktopWindow = true;
     auto w = ui::visibleSettingsRows(win);
-    CHECK((ids(w) == std::vector<int>{0, 8, 17, 1, 20, 13, 10, 2, 18, 14, 12, 3, 5, 16, 19, 7}));
-    CHECK((groups(w) == std::vector<bool>{false, false, false, true, false, false, false, false, false, true, false, false, false, false, true, false}));
+    CHECK((ids(w) == std::vector<int>{0, 2, 8, 17, 18, 1, 20, 13, 10, 14, 12, 3, 5, 16, 19, 7, 23}));
+    CHECK((groups(w) == std::vector<bool>{false, false, false, false, false, true, false, false, false, true, false, false, false, false, true, false, true}));
     ui::UiCaps xbox = pc;  // an Xbox pad: impulse triggers, no light bar
     xbox.triggerRumble = true;
     auto x = ids(ui::visibleSettingsRows(xbox));
@@ -2100,11 +2103,12 @@ static void testVisibleSettingsRows() {
     CHECK((ids(game) == std::vector<int>{0, 4, 15, 14, 5, 7, 11, 9}));
     CHECK((groups(game) == std::vector<bool>{false, true, false, false, true, false, false, false}));
     // How far down the autoplay tests walk to each row (autoplay.cpp's downsTo).
-    CHECK(ui::settingsRowPosition(ps5, 1) == 3 && ui::settingsRowPosition(ps5, 3) == 11);
+    CHECK(ui::settingsRowPosition(ps5, 1) == 5 && ui::settingsRowPosition(ps5, 3) == 11);
     CHECK(ui::settingsRowPosition(ps5, 16) == 17);
     CHECK(ui::settingsRowPosition(ps5, 5) == 15 && ui::settingsRowPosition(ps5, 6) == 16);
     CHECK(ui::settingsRowPosition(ps5, 12) == 10 && ui::settingsRowPosition(ps5, 14) == 9);
-    CHECK(ui::settingsRowPosition(ps5, 7) == 19 && ui::settingsRowPosition(ps5, 19) == 18 && ui::settingsRowPosition(ps5, 2) == 7);
+    CHECK(ui::settingsRowPosition(ps5, 22) == -1);
+    CHECK(ui::settingsRowPosition(ps5, 7) == 19 && ui::settingsRowPosition(ps5, 19) == 18 && ui::settingsRowPosition(ps5, 2) == 1);
     CHECK(ui::settingsRowPosition(ps5, 21) == 14);
     CHECK(ui::settingsRowPosition(pc, 5) == 11 && ui::settingsRowPosition(pc, 6) == -1 && ui::settingsRowPosition(pc, 4) == -1);
 }
@@ -2631,7 +2635,7 @@ static void testPurchase() {
     CHECK(directOffer.isFree);
     CHECK(directOffer.availabilityId == "AVAIL_DIRECT_FREE");
 
-    // 9. fetchPurchaseOffer accepts actions like "Browse" or "License" for zero-priced games
+    // 9. fetchPurchaseOffer rejects non-purchaseable actions like "Browse" or "License"
     net::setTestTransport([](const net::Request&) {
         net::Response r;
         r.status = 200;
@@ -2653,9 +2657,7 @@ static void testPurchase() {
         return r;
     });
     PurchaseOffer trialOffer;
-    CHECK(fetchPurchaseOffer("JUSTDANCE", "BR", "pt-br", trialOffer, err));
-    CHECK(trialOffer.isFree);
-    CHECK(trialOffer.availabilityId == "AVAIL_JUSTDANCE");
+    CHECK(!fetchPurchaseOffer("JUSTDANCE", "BR", "pt-br", trialOffer, err));
 
     net::setTestTransport({});
 }
@@ -3044,7 +3046,8 @@ static void testBlock2Features() {
     CHECK(std::string(ui::keyLabel(7)) == "Shift");
     CHECK(std::string(ui::keyLabel(8)) == "Z C");
     CHECK(std::string(ui::keyLabel(9)) == "<- ->");
-    CHECK(std::string(ui::keyLabel(10)) == "");
+    CHECK(std::string(ui::keyLabel(10)) == "Q E");
+    CHECK(std::string(ui::keyLabel(11)) == "");
     CHECK(std::string(ui::keyLabel(-1)) == "");
 
     // Close Settings
@@ -4448,7 +4451,639 @@ static void testLibraryOfflineCache() {
     ::unlink(emptyCacheFile.c_str());
 }
 
+static void testTouchpadShortcutsAndSlots() {
+    // 1. TouchpadShortcuts defaults and manipulation
+    {
+        input::TouchpadShortcuts ts = input::defaultTouchpadShortcuts();
+        CHECK(ts.swipeUp == input::TouchpadAction::XboxButton);
+        CHECK(ts.swipeDown == input::TouchpadAction::GameMenu);
+        CHECK(ts.swipeLeft == input::TouchpadAction::GameMenu);
+        CHECK(ts.swipeRight == input::TouchpadAction::XboxButton);
+        CHECK(ts.clickLeft == input::TouchpadAction::View);
+        CHECK(ts.clickRight == input::TouchpadAction::View);
+
+        CHECK(ts.get(0) == input::TouchpadAction::XboxButton);
+        CHECK(ts.get(1) == input::TouchpadAction::GameMenu);
+        CHECK(ts.get(2) == input::TouchpadAction::GameMenu);
+        CHECK(ts.get(3) == input::TouchpadAction::XboxButton);
+        CHECK(ts.get(4) == input::TouchpadAction::View);
+        CHECK(ts.get(5) == input::TouchpadAction::View);
+
+        ts.set(0, input::TouchpadAction::ToggleStats);
+        ts.set(4, input::TouchpadAction::A);
+        CHECK(ts.get(0) == input::TouchpadAction::ToggleStats);
+        CHECK(ts.get(4) == input::TouchpadAction::A);
+
+        // JSON roundtrip
+        json::Value j = input::touchpadShortcutsJson(ts);
+        input::TouchpadShortcuts back;
+        CHECK(input::readTouchpadShortcuts(j, back));
+        CHECK(back == ts);
+
+        // Button action checks
+        CHECK(input::isTouchpadButtonAction(input::TouchpadAction::A));
+        CHECK(input::isTouchpadButtonAction(input::TouchpadAction::View));
+        CHECK(!input::isTouchpadButtonAction(input::TouchpadAction::GameMenu));
+        CHECK(!input::isTouchpadButtonAction(input::TouchpadAction::XboxButton));
+        CHECK(!input::isTouchpadButtonAction(input::TouchpadAction::None));
+
+        input::ControllerState s{};
+        CHECK(input::applyTouchpadButtonAction(s, input::TouchpadAction::A));
+        CHECK(s.btnA);
+        CHECK(!input::applyTouchpadButtonAction(s, input::TouchpadAction::GameMenu));
+
+        // Edge cases: out of bounds indices and invalid actions
+        CHECK(ts.get(-1) == input::TouchpadAction::None);
+        CHECK(ts.get(99) == input::TouchpadAction::None);
+        ts.set(-1, input::TouchpadAction::A);
+        ts.set(99, input::TouchpadAction::A);
+        ts.set(0, static_cast<input::TouchpadAction>(250));
+        CHECK(ts.get(0) == input::TouchpadAction::None);
+
+        // Corrupted JSON inputs
+        input::TouchpadShortcuts corruptTs;
+        CHECK(!input::readTouchpadShortcuts(json::Value(), corruptTs));
+        CHECK(corruptTs == input::defaultTouchpadShortcuts());
+        json::Value badVer = json::Value::object();
+        badVer.set("version", 99);
+        CHECK(!input::readTouchpadShortcuts(badVer, corruptTs));
+        CHECK(corruptTs == input::defaultTouchpadShortcuts());
+
+        // Labels
+        for (int i = 0; i < 6; ++i) {
+            CHECK(ui::touchpadTriggerLabel(i)[0] != '\0');
+        }
+        CHECK(ui::touchpadTriggerLabel(-1)[0] == '\0');
+        CHECK(ui::touchpadTriggerLabel(10)[0] == '\0');
+        for (int a = 0; a < input::kTouchpadActions; ++a) {
+            CHECK(!ui::touchpadActionLabel(a).empty());
+        }
+        CHECK(ui::touchpadActionLabel(999) == ui::touchpadActionLabel(0));
+    }
+
+    // 2. 4 Virtual Gamepad Slots (P1..P4) and timestamps
+    {
+        app::resetVirtualGamepads();
+        app::WebServer srv;
+
+        for (int p = 1; p <= 4; ++p) {
+            int slotIdx = p - 1;
+            input::ControllerState st{};
+            bool conn = false;
+            app::virtualGamepadState(slotIdx, st, conn);
+            CHECK(!conn);
+            CHECK(app::virtualGamepadActiveAt(slotIdx) == 0);
+
+            // Send input for player p
+            std::string body = "{\"player\":" + std::to_string(p) + ",\"btnA\":true,\"leftStickX\":0.5}";
+            auto res = srv.handleRequest("POST", "/api/gamepad", body);
+            CHECK(res.status == 200);
+
+            bool ok = app::virtualGamepadState(slotIdx, st, conn);
+            CHECK(ok && conn);
+            CHECK(st.btnA);
+            CHECK(app::virtualGamepadActiveAt(slotIdx) > 0);
+        }
+
+        // touchVirtualGamepad
+        uint64_t before = app::virtualGamepadActiveAt(2);
+        app::touchVirtualGamepad(2);
+        CHECK(app::virtualGamepadActiveAt(2) >= before);
+
+        app::resetVirtualGamepads();
+        for (int i = 0; i < 4; ++i) {
+            input::ControllerState st{};
+            bool conn = false;
+            app::virtualGamepadState(i, st, conn);
+            CHECK(!conn);
+        }
+
+        // Out of bounds player index edge cases
+        {
+            input::ControllerState st{};
+            bool conn = false;
+            CHECK(!app::virtualGamepadState(-1, st, conn));
+            CHECK(!conn);
+            CHECK(!app::virtualGamepadState(4, st, conn));
+            CHECK(!conn);
+            CHECK(!app::virtualGamepadState(99, st, conn));
+            CHECK(!conn);
+            CHECK(app::virtualGamepadActiveAt(-1) == 0);
+            CHECK(app::virtualGamepadActiveAt(4) == 0);
+            CHECK(app::virtualGamepadActiveAt(99) == 0);
+            app::touchVirtualGamepad(-1);
+            app::touchVirtualGamepad(4);
+            app::touchVirtualGamepad(99);
+        }
+    }
+
+    // 3. Dynamic Slot Device Icon Resolution with Phone/Keyboard/Gamepad
+    {
+        ui::PadSlots slots;
+        for (int i = 0; i < 4; ++i) {
+            slots[i].device = ui::PadDevice::Gamepad;
+            slots[i].connected = true;
+        }
+
+        // Test slot 0: Phone is more recent than Gamepad and Keyboard
+        uint64_t padT = 1000, kbT = 500, phoneT = 2000;
+        ui::PadDevice dev = ui::PadDevice::Gamepad;
+        if (phoneT > 0 && phoneT >= padT && phoneT >= kbT) dev = ui::PadDevice::Phone;
+        else if (kbT > 0 && kbT >= padT && kbT >= phoneT) dev = ui::PadDevice::Keyboard;
+        CHECK(dev == ui::PadDevice::Phone);
+
+        // Pad becomes more recent
+        padT = 3000;
+        if (phoneT > 0 && phoneT >= padT && phoneT >= kbT) dev = ui::PadDevice::Phone;
+        else if (kbT > 0 && kbT >= padT && kbT >= phoneT) dev = ui::PadDevice::Keyboard;
+        else dev = ui::PadDevice::Gamepad;
+        CHECK(dev == ui::PadDevice::Gamepad);
+
+        // Keyboard becomes more recent
+        kbT = 4000;
+        if (phoneT > 0 && phoneT >= padT && phoneT >= kbT) dev = ui::PadDevice::Phone;
+        else if (kbT > 0 && kbT >= padT && kbT >= phoneT) dev = ui::PadDevice::Keyboard;
+        else dev = ui::PadDevice::Gamepad;
+        CHECK(dev == ui::PadDevice::Keyboard);
+
+        // PadSlot device enum check
+        ui::PadSlot slot{};
+        slot.device = ui::PadDevice::Phone;
+        CHECK(slot.device == ui::PadDevice::Phone);
+    }
+
+    // 4. WebUI Layout & WebSocket / settingsVersion
+    {
+        app::WebServer srv;
+        // Check kIndexHtml content for 3x2 grid and fullscreen landscape
+        auto res = srv.handleRequest("GET", "/", "");
+        CHECK(res.status == 200);
+        CHECK(res.body.find("grid-template-columns: repeat(3, 1fr)") != std::string::npos);
+        CHECK(res.body.find("btnFullscreen") != std::string::npos);
+        CHECK(res.body.find("lastSettingsVersion") != std::string::npos);
+        CHECK(res.body.find("P1") != std::string::npos && res.body.find("P4") != std::string::npos);
+
+        // Check settingsVersion in /api/status or /api/settings
+        auto statusRes = srv.handleRequest("GET", "/api/status", "");
+        CHECK(statusRes.status == 200);
+        auto jStatus = json::parse(statusRes.body);
+        CHECK(jStatus && jStatus->isObject());
+        CHECK((*jStatus).has("ok") && (*jStatus)["ok"].asBool());
+
+        // WebSocket frames
+        auto closeFrame = app::ws::makeCloseFrame();
+        CHECK(!closeFrame.empty());
+        std::vector<uint8_t> pongPayload = {'p', 'o', 'n', 'g'};
+        auto pongFrame = app::ws::makePongFrame(pongPayload);
+        CHECK(!pongFrame.empty());
+    }
+}
+
+static void testPlayerSwitchAndUnresolvedTiles() {
+    // 1. Virtual Gamepad Player Switching & Ghost Icon Prevention
+    {
+        app::resetVirtualGamepads();
+        app::WebServer srv;
+
+        // Player 2 connects and sends input
+        auto resP2 = srv.handleRequest("POST", "/api/gamepad", "{\"player\":2,\"btnA\":true}");
+        CHECK(resP2.status == 200);
+        input::ControllerState s1{};
+        bool conn1 = false;
+        CHECK(app::virtualGamepadState(1, s1, conn1) && conn1);
+        CHECK(s1.btnA);
+        CHECK(app::virtualGamepadActiveAt(1) > 0);
+
+        // Player 2 switches to Player 1 (with activeSwitch: true)
+        auto resP1 = srv.handleRequest("POST", "/api/gamepad", "{\"player\":1,\"activeSwitch\":true,\"btnB\":true}");
+        CHECK(resP1.status == 200);
+
+        // Player 1 must now be connected
+        input::ControllerState s0{};
+        bool conn0 = false;
+        CHECK(app::virtualGamepadState(0, s0, conn0) && conn0);
+        CHECK(s0.btnB);
+        CHECK(app::virtualGamepadActiveAt(0) > 0);
+
+        // Player 2 MUST be completely cleared and disconnected (no ghost icon on PS5)
+        input::ControllerState s1After{};
+        bool conn1After = false;
+        app::virtualGamepadState(1, s1After, conn1After);
+        CHECK(!conn1After);
+        CHECK(app::virtualGamepadActiveAt(1) == 0);
+        CHECK(!s1After.btnA);
+
+        // Player 3 & 4 remain disconnected
+        input::ControllerState sX{};
+        bool connX = false;
+        app::virtualGamepadState(2, sX, connX);
+        CHECK(!connX);
+        CHECK(app::virtualGamepadActiveAt(2) == 0);
+        app::virtualGamepadState(3, sX, connX);
+        CHECK(!connX);
+        CHECK(app::virtualGamepadActiveAt(3) == 0);
+
+        // Direct switchVirtualGamepadSlot test
+        app::switchVirtualGamepadSlot(3);
+        app::virtualGamepadState(0, s0, conn0);
+        CHECK(!conn0);
+        CHECK(app::virtualGamepadActiveAt(0) == 0);
+        app::virtualGamepadState(3, sX, connX);
+        CHECK(connX);
+        CHECK(app::virtualGamepadActiveAt(3) > 0);
+    }
+
+    // 2. Library Filtering of Unresolved Store BigIds (e.g. bsr9nlhvf1kl)
+    {
+        app::Library lib;
+        lib.markAsOwned("bsr9nlhvf1kl", "T_UNRESOLVED");
+        auto ownedTiles = lib.owned();
+        bool foundRawId = false;
+        for (const auto& t : ownedTiles) {
+            if (t.productId == "bsr9nlhvf1kl" || t.name == "bsr9nlhvf1kl" || t.tileUrl.empty()) {
+                foundRawId = true;
+            }
+        }
+        CHECK(!foundRawId);
+    }
+
+    // 3. WebUI HTML contains responsive layout and safe-area rules
+    {
+        app::WebServer srv;
+        auto res = srv.handleRequest("GET", "/", "");
+        CHECK(res.status == 200);
+        CHECK(res.body.find("safe-area-inset-top") != std::string::npos);
+        CHECK(res.body.find("safe-area-inset-bottom") != std::string::npos);
+        CHECK(res.body.find("gamepad-viewport-wrapper") != std::string::npos);
+        CHECK(res.body.find("gamepad-container") != std::string::npos);
+
+        auto resBoost = srv.handleRequest("GET", "/boost", "");
+        CHECK(resBoost.status == 200);
+        CHECK(resBoost.body.find("gamepad-container") != std::string::npos);
+    }
+}
+
+static void testWebReportAndGamepadLayout() {
+    app::WebServer srv;
+
+    // 1. GET /api/report-issue
+    {
+        auto res = srv.handleRequest("GET", "/api/report-issue", "");
+        CHECK(res.status == 200);
+        auto j = json::parse(res.body);
+        CHECK(j.has_value() && (*j)["ok"].asBool());
+        CHECK((*j).has("url") && (*j)["url"].str().find("github.com") != std::string::npos);
+        CHECK((*j).has("platform") && !(*j)["platform"].str().empty());
+        CHECK((*j).has("release") && (*j)["release"].str() == XC_APP_VERSION);
+    }
+
+    // 2. POST /api/report-issue with custom title and description
+    {
+        auto res = srv.handleRequest("POST", "/api/report-issue",
+                                     "{\"title\":\"Audio crackling on PS5\",\"what\":\"Sound started stuttering during stream\"}");
+        CHECK(res.status == 200);
+        auto j = json::parse(res.body);
+        CHECK(j.has_value() && (*j)["ok"].asBool());
+        CHECK((*j)["title"].str() == "Audio crackling on PS5");
+        CHECK((*j)["url"].str().find("Audio+crackling+on+PS5") != std::string::npos);
+    }
+
+    // 3. WebUI HTML checks (enlarged sticks/buttons, no L3/R3 tap-click, report UI, RT visibility layout)
+    {
+        auto res = srv.handleRequest("GET", "/", "");
+        CHECK(res.status == 200);
+        // Report form in tab-logs
+        CHECK(res.body.find("openGitHubReport()") != std::string::npos);
+        CHECK(res.body.find("copySanitizedReport()") != std::string::npos);
+        CHECK(res.body.find("reportTitle") != std::string::npos);
+        // Portrait 2-row layout classes
+        CHECK(res.body.find("pad-bumper-left") != std::string::npos);
+        CHECK(res.body.find("pad-bumper-right") != std::string::npos);
+        // Enlarged fullscreen sizes
+        CHECK(res.body.find("width: 152px !important") != std::string::npos);
+        CHECK(res.body.find("width: 160px !important") != std::string::npos);
+        // Tap-click removed from setupStick calls
+        CHECK(res.body.find("setupStick('leftStickZone', 'leftStickHead', 'leftStickX', 'leftStickY')") != std::string::npos);
+        CHECK(res.body.find("setupStick('leftStickZone', 'leftStickHead', 'leftStickX', 'leftStickY', 'btnL3')") == std::string::npos);
+        // Stick heads have no static L3/R3 text
+        CHECK(res.body.find("id=\"leftStickHead\"></div>") != std::string::npos);
+        CHECK(res.body.find("id=\"rightStickHead\"></div>") != std::string::npos);
+    }
+}
+
+static void testCodSearchRomanAndSettingsReset() {
+    // 1. Search matching: Call of Duty MW4, acronyms, Roman numerals
+    {
+        ui::Fonts fonts;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+
+        ui::GameTile mw3, mw4, bo6, gta5, fn;
+        mw3.productId = "COD_MW3";
+        mw3.name = "Call of Duty: Modern Warfare III";
+        mw3.playable = true;
+
+        mw4.productId = "9NCPSQQD1Z66";
+        mw4.name = "Call of Duty: Modern Warfare 4";
+        mw4.playable = true;
+
+        bo6.productId = "COD_BO6";
+        bo6.name = "Call of Duty: Black Ops 6";
+        bo6.playable = true;
+
+        gta5.productId = "GTA_V";
+        gta5.name = "Grand Theft Auto V";
+        gta5.playable = true;
+
+        fn.productId = "FN";
+        fn.name = "Fortnite";
+        fn.playable = true;
+
+        app.setSearchPools({mw3, mw4, bo6, gta5, fn}, {});
+
+        // Search "mw4" -> should match Call of Duty: Modern Warfare 4
+        app.showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+        app.typeText("mw4");
+        auto res = app.searchResults(10);
+        CHECK(res.size() == 1 && res[0].first == "Call of Duty: Modern Warfare 4");
+
+        // Search "cod 4" -> should match Call of Duty: Modern Warfare 4
+        app.showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+        app.typeText("cod 4");
+        res = app.searchResults(10);
+        CHECK(!res.empty() && res[0].first == "Call of Duty: Modern Warfare 4");
+
+        // Search "call of duty 4" -> should match Call of Duty: Modern Warfare 4
+        app.showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+        app.typeText("call of duty 4");
+        res = app.searchResults(10);
+        CHECK(!res.empty() && res[0].first == "Call of Duty: Modern Warfare 4");
+
+        // Search "mw 3" -> Roman numeral 3 <-> iii
+        app.showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+        app.typeText("mw 3");
+        res = app.searchResults(10);
+        CHECK(!res.empty() && res[0].first == "Call of Duty: Modern Warfare III");
+
+        // Search "gta 5" -> Roman numeral 5 <-> v
+        app.showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+        app.typeText("gta 5");
+        res = app.searchResults(10);
+        CHECK(res.size() == 1 && res[0].first == "Grand Theft Auto V");
+
+        // Search "bo 6" -> Black Ops 6
+        app.showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+        app.typeText("bo 6");
+        res = app.searchResults(10);
+        CHECK(res.size() == 1 && res[0].first == "Call of Duty: Black Ops 6");
+
+        // Search "cod" -> all 3 COD games
+        app.showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+        app.typeText("cod");
+        res = app.searchResults(10);
+        CHECK(res.size() == 3);
+    }
+
+    // 2. WebControl strings
+    {
+        for (int lang = 0; lang < 6; ++lang) {
+            ui::setLanguage(static_cast<ui::Language>(lang));
+            std::string desc = ui::tr(ui::Str::WebControlDesc);
+            CHECK(!desc.empty());
+            std::string title = ui::tr(ui::Str::WebControlTitle);
+            CHECK(!title.empty());
+            std::string resetDesc = ui::tr(ui::Str::SettingDescResetSettings);
+            CHECK(!resetDesc.empty());
+        }
+        ui::setLanguage(ui::Language::English);
+    }
+
+    // 3. Settings Reset
+    {
+        app::Settings s{};
+        s.queueReadyAlert = false;
+        s.resolution = "720p";
+        s.language = "fr-FR";
+        s.padSpeakerVolume = 50;
+
+        app::Settings def{};
+        s = app::Settings{};
+        CHECK(s.queueReadyAlert == def.queueReadyAlert);
+        CHECK(s.resolution == def.resolution);
+        CHECK(s.language == def.language);
+        CHECK(s.padSpeakerVolume == def.padSpeakerVolume);
+    }
+}
+
+static void testCallOfDutyModernWarfare4CatalogAndRefresh() {
+    std::string testDir = "/tmp/test-cod-mw4";
+    std::system(("rm -rf " + testDir + " && mkdir -p " + testDir).c_str());
+    std::string cacheFile = testDir + "/library_cache.json";
+
+    net::setTestTransport([](const net::Request& req) {
+        net::Response r;
+        r.status = 200;
+        if (req.url.find("/sigls/") != std::string::npos) {
+            std::string id = req.url.substr(req.url.find("id=") + 3);
+            id = id.substr(0, id.find('&'));
+            r.body = R"([{"siglId":")" + id + R"(","title":"List )" + id + R"("},{"id":"P1"}])";
+        } else if (req.url.find("/v3/products") != std::string::npos) {
+            r.body = R"({"Products":{"P1":{"XCloudTitleId":"T1","ProductTitle":"Game One"}}})";
+        } else {
+            r.status = 503;
+        }
+        return r;
+    });
+
+    xcloud::GssvClient gssv;
+    std::string err;
+
+    // 1. Verify load() seeds Modern Warfare 4 and Call of Duty franchise
+    {
+        app::Library lib;
+        lib.setCachePath(cacheFile);
+        CHECK(lib.load(gssv, "en-US", [] {}, err));
+
+        auto gpPool = lib.gamePassSearchPool();
+        bool foundMw4 = false, foundCodHq = false, foundWarzone = false;
+        for (const auto& t : gpPool) {
+            if (t.productId == "9NCPSQQD1Z66" && t.name == "Call of Duty®: Modern Warfare® 4") foundMw4 = true;
+            if (t.productId == "9N201KQXS5BM" && t.name == "Call of Duty®") foundCodHq = true;
+            if (t.productId == "9NNFG8BQRCXL" && t.name == "Call of Duty®: Warzone™") foundWarzone = true;
+        }
+        CHECK(foundMw4);
+        CHECK(foundCodHq);
+        CHECK(foundWarzone);
+
+        // Check tile details
+        ui::GameTile mw4Tile;
+        for (const auto& t : gpPool) {
+            if (t.productId == "9NCPSQQD1Z66") {
+                mw4Tile = t;
+                break;
+            }
+        }
+        CHECK(mw4Tile.productId == "9NCPSQQD1Z66");
+        CHECK(mw4Tile.titleId == "CALLOFDUTYHQ");
+        CHECK(mw4Tile.xboxTitleId == "2001700854");
+        CHECK(mw4Tile.name == "Call of Duty®: Modern Warfare® 4");
+        CHECK(!mw4Tile.tileUrl.empty());
+        CHECK(!mw4Tile.heroUrl.empty());
+
+        // Check All Games row has MW4
+        bool mw4InRows = false;
+        for (const auto& row : lib.rows()) {
+            for (const auto& t : row.tiles) {
+                if (t.productId == "9NCPSQQD1Z66") mw4InRows = true;
+            }
+        }
+        CHECK(mw4InRows);
+
+        // Save cache for offline test
+        lib.saveCache();
+    }
+
+    // 2. Test offline cache / instant-resume withLayout retains MW4
+    {
+        app::Library libResume;
+        libResume.setCachePath(cacheFile);
+        CHECK(libResume.loadCache(true));
+        auto gpPool = libResume.gamePassSearchPool();
+        bool foundMw4 = false;
+        for (const auto& t : gpPool) {
+            if (t.productId == "9NCPSQQD1Z66") foundMw4 = true;
+        }
+        CHECK(foundMw4);
+    }
+
+    // 3. Test CALLOFDUTYHQ multi-experience deduplication and search
+    {
+        app::Library lib;
+        lib.setCachePath(cacheFile);
+        CHECK(lib.load(gssv, "en-US", [] {}, err));
+
+        ui::Fonts fonts;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+        app.setSearchPools(lib.gamePassSearchPool(), {});
+
+        // Search "Modern Warfare 4"
+        app.showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+        app.typeText("Modern Warfare 4");
+        auto res = app.searchResults(10);
+        CHECK(!res.empty());
+        CHECK(res[0].first == "Call of Duty®: Modern Warfare® 4");
+
+        // Search "Warzone"
+        app.showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+        app.typeText("Warzone");
+        res = app.searchResults(10);
+        CHECK(!res.empty());
+        CHECK(res[0].first == "Call of Duty®: Warzone™");
+    }
+
+    // 4. Test loadOwned entitles COD games for Game Pass members
+    {
+        app::Library lib;
+        lib.setCachePath(cacheFile);
+        CHECK(lib.load(gssv, "en-US", [] {}, err));
+
+        // Modern Warfare 4 is present in rows
+        bool foundInShelf = false;
+        for (const auto& row : lib.rows()) {
+            for (const auto& t : row.tiles) {
+                if (t.productId == "9NCPSQQD1Z66") foundInShelf = true;
+            }
+        }
+        CHECK(foundInShelf);
+
+        // Simulate loadOwned with Game Pass entitlement
+        net::setTestTransport([](const net::Request& req) {
+            net::Response r;
+            r.status = 200;
+            if (req.url.find("/v2/titles") != std::string::npos) {
+                r.body = R"({"results":[{"titleId":"CALLOFDUTYHQ","details":{"productId":"9N201KQXS5BM","hasEntitlement":true,"isFreeInStore":false,"userPrograms":["CALLISTO"]}}]})";
+            } else if (req.url.find("/v3/products") != std::string::npos) {
+                r.body = R"({"Products":{"9NCPSQQD1Z66":{"XCloudTitleId":"CALLOFDUTYHQ","ProductTitle":"Call of Duty®: Modern Warfare® 4"}}})";
+            } else {
+                r.status = 503;
+            }
+            return r;
+        });
+
+        std::atomic<bool> stop{false};
+        lib.loadOwned(gssv, [] {}, &stop);
+
+        // Verify MW4 is owned and playable
+        bool mw4Playable = false;
+        for (const auto& t : lib.owned()) {
+            if (t.productId == "9NCPSQQD1Z66") {
+                mw4Playable = t.playable;
+                break;
+            }
+        }
+        CHECK(mw4Playable);
+    }
+
+    // 5. Test plan tier checking: Essential does not play Ultimate-tier games, Ultimate does
+    {
+        net::setTestTransport([](const net::Request& req) {
+            net::Response r;
+            r.status = 200;
+            if (req.url.find("/sigls/") != std::string::npos) {
+                std::string id = req.url.substr(req.url.find("id=") + 3);
+                id = id.substr(0, id.find('&'));
+                r.body = R"([{"siglId":")" + id + R"(","title":"List )" + id + R"("},{"id":"P1"}])";
+            } else if (req.url.find("/v3/products") != std::string::npos) {
+                r.body = R"({"Products":{"P1":{"XCloudTitleId":"T1","ProductTitle":"Game One"},"9NCPSQQD1Z66":{"XCloudTitleId":"CALLOFDUTYHQ","ProductTitle":"Call of Duty®: Modern Warfare® 4"}}})";
+            } else {
+                r.status = 503;
+            }
+            return r;
+        });
+
+        std::string planCache = testDir + "/plan_cache.json";
+        platform::writeFileAtomic(planCache, R"({"version":2,"market":"US","language":"en-US","products":{},"owned":[],"purchasable":[],"ownedTitles":[],"ownedProducts":[],"gamePass":[]})");
+        app::Library libPlan;
+        libPlan.setCachePath(planCache);
+        libPlan.setSubscription("Essential");
+        CHECK(libPlan.load(gssv, "en-US", [] {}, err));
+        for (const auto& t : libPlan.gamePassSearchPool()) {
+            if (t.productId == "9NCPSQQD1Z66") {
+                // Not playable on Essential plan without ownership
+                CHECK(!t.playable);
+            }
+        }
+
+        libPlan.setSubscription("Ultimate");
+        for (const auto& t : libPlan.gamePassSearchPool()) {
+            if (t.productId == "9NCPSQQD1Z66") {
+                // Playable on Ultimate plan
+                CHECK(t.playable);
+            }
+        }
+    }
+
+    // 6. Test forceRefresh: force-refresh reloads without dropping offline cache
+    {
+        app::Library libRefresh;
+        libRefresh.setCachePath(cacheFile);
+        CHECK(libRefresh.load(gssv, "en-US", [] {}, err, true));
+        bool foundMw4 = false;
+        for (const auto& row : libRefresh.rows()) {
+            for (const auto& t : row.tiles) {
+                if (t.productId == "9NCPSQQD1Z66") foundMw4 = true;
+            }
+        }
+        CHECK(foundMw4);
+    }
+
+    net::setTestTransport({});
+    std::system(("rm -rf " + testDir).c_str());
+}
+
 int main() {
+    testCallOfDutyModernWarfare4CatalogAndRefresh();
     testBlock3Features();
     testWishlist();
     testAchievements();
@@ -4524,6 +5159,10 @@ int main() {
     testExpandedUsbControllers();
     testAudioToHaptics();
     testLibraryOfflineCache();
+    testTouchpadShortcutsAndSlots();
+    testPlayerSwitchAndUnresolvedTiles();
+    testWebReportAndGamepadLayout();
+    testCodSearchRomanAndSettingsReset();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

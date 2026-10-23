@@ -34,11 +34,14 @@ struct WebServerHooks {
 void setWebServerHooks(WebServerHooks hooks);
 
 // Virtual gamepad input query:
-// playerIndex: 0 = Player 1, 1 = Player 2
-// outState: contains current active buttons/axes (resets to neutral after ~600ms of inactivity)
-// isConnected: true if any report/keepalive received within ~3000ms
+// playerIndex: 0..3 (Player 1..4)
+// outState: contains current active buttons/axes (resets to neutral after ~2000ms of inactivity)
+// isConnected: true if any report/keepalive received within ~4000ms
 bool virtualGamepadState(int playerIndex, input::ControllerState& outState, bool& isConnected);
 void setVirtualGamepad(int playerIndex, const input::ControllerState& state);
+void touchVirtualGamepad(int playerIndex);
+void switchVirtualGamepadSlot(int newSlot);
+uint64_t virtualGamepadActiveAt(int playerIndex);
 void resetVirtualGamepads();
 
 namespace ws {

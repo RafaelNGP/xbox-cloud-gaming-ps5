@@ -346,6 +346,12 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
             title.hasEntitlement = t["details"]["hasEntitlement"].asBool();
             title.xboxTitleId = t["details"]["xboxTitleId"].str();
             title.isFreeInStore = t["details"]["isFreeInStore"].asBool();
+            for (const auto& alt : t["details"]["alternateProductIds"].items()) {
+                if (alt.isString() && !alt.str().empty()) title.alternateProductIds.push_back(alt.str());
+            }
+            if (title.productId.empty() && !title.alternateProductIds.empty()) {
+                title.productId = title.alternateProductIds[0];
+            }
             for (const auto& input : t["details"]["supportedInputTypes"].items()) {
                 ++inputTypes[input.str()];
                 if (input.str() == "MKB") title.mouseKeyboard = true;
@@ -365,7 +371,7 @@ bool GssvClient::listTitles(std::vector<Title>& out, std::string& err, bool rece
             next.clear();
         }
         continuation = next;
-    } while (!continuation.empty() && out.size() < 5000);
+    } while (!continuation.empty() && out.size() < 10000);
     XC_LOGI("title list%s: %zu titles in %llu ms", recentOnly ? " (recent)" : "", out.size(),
             static_cast<unsigned long long>(platform::nowMs() - started));
     if (!inputTypes.empty()) {

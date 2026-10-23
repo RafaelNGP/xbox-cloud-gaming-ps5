@@ -52,6 +52,11 @@ bool fetchList(const std::string& siglId, const std::string& market, const std::
                std::string& err) {
     net::Request req;
     req.url = "https://catalog.gamepass.com/sigls/v2?id=" + siglId + "&market=" + market + "&language=" + language;
+    req.headers = {{"Cache-Control", "no-cache"},
+                   {"Pragma", "no-cache"},
+                   {"ms-cv", "0.0"},
+                   {"calling-app-name", "xcloud-ps5"},
+                   {"calling-app-version", "0.1"}};
     auto r = net::perform(req);
     auto j = json::parse(r.body);
     if (!r.ok() || !j || !j->isArray()) {
@@ -85,6 +90,8 @@ bool fetchProducts(const std::vector<std::string>& ids, const std::string& marke
         req.url = "https://catalog.gamepass.com/v3/products?market=" + market + "&language=" + language +
                   "&hydration=" + (full ? "RemoteHighSapphire0" : "RemoteLowJade0");
         req.headers = {{"Content-Type", "application/json"},
+                       {"Cache-Control", "no-cache"},
+                       {"Pragma", "no-cache"},
                        {"ms-cv", "0.0"},
                        {"calling-app-name", "xcloud-ps5"},
                        {"calling-app-version", "0.1"}};
@@ -136,6 +143,18 @@ bool fetchProducts(const std::vector<std::string>& ids, const std::string& marke
                         if (support["GamePlayAudioLanguageSupport"].asInt(0)) bits |= kLangAudio;
                         prod.languages[lang] |= bits;
                     }
+                }
+            }
+            if (auto existing = out.find(id); existing != out.end()) {
+                if (prod.heroUrl.empty()) prod.heroUrl = existing->second.heroUrl;
+                if (prod.description.empty()) prod.description = existing->second.description;
+                if (prod.xcloudTitleId.empty()) prod.xcloudTitleId = existing->second.xcloudTitleId;
+                if (!prod.detailed && existing->second.detailed) {
+                    prod.detailed = existing->second.detailed;
+                    prod.detailedAt = existing->second.detailedAt;
+                    prod.modes = existing->second.modes;
+                    prod.plan = existing->second.plan;
+                    prod.languages = existing->second.languages;
                 }
             }
             out[id] = std::move(prod);

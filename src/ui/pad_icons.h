@@ -11,10 +11,13 @@
 
 namespace xc::ui {
 
+enum class PadDevice : uint8_t { Gamepad = 0, Keyboard = 1, Phone = 2 };
+
 struct PadSlot {
     bool connected = false;
     std::string name;   // the PS5 user's
     bool keyboard = false;  // a USB keyboard and mouse plays in this slot
+    PadDevice device = PadDevice::Gamepad;
 };
 using PadSlots = std::array<PadSlot, 4>;
 
@@ -25,6 +28,9 @@ Color playerColor(int index);
 // A keyboard, `w` wide (about w / 2.4 tall), its top-left at (x, y): an
 // outline and three rows of keys, in `color` (cards, the players' row).
 void drawKeyboardGlyph(Canvas& c, int x, int y, int w, Color color);
+
+// A smartphone glyph centered in `w` wide by `w * 7 / 10` tall at (x, y).
+void drawPhoneGlyph(Canvas& c, int x, int y, int w, Color color, Color background);
 
 // One pad, a DualSense `w` wide with its number `index + 1` below
 // (padIconHeight(w) in all): in the player's colour when connected, dim

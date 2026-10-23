@@ -131,6 +131,7 @@ void loadAutoplay() {
         if (opt == "block1test") g_autoplay.block1Test = true;
         if (opt == "block2test") g_autoplay.block2Test = true;
         if (opt == "block3test") g_autoplay.block3Test = true;
+        if (opt == "touchpadtest") g_autoplay.touchpadTest = true;
         if (opt == "bitratetest") g_autoplay.bitrateTest = true;
         if (opt == "imetest") g_autoplay.imeTest = true;
         if (opt == "menutest") g_autoplay.menuTest = true;
@@ -157,6 +158,8 @@ void loadAutoplay() {
         if (opt == "gamesettingstest") g_autoplay.gameSettingsTest = true;
         if (opt == "publishertest") g_autoplay.publisherTest = true;
         if (opt == "friendstest") g_autoplay.friendsTest = true;
+        if (opt == "mw4test") g_autoplay.mw4Test = true;
+        if (opt == "v150test") g_autoplay.v150Test = true;
         if (opt == "streammenutest") g_autoplay.streamMenuTest = true;
         if (opt == "regiontest") g_autoplay.regionTest = true;
         if (opt == "tlscheck") g_autoplay.tlsCheck = true;
@@ -1326,6 +1329,27 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             ++step;
         }
     }
+    if (g_autoplay.mw4Test && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        if (step == 0 && now - since > 2000) {
+            g_ui->showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+            g_ui->typeText("Modern Warfare 4\n");
+            ++step;
+        } else if (step == 1 && now - since > 5000) {
+            saveCanvas("search_mw4.ppm");
+            ui::NavInput nav;
+            nav.accept = true;
+            g_ui->handle(nav);
+            ++step;
+        } else if (step == 2 && now - since > 8000) {
+            saveCanvas("details_mw4.ppm");
+            g_autoplay.mw4Test = false;
+            XC_LOGI("AUTOPLAY END: mw4 test");
+            ++step;
+        }
+    }
     if (g_autoplay.block2Test && uiSaved) {
         static uint64_t since = 0;
         static int step = 0;
@@ -1545,6 +1569,144 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             platform::writeFileAtomic(platform::dataDir() + "/stream_menu_muted.ppm", ppm);
             g_autoplay.streamMenuTest = false;
             XC_LOGI("AUTOPLAY END: stream menu test");
+            ++step;
+        }
+    }
+    if (g_autoplay.touchpadTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        if (step == 0 && now - since > 2000) {
+            g_ui->showHome();
+            ui::NavInput opt;
+            opt.options = true;
+            g_ui->handle(opt);
+            ui::NavInput down;
+            down.down = true;
+            while (g_ui->settingsFocus() != 14) {
+                g_ui->handle(down);
+            }
+            ui::NavInput accept;
+            accept.accept = true;
+            g_ui->handle(accept);
+            ui::NavInput r1;
+            r1.r1 = true;
+            g_ui->handle(r1);
+            ++step;
+        } else if (step == 1 && now - since > 4500) {
+            saveCanvas("settings_touchpad_modal.ppm");
+            ui::NavInput accept;
+            accept.accept = true;
+            g_ui->handle(accept); // open dropdown modal
+            ++step;
+        } else if (step == 2 && now - since > 6500) {
+            saveCanvas("settings_touchpad_dropdown.ppm");
+            ui::NavInput back;
+            back.back = true;
+            g_ui->handle(back); // close dropdown
+            ui::NavInput down;
+            down.down = true;
+            for (int k = 0; k < 6; ++k) g_ui->handle(down); // down to Reset
+            ++step;
+        } else if (step == 3 && now - since > 8500) {
+            saveCanvas("settings_touchpad_reset.ppm");
+            ui::NavInput back;
+            back.back = true;
+            g_ui->handle(back); // exit pad tester
+            g_ui->showHome();
+
+            auto saveMenu = [](const char* name, const ui::Canvas& c) {
+                std::string ppm = "P6\n" + std::to_string(c.width()) + " " + std::to_string(c.height()) + "\n255\n";
+                ppm.reserve(ppm.size() + static_cast<size_t>(c.width() * c.height() * 3));
+                for (size_t i = 0; i < static_cast<size_t>(c.width() * c.height()); ++i) {
+                    uint32_t p = c.data()[i];
+                    ppm += static_cast<char>(p & 0xFF);
+                    ppm += static_cast<char>((p >> 8) & 0xFF);
+                    ppm += static_cast<char>((p >> 16) & 0xFF);
+                }
+                platform::writeFileAtomic(platform::dataDir() + "/" + name, ppm);
+                XC_LOGI("AUTOPLAY: %s saved", name);
+            };
+
+            ui::StreamInfo info;
+            info.region = "Brazil South";
+            info.rttMs = 15;
+            info.fps = 60.0;
+            info.mbps = 20.0;
+            info.decodeMs = 2.0;
+            info.onScreenMs = 10.0;
+            info.width = 1920;
+            info.height = 1080;
+
+            ui::PadSlots pads{};
+            pads[0].connected = true;
+            pads[0].device = ui::PadDevice::Gamepad;
+            pads[0].name = "DualSense";
+
+            pads[1].connected = true;
+            pads[1].device = ui::PadDevice::Keyboard;
+            pads[1].name = "Keyboard";
+
+            pads[2].connected = true;
+            pads[2].device = ui::PadDevice::Phone;
+            pads[2].name = "Web Pad P3";
+
+            pads[3].connected = true;
+            pads[3].device = ui::PadDevice::Phone;
+            pads[3].name = "Web Pad P4";
+
+            ui::StreamMenu menu(g_ui->fonts());
+            menu.open(0, false, 1, 1, 0, false, true, false, 2, 15, false, 0.5f, false, 100);
+            menu.setPads(pads);
+            for (int i = 0; i < 13; ++i) {
+                ui::NavInput down;
+                down.down = true;
+                menu.handle(down);
+            }
+            saveMenu("stream_menu_slots.ppm", menu.renderMenu(info));
+
+            ui::NavInput accept;
+            accept.accept = true;
+            menu.handle(accept);
+            saveMenu("stream_menu_touchpad.ppm", menu.renderMenu(info));
+            ++step;
+        } else if (step == 4 && now - since > 9500) {
+            ui::GameTile launchTile;
+            launchTile.name = "Halo Infinite";
+            launchTile.publisher = "Xbox Game Studios";
+            g_ui->showLaunching(launchTile, "Conectando ao console virtual...");
+            ++step;
+        } else if (step == 5 && now - since > 12000) {
+            saveCanvas("launch_screen_hint.ppm");
+            g_ui->showHome();
+            g_autoplay.touchpadTest = false;
+            XC_LOGI("AUTOPLAY END: touchpad test");
+            ++step;
+        }
+    }
+    if (g_autoplay.v150Test && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        if (step == 0 && now - since > 2000) {
+            g_ui->showHome();
+            ui::NavInput opt;
+            opt.options = true;
+            g_ui->handle(opt);
+            ++step;
+        } else if (step == 1 && now - since > 4500) {
+            saveCanvas("v150_settings.ppm");
+            ui::NavInput back;
+            back.back = true;
+            g_ui->handle(back);
+            g_ui->showFilteredSearch(ui::Tab::Library, false, 0, "", 0);
+            g_ui->chooseFilter(ui::AppUi::Filter::Free, 1);
+            ++step;
+        } else if (step == 2 && now - since > 7500) {
+            saveCanvas("v150_search_free.ppm");
+            g_ui->showHome();
+            g_autoplay.v150Test = false;
+            XC_LOGI("AUTOPLAY END: v150 test");
             ++step;
         }
     }

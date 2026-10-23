@@ -47,6 +47,8 @@ struct GameProfile {
     int gyroLevel = 5;
     // Touchpad as mouse in games with native MKB support (OFF by default)
     bool touchpadMouse = false;
+    // Configurable DualSense touchpad gestures and left/right click actions
+    input::TouchpadShortcuts touchpadShortcuts = input::defaultTouchpadShortcuts();
     // Per-game audio/subtitle language: "" = system default, else e.g. "en-US", "pt-BR"
     std::string locale;
 };
@@ -112,6 +114,7 @@ struct Settings {
     int gyroMode = 0;          // gyro aiming (input/gyro.h): 0 off, 1 always, 2 while L2 is held
     int gyroLevel = 5;         // its intensity, 1..10
     bool touchpadMouse = false; // touchpad as mouse in games with native MKB support
+    input::TouchpadShortcuts touchpadShortcuts = input::defaultTouchpadShortcuts();
     int micGain = 1;        // 0: 50%, 1: 100%, 2: 150%
     int audioRoute = 0;     // 0: TV/HDMI (Main), 1: DualSense Speaker / Headset (Pad)
     int voiceRouting = 0;   // 0: Auto (DualSense Speaker if available), 1: Always TV/Headset

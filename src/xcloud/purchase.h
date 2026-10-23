@@ -26,4 +26,10 @@ bool fetchPurchaseOffer(const std::string& productId, const std::string& market,
 bool claimFreeProduct(const std::string& marketplaceAuthHeader, const PurchaseOffer& offer,
                       const std::string& market, const std::string& language, std::string& err);
 
+// Tracks products known to fail claim (bundles, token/code-only, or no valid purchase action)
+void markProductUnclaimable(const std::string& productId);
+bool isProductUnclaimable(const std::string& productId);
+void loadUnclaimableProducts(const std::string& path);
+void saveUnclaimableProducts(const std::string& path);
+
 }  // namespace xc::xcloud

@@ -135,4 +135,68 @@ bool readPadMap(const json::Value& v, PadMap& out) {
     return true;
 }
 
+TouchpadShortcuts defaultTouchpadShortcuts() {
+    return TouchpadShortcuts{};
+}
+
+json::Value touchpadShortcutsJson(const TouchpadShortcuts& ts) {
+    json::Value v = json::Value::object();
+    v.set("version", 1);
+    v.set("swipeUp", static_cast<int>(ts.swipeUp));
+    v.set("swipeDown", static_cast<int>(ts.swipeDown));
+    v.set("swipeLeft", static_cast<int>(ts.swipeLeft));
+    v.set("swipeRight", static_cast<int>(ts.swipeRight));
+    v.set("clickLeft", static_cast<int>(ts.clickLeft));
+    v.set("clickRight", static_cast<int>(ts.clickRight));
+    return v;
+}
+
+bool readTouchpadShortcuts(const json::Value& v, TouchpadShortcuts& out) {
+    out = defaultTouchpadShortcuts();
+    if (!v.isObject()) return false;
+    if (v.has("version") && v["version"].asInt(1) != 1) return false;
+    if (!v.has("swipeUp") && !v.has("swipeDown") && !v.has("swipeLeft") &&
+        !v.has("swipeRight") && !v.has("clickLeft") && !v.has("clickRight")) {
+        return false;
+    }
+    auto parseAct = [&](const char* key, TouchpadAction fallback) -> TouchpadAction {
+        if (!v.has(key)) return fallback;
+        int val = v[key].asInt(static_cast<int>(fallback));
+        if (val < 0 || val >= kTouchpadActions) return fallback;
+        return static_cast<TouchpadAction>(val);
+    };
+    out.swipeUp = parseAct("swipeUp", out.swipeUp);
+    out.swipeDown = parseAct("swipeDown", out.swipeDown);
+    out.swipeLeft = parseAct("swipeLeft", out.swipeLeft);
+    out.swipeRight = parseAct("swipeRight", out.swipeRight);
+    out.clickLeft = parseAct("clickLeft", out.clickLeft);
+    out.clickRight = parseAct("clickRight", out.clickRight);
+    return true;
+}
+
+bool isTouchpadButtonAction(TouchpadAction act) {
+    return static_cast<uint8_t>(act) >= static_cast<uint8_t>(TouchpadAction::View) &&
+           static_cast<uint8_t>(act) < static_cast<uint8_t>(TouchpadAction::Count);
+}
+
+bool applyTouchpadButtonAction(ControllerState& s, TouchpadAction act) {
+    switch (act) {
+    case TouchpadAction::View: s.btnTouchpad = true; return true;
+    case TouchpadAction::Menu: s.btnOptions = true; return true;
+    case TouchpadAction::L3: s.btnL3 = true; return true;
+    case TouchpadAction::R3: s.btnR3 = true; return true;
+    case TouchpadAction::A: s.btnA = true; return true;
+    case TouchpadAction::B: s.btnB = true; return true;
+    case TouchpadAction::X: s.btnX = true; return true;
+    case TouchpadAction::Y: s.btnY = true; return true;
+    case TouchpadAction::LB: s.btnL1 = true; return true;
+    case TouchpadAction::RB: s.btnR1 = true; return true;
+    case TouchpadAction::DpadUp: s.dpadUp = true; return true;
+    case TouchpadAction::DpadDown: s.dpadDown = true; return true;
+    case TouchpadAction::DpadLeft: s.dpadLeft = true; return true;
+    case TouchpadAction::DpadRight: s.dpadRight = true; return true;
+    default: return false;
+    }
+}
+
 }  // namespace xc::input

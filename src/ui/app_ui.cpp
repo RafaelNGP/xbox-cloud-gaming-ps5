@@ -52,7 +52,7 @@ constexpr Color kGreen = rgba(16, 124, 16);
 constexpr Color kPanel = rgba(36, 36, 36);
 constexpr Color kPlaceholder = rgba(44, 44, 44);
 
-enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad, kIconSquare, kIconR3, kIconL3, kIconL2R2, kIconDpadLR };
+enum Icon { kIconCross, kIconCircle, kIconOptions, kIconTriangle, kIconTouchpad, kIconSquare, kIconR3, kIconL3, kIconL2R2, kIconDpadLR, kIconL1R1 };
 
 // The resolution list, lowest first: SettingsChoice::resolution value per
 // position (0 = 1080p, 1 = 720p, 2 = 1440p, as saved).
@@ -62,10 +62,10 @@ constexpr int kResolutionOrder[3] = {1, 0, 2};
 // stream (resolution, a desktop's display mode, 120 Hz, bitrate, region, network test);
 // the controller, keyboard and queue-ready alert; support and updates last. A group starts at each
 // kSettingsGroupStart.
-constexpr int kSettingsCount = 21;
-constexpr int kSettingsOrder[kSettingsCount] = {0, 8, 17, 1, 20, 13, 9, 10, 2, 18, 14, 12, 3, 15, 4, 21, 5, 6, 16, 19, 7};
-constexpr bool kSettingsGroupStart[kSettingsCount] = {false, false, false, true, false, false, false, false, false, false,
-                                                     true, false, false, false, false, false, false, false, false, true, false};
+constexpr int kSettingsCount = 22;
+constexpr int kSettingsOrder[kSettingsCount] = {0, 2, 8, 17, 18, 1, 20, 13, 9, 10, 14, 12, 3, 15, 4, 21, 5, 6, 16, 19, 7, 23};
+constexpr bool kSettingsGroupStart[kSettingsCount] = {false, false, false, false, false, true, false, false, false, false,
+                                                      true, false, false, false, false, false, false, false, false, true, false, true};
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
 // sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7
 // confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default, 11 controller
@@ -646,8 +646,10 @@ void AppUi::toggleHidden(const GameTile& tile, UiEvent& ev) {
     bool hide = !hidden_.count(tile.productId);
     if (hide) hidden_.insert(tile.productId);
     else hidden_.erase(tile.productId);
-    toast_ = tr(hide ? Str::HiddenToast : Str::UnhiddenToast);
-    toastUntil_ = 0;
+    if (!caps_.console) {
+        toast_ = tr(hide ? Str::HiddenToast : Str::UnhiddenToast);
+        toastUntil_ = 0;
+    }
     rebuild(true);  // the cursor stays put; the next game takes the place
     prefsEvent(ev);
 }
@@ -658,8 +660,10 @@ void AppUi::toggleFavorite(const GameTile& tile, UiEvent& ev) {
     bool fav = !favorites_.count(tile.productId);
     if (fav) favorites_.insert(tile.productId);
     else favorites_.erase(tile.productId);
-    toast_ = tr(fav ? Str::AddedToFavorites : Str::RemovedFromFavorites);
-    toastUntil_ = 0;
+    if (!caps_.console) {
+        toast_ = tr(fav ? Str::AddedToFavorites : Str::RemovedFromFavorites);
+        toastUntil_ = 0;
+    }
     prefsEvent(ev);
     dirty_ = true;
 }
@@ -677,6 +681,7 @@ bool AppUi::isAcquired(const GameTile& t) const {
 }
 
 bool AppUi::isFreeGame(const GameTile& t) const {
+    if (unclaimable_.count(t.productId)) return false;
     if (t.freeInStore) return true;
     auto price = prices_.find(t.productId);
     if (price != prices_.end()) {
@@ -694,8 +699,10 @@ void AppUi::toggleWishlist(const GameTile& tile, UiEvent& ev) {
     bool wish = !wishlist_.count(tile.productId);
     if (wish) wishlist_.insert(tile.productId);
     else wishlist_.erase(tile.productId);
-    toast_ = tr(wish ? Str::AddedToWishlist : Str::RemovedFromWishlist);
-    toastUntil_ = 0;
+    if (!caps_.console) {
+        toast_ = tr(wish ? Str::AddedToWishlist : Str::RemovedFromWishlist);
+        toastUntil_ = 0;
+    }
     rebuild();
     prefsEvent(ev);
     dirty_ = true;
@@ -1024,6 +1031,65 @@ void AppUi::refreshDetail() {
     if (changed) dirty_ = true;
 }
 
+static bool containsWordBoundary(const std::string& text, const std::string& token) {
+    size_t pos = 0;
+    while ((pos = text.find(token, pos)) != std::string::npos) {
+        bool startBound = (pos == 0 || !isalnum((unsigned char)text[pos - 1]));
+        bool endBound = (pos + token.size() >= text.size() || !isalnum((unsigned char)text[pos + token.size()]));
+        if (startBound && endBound) return true;
+        pos += token.size();
+    }
+    return false;
+}
+
+static bool matchSearchWord(const std::string& name, const std::string& word) {
+    if (name.find(word) != std::string::npos) return true;
+    static const std::pair<const char*, const char*> kRoman[] = {
+        {"1", "i"}, {"i", "1"},
+        {"2", "ii"}, {"ii", "2"},
+        {"3", "iii"}, {"iii", "3"},
+        {"4", "iv"}, {"iv", "4"},
+        {"4", "iiii"}, {"iiii", "4"},
+        {"5", "v"}, {"v", "5"},
+        {"6", "vi"}, {"vi", "6"},
+    };
+    for (const auto& [num, rom] : kRoman) {
+        if (word == num && containsWordBoundary(name, rom)) return true;
+    }
+    static const std::pair<const char*, const char*> kAcronyms[] = {
+        {"cod", "call of duty"},
+        {"cod4", "call of duty 4"},
+        {"codmw", "modern warfare"},
+        {"codmw4", "modern warfare 4"},
+        {"mw", "modern warfare"},
+        {"mw1", "modern warfare"},
+        {"mw2", "modern warfare ii"},
+        {"mwii", "modern warfare ii"},
+        {"mw3", "modern warfare iii"},
+        {"mwiii", "modern warfare iii"},
+        {"mw4", "modern warfare 4"},
+        {"mwiv", "modern warfare 4"},
+        {"bo", "black ops"},
+        {"bo1", "black ops"},
+        {"bo2", "black ops ii"},
+        {"bo3", "black ops iii"},
+        {"bo4", "black ops iiii"},
+        {"bo6", "black ops 6"},
+        {"bops", "black ops"},
+        {"gta", "grand theft auto"},
+        {"rdr", "red dead"},
+        {"re", "resident evil"},
+        {"ac", "assassin"},
+        {"gow", "gears of war"},
+        {"nfs", "need for speed"},
+        {"bf", "battlefield"},
+    };
+    for (const auto& [acro, full] : kAcronyms) {
+        if (word == acro && name.find(full) != std::string::npos) return true;
+    }
+    return false;
+}
+
 void AppUi::runSearch() {
     // Caller holds mutex_. The typed words narrow by name; the filters by
     // price and console. With filters and no words: every game that passes.
@@ -1054,8 +1120,8 @@ void AppUi::runSearch() {
         if (tab_ == Tab::GamePass && filterPlan_ != 4) {
             if (filterPlan_ == 0) {
                 uint8_t myPlan = xcloud::planTier(subscription_);
-                if (!t.freeInStore && (!t.playable || (myPlan > 0 && !xcloud::planIncludes(myPlan, t.plan, false))))
-                    continue;
+                bool inPlan = (myPlan > 0) ? xcloud::planIncludes(myPlan, t.plan, t.freeInStore) : true;
+                if (!t.freeInStore && !t.playable && !inPlan) continue;
             } else {
                 uint8_t want = filterPlan_ == 1 ? xcloud::kPlanUltimate
                              : filterPlan_ == 2 ? xcloud::kPlanPremium
@@ -1085,8 +1151,11 @@ void AppUi::runSearch() {
             // game given away (price 0 now, regular price above 0) is a
             // sale, not free-to-play.
             bool zeroNow = t.purchasable && priced && price->second.list < 0.005;
-            bool freeToPlay = t.freeInStore || (zeroNow && price->second.msrp < 0.005);
-            if (filterFree_ && !freeToPlay && !zeroNow) continue;  // Free: both
+            bool freeToPlay = (t.freeInStore || (zeroNow && price->second.msrp < 0.005)) && !unclaimable_.count(t.productId);
+            if (filterFree_) {
+                if (!freeToPlay && !zeroNow) continue;  // Free: both
+                if (t.playable || isAcquired(t)) continue;  // Do not show games the user already owns on their account!
+            }
             // Free-to-play games have their own filter: the price orders
             // leave them out, unless Free is on too. Giveaways stay (first).
             if (filterCheapest_ && freeToPlay && !filterFree_) continue;
@@ -1098,10 +1167,19 @@ void AppUi::runSearch() {
         if (!words.empty()) {
             bool all = true;
             for (const auto& w : words)
-                if (name.find(w) == std::string::npos) all = false;
+                if (!matchSearchWord(name, w)) all = false;
             if (!all && withoutSpaces(name).find(compact) == std::string::npos) continue;
-            // Starts with the query, then a word starting with it, then the rest.
-            score = name.rfind(words[0], 0) == 0 ? 0 : name.find(" " + words[0]) != std::string::npos ? 1 : 2;
+            // Starts with the query or acronym, then a word starting with it, then the rest.
+            if (matchSearchWord(name, words[0])) {
+                score = name.rfind(words[0], 0) == 0 ? 0 : name.find(" " + words[0]) != std::string::npos ? 1 : 2;
+                if (words[0] == "cod" && name.find("call of duty") != std::string::npos) score = 0;
+                else if ((words[0] == "cod4" || words[0] == "mw4" || words[0] == "codmw4" ||
+                          words[0] == "mwiv" || words[0] == "codmwiv") &&
+                         (name.find("modern warfare 4") != std::string::npos || name.find("call of duty 4") != std::string::npos)) score = 0;
+                else if (words[0] == "codmw" && name.find("modern warfare") != std::string::npos) score = 0;
+            } else {
+                score = 2;
+            }
         }
         if (!t.playable) score += 3;  // in "Your games": owned before games to buy
         // Lowest price: by the price now (with any discount, not the regular
@@ -1126,7 +1204,7 @@ void AppUi::runSearch() {
 void AppUi::showHome(const std::string& toast) {
     std::lock_guard<std::mutex> lock(mutex_);
     screen_ = Screen::Home;
-    if (!toast.empty()) {
+    if (!caps_.console && !toast.empty()) {
         toast_ = toast;
         toastUntil_ = 0;  // set on first render
     }
@@ -1134,6 +1212,7 @@ void AppUi::showHome(const std::string& toast) {
 }
 
 void AppUi::showToast(const std::string& toast) {
+    if (caps_.console) return;
     std::lock_guard<std::mutex> lock(mutex_);
     if (!toast.empty()) {
         toast_ = toast;
@@ -1151,8 +1230,20 @@ void AppUi::markTileOwned(const std::string& productId, const std::string& title
     }
 }
 
+void AppUi::markUnclaimable(const std::string& productId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    unclaimable_.insert(productId);
+    if (detail_.productId == productId) {
+        detail_.freeInStore = false;
+        dirty_ = true;
+    }
+}
+
 void AppUi::showLaunching(const GameTile& game, const std::string& status) {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (screen_ != Screen::Launching) {
+        launchingStartMs_ = 0;
+    }
     screen_ = Screen::Launching;
     launching_ = game;
     status_ = status;
@@ -1328,33 +1419,100 @@ void AppUi::handleKeysTester(const NavInput& in) {
 }
 
 void AppUi::openPadTester() {
-    // Caller holds mutex_. A copy of the map in force (Settings', or the
-    // game's with its settings open) is what the screen edits.
+    // Caller holds mutex_. A copy of the map and touchpad shortcuts in force
+    // (Settings', or the game's with its settings open) is what the screen edits.
     tester_ = Tester::Pad;
     padWork_ = gameSettingsOpen_ ? activeGameProfile_.padMap : settings_.padMap;
     if (!input::padMapValid(padWork_)) padWork_ = input::defaultPadMap();
+    touchpadWork_ = gameSettingsOpen_ ? activeGameProfile_.touchpadShortcuts : settings_.touchpadShortcuts;
     padRow_ = padCol_ = 0;
     padCaptureSince_ = 0;
+    padTesterTab_ = 0;
+    touchpadRow_ = 0;
+    touchpadDropdownOpen_ = false;
+    touchpadDropdownIndex_ = 0;
+    touchpadDropdownTop_ = 0;
     dirty_ = true;
 }
 
 void AppUi::handlePadTester(const NavInput& in) {
-    // Caller holds mutex_. The screen reads the pad as it is (the map only
-    // changes what a game is sent), so it always answers. Edits stay in
-    // padWork_: Circle keeps them only when every Xbox button has one
-    // button (else the screen stays, naming what's missing); "Reset to
-    // default" and "Discard changes" are always there below.
-    //
-    // The map's sources are the pad's slots after "Circle confirms"
-    // (input/pad_map.h): a press comes in with the menus' swap (circleConfirms_)
-    // and is stored with the one the map plays under (the game's own with
-    // its settings open).
+    if (touchpadDropdownOpen_) {
+        constexpr int kMaxVisible = 8;
+        constexpr int n = input::kTouchpadActions;
+        if (in.up) {
+            touchpadDropdownIndex_ = (touchpadDropdownIndex_ + n - 1) % n;
+            if (touchpadDropdownIndex_ < touchpadDropdownTop_) touchpadDropdownTop_ = touchpadDropdownIndex_;
+            else if (touchpadDropdownIndex_ >= touchpadDropdownTop_ + kMaxVisible)
+                touchpadDropdownTop_ = touchpadDropdownIndex_ - kMaxVisible + 1;
+            dirty_ = true;
+        }
+        if (in.down) {
+            touchpadDropdownIndex_ = (touchpadDropdownIndex_ + 1) % n;
+            if (touchpadDropdownIndex_ < touchpadDropdownTop_) touchpadDropdownTop_ = touchpadDropdownIndex_;
+            else if (touchpadDropdownIndex_ >= touchpadDropdownTop_ + kMaxVisible)
+                touchpadDropdownTop_ = touchpadDropdownIndex_ - kMaxVisible + 1;
+            dirty_ = true;
+        }
+        if (in.accept) {
+            touchpadWork_.set(touchpadRow_, static_cast<input::TouchpadAction>(touchpadDropdownIndex_));
+            touchpadDropdownOpen_ = false;
+            dirty_ = true;
+        }
+        if (in.back) {
+            touchpadDropdownOpen_ = false;
+            dirty_ = true;
+        }
+        return;
+    }
+
+    if (caps_.touchpad && (in.l1 || in.r1)) {
+        padTesterTab_ = 1 - padTesterTab_;
+        dirty_ = true;
+        return;
+    }
+
+    if (padTesterTab_ == 1) {
+        constexpr int kRows = input::kTouchpadTriggers + 1;  // 0..5 triggers, 6 Reset to default
+        if (in.up) touchpadRow_ = (touchpadRow_ + kRows - 1) % kRows, dirty_ = true;
+        if (in.down) touchpadRow_ = (touchpadRow_ + 1) % kRows, dirty_ = true;
+        if (touchpadRow_ < input::kTouchpadTriggers) {
+            if (in.accept) {
+                touchpadDropdownOpen_ = true;
+                touchpadDropdownIndex_ = static_cast<int>(touchpadWork_.get(touchpadRow_));
+                constexpr int kMaxVisible = 8;
+                touchpadDropdownTop_ = std::clamp(touchpadDropdownIndex_ - 3, 0, std::max(0, input::kTouchpadActions - kMaxVisible));
+                dirty_ = true;
+            }
+            if (in.square) {
+                touchpadWork_.set(touchpadRow_, input::defaultTouchpadShortcuts().get(touchpadRow_));
+                dirty_ = true;
+            }
+        } else if (in.accept) {
+            touchpadWork_ = input::defaultTouchpadShortcuts();
+            dirty_ = true;
+        }
+        if (in.back) {
+            dirty_ = true;
+            if (!input::padMapValid(padWork_)) {
+                padTesterTab_ = 0;
+                return;
+            }
+            if (gameSettingsOpen_) {
+                if (padWork_ != activeGameProfile_.padMap) activeGameProfile_.padMap = padWork_, activeGameHasCustom_ = true;
+                if (touchpadWork_ != activeGameProfile_.touchpadShortcuts) activeGameProfile_.touchpadShortcuts = touchpadWork_, activeGameHasCustom_ = true;
+            } else {
+                settings_.padMap = padWork_;
+                settings_.touchpadShortcuts = touchpadWork_;
+            }
+            tester_ = Tester::None;
+        }
+        return;
+    }
+
     const bool mapSwap = gameSettingsOpen_ ? activeGameProfile_.circleConfirms : settings_.circleConfirms;
     constexpr int kPerColumn = input::kPadFns / 2, kButtonsRow = kPerColumn;
     const auto fn = static_cast<input::PadFn>(padCol_ * kPerColumn + std::min(padRow_, kPerColumn - 1));
     if (padCaptureSince_) {
-        // Waiting for a press: the next button pressed (Circle too; the PS
-        // / Home button isn't one) is the one; 5 s without one give up.
         if (in.padPressed) {
             uint8_t slot = 0;
             while (!(in.padPressed & (1u << slot))) ++slot;
@@ -1388,11 +1546,22 @@ void AppUi::handlePadTester(const NavInput& in) {
         if (!input::padMapValid(padWork_)) return;  // incomplete: the warning says what's missing
         if (gameSettingsOpen_) {
             if (padWork_ != activeGameProfile_.padMap) activeGameProfile_.padMap = padWork_, activeGameHasCustom_ = true;
+            if (touchpadWork_ != activeGameProfile_.touchpadShortcuts) activeGameProfile_.touchpadShortcuts = touchpadWork_, activeGameHasCustom_ = true;
         } else {
-            settings_.padMap = padWork_;  // saved with Settings, as the other choices
+            settings_.padMap = padWork_;
+            settings_.touchpadShortcuts = touchpadWork_;
         }
         tester_ = Tester::None;
     }
+}
+
+void AppUi::openTouchpadTester() {
+    openPadTester();
+    padTesterTab_ = 1;
+}
+
+void AppUi::handleTouchpadTester(const NavInput& in) {
+    handlePadTester(in);
 }
 
 void AppUi::handleTester(const NavInput& in) {
@@ -1400,6 +1569,7 @@ void AppUi::handleTester(const NavInput& in) {
     // Cross keeps them, Circle puts the old ones back.
     if (tester_ == Tester::Keys) return handleKeysTester(in);
     if (tester_ == Tester::Pad) return handlePadTester(in);
+    if (tester_ == Tester::Touchpad) return handleTouchpadTester(in);
     if (tester_ == Tester::Sticks) {
         // L1 / R1 pick the stick, the D-pad (only: the sticks are what is
         // being tried) changes its dead zone.
@@ -1729,6 +1899,7 @@ void AppUi::openGameSettings() {
         activeGameProfile_.gyroMode = gyroMode_;
         activeGameProfile_.gyroLevel = gyroLevel_;
         activeGameProfile_.touchpadMouse = settings_.touchpadMouse;
+        activeGameProfile_.touchpadShortcuts = settings_.touchpadShortcuts;
     }
 }
 
@@ -1753,7 +1924,7 @@ void AppUi::setPads(const PadSlots& pads) {
     bool changed = false;
     for (size_t i = 0; i < pads.size(); ++i)
         changed |= pads[i].connected != pads_[i].connected || pads[i].name != pads_[i].name ||
-                   pads[i].keyboard != pads_[i].keyboard;  // the keyboard taking a player's slot, or leaving it
+                   pads[i].keyboard != pads_[i].keyboard || pads[i].device != pads_[i].device;
     if (!changed) return;
     pads_ = pads;
     dirty_ = true;
@@ -1848,6 +2019,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
     } else if (row == 14) {
         // So do the controller buttons'.
         out = {tr(settings_.padMap == input::defaultPadMap() ? Str::ProfileDefault : Str::ProfileCustom)};
+    } else if (row == 22) {
+        out = {tr(settings_.touchpadShortcuts == input::defaultTouchpadShortcuts() ? Str::ProfileDefault : Str::ProfileCustom)};
     } else if (row == 15) {
         out = {tr(Str::Off), tr(Str::GyroAlways), tr(Str::GyroAiming)};
     } else if (row == 17) {
@@ -1860,6 +2033,8 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         out = {tr(Str::VideoDecoderHw), tr(Str::VideoDecoderSw)};
     } else if (row == 21) {
         out = {tr(Str::Off), tr(Str::SharpLow), tr(Str::SharpMedium), tr(Str::SharpHigh)};
+    } else if (row == 23) {
+        out = {tr(Str::ResetSettings)};
     } else if (row == 8) {
         out.push_back(loginCountryOffText());
         for (const char* country : kLoginCountries) out.push_back(loginCountryName(country));
@@ -1879,7 +2054,7 @@ int AppUi::settingSelected(int row) const {
         for (int i = 0; i < 3; ++i)
             if (kResolutionOrder[i] == settings_.resolution) return i;
     }
-    if (row == 3 || row == 12 || row == 14 || row == 17 || row == 18 || row == 19) return 0;
+    if (row == 3 || row == 12 || row == 14 || row == 17 || row == 18 || row == 19 || row == 22 || row == 23) return 0;
     if (row == 4) return settings_.triggerStrength;
     if (row == 5) return settings_.circleConfirms ? 1 : 0;
     if (row == 6) return settings_.lightBarMode;
@@ -1925,8 +2100,8 @@ void AppUi::applySetting(int row, int index) {
         setLanguage(static_cast<Language>(index));  // the UI switches right away
     } else if (row == 1) {
         settings_.resolution = kResolutionOrder[index];
-    } else if (row == 3 || row == 12 || row == 14 || row == 17 || row == 18) {
-        (void)index;  // the tester sets each stick's, the keys' and buttons' screens theirs
+    } else if (row == 3 || row == 12 || row == 14 || row == 17 || row == 18 || row == 22 || row == 23) {
+        (void)index;  // the tester sets each stick's, the keys', buttons' and touchpad's screens theirs
     } else if (row == 4) {
         settings_.triggerStrength = index;
     } else if (row == 5) {
@@ -2609,6 +2784,15 @@ void AppUi::handleSearchKeys(const NavInput& in) {
 void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
     if (tester_ != Tester::None) {
         handleTester(in);
+        if (tester_ == Tester::None) {
+            std::string key = app::gameProfileKey(detail_.productId, detail_.titleId);
+            if (activeGameHasCustom_) perGameSettings_[key] = activeGameProfile_;
+            else perGameSettings_.erase(key);
+            ev.action = Action::GameSettingsChanged;
+            ev.game = detail_;
+            ev.hasGameProfile = activeGameHasCustom_;
+            ev.gameProfile = activeGameProfile_;
+        }
         return;
     }
     // The rows on screen (gameSettingsRow_ is a position among them).
@@ -2820,11 +3004,15 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
         case 11: // Controller buttons: their own screen, on this game's
             openPadTester();
             break;
+        case 17: // Touchpad shortcuts: their own screen, on this game's
+            openTouchpadTester();
+            break;
         case 10: // Reset to default
             activeGameHasCustom_ = false;
             activeGameProfile_.locale.clear();
             activeGameProfile_.keyMap = settings_.keyMap;
             activeGameProfile_.padMap = settings_.padMap;
+            activeGameProfile_.touchpadShortcuts = settings_.touchpadShortcuts;
             activeGameProfile_.sharpness = settings_.sharpness;
             activeGameProfile_.deband = settings_.deband;
             activeGameProfile_.upscaler = settings_.upscaler;
@@ -2847,6 +3035,18 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             break;
         default: break;
         }
+    }
+    if ((in.left || in.right || in.accept) && tester_ == Tester::None) {
+        std::string key = app::gameProfileKey(detail_.productId, detail_.titleId);
+        if (activeGameHasCustom_) {
+            perGameSettings_[key] = activeGameProfile_;
+        } else {
+            perGameSettings_.erase(key);
+        }
+        ev.action = Action::GameSettingsChanged;
+        ev.game = detail_;
+        ev.hasGameProfile = activeGameHasCustom_;
+        ev.gameProfile = activeGameProfile_;
     }
     if (in.back || in.options) {
         gameSettingsOpen_ = false;
@@ -2936,8 +3136,8 @@ UiEvent AppUi::onMouseMove(float x, float y) {
             }
         }
     } else if (screen_ == Screen::Settings) {
-        constexpr int kRowW = 1200, kRowH = 34, kGap = 2, kGroupGap = 6;
-        int curY = 190;
+        constexpr int kRowW = 1200, kRowH = 32, kGap = 2, kGroupGap = 5;
+        int curY = 184;
         for (const auto& [i, groupStart] : visibleSettingsRows(caps_)) {
             if (groupStart) curY += kGroupGap;
             if (x >= kMargin && x < kMargin + kRowW && y >= curY && y < curY + kRowH) {
@@ -2952,7 +3152,7 @@ UiEvent AppUi::onMouseMove(float x, float y) {
     } else if (screen_ == Screen::Details) {
         if (gameSettingsOpen_) {
             constexpr int kModalW = 1140, kModalH = 960;
-            constexpr int kRowH = 43, kGap = 4, kGroupGap = 8;
+            constexpr int kRowH = 40, kGap = 4, kGroupGap = 7;
             const auto rows = visibleGameSettingsRows(caps_, activeGameHasCustom_, activeGameMouseSupported_);
             const auto most = visibleGameSettingsRows(caps_, true, activeGameMouseSupported_), all = visibleGameSettingsRows(UiCaps{}, true, true);
             auto groups = [](const std::vector<SettingsRowPos>& v) {
@@ -3135,7 +3335,7 @@ UiEvent AppUi::onMouseDown(float x, float y, int button) {
     } else if (screen_ == Screen::Details) {
         if (gameSettingsOpen_) {
             constexpr int kModalW = 1140, kModalH = 960;
-            constexpr int kRowH = 43, kGap = 4, kGroupGap = 8;
+            constexpr int kRowH = 40, kGap = 4, kGroupGap = 7;
             const auto rows = visibleGameSettingsRows(caps_, activeGameHasCustom_, activeGameMouseSupported_);
             const auto most = visibleGameSettingsRows(caps_, true, activeGameMouseSupported_), all = visibleGameSettingsRows(UiCaps{}, true, true);
             auto groups = [](const std::vector<SettingsRowPos>& v) {
@@ -3185,15 +3385,15 @@ UiEvent AppUi::onMouseDown(float x, float y, int button) {
             int n = static_cast<int>(options.size());
             int visible = std::min(n, kVisible);
             constexpr int kRowW = 1200;
-            Rect panel{kMargin + kRowW - kListW, 190, kListW, visible * kItemH + 16};
-            int curY = 190;
+            Rect panel{kMargin + kRowW - kListW, 184, kListW, visible * kItemH + 16};
+            int curY = 184;
             for (const auto& [i, groupStart] : visibleSettingsRows(caps_)) {
-                if (groupStart) curY += 6;
+                if (groupStart) curY += 5;
                 if (i == settingsRow_) {
-                    panel.y = curY + 34 + 8;
+                    panel.y = curY + 32 + 8;
                     break;
                 }
-                curY += 34 + 2;
+                curY += 32 + 2;
             }
             if (panel.y + panel.h > kH - 100) panel.y = std::max(120, kH - 100 - panel.h);
 
@@ -3216,8 +3416,8 @@ UiEvent AppUi::onMouseDown(float x, float y, int button) {
                 return ev;
             }
         }
-        constexpr int kRowW = 1200, kRowH = 34, kGap = 2, kGroupGap = 6;
-        int curY = 190;
+        constexpr int kRowW = 1200, kRowH = 32, kGap = 2, kGroupGap = 5;
+        int curY = 184;
         for (const auto& [i, groupStart] : visibleSettingsRows(caps_)) {
             if (groupStart) curY += kGroupGap;
             if (x >= kMargin && x < kMargin + kRowW && y >= curY && y < curY + kRowH) {
@@ -3231,6 +3431,9 @@ UiEvent AppUi::onMouseDown(float x, float y, int button) {
                 } else if (i == 19) {
                     ev.action = Action::OpenUrl;
                     ev.url = "https://ko-fi.com/rafaelngp";
+                    return ev;
+                } else if (i == 22) {
+                    openTouchpadTester();
                     return ev;
                 } else if (i == 5) {
                     settings_.circleConfirms = !settings_.circleConfirms;
@@ -3451,6 +3654,10 @@ UiEvent AppUi::handle(const NavInput& in) {
         case Screen::Settings:
             if (pickerOpen_) {
                 handleColourPicker(in);
+                if (!pickerOpen_ && in.accept) {
+                    ev.action = Action::SettingsChanged;
+                    ev.settings = settings_;
+                }
                 break;
             }
             if (tester_ == Tester::SignInCheck) {
@@ -3480,6 +3687,10 @@ UiEvent AppUi::handle(const NavInput& in) {
             }
             if (tester_ != Tester::None) {
                 handleTester(in);
+                if (tester_ == Tester::None) {
+                    ev.action = Action::SettingsChanged;
+                    ev.settings = settings_;
+                }
                 break;
             }
             if (dropdownOpen_) {
@@ -3490,19 +3701,57 @@ UiEvent AppUi::handle(const NavInput& in) {
                 int before = settingSelected(settingsRow_);
                 if (in.accept) applySetting(settingsRow_, dropdownIndex_);
                 if (in.accept || in.back) dropdownOpen_ = false;
-                if (in.accept && settingsRow_ == 6 && dropdownIndex_ == 1) openColourPicker(before);
+                if (in.accept && settingsRow_ == 6 && dropdownIndex_ == 1) {
+                    openColourPicker(before);
+                } else if (in.accept && settingsRow_ != 8) {
+                    ev.action = Action::SettingsChanged;
+                    ev.settings = settings_;
+                }
                 dirty_ = true;
                 break;
             }
             if (auto rows = visibleSettingsRows(caps_); true) {  // the rows on screen, in their order
                 int pos = posOf(rows, settingsRow_);
-                if (in.down && pos + 1 < static_cast<int>(rows.size()))
-                    settingsRow_ = rows[static_cast<size_t>(pos + 1)].row, dirty_ = true;
-                else if (in.up && pos > 0)
-                    settingsRow_ = rows[static_cast<size_t>(pos - 1)].row, dirty_ = true;
+                if (in.down && pos + 1 < static_cast<int>(rows.size())) {
+                    settingsRow_ = rows[static_cast<size_t>(pos + 1)].row;
+                    resetSettingsHoldStart_ = 0;
+                    dirty_ = true;
+                } else if (in.up && pos > 0) {
+                    settingsRow_ = rows[static_cast<size_t>(pos - 1)].row;
+                    resetSettingsHoldStart_ = 0;
+                    dirty_ = true;
+                }
             }
-            if (in.right) changeSetting(+1);
-            if (in.left) changeSetting(-1);
+            if (settingsRow_ == 23) {
+                if (in.acceptHeld) {
+                    if (!resetSettingsHoldStart_) resetSettingsHoldStart_ = in.nowMs ? in.nowMs : 1;
+                    if (in.nowMs - resetSettingsHoldStart_ >= 5000) {
+                        ev.action = Action::ResetSettings;
+                        resetSettingsHoldStart_ = 0;
+                    }
+                    animating_ = true;
+                    dirty_ = true;
+                } else if (resetSettingsHoldStart_) {
+                    resetSettingsHoldStart_ = 0;
+                    dirty_ = true;
+                }
+            } else {
+                resetSettingsHoldStart_ = 0;
+            }
+            if (in.right && settingsRow_ != 23) {
+                changeSetting(+1);
+                if (settingsRow_ != 8) {
+                    ev.action = Action::SettingsChanged;
+                    ev.settings = settings_;
+                }
+            }
+            if (in.left && settingsRow_ != 23) {
+                changeSetting(-1);
+                if (settingsRow_ != 8) {
+                    ev.action = Action::SettingsChanged;
+                    ev.settings = settings_;
+                }
+            }
             if (in.square && settingsRow_ == 16) {
                 ev.action = Action::TestQueueAlert;
             }
@@ -3536,6 +3785,8 @@ UiEvent AppUi::handle(const NavInput& in) {
                 // Inline bitrate slider: cycles to next option, no dropdown modal
                 int n = static_cast<int>(settingOptions(10).size());
                 if (n > 0) applySetting(10, (settingSelected(10) + 1) % n);
+            } else if (in.accept && settingsRow_ == 23) {
+                // Handled via hold
             } else if (in.accept) {
                 dropdownOpen_ = true;
                 dropdownIndex_ = settingSelected(settingsRow_);
@@ -3543,6 +3794,7 @@ UiEvent AppUi::handle(const NavInput& in) {
                 dirty_ = true;
             }
             if (in.back || in.options) {
+                resetSettingsHoldStart_ = 0;
                 // Back where Settings was opened. A new sign-in country
                 // takes a new sign-in.
                 screen_ = settingsFromError_ ? Screen::Error : Screen::Home;
@@ -3619,13 +3871,15 @@ UiEvent AppUi::handle(const NavInput& in) {
         case Screen::Error:
             if (!errorGame_.titleId.empty() || !errorGame_.productId.empty()) {
                 if (in.accept) {
-                    if (isFreeGame(errorGame_) && !errorGame_.playable) {
+                    if ((isFreeGame(errorGame_) || errorGame_.freeInStore) && !errorGame_.playable) {
                         ev.action = Action::ClaimFreeGame;
                         ev.game = errorGame_;
                         ev.game.freeInStore = true;
                     } else if (errorGame_.playable && !errorGame_.titleId.empty()) {
                         ev.action = Action::Play;
                         ev.game = errorGame_;
+                    } else {
+                        openDetails(errorGame_);
                     }
                 } else if (in.back && errorGame_.homeConsole) {
                     screen_ = Screen::Home;  // back to My consoles
@@ -3829,26 +4083,26 @@ void AppUi::drawHints(Canvas& c, const std::vector<std::pair<int, const char*>>&
         float cx = x + kR, cy = y + 13;
         const GlyphStyle style = g_glyphStyle;
         const bool xbox = style == GlyphStyle::Xbox;
-        if (icon == kIconL2R2) {
-            const char* l2 = buttonName(style, PadButton::L2);
-            const char* r2 = buttonName(style, PadButton::R2);
-            int l2w = fonts_.bold.measure(l2, 14) + 16;
-            int r2w = fonts_.bold.measure(r2, 14) + 16;
+        if (icon == kIconL2R2 || icon == kIconL1R1) {
+            const char* l = buttonName(style, icon == kIconL1R1 ? PadButton::L1 : PadButton::L2);
+            const char* r = buttonName(style, icon == kIconL1R1 ? PadButton::R1 : PadButton::R2);
+            int lw = fonts_.bold.measure(l, 14) + 16;
+            int rw = fonts_.bold.measure(r, 14) + 16;
             int sepW = fonts_.regular.measure("|", 14);
             constexpr int kPillGap = 6;
             int rightX = x + 2 * kR;
-            Rect r2Pill{rightX - r2w, static_cast<int>(cy) - 12, r2w, 24};
-            c.fillRect(r2Pill, rgba(255, 255, 255, 40), 8);
-            fonts_.bold.draw(c, r2, r2Pill.x + (r2w - fonts_.bold.measure(r2, 14)) / 2,
-                             fonts_.bold.centeredY(r2Pill.y, r2Pill.h, 14), 14, kGray);
-            int sepX = r2Pill.x - kPillGap - sepW;
+            Rect rPill{rightX - rw, static_cast<int>(cy) - 12, rw, 24};
+            c.fillRect(rPill, rgba(255, 255, 255, 40), 8);
+            fonts_.bold.draw(c, r, rPill.x + (rw - fonts_.bold.measure(r, 14)) / 2,
+                             fonts_.bold.centeredY(rPill.y, rPill.h, 14), 14, kGray);
+            int sepX = rPill.x - kPillGap - sepW;
             fonts_.regular.draw(c, "|", sepX, fonts_.regular.centeredY(static_cast<int>(cy) - 12, 24, 14), 14,
                                 rgba(255, 255, 255, 120));
-            Rect l2Pill{sepX - kPillGap - l2w, static_cast<int>(cy) - 12, l2w, 24};
-            c.fillRect(l2Pill, rgba(255, 255, 255, 40), 8);
-            fonts_.bold.draw(c, l2, l2Pill.x + (l2w - fonts_.bold.measure(l2, 14)) / 2,
-                             fonts_.bold.centeredY(l2Pill.y, l2Pill.h, 14), 14, kGray);
-            x = l2Pill.x;
+            Rect lPill{sepX - kPillGap - lw, static_cast<int>(cy) - 12, lw, 24};
+            c.fillRect(lPill, rgba(255, 255, 255, 40), 8);
+            fonts_.bold.draw(c, l, lPill.x + (lw - fonts_.bold.measure(l, 14)) / 2,
+                             fonts_.bold.centeredY(lPill.y, lPill.h, 14), 14, kGray);
+            x = lPill.x;
         } else if (icon == kIconDpadLR) {
             const char* l = "\xE2\x86\x90";
             const char* r = "\xE2\x86\x92";
@@ -3899,6 +4153,7 @@ void AppUi::drawSpinner(Canvas& c, float cx, float cy, float r, uint64_t nowMs) 
 }
 
 void AppUi::drawToast(Canvas& c, uint64_t nowMs) {
+    if (caps_.console) return;
     if (toast_.empty()) return;
     if (toastUntil_ == 0) toastUntil_ = nowMs + 3500;
     if (nowMs >= toastUntil_) {
@@ -4986,7 +5241,7 @@ void AppUi::drawLaunching(Canvas& c, uint64_t nowMs) {
     drawCentered(c, fonts_.bold, launching_.name, 500, 48, kWhite);
     drawCentered(c, fonts_.semibold, tr(Str::GettingReady), 576, 30, kGray);
     drawCentered(c, fonts_.regular, status_, 630, 26, kDim);
-    // Helpful tips rotating every ~5 seconds.
+    // Helpful tips rotating every ~10 seconds from when the launching screen opened.
     static constexpr Str kTips[] = {
         Str::TipTouchpadMenu,
         Str::TipKeyboardMouse,
@@ -4998,7 +5253,9 @@ void AppUi::drawLaunching(Canvas& c, uint64_t nowMs) {
         Str::TipDualSenseMic,
     };
     constexpr size_t kTipCount = sizeof(kTips) / sizeof(kTips[0]);
-    size_t tipIndex = (nowMs / 5000) % kTipCount;
+    if (!launchingStartMs_) launchingStartMs_ = nowMs;
+    uint64_t elapsedMs = nowMs >= launchingStartMs_ ? (nowMs - launchingStartMs_) : 0;
+    size_t tipIndex = (elapsedMs / 10000) % kTipCount;
     drawCentered(c, fonts_.regular, tr(kTips[tipIndex]), 900, 22, kDim);
     drawHints(c, {{kIconCircle, tr(Str::Cancel)}});
 }
@@ -5026,8 +5283,11 @@ void AppUi::drawError(Canvas& c) {
         }
         drawQr(c, errorUrl_, panel.x + panel.w - 56, panel.y + 56, 320, qrcodegen_Ecc_LOW);
     }
-    if (!errorGame_.titleId.empty())
-        drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
+    if (!errorGame_.titleId.empty() || !errorGame_.productId.empty()) {
+        bool free = (isFreeGame(errorGame_) || errorGame_.freeInStore) && !errorGame_.playable;
+        const char* acceptLabel = free ? tr(Str::ClaimFree) : tr(Str::TryAgain);
+        drawHints(c, {{kIconCross, acceptLabel}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
+    }
     else if (regionRefused_)
         drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconSquare, tr(Str::TryOtherCountry)},
                       {kIconOptions, tr(Str::Settings)}, {kIconTriangle, tr(Str::ReportProblem)},
@@ -5040,7 +5300,7 @@ void AppUi::drawError(Canvas& c) {
 void AppUi::drawSettings(Canvas& c) {
     drawBackground(c);
     drawTopBar(c);
-    fonts_.bold.draw(c, tr(Str::Settings), kMargin, 136, 48, kWhite);
+    fonts_.bold.draw(c, tr(Str::Settings), kMargin, 134, 46, kWhite);
     const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
                                         tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry),
@@ -5048,71 +5308,75 @@ void AppUi::drawSettings(Canvas& c) {
                                         tr(Str::KeyboardKeys),  tr(Str::DisplayMode),   tr(Str::ControllerButtons),
                                         tr(Str::Gyro),          tr(Str::QueueReadyNotification),
                                         tr(Str::CheckSignIn),   tr(Str::NetworkTest),   tr(Str::SupportProject),
-                                        tr(Str::VideoDecoder),  tr(Str::AudioHaptics)};
-    constexpr int kRowW = 1200, kRowH = 34, kGap = 2, kGroupGap = 6, kRowPx = 23;
+                                        tr(Str::VideoDecoder),  tr(Str::AudioHaptics),  tr(Str::TouchpadShortcuts),
+                                        tr(Str::ResetSettings)};
+    constexpr int kRowW = 1140, kRowH = 32, kGap = 2, kGroupGap = 5, kRowPx = 22;
     Rect rows[kSettingRows];  // by row id
-    int y = 190;
+    int y = 184;
     for (const auto& [i, groupStart] : visibleSettingsRows(caps_)) {  // what caps_ rules out is hidden
         if (groupStart) y += kGroupGap;
         Rect r{kMargin, y, kRowW, kRowH};
         rows[i] = r;
         bool focused = i == settingsRow_;
-        c.fillRect(r, focused ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 12);
-        if (focused && !dropdownOpen_) c.strokeRect({r.x - 4, r.y - 4, r.w + 8, r.h + 8}, kWhite, 3, 16);
         int ty = fonts_.semibold.centeredY(r.y, r.h, kRowPx);
-        fonts_.semibold.draw(c, labels[i], r.x + 32, ty, kRowPx, kWhite);
-        if (i == 7) {
-            // Updates: the state; Cross updates when there is a newer version.
-            std::string value = updateChecking_ ? tr(Str::UpdateChecking)
-                                : !updateAvailable_.empty()
-                                    ? trf(caps_.selfUpdate ? Str::UpdateReady : Str::UpdateReadyPc, updateAvailable_)
-                                    : trf(Str::UpToDate, "v" + updateCurrent_);
-            Color color = !updateAvailable_.empty() && !updateChecking_ ? rgba(120, 220, 120) : focused ? kWhite : kGray;
-            int w = fonts_.regular.measure(value, kRowPx);
-            fonts_.regular.draw(c, value, r.x + r.w - 40 - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx, color);
-            y += kRowH + kGap;
-            continue;
-        }
-        if (i == 17 || i == 18 || i == 19) {
-            // Action items without chevrons or pills: clean right-aligned text
-            std::string label = (i == 17) ? tr(Str::RunCheck) : (i == 18) ? tr(Str::RunTest) : tr(Str::SupportKoFi);
-            int w = fonts_.regular.measure(label, kRowPx);
-            int vx = r.x + r.w - 40;
-            fonts_.regular.draw(c, label, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx,
-                                focused ? kWhite : kGray);
-            y += kRowH + kGap;
-            continue;
-        }
-        if (i == 10) {
-            // BitrateCap: inline slider without dropdown chevron
-            auto options = settingOptions(i);
-            int sel = settingSelected(i);
-            std::string value = sel < static_cast<int>(options.size()) ? options[static_cast<size_t>(sel)] : "";
-            std::string disp = "< " + value + " >";
-            int w = fonts_.regular.measure(disp, kRowPx);
-            int vx = r.x + r.w - 40;
-            fonts_.regular.draw(c, disp, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx,
-                                focused ? kWhite : kGray);
-            y += kRowH + kGap;
-            continue;
-        }
-        // The value, then a chevron: this opens a list.
-        auto options = settingOptions(i);
-        int sel = settingSelected(i);
-        std::string value = sel < static_cast<int>(options.size()) ? options[static_cast<size_t>(sel)] : "";
-        float cx = static_cast<float>(r.x + r.w - 40), cy = static_cast<float>(r.y + r.h / 2);
-        c.line(cx - 8, cy - 3, cx, cy + 4, 2.5f, focused ? kWhite : kGray);
-        c.line(cx, cy + 4, cx + 8, cy - 3, 2.5f, focused ? kWhite : kGray);
-        int vx = r.x + r.w - 68;
-        if (i == 5) {
-            // The confirm button, as the button itself.
-            drawFaceButton(c, fonts_.bold, settings_.circleConfirms ? kIconCircle : kIconCross, vx - 16.0f, cy, 16);
+
+        if (i == 23) {
+            // Restore factory defaults button: red background
+            Color redBg = focused ? rgba(220, 38, 38, 255) : rgba(185, 28, 28, 220);
+            c.fillRect(r, redBg, 12);
+            if (focused && !dropdownOpen_) c.strokeRect({r.x - 4, r.y - 4, r.w + 8, r.h + 8}, kWhite, 3, 16);
+
+            // Progress fill animation when holding Cross/accept
+            if (focused && resetSettingsHoldStart_ > 0) {
+                uint64_t elapsed = (lastRender_ > resetSettingsHoldStart_) ? (lastRender_ - resetSettingsHoldStart_) : 0;
+                float progress = std::min(1.0f, static_cast<float>(elapsed) / 5000.0f);
+                int fillW = static_cast<int>(r.w * progress);
+                if (fillW > 0) {
+                    c.fillRect({r.x, r.y, fillW, r.h}, rgba(255, 255, 255, 70), 12);
+                }
+            }
+            int textW = fonts_.bold.measure(labels[i], kRowPx);
+            int textX = r.x + (r.w - textW) / 2;
+            fonts_.bold.draw(c, labels[i], textX, ty, kRowPx, kWhite);
         } else {
-            int w = fonts_.regular.measure(value, kRowPx);
-            fonts_.regular.draw(c, value, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx, focused ? kWhite : kGray);
-            if (i == 6 && settings_.lightBarMode == 1) {  // the colour chosen
-                c.fillCircle(vx - w - 26.0f, cy, 11, settings_.lightBarColour);
-                c.strokeArc(vx - w - 26.0f, cy, 11, 2, 0, 6.2832f, rgba(255, 255, 255, 120));
+            c.fillRect(r, focused ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 12);
+            if (focused && !dropdownOpen_) c.strokeRect({r.x - 4, r.y - 4, r.w + 8, r.h + 8}, kWhite, 3, 16);
+            fonts_.semibold.draw(c, labels[i], r.x + 32, ty, kRowPx, kWhite);
+            float cx = static_cast<float>(r.x + r.w - 40), cy = static_cast<float>(r.y + r.h / 2);
+            if (i != 7 && i != 17 && i != 18 && i != 19) {
+                c.line(cx - 8, cy - 3, cx, cy + 4, 2.5f, focused ? kWhite : kGray);
+                c.line(cx, cy + 4, cx + 8, cy - 3, 2.5f, focused ? kWhite : kGray);
+            }
+            int vx = r.x + r.w - 68;
+
+            if (i == 7) {
+                // Updates: the state; Cross updates when there is a newer version.
+                std::string value = updateChecking_ ? tr(Str::UpdateChecking)
+                                    : !updateAvailable_.empty()
+                                        ? trf(caps_.selfUpdate ? Str::UpdateReady : Str::UpdateReadyPc, updateAvailable_)
+                                        : trf(Str::UpToDate, "v" + updateCurrent_);
+                Color color = !updateAvailable_.empty() && !updateChecking_ ? rgba(120, 220, 120) : focused ? kWhite : kGray;
+                int w = fonts_.regular.measure(value, kRowPx);
+                fonts_.regular.draw(c, value, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx, color);
+            } else if (i == 17 || i == 18 || i == 19) {
+                // Action items (Check sign-in, Network test, Support)
+                std::string label = (i == 17) ? tr(Str::RunCheck) : (i == 18) ? tr(Str::RunTest) : tr(Str::SupportKoFi);
+                int w = fonts_.regular.measure(label, kRowPx);
+                fonts_.regular.draw(c, label, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx,
+                                    focused ? kWhite : kGray);
+            } else if (i == 5) {
+                // The confirm button, as the button itself.
+                drawFaceButton(c, fonts_.bold, settings_.circleConfirms ? kIconCircle : kIconCross, vx - 16.0f, cy, 16);
+            } else {
+                auto options = settingOptions(i);
+                int sel = settingSelected(i);
+                std::string value = sel < static_cast<int>(options.size()) ? options[static_cast<size_t>(sel)] : "";
+                int w = fonts_.regular.measure(value, kRowPx);
+                fonts_.regular.draw(c, value, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx, focused ? kWhite : kGray);
+                if (i == 6 && settings_.lightBarMode == 1) {  // the colour chosen
+                    c.fillCircle(vx - w - 26.0f, cy, 11, settings_.lightBarColour);
+                    c.strokeArc(vx - w - 26.0f, cy, 11, 2, 0, 6.2832f, rgba(255, 255, 255, 120));
+                }
             }
         }
         y += kRowH + kGap;
@@ -5140,6 +5404,8 @@ void AppUi::drawSettings(Canvas& c) {
         Str::SettingDescSupportProject,
         Str::SettingDescVideoDecoder,
         Str::SettingDescAudioHaptics,
+        Str::SettingDescTouchpadShortcuts,
+        Str::SettingDescResetSettings,
     };
     if (settingsRow_ >= 0 && settingsRow_ < kSettingRows) {
         int dy = 925;
@@ -5150,35 +5416,47 @@ void AppUi::drawSettings(Canvas& c) {
         }
     }
 
-    // Web UI / Remote QR panel on the right side (x = 1320..1840)
+    // Web UI / Remote QR panel on the right side (x = 1310..1850)
     if (tester_ == Tester::None && !pickerOpen_) {
         std::string qrUrl = !webUrl_.empty() ? webUrl_ : "http://" + platform::localIPv4() + ":8080";
-        Rect panel{1320, 200, 500, 710};
+        Rect panel{1310, 184, 540, 724};
         c.fillRect(panel, rgba(255, 255, 255, 14), 16);
         c.strokeRect(panel, rgba(255, 255, 255, 30), 1, 16);
 
-        int py = panel.y + 26;
-        fonts_.bold.draw(c, tr(Str::WebControlTitle), panel.x + 28, py, 30, kWhite);
+        int py = panel.y + 30;
+        int titleW = fonts_.bold.measure(tr(Str::WebControlTitle), 28);
+        fonts_.bold.draw(c, tr(Str::WebControlTitle), panel.x + (panel.w - titleW) / 2, py, 28, kWhite);
         py += 40;
-        fonts_.semibold.draw(c, tr(Str::WebControlSubtitle), panel.x + 28, py, 22, rgba(16, 180, 80));
-        py += 34;
 
-        auto descLines = fonts_.regular.wrap(tr(Str::WebControlDesc), 20, panel.w - 56, 3);
+        auto descLines = fonts_.regular.wrap(tr(Str::WebControlDesc), 17, panel.w - 56, 5);
         for (const auto& l : descLines) {
-            fonts_.regular.draw(c, l, panel.x + 28, py, 20, kGray);
-            py += 26;
+            int lw = fonts_.regular.measure(l, 17);
+            fonts_.regular.draw(c, l, panel.x + (panel.w - lw) / 2, py, 17, kGray);
+            py += 22;
         }
-        py += 18;
 
-        int qrTarget = 300;
-        int qrRight = panel.x + panel.w - (panel.w - (qrTarget + 40)) / 2;
-        Rect qrBox = drawQr(c, qrUrl, qrRight, py, qrTarget, qrcodegen_Ecc_LOW);
-        if (qrBox.h > 0) py += qrBox.h + 20;
-        else py += 340;
+        uint8_t qrBuf[qrcodegen_BUFFER_LEN_MAX], tmpBuf[qrcodegen_BUFFER_LEN_MAX];
+        int qrTarget = 260;
+        int qrCardW = 300;
+        if (qrcodegen_encodeText(qrUrl.c_str(), tmpBuf, qrBuf, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX, qrcodegen_Mask_AUTO, true)) {
+            int n = qrcodegen_getSize(qrBuf);
+            int mod = qrTarget / (n + 2);
+            qrCardW = mod * (n + 2) + 40;
+        }
+        int qrRight = panel.x + (panel.w + qrCardW) / 2;
 
-        int urlW = fonts_.semibold.measure(qrUrl, 22);
-        int urlX = panel.x + (panel.w - urlW) / 2;
-        fonts_.semibold.draw(c, qrUrl, urlX, py, 22, kWhite);
+        Rect pill{panel.x + 36, panel.y + panel.h - 42 - 18, panel.w - 72, 42};
+
+        // Center QR vertically in available space between py and pill.y
+        int availH = pill.y - py;
+        int qrTop = py + (availH - qrCardW) / 2;
+        drawQr(c, qrUrl, qrRight, qrTop, qrTarget, qrcodegen_Ecc_LOW);
+
+        c.fillRect(pill, rgba(0, 0, 0, 70), 12);
+        c.strokeRect(pill, rgba(255, 255, 255, 30), 1, 12);
+
+        int urlW = fonts_.semibold.measure(qrUrl, 20);
+        fonts_.semibold.draw(c, qrUrl, pill.x + (pill.w - urlW) / 2, fonts_.semibold.centeredY(pill.y, pill.h, 20), 20, rgba(140, 230, 160));
     }
 
     if (pickerOpen_) {
@@ -5189,6 +5467,7 @@ void AppUi::drawSettings(Canvas& c) {
     if (tester_ == Tester::Triggers) return drawTriggerTester(c);
     if (tester_ == Tester::Keys) return drawKeysTester(c);
     if (tester_ == Tester::Pad) return drawPadTester(c);
+    if (tester_ == Tester::Touchpad) return drawTouchpadTester(c);
     if (tester_ == Tester::SignInCheck) return drawSignInCheck(c, lastRender_);
     if (tester_ == Tester::NetworkTest) return drawNetworkTest(c, lastRender_);
     if (tester_ == Tester::Donation) return drawDonationModal(c);
@@ -5240,7 +5519,9 @@ void AppUi::drawSettings(Canvas& c) {
         }
         drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
     } else {
-        if (settingsRow_ == 16) {
+        if (settingsRow_ == 23) {
+            drawHints(c, {{kIconCross, tr(Str::HoldToReset)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
+        } else if (settingsRow_ == 16) {
             drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconSquare, tr(Str::TestSound)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
         } else if (settingsRow_ == 10) {
             drawHints(c, {{kIconDpadLR, tr(Str::Adjust)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
@@ -5589,6 +5870,125 @@ void AppUi::drawTriggerTester(Canvas& c) {
 
 void AppUi::drawPadTester(Canvas& c) {
     Rect panel = drawModal(c, 1500, 860, tr(Str::ControllerButtons));
+
+    // Top tab selector: [ Botões ]  [ Touchpad ]
+    if (caps_.touchpad) {
+        int tabW = 280, tabH = 38, tabGap = 20;
+        int totalTabsW = 2 * tabW + tabGap;
+        int tabStartX = panel.x + (panel.w - totalTabsW) / 2;
+        int tabY = panel.y + 60;
+
+        auto shoulder = [&](const char* name, int cx) {
+            Rect r{cx - 22, tabY + 5, 44, 28};
+            c.fillRect(r, rgba(255, 255, 255, 40), 8);
+            fonts_.bold.draw(c, name, cx - fonts_.bold.measure(name, 16) / 2, fonts_.bold.centeredY(r.y, r.h, 16), 16, kGray);
+        };
+        shoulder(g_keyboardHints ? "Q" : buttonName(g_glyphStyle, PadButton::L1), tabStartX - 32);
+
+        for (int t = 0; t < 2; ++t) {
+            Rect trRect{tabStartX + t * (tabW + tabGap), tabY, tabW, tabH};
+            bool active = (padTesterTab_ == t);
+            c.fillRect(trRect, active ? rgba(255, 255, 255, 40) : rgba(255, 255, 255, 14), 12);
+            if (active) c.strokeRect(trRect, kWhite, 2, 12);
+            const char* tabLabel = t == 0 ? tr(Str::ControllerButtons) : tr(Str::TouchpadShortcuts);
+            int tw = fonts_.semibold.measure(tabLabel, 22);
+            fonts_.semibold.draw(c, tabLabel, trRect.x + (trRect.w - tw) / 2,
+                                 fonts_.semibold.centeredY(trRect.y, trRect.h, 22), 22, active ? kWhite : kGray);
+        }
+
+        shoulder(g_keyboardHints ? "E" : buttonName(g_glyphStyle, PadButton::R1), tabStartX + totalTabsW + 32);
+    }
+
+    if (padTesterTab_ == 1) {
+        constexpr int kTouchRowH = 56, kTouchGap = 8;
+        const input::TouchpadAction vals[6] = {
+            touchpadWork_.swipeUp,    touchpadWork_.swipeDown,
+            touchpadWork_.swipeLeft,  touchpadWork_.swipeRight,
+            touchpadWork_.clickLeft,  touchpadWork_.clickRight,
+        };
+        int y = panel.y + 116;
+        for (int i = 0; i < 6; ++i) {
+            Rect r{panel.x + 80, y, panel.w - 160, kTouchRowH};
+            bool on = (touchpadRow_ == i);
+            c.fillRect(r, on ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 14);
+            if (on && !touchpadDropdownOpen_) c.strokeRect({r.x - 4, r.y - 4, r.w + 8, r.h + 8}, kWhite, 2, 18);
+            int ty = fonts_.semibold.centeredY(r.y, r.h, 26);
+            fonts_.semibold.draw(c, touchpadTriggerLabel(i), r.x + 32, ty, 26, kWhite);
+
+            float cx = static_cast<float>(r.x + r.w - 40), cy = static_cast<float>(r.y + r.h / 2);
+            c.line(cx - 8, cy - 3, cx, cy + 4, 2.5f, on ? kWhite : kGray);
+            c.line(cx, cy + 4, cx + 8, cy - 3, 2.5f, on ? kWhite : kGray);
+
+            std::string val = touchpadActionLabel(static_cast<int>(vals[i]));
+            int vw = fonts_.regular.measure(val, 26);
+            int vx = r.x + r.w - 68;
+            fonts_.regular.draw(c, val, vx - vw, fonts_.regular.centeredY(r.y, r.h, 26), 26, on ? kWhite : kGray);
+
+            y += kTouchRowH + kTouchGap;
+        }
+
+        Rect reset{panel.x + 80, y + 8, panel.w - 160, kTouchRowH};
+        bool resetOn = (touchpadRow_ == 6);
+        c.fillRect(reset, resetOn ? rgba(255, 255, 255, 36) : rgba(255, 255, 255, 14), 14);
+        if (resetOn && !touchpadDropdownOpen_) c.strokeRect({reset.x - 4, reset.y - 4, reset.w + 8, reset.h + 8}, kWhite, 2, 18);
+        const char* resetLabel = tr(Str::ResetToDefault);
+        fonts_.semibold.draw(c, resetLabel, reset.x + (reset.w - fonts_.semibold.measure(resetLabel, 24)) / 2,
+                             fonts_.semibold.centeredY(reset.y, reset.h, 24), 24, resetOn ? kWhite : rgba(240, 100, 100));
+
+        int hy = reset.y + kTouchRowH + 22;
+        auto help = fonts_.regular.wrap(tr(Str::SettingDescTouchpadShortcuts), 22, panel.w - 160, 2);
+        for (size_t i = 0; i < help.size(); ++i)
+            fonts_.regular.draw(c, help[i], panel.x + 80, hy + static_cast<int>(i) * 28, 22, kDim);
+
+        if (touchpadDropdownOpen_) {
+            constexpr int kListW = 500, kItemH = 46, kMaxVisible = 8;
+            constexpr int n = input::kTouchpadActions;
+            int visible = std::min(n, kMaxVisible);
+            int anchorY = panel.y + 116 + touchpadRow_ * (kTouchRowH + kTouchGap);
+            Rect dropPanel{panel.x + panel.w - 80 - kListW, anchorY + kTouchRowH + 6, kListW, visible * kItemH + 16};
+            if (dropPanel.y + dropPanel.h > kH - 100) dropPanel.y = std::max(120, anchorY - dropPanel.h - 6);
+            c.fillRect({dropPanel.x + 6, dropPanel.y + 10, dropPanel.w, dropPanel.h}, rgba(0, 0, 0, 160), 18);
+            c.fillRect(dropPanel, rgba(38, 38, 38), 18);
+            c.strokeRect(dropPanel, rgba(255, 255, 255, 60), 2, 18);
+            int curAction = static_cast<int>(touchpadWork_.get(touchpadRow_));
+            for (int k = 0; k < visible; ++k) {
+                int itemIdx = touchpadDropdownTop_ + k;
+                if (itemIdx >= n) break;
+                Rect item{dropPanel.x + 8, dropPanel.y + 8 + k * kItemH, dropPanel.w - 16, kItemH};
+                bool isFocused = (itemIdx == touchpadDropdownIndex_);
+                bool isSelected = (itemIdx == curAction);
+                if (isFocused) c.fillRect(item, kWhite, 12);
+                Color textCol = isFocused ? kBg : (isSelected ? kWhite : kGray);
+                std::string itemText = touchpadActionLabel(itemIdx);
+                fonts_.semibold.draw(c, itemText, item.x + 24, fonts_.semibold.centeredY(item.y, item.h, 24), 24, textCol);
+                if (isSelected) {
+                    float markX = static_cast<float>(item.x + item.w - 36), markY = static_cast<float>(item.y + item.h / 2);
+                    c.line(markX - 10, markY, markX - 3, markY + 7, 3, isFocused ? kBg : kGreen);
+                    c.line(markX - 3, markY + 7, markX + 10, markY - 7, 3, isFocused ? kBg : kGreen);
+                }
+            }
+            if (touchpadDropdownTop_ > 0) {
+                float scx = static_cast<float>(dropPanel.x + dropPanel.w / 2), scy = static_cast<float>(dropPanel.y - 14);
+                c.line(scx - 10, scy + 4, scx, scy - 4, 3, kGray);
+                c.line(scx, scy - 4, scx + 10, scy + 4, 3, kGray);
+            }
+            if (touchpadDropdownTop_ + visible < n) {
+                float scx = static_cast<float>(dropPanel.x + dropPanel.w / 2), scy = static_cast<float>(dropPanel.y + dropPanel.h + 14);
+                c.line(scx - 10, scy - 4, scx, scy + 4, 3, kGray);
+                c.line(scx, scy + 4, scx + 10, scy - 4, 3, kGray);
+            }
+        }
+
+        c.fillRect({0, kH - 80, kW, 80}, kBg);
+        if (touchpadDropdownOpen_)
+            drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
+        else if (resetOn)
+            drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconL1R1, tr(Str::Sections)}, {kIconCircle, tr(Str::Back)}});
+        else
+            drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconSquare, tr(Str::ClearKey)}, {kIconL1R1, tr(Str::Sections)}, {kIconCircle, tr(Str::Back)}});
+        return;
+    }
+
     // Each Xbox button the game gets (as an Xbox pad shows it), then the
     // button on this pad that plays it (in the pad's own glyphs). Left
     // column the face buttons, shoulders and triggers; right the rest.
@@ -5674,9 +6074,14 @@ void AppUi::drawPadTester(Canvas& c) {
     if (capturing)
         return;
     if (padRow_ == kPerColumn)
-        drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
+        drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconL1R1, tr(Str::Sections)}, {kIconCircle, tr(Str::Back)}});
     else
-        drawHints(c, {{kIconCross, tr(Str::ChangeKey)}, {kIconSquare, tr(Str::ClearKey)}, {kIconCircle, tr(Str::Back)}});
+        drawHints(c, {{kIconCross, tr(Str::ChangeKey)}, {kIconSquare, tr(Str::ClearKey)}, {kIconL1R1, tr(Str::Sections)}, {kIconCircle, tr(Str::Back)}});
+}
+
+void AppUi::drawTouchpadTester(Canvas& c) {
+    padTesterTab_ = 1;
+    drawPadTester(c);
 }
 
 void AppUi::drawSignInCheck(Canvas& c, uint64_t nowMs) {
@@ -6107,6 +6512,10 @@ void AppUi::drawGameSettings(Canvas& c) {
         drawPadTester(c);
         return;
     }
+    if (tester_ == Tester::Touchpad) {
+        drawTouchpadTester(c);
+        return;
+    }
     std::string title = tr(Str::GameSettings);
     if (!detail_.name.empty()) {
         std::string full = title + "  \xE2\x80\xA2  " + detail_.name;
@@ -6123,7 +6532,7 @@ void AppUi::drawGameSettings(Canvas& c) {
         }
     }
     constexpr int kModalW = 1140, kModalH = 960;
-    constexpr int kRowH = 43, kGap = 4, kGroupGap = 8;
+    constexpr int kRowH = 40, kGap = 4, kGroupGap = 7;
     // The rows caps_ allows; the panel loses the height of those it hides
     // (the same as ever with all of them, "Reset to default" or not).
     const auto rows = visibleGameSettingsRows(caps_, activeGameHasCustom_, activeGameMouseSupported_);
@@ -6217,6 +6626,10 @@ void AppUi::drawGameSettings(Canvas& c) {
         case 11:
             label = tr(Str::ControllerButtons);
             value = tr(activeGameProfile_.padMap == input::defaultPadMap() ? Str::ProfileDefault : Str::ProfileCustom);
+            break;
+        case 17:
+            label = tr(Str::TouchpadShortcuts);
+            value = tr(activeGameProfile_.touchpadShortcuts == input::defaultTouchpadShortcuts() ? Str::ProfileDefault : Str::ProfileCustom);
             break;
         case 12:
             label = tr(Str::Gyro);

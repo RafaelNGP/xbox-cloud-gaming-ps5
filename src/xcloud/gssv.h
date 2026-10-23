@@ -38,6 +38,7 @@ struct Title {
     bool hasEntitlement = false;
     std::string xboxTitleId;  // Xbox Live title id (titlehub)
     bool isFreeInStore = false;
+    std::vector<std::string> alternateProductIds;
     // Playable through a subscription (the title's userPrograms has one
     // besides F2P, such as CALLISTO for Game Pass). Entitled but not this:
     // the account's own game, bought or free-to-play.

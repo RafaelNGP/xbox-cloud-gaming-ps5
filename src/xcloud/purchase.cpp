@@ -8,13 +8,71 @@
 #include "util/log.h"
 
 #include <cmath>
+#include <mutex>
+#include <set>
 
 namespace xc::xcloud {
+
+namespace {
+std::mutex s_unclaimableMutex;
+std::set<std::string> s_unclaimable = {
+    // Known non-standalone / token bundles that lack purchase availability
+    "9PMFDKG5F9R7", "9N872NBW5XG5"
+};
+std::string s_unclaimablePath;
+}  // namespace
+
+void markProductUnclaimable(const std::string& productId) {
+    if (productId.empty()) return;
+    std::string path;
+    {
+        std::lock_guard<std::mutex> lock(s_unclaimableMutex);
+        s_unclaimable.insert(productId);
+        path = s_unclaimablePath;
+    }
+    if (!path.empty()) saveUnclaimableProducts(path);
+}
+
+bool isProductUnclaimable(const std::string& productId) {
+    if (productId.empty()) return false;
+    std::lock_guard<std::mutex> lock(s_unclaimableMutex);
+    return s_unclaimable.count(productId) > 0;
+}
+
+void loadUnclaimableProducts(const std::string& path) {
+    std::lock_guard<std::mutex> lock(s_unclaimableMutex);
+    s_unclaimablePath = path;
+    std::string text;
+    if (platform::readFile(path, text)) {
+        if (auto j = json::parse(text)) {
+            for (const auto& item : (*j)["unclaimable"].items()) {
+                if (item.isString() && !item.str().empty()) s_unclaimable.insert(item.str());
+            }
+        }
+    }
+}
+
+void saveUnclaimableProducts(const std::string& path) {
+    std::set<std::string> copy;
+    {
+        std::lock_guard<std::mutex> lock(s_unclaimableMutex);
+        copy = s_unclaimable;
+    }
+    json::Value j = json::Value::object();
+    json::Value arr = json::Value::array();
+    for (const auto& id : copy) arr.push(id);
+    j.set("unclaimable", arr);
+    platform::writeFileAtomic(path, j.dump());
+}
 
 bool fetchPurchaseOffer(const std::string& productId, const std::string& market, const std::string& language,
                         PurchaseOffer& out, std::string& err) {
     if (productId.empty()) {
         err = "empty product id";
+        return false;
+    }
+    if (isProductUnclaimable(productId)) {
+        err = "product has no claimable availability: " + productId;
         return false;
     }
     net::Request req;
@@ -49,10 +107,12 @@ bool fetchPurchaseOffer(const std::string& productId, const std::string& market,
             bool purchase = false;
             for (const auto& a : av["Actions"].items()) {
                 const auto act = a.str();
-                purchase |= (act == "Purchase" || act == "Browse" || act == "Fulfill" || act == "License");
+                if (act == "Purchase") purchase = true;
             }
             const auto& price = av["OrderManagementData"]["Price"];
             if (!purchase || !price.isObject()) continue;
+            bool remediation = av["RemediationRequired"].asBool();
+            if (remediation) continue;
 
             PurchaseOffer cand;
             cand.productId = productId;
@@ -64,27 +124,20 @@ bool fetchPurchaseOffer(const std::string& productId, const std::string& market,
             cand.isFree = (cand.listPrice <= 0.005 && cand.msrp <= 0.005);
             if (cand.availabilityId.empty()) continue;
 
-            bool remediation = av["RemediationRequired"].asBool();
-            if (cand.isFree && !remediation) {
+            if (cand.isFree) {
                 out = cand;
                 return true;
-            }
-            if (cand.isFree && fallbackFree.availabilityId.empty()) {
-                fallbackFree = cand;
             }
             if (fallbackAny.availabilityId.empty()) {
                 fallbackAny = cand;
             }
         }
     }
-    if (!fallbackFree.availabilityId.empty()) {
-        out = fallbackFree;
-        return true;
-    }
     if (!fallbackAny.availabilityId.empty()) {
         out = fallbackAny;
         return true;
     }
+    markProductUnclaimable(productId);
     err = "no purchase availability found for " + productId;
     return false;
 }
@@ -200,6 +253,11 @@ bool claimFreeProduct(const std::string& marketplaceAuthHeader, const PurchaseOf
             return true;
         }
         err = extractErrorDetail(r);
+        if (err.find("CatalogAvailabilityDataNotFound") != std::string::npos ||
+            err.find("purchaseable action") != std::string::npos ||
+            err.find("Availability does not contain") != std::string::npos) {
+            markProductUnclaimable(offer.productId);
+        }
         XC_LOGW("claimFreeProduct: create order failed for %s: %s (status %d)",
                 offer.productId.c_str(), err.c_str(), r.status);
         return false;
@@ -224,6 +282,11 @@ bool claimFreeProduct(const std::string& marketplaceAuthHeader, const PurchaseOf
             return true;
         }
         err = extractErrorDetail(finRes);
+        if (err.find("CatalogAvailabilityDataNotFound") != std::string::npos ||
+            err.find("purchaseable action") != std::string::npos ||
+            err.find("Availability does not contain") != std::string::npos) {
+            markProductUnclaimable(offer.productId);
+        }
         XC_LOGW("claimFreeProduct: finalize order failed for %s (order %s): %s (status %d)",
                 offer.productId.c_str(), orderId.c_str(), err.c_str(), finRes.status);
         return false;
