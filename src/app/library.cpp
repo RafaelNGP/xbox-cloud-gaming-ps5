@@ -97,6 +97,8 @@ json::Value itemsToJson(const std::vector<std::pair<std::string, std::string>>& 
     return a;
 }
 
+}  // namespace
+
 bool isStoreBigId(const std::string& s) {
     if (s.size() != 12) return false;
     for (char c : s) {
@@ -104,6 +106,8 @@ bool isStoreBigId(const std::string& s) {
     }
     return true;
 }
+
+namespace {
 
 bool namesSeries(const std::string& title) {
     return title.find("Series X|S") != std::string::npos || title.find("Series X/S") != std::string::npos;
@@ -175,6 +179,7 @@ void dedupeByTitle(std::vector<ui::GameTile>& tiles) {
 
     for (auto& t : tiles) {
         if (t.productId.empty() || t.name.empty()) continue;
+        if (isStoreBigId(t.name) || (t.name == t.productId && isStoreBigId(t.productId))) continue;
 
         std::string norm = xcloud::normalizeBaseTitle(t.name);
         std::string tid = t.titleId;
@@ -531,6 +536,9 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
         if (t.titleId == "None") t.titleId.clear();
         if (t.titleId.empty() && !productId.empty()) t.titleId = productId;
         t.name = p.title;
+        if (t.name.empty() && !isStoreBigId(productId)) {
+            t.name = productId;
+        }
         t.publisher = p.publisher;
         t.description = p.description;
         t.tileUrl = p.tileUrl.empty() ? p.posterUrl : p.tileUrl;
@@ -659,6 +667,10 @@ bool Library::isPcOnly(const std::string& productId) const {
 }
 
 bool Library::hasStreamingSupport(const ui::GameTile& t) const {
+    if ((!t.productId.empty() && acquiredProducts_.count(t.productId)) ||
+        (!t.titleId.empty() && acquiredTitles_.count(t.titleId))) {
+        return true;
+    }
     if (t.titleId.empty() || t.titleId == "None") return false;
     if (t.titleId == t.productId && isStoreBigId(t.productId)) {
         auto ct = cloudTitleOf_.find(t.productId);
@@ -673,9 +685,26 @@ std::vector<ui::GameTile> Library::tiles(const std::vector<Item>& items) const {
         ui::GameTile t = tile(pid, tid);
         if (xcloud::isNonGameAddon(t.titleId, t.name)) continue;
         if (t.productId.empty() || t.titleId.empty() || t.name.empty()) continue;
+        if (isStoreBigId(t.name) || (t.name == t.productId && isStoreBigId(t.productId))) {
+            auto pit = products_.find(t.productId);
+            if (pit != products_.end() && !pit->second.title.empty() && !isStoreBigId(pit->second.title)) {
+                t.name = pit->second.title;
+            }
+        }
         if (isStoreBigId(t.name) || (t.name == t.productId && isStoreBigId(t.productId))) continue;
         if (isPcOnly(t.productId) || xcloud::isPcTitle(t.name)) continue;
         if (!hasStreamingSupport(t)) continue;
+        bool isAcq = (!t.productId.empty() && acquiredProducts_.count(t.productId)) ||
+                     (!t.titleId.empty() && acquiredTitles_.count(t.titleId));
+        if (isAcq) {
+            if (t.titleId.empty() || t.titleId == "None") {
+                auto ct = cloudTitleOf_.find(t.productId);
+                if (ct != cloudTitleOf_.end()) t.titleId = ct->second;
+            }
+            t.playable = true;
+            t.purchasable = false;
+            t.freeInStore = false;
+        }
         out.push_back(std::move(t));
     }
     dedupeByTitle(out);
@@ -780,19 +809,58 @@ std::vector<ui::GameTile> Library::librarySearchPool() const {
     return tiles(items);
 }
 
+void Library::setPlaytime(const std::map<std::string, uint64_t>& playtime) {
+    playtime_ = playtime;
+    sortOwned();
+}
+
+void Library::recordRecent(const std::string& productIdOrTitleId) {
+    if (productIdOrTitleId.empty()) return;
+    std::string pid = productIdOrTitleId;
+    for (const auto& [p, t] : cloudTitleOf_) {
+        if (t == productIdOrTitleId) { pid = p; break; }
+    }
+    auto it = std::find(recent_.begin(), recent_.end(), pid);
+    if (it != recent_.end()) recent_.erase(it);
+    recent_.insert(recent_.begin(), pid);
+    sortOwned();
+    saveCache();
+}
+
 void Library::sortOwned() {
-    // Recently played first (newest first), then alphabetical.
-    auto rank = [&](const std::string& pid) {
+    // Recently played first (newest first in recent_), then titles with accumulated playtime, then alphabetical.
+    auto rank = [&](const std::string& pid, const std::string& tid) -> size_t {
         auto it = std::find(recent_.begin(), recent_.end(), pid);
-        return it == recent_.end() ? recent_.size() : static_cast<size_t>(it - recent_.begin());
+        if (it != recent_.end()) return static_cast<size_t>(it - recent_.begin());
+        if (!tid.empty()) {
+            auto itT = std::find(recent_.begin(), recent_.end(), tid);
+            if (itT != recent_.end()) return static_cast<size_t>(itT - recent_.begin());
+        }
+        return static_cast<size_t>(1000000000);
+    };
+    auto playtime = [&](const std::string& pid, const std::string& tid) -> uint64_t {
+        if (!playtime_.empty()) {
+            auto itP = playtime_.find(pid);
+            if (itP != playtime_.end() && itP->second > 0) return itP->second;
+            if (!tid.empty()) {
+                auto itT = playtime_.find(tid);
+                if (itT != playtime_.end() && itT->second > 0) return itT->second;
+            }
+        }
+        return 0;
     };
     auto name = [&](const std::string& pid) {
         auto it = products_.find(pid);
         return it == products_.end() ? std::string() : it->second.title;
     };
     std::stable_sort(owned_.begin(), owned_.end(), [&](const auto& a, const auto& b) {
-        size_t ra = rank(a.first), rb = rank(b.first);
+        size_t ra = rank(a.first, a.second), rb = rank(b.first, b.second);
         if (ra != rb) return ra < rb;
+        if (ra >= 1000000000 && rb >= 1000000000) {
+            uint64_t pa = playtime(a.first, a.second);
+            uint64_t pb = playtime(b.first, b.second);
+            if (pa != pb) return pa > pb;
+        }
         return name(a.first) < name(b.first);
     });
 }
@@ -840,6 +908,12 @@ bool Library::loadCache(bool withLayout) {
     gamePassMember_ = (*j)["gamePassMember"].asBool();
     if (subscription_.empty()) subscription_ = (*j)["subscription"].str();
     for (const auto& p : (*j)["ownedProducts"].items()) ownedProducts_.insert(p.str());
+    for (const auto& p : (*j)["acquiredProducts"].items()) acquiredProducts_.insert(p.str());
+    for (const auto& t : (*j)["acquiredTitles"].items()) acquiredTitles_.insert(t.str());
+    recent_.clear();
+    for (const auto& r : (*j)["recent"].items()) {
+        if (!r.str().empty()) recent_.push_back(r.str());
+    }
     bool corruptedGamePass = (*j)["gamePass"].items().size() > 1050;
     if (corruptedGamePass) {
         XC_LOGW("library: cache gamePass has %zu items (likely contaminated), ignoring cached gamePass",
@@ -909,6 +983,63 @@ bool Library::loadCache(bool withLayout) {
             }
         }
     }
+    if (recent_.empty()) {
+        for (const auto& rowObj : (*j)["layout"].items()) {
+            if (rowObj["recent"].asBool(false)) {
+                for (const auto& it : rowObj["items"].items()) {
+                    std::string pid = it["p"].str();
+                    if (!pid.empty() && std::find(recent_.begin(), recent_.end(), pid) == recent_.end()) {
+                        recent_.push_back(pid);
+                    }
+                }
+            }
+        }
+    }
+    for (const auto& pid : acquiredProducts_) {
+        ownedProducts_.insert(pid);
+        purchasableSet_.erase(pid);
+        freeInStore_.erase(pid);
+        if (std::find(recent_.begin(), recent_.end(), pid) == recent_.end()) {
+            recent_.insert(recent_.begin(), pid);
+        }
+        bool inOwned = false;
+        for (const auto& item : owned_) {
+            if (item.first == pid) { inOwned = true; break; }
+        }
+        if (!inOwned && !pid.empty()) {
+            std::string tid;
+            auto it = cloudTitleOf_.find(pid);
+            if (it != cloudTitleOf_.end()) tid = it->second;
+            if (tid.empty()) {
+                auto pit = products_.find(pid);
+                if (pit != products_.end() && !pit->second.xcloudTitleId.empty() && pit->second.xcloudTitleId != "None") {
+                    tid = pit->second.xcloudTitleId;
+                }
+            }
+            owned_.emplace_back(pid, tid);
+        }
+    }
+    for (const auto& tid : acquiredTitles_) {
+        if (!tid.empty()) {
+            ownedTitles_.insert(tid);
+            for (const auto& [p, t] : cloudTitleOf_) {
+                if (t == tid) {
+                    acquiredProducts_.insert(p);
+                    ownedProducts_.insert(p);
+                    purchasableSet_.erase(p);
+                    freeInStore_.erase(p);
+                }
+            }
+        }
+    }
+    purchasable_.erase(std::remove_if(purchasable_.begin(), purchasable_.end(),
+        [&](const Item& it) {
+            return acquiredProducts_.count(it.first) > 0 ||
+                   ownedProducts_.count(it.first) > 0 ||
+                   (!it.second.empty() && (acquiredTitles_.count(it.second) > 0 || ownedTitles_.count(it.second) > 0));
+        }), purchasable_.end());
+    purchasableSet_.clear();
+    for (const auto& p : purchasable_) purchasableSet_.insert(p.first);
     size_t codCount = 0;
     for (const auto& o : owned_) {
         if (o.second.find("CALLOFDUTY") != std::string::npos) ++codCount;
@@ -920,7 +1051,7 @@ bool Library::loadCache(bool withLayout) {
         owned_.clear();
         ownershipKnown_ = false;
     } else {
-        ownershipKnown_ = !ownedTitles_.empty() || !ownedProducts_.empty() || !owned_.empty();
+        ownershipKnown_ = !ownedTitles_.empty() || !ownedProducts_.empty() || !owned_.empty() || !acquiredProducts_.empty();
     }
     sortOwned();
     XC_LOGI("library: cache: %zu of the account's games, %zu to buy, %zu home rows, %zu consoles known",
@@ -938,6 +1069,14 @@ void Library::saveCache() const {
     for (const auto& t : ownedTitles_) titles.push(t);
     for (const auto& p : ownedProducts_) prods.push(p);
     root.set("ownedTitles", titles);
+    json::Value acqP = json::Value::array(), acqT = json::Value::array();
+    for (const auto& p : acquiredProducts_) acqP.push(p);
+    for (const auto& t : acquiredTitles_) acqT.push(t);
+    root.set("acquiredProducts", acqP);
+    root.set("acquiredTitles", acqT);
+    json::Value recentArr = json::Value::array();
+    for (const auto& r : recent_) recentArr.push(r);
+    root.set("recent", recentArr);
     root.set("gamePassMember", gamePassMember_);
     if (!subscription_.empty()) root.set("subscription", subscription_);
     root.set("ownedProducts", prods);
@@ -990,22 +1129,71 @@ void Library::saveCache() const {
     if (!platform::writeFileAtomic(cachePath_, root.dump())) XC_LOGW("library: could not write %s", cachePath_.c_str());
 }
 
-void Library::markAsOwned(const std::string& productId, const std::string& titleId) {
-    if (!productId.empty()) ownedProducts_.insert(productId);
-    if (!titleId.empty()) ownedTitles_.insert(titleId);
-    if (!productId.empty() && !products_.count(productId)) {
-        xcloud::Product p;
-        p.productId = productId;
-        p.xcloudTitleId = titleId;
-        p.title = productId;
-        products_[productId] = p;
+void Library::markAsOwned(const std::string& productId, const std::string& titleId, const std::string& name) {
+    std::string tid = titleId;
+    if ((tid.empty() || tid == "None") && !productId.empty()) {
+        auto it = cloudTitleOf_.find(productId);
+        if (it != cloudTitleOf_.end()) tid = it->second;
     }
+    if (!productId.empty()) {
+        acquiredProducts_.insert(productId);
+        ownedProducts_.insert(productId);
+        purchasableSet_.erase(productId);
+        freeInStore_.erase(productId);
+        if (!tid.empty() && tid != "None") {
+            cloudTitleOf_[productId] = tid;
+        }
+        auto& p = products_[productId];
+        p.productId = productId;
+        if (!tid.empty() && tid != "None") p.xcloudTitleId = tid;
+        if (!name.empty() && (p.title.empty() || isStoreBigId(p.title) || p.title == productId)) {
+            p.title = name;
+        } else if (p.title.empty() && !isStoreBigId(productId)) {
+            p.title = productId;
+        }
+    }
+    if (!tid.empty() && tid != "None") {
+        acquiredTitles_.insert(tid);
+        ownedTitles_.insert(tid);
+        for (const auto& [p, t] : cloudTitleOf_) {
+            if (t == tid) {
+                acquiredProducts_.insert(p);
+                ownedProducts_.insert(p);
+                purchasableSet_.erase(p);
+                freeInStore_.erase(p);
+            }
+        }
+    }
+    purchasable_.erase(std::remove_if(purchasable_.begin(), purchasable_.end(),
+        [&](const Item& item) {
+            return (!productId.empty() && item.first == productId) ||
+                   (!tid.empty() && item.second == tid) ||
+                   acquiredProducts_.count(item.first) > 0 ||
+                   (!item.second.empty() && acquiredTitles_.count(item.second) > 0);
+        }),
+        purchasable_.end());
+    purchasableSet_.clear();
+    for (const auto& p : purchasable_) purchasableSet_.insert(p.first);
+
     bool inOwned = false;
-    for (const auto& item : owned_) {
-        if (item.first == productId) { inOwned = true; break; }
+    for (auto& item : owned_) {
+        if ((!productId.empty() && item.first == productId) || (!tid.empty() && item.second == tid)) {
+            inOwned = true;
+            if (item.second.empty() && !tid.empty()) item.second = tid;
+            break;
+        }
     }
     if (!inOwned && !productId.empty()) {
-        owned_.emplace_back(productId, titleId);
+        owned_.emplace_back(productId, tid);
+    }
+    if (!productId.empty()) {
+        auto rit = std::find(recent_.begin(), recent_.end(), productId);
+        if (rit != recent_.end()) recent_.erase(rit);
+        recent_.insert(recent_.begin(), productId);
+    } else if (!tid.empty()) {
+        auto rit = std::find(recent_.begin(), recent_.end(), tid);
+        if (rit != recent_.end()) recent_.erase(rit);
+        recent_.insert(recent_.begin(), tid);
     }
     ownershipKnown_ = true;
     sortOwned();
@@ -1168,15 +1356,29 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
     if (gssv.listTitles(recent, lastErr, true)) {
         RowIds r{ui::tr(ui::Str::JumpBackIn), false, false, {}, true};
         std::vector<std::string> ids;
+        std::vector<std::string> freshRecent;
         for (const auto& t : recent) {
             if (t.productId.empty()) continue;
-            recent_.push_back(t.productId);
+            if (std::find(freshRecent.begin(), freshRecent.end(), t.productId) == freshRecent.end()) {
+                freshRecent.push_back(t.productId);
+            }
             if (!t.xboxTitleId.empty()) xboxTitleOf_[t.productId] = t.xboxTitleId;
             // Its inputs come with it: the first cards show keyboard and
             // mouse without waiting for the whole list (or a cache that has it).
             if (t.mouseKeyboard) mouseKeyboard_.insert(t.productId);
             r.items.emplace_back(t.productId, t.titleId);
             if (!products_.count(t.productId)) ids.push_back(t.productId);
+        }
+        for (const auto& pid : recent_) {
+            if (!pid.empty() && std::find(freshRecent.begin(), freshRecent.end(), pid) == freshRecent.end()) {
+                freshRecent.push_back(pid);
+            }
+        }
+        recent_ = std::move(freshRecent);
+        for (const auto& pid : acquiredProducts_) {
+            auto it = std::find(recent_.begin(), recent_.end(), pid);
+            if (it != recent_.end()) recent_.erase(it);
+            recent_.insert(recent_.begin(), pid);
         }
         sortOwned();
         // The first cards are the first thing seen: full details (hero art,
@@ -1306,12 +1508,18 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
     if (!titlesPtr) {
         if (!gssv.listTitles(fetchedTitles, err, false)) {
             XC_LOGW("%s", err.c_str());  // keep what the cache said
+            progress_ = {};
+            changed();
             return;
         }
         titlesPtr = &fetchedTitles;
     }
     const auto& titles = *titlesPtr;
-    if (stop && *stop) return;
+    if (stop && *stop) {
+        progress_ = {};
+        changed();
+        return;
+    }
     std::set<std::string> ownedTitles, ownedProducts;
     std::vector<Item> mine;
     std::set<std::string> seenMine;
@@ -1332,16 +1540,22 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
     };
 
     for (const auto& t : titles) {
-        member |= t.hasEntitlement && t.viaSubscription;
+        bool isAcquired = (!t.productId.empty() && acquiredProducts_.count(t.productId)) ||
+                          (!t.titleId.empty() && acquiredTitles_.count(t.titleId));
+        for (const auto& alt : t.alternateProductIds) {
+            if (!alt.empty() && acquiredProducts_.count(alt)) { isAcquired = true; break; }
+        }
+        bool entitled = t.hasEntitlement || isAcquired;
+        member |= entitled && t.viaSubscription;
         if (xcloud::isNonGameAddon(t.titleId)) continue;
-        if (t.hasEntitlement) ownedTitles.insert(t.titleId);
+        if (entitled) ownedTitles.insert(t.titleId);
 
         registerCloudTitle(t.productId, t.titleId, t.xboxTitleId, t.isFreeInStore, t.mouseKeyboard);
         for (const auto& alt : t.alternateProductIds) {
             registerCloudTitle(alt, t.titleId, t.xboxTitleId, t.isFreeInStore, t.mouseKeyboard);
         }
 
-        if (t.hasEntitlement) {
+        if (entitled) {
             if (!t.productId.empty()) ownedProducts.insert(t.productId);
             for (const auto& alt : t.alternateProductIds) {
                 if (!alt.empty()) ownedProducts.insert(alt);
@@ -1350,7 +1564,7 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
             // like Fortnite, without the subscription) are its games too.
             // Also games outside the Game Pass catalog.
             if (!t.productId.empty()) {
-                if (!gamePass_.count(t.productId) || !t.viaSubscription) {
+                if (!gamePass_.count(t.productId) || !t.viaSubscription || isAcquired) {
                     if (seenMine.insert(t.productId).second) {
                         mine.emplace_back(t.productId, t.titleId);
                     }
@@ -1381,6 +1595,43 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
             toBuy[g.productId] = g.cloudTitleId;
         }
     }
+    for (const auto& pid : acquiredProducts_) {
+        toBuy.erase(pid);
+        ownedProducts.insert(pid);
+        if (seenMine.insert(pid).second) {
+            std::string tid;
+            auto it = cloudTitleOf_.find(pid);
+            if (it != cloudTitleOf_.end()) tid = it->second;
+            if (tid.empty()) {
+                auto pit = products_.find(pid);
+                if (pit != products_.end() && !pit->second.xcloudTitleId.empty() && pit->second.xcloudTitleId != "None") {
+                    tid = pit->second.xcloudTitleId;
+                }
+            }
+            mine.emplace_back(pid, tid);
+        }
+    }
+    for (const auto& tid : acquiredTitles_) {
+        if (!tid.empty()) {
+            ownedTitles.insert(tid);
+            for (const auto& [p, t] : cloudTitleOf_) {
+                if (t == tid) {
+                    ownedProducts.insert(p);
+                    toBuy.erase(p);
+                }
+            }
+        }
+    }
+    for (auto it = toBuy.begin(); it != toBuy.end(); ) {
+        bool isOwnedOrAcquired = acquiredProducts_.count(it->first) > 0 ||
+                                 ownedProducts.count(it->first) > 0 ||
+                                 (!it->second.empty() && (acquiredTitles_.count(it->second) > 0 || ownedTitles.count(it->second) > 0));
+        if (isOwnedOrAcquired) {
+            it = toBuy.erase(it);
+        } else {
+            ++it;
+        }
+    }
     // Games to buy: the most popular in the cloud first, then the rest.
     std::vector<Item> buy;
     for (const auto& id : popular_) {
@@ -1398,20 +1649,46 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
         if (!products_.count(pid)) missing.push_back(pid);
     if (!missing.empty() && !xcloud::fetchProducts(missing, market_, language_, products_, err, false))
         XC_LOGW("%s", err.c_str());
-    if (stop && *stop) return;
+    if (stop && *stop) {
+        progress_ = {};
+        changed();
+        return;
+    }
     ownedTitles_ = std::move(ownedTitles);
     ownershipFresh_ = true;
     ownedProducts_ = std::move(ownedProducts);
     owned_ = std::move(mine);
     purchasable_ = std::move(buy);
+    purchasable_.erase(std::remove_if(purchasable_.begin(), purchasable_.end(),
+        [&](const Item& item) {
+            return acquiredProducts_.count(item.first) > 0 ||
+                   ownedProducts_.count(item.first) > 0 ||
+                   (!item.second.empty() && (acquiredTitles_.count(item.second) > 0 || ownedTitles_.count(item.second) > 0));
+        }), purchasable_.end());
     purchasableSet_.clear();
     for (const auto& p : purchasable_) purchasableSet_.insert(p.first);
+    for (const auto& pid : acquiredProducts_) {
+        purchasableSet_.erase(pid);
+        freeInStore_.erase(pid);
+    }
+    for (const auto& [pid, tid] : cloudTitleOf_) {
+        if (acquiredTitles_.count(tid) || ownedTitles_.count(tid)) {
+            purchasableSet_.erase(pid);
+            freeInStore_.erase(pid);
+        }
+    }
+    for (const auto& pid : acquiredProducts_) {
+        if (!pid.empty() && std::find(recent_.begin(), recent_.end(), pid) == recent_.end()) {
+            recent_.insert(recent_.begin(), pid);
+        }
+    }
     ownershipKnown_ = true;
     gamePassMember_ = member;
     sortOwned();
     saveCache();
     XC_LOGI("library: account can stream %zu titles; %zu outside Game Pass; %zu more to buy", ownedTitles_.size(),
             owned_.size(), purchasable_.size());
+    progress_ = {};
     changed();
 }
 
@@ -1474,6 +1751,7 @@ void Library::loadCatalogNames(const Changed& changed, const std::atomic<bool>* 
         changed();  // each batch: the lists fill in as names arrive
     }
     progress_ = {};
+    changed();
     allGames_.erase(std::remove_if(allGames_.begin(), allGames_.end(),
                                    [&](const std::string& id) {
                                        return isPcOnly(id);

@@ -384,6 +384,19 @@ std::string stream(xcloud::GssvClient& gssv) {
         XC_LOGI("playtime: updated for %s (%s) to %llu seconds (%s)", g_stageTitle.c_str(),
                 g_stageProduct.c_str(), static_cast<unsigned long long>(newTotal),
                 ui::formatPlaytime(newTotal).c_str());
+
+        std::shared_ptr<app::Library> lib;
+        {
+            std::lock_guard<std::mutex> lockLib(s_libraryMutex);
+            lib = s_library;
+        }
+        if (lib) {
+            if (!g_stageProduct.empty()) lib->recordRecent(g_stageProduct);
+            else if (!g_stageTitle.empty()) lib->recordRecent(g_stageTitle);
+            lib->setPlaytime(g_settings.titlePlaytime);
+            g_ui->setRows(lib->rows());
+            g_ui->setOwned(lib->owned(), lib->purchasable(), lib->ownedKnown());
+        }
     }
     if (bestRtt > 0) {
         // Remembered per region: Settings shows it, the region fallback uses it.
@@ -893,6 +906,10 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
     }
 
     if (!forceRefresh && existingLib && existingLib->ownedKnown()) {
+        {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            existingLib->setPlaytime(g_settings.titlePlaytime);
+        }
         XC_LOGI("library: delta-sync against active library (forceRefresh=%d)", forceRefresh);
         if (g_ui->screen() == ui::Screen::Splash) {
             g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
@@ -936,6 +953,9 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
     auto library = std::make_shared<app::Library>();
     {
         std::lock_guard<std::mutex> lock(s_libraryMutex);
+        if (existingLib) {
+            library->setAcquired(existingLib->acquiredProducts(), existingLib->acquiredTitles());
+        }
         s_library = library;
     }
     library->setCachePath(platform::dataDir() + "/library_cache.json");
@@ -944,6 +964,7 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         library->setFavorites(g_settings.favorites);
         library->setWishlist(g_settings.wishlist);
+        library->setPlaytime(g_settings.titlePlaytime);
     }
     setPriceMarket(gssv.session().market.empty() ? "US" : gssv.session().market, ui::catalogLanguage());
     setQueueClient(&gssv);
@@ -1575,7 +1596,8 @@ void worker() {
                     lib = s_library;
                 }
                 if (lib) {
-                    lib->markAsOwned(tile.productId, tile.titleId);
+                    g_ui->setLoading(true, 0, 0);
+                    lib->markAsOwned(tile.productId, tile.titleId, tile.name);
                     g_ui->markTileOwned(tile.productId, tile.titleId);
                     if (!shell::caps().console) {
                         g_ui->showToast(ui::tr(ui::Str::ClaimSuccess));
@@ -1586,9 +1608,14 @@ void worker() {
                     lib->loadOwned(gssv, [lib]() {
                         g_ui->setRows(lib->rows());
                         g_ui->setOwned(lib->owned(), lib->purchasable(), lib->ownedKnown());
+                        auto p = lib->progress();
+                        g_ui->setLoading(p.active, p.done, p.total);
                     });
+                    g_ui->setLoading(false, 0, 0);
                 }
                 tile.playable = true;
+                tile.purchasable = false;
+                tile.freeInStore = false;
                 g_ui->showDetails(tile);
                 break;
             }

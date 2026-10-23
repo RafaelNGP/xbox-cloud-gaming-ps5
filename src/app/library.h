@@ -37,6 +37,7 @@
 namespace xc::app {
 
 void dedupeByTitle(std::vector<ui::GameTile>& tiles);
+bool isStoreBigId(const std::string& s);
 
 class Library {
 public:
@@ -99,7 +100,17 @@ public:
     bool loadCache(bool withLayout = false);
     void saveCache() const;
     // Marks a product/title as owned immediately upon successful purchase/claim.
-    void markAsOwned(const std::string& productId, const std::string& titleId = {});
+    void markAsOwned(const std::string& productId, const std::string& titleId = {}, const std::string& name = {});
+    // Sets accumulated playtime for ranking in 'Recent' sort mode.
+    void setPlaytime(const std::map<std::string, uint64_t>& playtime);
+    // Records a product or title ID as recently played, placing it at the front of recent list.
+    void recordRecent(const std::string& productIdOrTitleId);
+    const std::set<std::string>& acquiredProducts() const { return acquiredProducts_; }
+    const std::set<std::string>& acquiredTitles() const { return acquiredTitles_; }
+    void setAcquired(const std::set<std::string>& prods, const std::set<std::string>& titles) {
+        acquiredProducts_.insert(prods.begin(), prods.end());
+        acquiredTitles_.insert(titles.begin(), titles.end());
+    }
     // Delta-sync: discovers new/updated titles, only fetches missing metadata, updates rows in-place.
     size_t syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std::string& err);
     void markUnclaimable(const std::string& productId);
@@ -141,6 +152,8 @@ private:
     bool ownershipFresh_ = false;            // the account's list of this start (not the cache's) is in
     std::set<std::string> knownGamePass_;    // the Game Pass catalog at the last start (cache)
     std::set<std::string> ownedTitles_, ownedProducts_;
+    std::set<std::string> acquiredTitles_, acquiredProducts_;
+    std::map<std::string, uint64_t> playtime_;
     std::vector<Item> owned_;        // outside Game Pass
     std::vector<Item> purchasable_;  // streamable once bought
     std::set<std::string> purchasableSet_;

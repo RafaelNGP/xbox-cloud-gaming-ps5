@@ -1363,8 +1363,67 @@ void AppUi::markTileOwned(const std::string& productId, const std::string& title
     if (detail_.productId == productId || (!titleId.empty() && detail_.titleId == titleId)) {
         detail_.playable = true;
         detail_.purchasable = false;
+        detail_.freeInStore = false;
         dirty_ = true;
     }
+    auto updateTileFlags = [&](GameTile& t) {
+        if ((!productId.empty() && t.productId == productId) || (!titleId.empty() && t.titleId == titleId)) {
+            t.playable = true;
+            t.purchasable = false;
+            t.freeInStore = false;
+        }
+    };
+    for (auto& row : rows_) {
+        for (auto& t : row.tiles) updateTileFlags(t);
+    }
+    for (auto& row : allRows_) {
+        for (auto& t : row.tiles) updateTileFlags(t);
+    }
+    for (auto* list : {&gamePassPool_, &libraryPool_, &results_}) {
+        for (auto& t : *list) updateTileFlags(t);
+    }
+
+    GameTile acquiredTile;
+    if ((!productId.empty() && detail_.productId == productId) || (!titleId.empty() && detail_.titleId == titleId)) {
+        acquiredTile = detail_;
+    }
+    for (auto it = allPurchasable_.begin(); it != allPurchasable_.end(); ) {
+        if ((!productId.empty() && it->productId == productId) || (!titleId.empty() && it->titleId == titleId)) {
+            if (acquiredTile.productId.empty()) acquiredTile = *it;
+            it = allPurchasable_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    if (acquiredTile.productId.empty()) {
+        for (const auto* list : {&results_, &libraryPool_, &gamePassPool_}) {
+            for (const auto& t : *list) {
+                if ((!productId.empty() && t.productId == productId) || (!titleId.empty() && t.titleId == titleId)) {
+                    acquiredTile = t;
+                    break;
+                }
+            }
+            if (!acquiredTile.productId.empty()) break;
+        }
+    }
+    if (!acquiredTile.productId.empty()) {
+        acquiredTile.playable = true;
+        acquiredTile.purchasable = false;
+        acquiredTile.freeInStore = false;
+        for (auto it = allOwned_.begin(); it != allOwned_.end(); ++it) {
+            if (it->productId == acquiredTile.productId || (!acquiredTile.titleId.empty() && it->titleId == acquiredTile.titleId)) {
+                if (acquiredTile.name.empty()) acquiredTile.name = it->name;
+                if (acquiredTile.heroUrl.empty()) acquiredTile.heroUrl = it->heroUrl;
+                if (acquiredTile.tileUrl.empty()) acquiredTile.tileUrl = it->tileUrl;
+                allOwned_.erase(it);
+                break;
+            }
+        }
+        allOwned_.insert(allOwned_.begin(), acquiredTile);
+    }
+    if (!productId.empty()) wishlist_.erase(productId);
+    rebuild(true);
+    dirty_ = true;
 }
 
 void AppUi::markUnclaimable(const std::string& productId) {

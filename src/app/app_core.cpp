@@ -658,9 +658,14 @@ bool coreStartup() {
         }
         auto initialLib = std::make_shared<Library>();
         initialLib->setCachePath(cacheFile);
-        if (initialLib->loadCache(true) && !initialLib->rows().empty()) {
+        initialLib->setPlaytime(g_settings.titlePlaytime);
+        initialLib->setFavorites(g_settings.favorites);
+        initialLib->setWishlist(g_settings.wishlist);
+        if (initialLib->loadCache(true)) {
             setInitialLibrary(initialLib);
-            g_ui->setRows(initialLib->rows());
+            if (!initialLib->rows().empty()) {
+                g_ui->setRows(initialLib->rows());
+            }
             g_ui->setOwned(initialLib->owned(), initialLib->purchasable(), initialLib->ownedKnown());
             g_ui->setMembership(initialLib->gamePassMember());
             g_ui->setSearchPools(initialLib->gamePassSearchPool(), initialLib->librarySearchPool());

@@ -6028,7 +6028,251 @@ static void testBloco3Corrections() {
     }
 }
 
+static void testBlock4OwnershipAndRecents() {
+    using namespace xc;
+    std::string testDir = "/tmp/test_bloco4_" + std::to_string(platform::nowMs());
+    std::system(("rm -rf " + testDir + " && mkdir -p " + testDir).c_str());
+    std::string cacheFile = testDir + "/library_cache.json";
+
+    // 1. Universal License Acquisition (markAsOwned) with 12-character Store BigId and cross-gen purging
+    {
+        app::Library lib;
+        lib.setCachePath(cacheFile);
+
+        // Preload catalog games including real 12-character Microsoft Store BigID (Just Dance)
+        // and an alternate edition sharing the same titleId (TID_JD)
+        CHECK(app::isStoreBigId("9P368QBR2C5S"));
+        std::string jsonText = "{\"version\":2,\"market\":\"US\",\"language\":\"en-US\",\"products\":{"
+                               "\"9P368QBR2C5S\":{\"title\":\"Just Dance 2026\",\"xt\":\"TID_JD\"},"
+                               "\"9P368QBRALT0\":{\"title\":\"Just Dance 2026 Deluxe\",\"xt\":\"TID_JD\"},"
+                               "\"PROD_STORE1\":{\"title\":\"Store Game 1\",\"xt\":\"TID_SG1\"},"
+                               "\"PROD_OWNED1\":{\"title\":\"Owned Game 1\",\"xt\":\"TID_OG1\"}},"
+                               "\"owned\":[{\"p\":\"PROD_OWNED1\",\"t\":\"TID_OG1\"}],"
+                               "\"purchasable\":[{\"p\":\"9P368QBR2C5S\",\"t\":\"TID_JD\"},{\"p\":\"9P368QBRALT0\",\"t\":\"TID_JD\"},{\"p\":\"PROD_STORE1\",\"t\":\"TID_SG1\"}],"
+                               "\"freeInStore\":[\"9P368QBR2C5S\"],"
+                               "\"ownedTitles\":[\"TID_OG1\"],\"ownedProducts\":[\"PROD_OWNED1\"]}";
+        platform::writeFileAtomic(cacheFile, jsonText);
+        CHECK(lib.loadCache(false));
+
+        CHECK(lib.owned().size() == 1);
+        CHECK(lib.purchasable().size() == 2); // 9P368QBR2C5S and 9P368QBRALT0 deduplicate to 1 Just Dance tile, + Store Game 1 = 2
+
+        // User acquires 12-character Store BigID Just Dance (9P368QBR2C5S)
+        lib.markAsOwned("9P368QBR2C5S", "TID_JD", "Just Dance 2026");
+
+        // Verify it is immediately added to owned, removed from purchasable, and freeInStore
+        CHECK(lib.owned().size() == 2);
+        // Both the acquired edition AND alternate cross-gen edition sharing TID_JD must be purged from purchasable
+        CHECK(lib.purchasable().size() == 1);
+        CHECK(lib.purchasable().front().productId == "PROD_STORE1");
+
+        bool jdFound = false;
+        for (const auto& t : lib.owned()) {
+            if (t.productId == "9P368QBR2C5S") {
+                jdFound = true;
+                CHECK(t.name == "Just Dance 2026");
+                CHECK(t.playable);
+                CHECK(!t.purchasable);
+                CHECK(!t.freeInStore);
+                break;
+            }
+        }
+        CHECK(jdFound);
+
+        // Verify 9P368QBR2C5S is placed at front of recent_ (first in owned)
+        CHECK(lib.owned().front().productId == "9P368QBR2C5S");
+    }
+
+    // 2. Resilience against slow GSSV entitlement propagation during loadOwned & loading bar dismissal
+    {
+        net::setTestTransport([](const net::Request& req) {
+            net::Response r;
+            r.status = 200;
+            if (req.url.find("/v2/titles") != std::string::npos) {
+                // Microsoft has NOT propagated entitlement for 9P368QBR2C5S yet! hasEntitlement is false
+                r.body = R"({"results":[
+                    {"titleId":"TID_OG1","details":{"productId":"PROD_OWNED1","hasEntitlement":true,"isFreeInStore":false,"userPrograms":[]}},
+                    {"titleId":"TID_JD","details":{"productId":"9P368QBR2C5S","hasEntitlement":false,"isFreeInStore":true,"userPrograms":[]}},
+                    {"titleId":"TID_SG1","details":{"productId":"PROD_STORE1","hasEntitlement":false,"isFreeInStore":false,"userPrograms":[]}}
+                ]})";
+            } else if (req.url.find("/v3/products") != std::string::npos) {
+                r.body = R"({"Products":{
+                    "9P368QBR2C5S":{"XCloudTitleId":"TID_JD","ProductTitle":"Just Dance 2026"},
+                    "PROD_STORE1":{"XCloudTitleId":"TID_SG1","ProductTitle":"Store Game 1"},
+                    "PROD_OWNED1":{"XCloudTitleId":"TID_OG1","ProductTitle":"Owned Game 1"}
+                }})";
+            } else {
+                r.status = 503;
+            }
+            return r;
+        });
+
+        app::Library lib;
+        lib.setCachePath(cacheFile);
+        CHECK(lib.loadCache(false));
+
+        // Before loadOwned, 9P368QBR2C5S was marked as owned
+        CHECK(lib.owned().size() == 2);
+
+        xcloud::GssvClient gssv;
+        std::atomic<bool> stop{false};
+        bool progressSawActive = false;
+        lib.loadOwned(gssv, [&]() {
+            if (lib.progress().active) progressSawActive = true;
+        }, &stop);
+
+        // Verify progress is cleared to inactive after loadOwned completes (no infinite spinner!)
+        CHECK(progressSawActive);
+        CHECK(!lib.progress().active);
+
+        // Verify loadCatalogNames also guarantees clearing progress even when missing is empty
+        lib.loadCatalogNames([&]() {}, &stop);
+        CHECK(!lib.progress().active);
+
+        // Verify 9P368QBR2C5S is STILL retained in owned, NOT dropped to purchasable!
+        CHECK(lib.owned().size() == 2);
+        bool foundStore1 = false;
+        bool foundJdInPurchasable = false;
+        for (const auto& t : lib.purchasable()) {
+            if (t.productId == "PROD_STORE1") foundStore1 = true;
+            if (t.productId == "9P368QBR2C5S" || t.productId == "9P368QBRALT0") foundJdInPurchasable = true;
+        }
+        CHECK(foundStore1);
+        CHECK(!foundJdInPurchasable);
+
+        bool jdFound = false;
+        for (const auto& t : lib.owned()) {
+            if (t.productId == "9P368QBR2C5S") {
+                jdFound = true;
+                CHECK(t.playable);
+                CHECK(!t.purchasable);
+                break;
+            }
+        }
+        CHECK(jdFound);
+
+        net::setTestTransport({});
+    }
+
+    // 3. Cache roundtrip and instant-resume recency ordering on boot
+    {
+        // Fresh library instance loading from cache
+        app::Library bootLib;
+        bootLib.setCachePath(cacheFile);
+        std::map<std::string, uint64_t> playtime = {
+            {"PROD_OWNED1", 1200}
+        };
+        bootLib.setPlaytime(playtime);
+        CHECK(bootLib.loadCache(true));
+
+        // 9P368QBR2C5S was acquired and at front of recent; PROD_OWNED1 has playtime
+        auto owned = bootLib.owned();
+        CHECK(owned.size() == 2);
+        CHECK(owned[0].productId == "9P368QBR2C5S");
+        CHECK(owned[1].productId == "PROD_OWNED1");
+        bool bootFoundStore1 = false;
+        bool bootFoundJdInPurchasable = false;
+        for (const auto& t : bootLib.purchasable()) {
+            if (t.productId == "PROD_STORE1") bootFoundStore1 = true;
+            if (t.productId == "9P368QBR2C5S" || t.productId == "9P368QBRALT0") bootFoundJdInPurchasable = true;
+        }
+        CHECK(bootFoundStore1);
+        CHECK(!bootFoundJdInPurchasable);
+
+        // 4. L3 Refresh in-memory continuity across Library instances (setAcquired)
+        app::Library l3Lib;
+        l3Lib.setAcquired(bootLib.acquiredProducts(), bootLib.acquiredTitles());
+        CHECK(l3Lib.acquiredProducts().count("9P368QBR2C5S") == 1);
+        CHECK(l3Lib.acquiredTitles().count("TID_JD") == 1);
+    }
+
+    // 5. "Recentes primeiro" sorting with playtime tie-breaking
+    {
+        app::Library sortLib;
+        sortLib.setCachePath(testDir + "/sort_cache.json");
+        std::string sortJson = "{\"version\":2,\"market\":\"US\",\"language\":\"en-US\",\"products\":{"
+                               "\"PID_A\":{\"title\":\"Alpha Game\",\"xt\":\"TID_A\"},"
+                               "\"PID_B\":{\"title\":\"Beta Game\",\"xt\":\"TID_B\"},"
+                               "\"PID_C\":{\"title\":\"Charlie Game\",\"xt\":\"TID_C\"},"
+                               "\"PID_D\":{\"title\":\"Delta Game\",\"xt\":\"TID_D\"}},"
+                               "\"owned\":[{\"p\":\"PID_A\",\"t\":\"TID_A\"},{\"p\":\"PID_B\",\"t\":\"TID_B\"},"
+                               "{\"p\":\"PID_C\",\"t\":\"TID_C\"},{\"p\":\"PID_D\",\"t\":\"TID_D\"}],"
+                               "\"purchasable\":[],\"ownedTitles\":[\"TID_A\",\"TID_B\",\"TID_C\",\"TID_D\"],"
+                               "\"ownedProducts\":[\"PID_A\",\"PID_B\",\"PID_C\",\"PID_D\"]}";
+        platform::writeFileAtomic(testDir + "/sort_cache.json", sortJson);
+        CHECK(sortLib.loadCache(false));
+
+        // Without recents or playtime: strictly alphabetical A -> B -> C -> D
+        auto initialOwned = sortLib.owned();
+        CHECK(initialOwned.size() == 4);
+        CHECK(initialOwned[0].productId == "PID_A");
+        CHECK(initialOwned[1].productId == "PID_B");
+        CHECK(initialOwned[2].productId == "PID_C");
+        CHECK(initialOwned[3].productId == "PID_D");
+
+        // Now set playtime for Charlie (7200s) and Delta (3600s)
+        sortLib.setPlaytime({{"PID_C", 7200}, {"PID_D", 3600}});
+        auto ptOwned = sortLib.owned();
+        // Charlie (7200) > Delta (3600) > Alpha (0, alphabetical) > Beta (0, alphabetical)
+        CHECK(ptOwned[0].productId == "PID_C");
+        CHECK(ptOwned[1].productId == "PID_D");
+        CHECK(ptOwned[2].productId == "PID_A");
+        CHECK(ptOwned[3].productId == "PID_B");
+
+        // Now record Beta as most recently played
+        sortLib.recordRecent("PID_B");
+        auto recentOwned = sortLib.owned();
+        // Beta (recent) > Charlie (played 7200) > Delta (played 3600) > Alpha (unplayed)
+        CHECK(recentOwned[0].productId == "PID_B");
+        CHECK(recentOwned[1].productId == "PID_C");
+        CHECK(recentOwned[2].productId == "PID_D");
+        CHECK(recentOwned[3].productId == "PID_A");
+    }
+
+    // 6. AppUi::markTileOwned moves 12-character Store BigID tile from allPurchasable_ to allOwned_ and rebuilds
+    {
+        ui::Fonts dummyFonts;
+        ui::ImageCache images([] {});
+        ui::AppUi appUi(dummyFonts, images);
+        ui::GameTile t1, t2;
+        t1.productId = "PID_OWNED";
+        t1.titleId = "TID_OWNED";
+        t1.name = "Owned Title";
+        t1.playable = true;
+
+        t2.productId = "9P368QBR2C5S";
+        t2.titleId = "TID_JD";
+        t2.name = "Just Dance 2026";
+        t2.playable = false;
+        t2.purchasable = true;
+        t2.freeInStore = true;
+
+        appUi.setOwned({t1}, {t2}, true);
+        ui::GameTile out;
+        CHECK(appUi.firstTile(out));
+        CHECK(out.productId == "PID_OWNED");
+
+        // Before claim, 9P368QBR2C5S is purchasable
+        CHECK(appUi.purchasableAt(0, out));
+        CHECK(out.productId == "9P368QBR2C5S");
+
+        // Claim 9P368QBR2C5S
+        appUi.markTileOwned("9P368QBR2C5S", "TID_JD");
+
+        // Now 9P368QBR2C5S should be in owned, playable, and not purchasable
+        CHECK(!appUi.purchasableAt(0, out)); // purchasable is now empty!
+        CHECK(appUi.findTile("TID_JD", out));
+        CHECK(out.productId == "9P368QBR2C5S");
+        CHECK(out.playable);
+        CHECK(!out.purchasable);
+        CHECK(!out.freeInStore);
+    }
+
+    std::system(("rm -rf " + testDir).c_str());
+}
+
 int main() {
+    testBlock4OwnershipAndRecents();
     testBloco3Corrections();
     testBloco2Corrections();
     testBlock1Corrections();
