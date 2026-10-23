@@ -40,7 +40,7 @@ const char* kIndexHtml = R"html(<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>PSBox Cloud Gaming - Web Control</title>
+<title>PSBox Cloud Gaming - Smartglass WebUI</title>
 <script>
 (function() {
   function applyInitScale() {
@@ -693,10 +693,10 @@ input:checked + .slider-sw:before { transform: translateX(20px); }
     </svg>
     <div class="brand-text">
       <h1>PSBOX CLOUD GAMING</h1>
-      <span class="brand-subtitle">Painel Web</span>
+      <span class="brand-subtitle">Smartglass WebUI</span>
     </div>
   </div>
-  <span class="badge">v1.4.0</span>
+  <span class="badge">v)html" XC_APP_VERSION R"html(</span>
 </header>
 
 <div class="nav-tabs">
@@ -1110,7 +1110,12 @@ input:checked + .slider-sw:before { transform: translateX(20px); }
           <div id="mod_center_sys" class="gamepad-module">
             <div class="center-sys-container">
               <button type="button" class="pad-btn pad-btn-sys" id="btn_view" data-btn="btnView">VIEW</button>
-              <button type="button" class="pad-btn-nexus-btn" id="btn_nexus" data-btn="btnNexus">X</button>
+              <button type="button" class="pad-btn-nexus-btn" id="btn_nexus" data-btn="btnNexus" aria-label="Xbox Guide" title="Xbox Guide">
+                <svg viewBox="0 0 100 100" width="22" height="22" style="pointer-events:none;display:block;">
+                  <circle cx="50" cy="50" r="48" fill="#ffffff"/>
+                  <path fill="#107C41" d="M 50.00 40.10 s 0.12 0.00 0.00 0.00 c 15.07 11.46 40.60 39.60 32.88 47.57 -8.84 7.72 -20.30 12.33 -32.88 12.33 s -24.16 -4.61 -32.88 -12.33 c -7.85 -7.97 17.81 -36.11 32.75 -47.45 0.00 -0.12 0.12 -0.12 0.12 -0.12 z m 26.03 -32.75 C 68.43 2.74 60.09 0.00 50.00 0.00 s -18.43 2.74 -26.03 7.35 c -0.12 0.00 -0.12 0.12 -0.12 0.25 s 0.12 0.12 0.25 0.12 c 9.71 -2.12 24.41 6.23 25.78 7.10 h 0.25 c 1.37 -0.87 16.06 -9.22 25.78 -7.10 0.12 0.00 0.25 0.00 0.25 -0.12 s 0.00 -0.25 -0.12 -0.25 z M 15.01 14.32 c -0.12 0.00 -0.12 0.12 -0.25 0.12 -9.09 9.09 -14.69 21.67 -14.69 35.49 0.00 11.33 3.86 21.92 10.21 30.26 0.00 0.12 0.12 0.12 0.25 0.12 s 0.12 -0.12 0.00 -0.25 c -3.86 -11.83 15.69 -40.35 25.78 -52.30 l 0.12 -0.12 c 0.00 -0.12 0.00 -0.12 -0.12 -0.12 -15.32 -15.19 -20.42 -13.57 -21.30 -13.20 z m 48.69 13.08 l -0.12 0.12 s 0.00 0.12 0.12 0.12 c 10.09 11.96 29.51 40.47 25.78 52.30 v 0.25 c 0.12 0.00 0.25 0.00 0.25 -0.12 6.35 -8.34 10.21 -18.93 10.21 -30.26 0.00 -13.82 -5.60 -26.40 -14.82 -35.49 -0.12 -0.12 -0.12 -0.12 -0.25 -0.12 -0.75 -0.25 -5.85 -1.87 -21.17 13.20 z"/>
+                </svg>
+              </button>
               <button type="button" class="pad-btn pad-btn-sys" id="btn_menu" data-btn="btnMenu">MENU</button>
               <button type="button" class="pad-btn pad-btn-sys fs-only-exit" id="btn_exit_fs" onclick="toggleGamepadFullscreen()" style="background:#451a1a;border-color:#b91c1c;color:#fca5a5;">✕ Sair</button>
             </div>
@@ -1873,7 +1878,7 @@ function copySanitizedReport() {
   }).then(r => r.json()).then(data => {
     btn.disabled = false;
     if (data && data.excerpt) {
-      const markdown = `### ${data.title || 'Relatório de Erro'}\n\n**Plataforma:** ${data.platform || 'PlayStation 5 (PPSA99810)'}\n**Versão:** v${data.release || '1.4.0'}\n**Firmware:** ${data.firmware || 'N/A'}\n\n**O que aconteceu:**\n${what || 'Relatório enviado via WebUI'}\n\n\`\`\`\n${data.excerpt}\n\`\`\``;
+      const markdown = `### ${data.title || 'Relatório de Erro'}\n\n**Plataforma:** ${data.platform || 'PlayStation 5 (PPSA99810)'}\n**Versão:** v${data.release || ')html" XC_APP_VERSION R"html('}\n**Firmware:** ${data.firmware || 'N/A'}\n\n**O que aconteceu:**\n${what || 'Relatório enviado via WebUI'}\n\n\`\`\`\n${data.excerpt}\n\`\`\``;
       copyTextToClipboard(markdown).then(() => {
         showToast('Relatório copiado para a área de transferência!');
       }).catch(() => {

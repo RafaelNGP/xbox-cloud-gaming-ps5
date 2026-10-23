@@ -8,6 +8,19 @@ Last update: 2026-10-23, v1.5.3.
 
 ## Now
 
+### Suporte Nativo a Controles USB no PS5 (8BitDo Ultimate 2.4G, Xbox, DS4, Fightsticks) — next
+Leitura direta dos nós USB de interrupção e HID no kernel do PS5 (`/dev/usb/*`, `/dev/ugen*`, `/dev/hid`) com permissões abertas `crw-rw-rw-`, contornando a whitelist restritiva da `libScePad` da Sony.
+- **8BitDo Ultimate 2.4G**: Suporte nativo ao dongle USB em modo D-Input e X-Input sem necessidade de adaptadores adicionais.
+- **DualShock 4 USB**: Liberação de controles de PS4 no PS5 para Jogador 1 ou multiplayer local (P2..P4).
+- **Controles Xbox**: Suporte a Xbox 360 (com fio ou receptor sem fio USB), Xbox One e Series via USB-C.
+- **Fightsticks & Arcade**: Mapeamento de controles arcade HID genéricos de 14/16 botões.
+
+### Estudo de Viabilidade: Build Nativo PS4 (PSBox Cloud Gaming - PS4) — planned
+Port dedicado e otimizado para o ecossistema PlayStation 4 (firmwares 9.00 / 11.00 com jailbreak):
+- **Nome Isolado**: `PSBox Cloud Gaming - PS4` com pacote PKG separado (`CUSA99810.pkg`) para não colidir com o instalador do PS5 (`PPSA99810`).
+- **Decodificação de Vídeo**: Avaliação de decodificação por hardware H.264 via `libSceVideoDec` do PS4 e renderização via Vulkan (libpiglet) ou OpenGL ES.
+- **Releases e Atualizador Separados**: Canal de atualização próprio no in-app updater sem riscos de sobrescrita cruzada de binários entre PS4 e PS5.
+
 ### 1. Lower input-to-picture latency — done (v0.6.0)
 Measured with `VK_KHR_present_wait`, from a frame's network arrival to the
 moment it is on the TV: **~23 ms on average** at 60 Hz (decode ~6 ms, GPU
@@ -367,6 +380,11 @@ A browser-based visual layout editor embedded directly into the WebUI under the 
 
 ## Done
 
+- **v1.5.3**:
+  - Validated autonomous free game claim harness (`claimtest`) on real PS5 hardware with Microsoft Store API acquisition.
+  - Immediate top-of-library insertion at index 0 in "Meus jogos" without requiring manual <kbd>L3</kbd> refresh.
+  - Direct transition to active cloud streaming with hardware VPU decoding (`libSceVideodec2`), 120 Hz output, and DualSense haptics.
+  - Rebranded Web panel to "Smartglass WebUI", bound dynamic `XC_APP_VERSION` across web headers and bug reporting, and added official Xbox Guide logo SVG to the virtual gamepad Nexus button.
 - **v1.5.2**:
   - Universal store acquisition engine without loading spinner loop, immediate local persistence (`mine`/`owned_`), and recent-first sorting on boot.
   - Universal cross-gen deduplication (Xbox Series X|S prioritized over Xbox One) and removal of PC-only titles.
