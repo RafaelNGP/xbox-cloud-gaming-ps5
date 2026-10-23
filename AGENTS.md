@@ -31,7 +31,7 @@ Para qualquer alteração em arquivos de interface (`src/app_ui.cpp`, `src/app/a
    PS5_HOST=192.168.15.17 ./tools/ps5/deploy.sh build-ps5
    ```
 4. **Configurar teste autônomo (`autoplay.txt`)**:
-   - Enviar `/data/psbox/autoplay.txt` via FTP (desde a v0.9.7 os dados do app, logs e capturas `.ppm` ficam em `/data/psbox`; o app continua instalado em `/data/homebrew/PPSA99810`).
+   - Enviar `/data/homebrew/PPSA99810/autoplay.txt` via FTP.
    - **Regra obrigatória para testes de UI**: Sempre utilize o prefixo `AUTOTEST` (ex: `AUTOTEST 30 gamesettingstest`, `AUTOTEST 30 librarytest`, etc.) para testes de telas/modais sem streaming. NUNCA use nomes arbitrários no primeiro argumento que possam ser interpretados como IDs de jogos pelo loop de streaming (`worker.cpp`).
    - Remover capturas `.ppm` antigas antes de iniciar.
 5. **Iniciar a aplicação remotamente**:
@@ -44,12 +44,16 @@ Para qualquer alteração em arquivos de interface (`src/app_ui.cpp`, `src/app/a
    - Usar a ferramenta `view_file` para analisar visualmente a imagem gerada.
    - Verificar conformidade: clipping, centralização, padding, corte de texto, contraste e consistência de grade.
 7. **Limpeza e Restauração de Modo Interativo**:
-   - Excluir `/data/psbox/autoplay.txt` via FTP para que a aplicação não inicialize em modo autoplay caso o usuário queira usá-la interativamente.
+   - Excluir `/data/homebrew/PPSA99810/autoplay.txt` via FTP para que a aplicação não inicialize em modo autoplay caso o usuário queira usá-la interativamente.
    - Matar e reiniciar o app se for entregar o controle ao usuário:
      ```bash
      PS5_HOST=192.168.15.17 python3 ../PS5_Vulkan/tools/ps5_console.py kill PPSA99810
      PS5_HOST=192.168.15.17 python3 ../PS5_Vulkan/tools/ps5_console.py launch PPSA99810
      ```
+
+### 2.1 Armadilhas de Autoplay e Persistência de Configurações
+- **Proteção Automática de Configurações (`guardSettingsForAutoplay`)**: Qualquer teste rodando com `autoplay.txt` faz backup das configurações (`settings.autoplay-backup.json`). Ao reiniciar sem `autoplay.txt` (modo interativo), as configurações originais do usuário são restauradas e o backup é apagado. Não assuma que alterações gravadas durante um autotest persistirão após a remoção do `autoplay.txt`.
+- **Seleção de Tiles em Testes de Detalhes**: Nunca assuma que o primeiro card da tela é um jogo jogável com botão 'Jogar'. A biblioteca pode posicionar linhas de jogos gratuitos para adquirir no topo (*Faça streaming de jogos gratuitos*). Em testes de modais de jogo/detalhes, especifique o título alvo (`locktitle=` ou targeting explícito de título adquirido) para evitar abrir telas de aquisição da loja acidentalmente.
 
 ---
 
@@ -67,6 +71,23 @@ Para qualquer alteração em arquivos de interface (`src/app_ui.cpp`, `src/app/a
   - Inspecione `git diff` detalhadamente.
   - Se houver trabalho em andamento que precise ser isolado, utilize `git stash` ou crie uma branch temporária de segurança.
 - Mantenha commits atômicos, focados e com mensagens claras.
+
+### 4.1 Protocolo de Reversão de Emergência / Contexto Esgotado
+- Se for solicitada a reversão para uma versão anterior ou release estável:
+  1. **Isolamento Seguro**: Comite as alterações em branch temporária/feature: `git commit -am "wip: ..."` (NUNCA descarte com `git checkout -- .`).
+  2. **Restauração Limpa**: Alterne para a `main` e garanta que o working tree esteja sincronizado e limpo na tag oficial (`git checkout main`).
+  3. **Rebuild e Re-deploy no PS5**: Recompile, empacote e envie o binário da release oficial ao console via FTP.
+  4. **Higienização Completa**: Remova `autoplay.txt` e relance o aplicativo em modo interativo foreground para o usuário.
+
+### 4.2 Congelamento de Fluxos Estabelecidos e Modificações Cirúrgicas
+- **Regra de Não-Interferência**: Qualquer alteração futura deve respeitar integralmente o fluxo já existente e consolidado. NUNCA altere comportamentos, layouts ou lógicas de módulos estáveis a menos que o usuário solicite explicitamente aquela mudança pontual.
+- **Fluxos Blindados e Intocáveis (Preservação Mandatória)**:
+  1. **Organização e Distribuição de Jogos**: Estantes oficiais SIGL (Novidades, Mais Populares, Free to Play, Saindo em Breve), catálogo geral e deduplicação Series X|S sobre Xbox One.
+  2. **Aquisição e Compra na Loja**: Motor universal de aquisição de jogos gratuitos em 1-clique, transição imediata para "Jogar", e inserção imediata no topo da lista sem exigir <kbd>L3</kbd>.
+  3. **Splash Screen e Retenção de Inputs**: Prender o usuário na tela de inicialização com inputs completamente travados até o login e sincronização inicial estarem concluídos.
+  4. **Ordenação de Recentes**: Aba "Meus jogos" ordenada por recentes logo no primeiro frame do boot pelo cache persistente.
+  5. **Telas e Menus de Configurações**: Ordem definida dos 9 itens principais, alinhamento visual de textos/chevrons, botão de reset protegido (5s) e sincronização bidirecional com a WebUI.
+- **Escopo Estritamente Delimitado**: Desenvolva apenas o que foi solicitado na tarefa atual, sem refatorações periféricas ou "melhorias espontâneas" não autorizadas.
 
 ---
 
@@ -91,26 +112,26 @@ Para evitar degradação de desempenho, latência alta e manter a interação á
   1. `PPSA99810.zip` (pacote limpo sem contas/tokens, empacotado sem `XC_INCLUDE_ACCOUNT`).
   2. `PPSA99810.zip.sig` (assinatura ECDSA gerada com `~/.config/psbox-release/signing-key.pem`).
   3. `PPSA99810.zip.sha256` (checksum para integridade).
-- **Assets do Linux (app desktop `psbox`) — caminho recomendado, automático:** ao publicar a release no GitHub, o workflow `.github/workflows/release-linux.yml` compila no ubuntu-24.04 e anexa `PSBox-vX.Y.Z-linux-x86_64.tar.gz` + `.sha256` (a tag precisa bater com a versão do `CMakeLists.txt`). Depois, na máquina de release, rodar `tools/desktop/sign-linux-release.sh vX.Y.Z`: baixa o tarball, confere o checksum, assina com a chave local (que nunca vai para o GitHub) e envia o `.sig`. Pode ser disparado à mão em Actions → "Release (Linux)" → Run workflow com a tag.
-- **Assets Opcionais do Linux gerados localmente** (alternativa; herdam a glibc desta máquina), com `tools/release.sh <X.Y.Z> --linux`:
-  1. `PSBox-vX.Y.Z-linux-x86_64.tar.gz` (pasta `PSBox/` com `psbox` sem debug info, `lib/libSDL3.so.0`, `assets/`, `licenses/`; nunca dados de conta).
-  2. `PSBox-vX.Y.Z-linux-x86_64.tar.gz.sig` (assinado com a **mesma** chave e o mesmo método do `PPSA99810.zip`).
-  3. `PSBox-vX.Y.Z-linux-x86_64.tar.gz.sha256`.
-  - Eles nunca substituem os 3 assets do PS5, que continuam obrigatórios. O app desktop não se atualiza sozinho: só avisa da versão nova e abre a página da release, e nunca oferece o `PPSA99810.zip`.
-  - O tarball gerado localmente herda a glibc da máquina que compilou (o `release.sh` mostra qual). O job `linux-app` do CI compila no ubuntu-24.04 (glibc 2.39), a base mais ampla; os símbolos ficam em `symbols/vX.Y.Z/psbox.debug` (não versionado).
 - **Fluxo Mandatório de Publicação**:
   1. Delegar o empacotamento e assinatura para subagente (preservando o contexto).
   2. Gerar o pacote através de `tools/release.sh <X.Y.Z>` ou do pipeline de empacotamento oficial.
-  3. Publicar ou anexar com `gh release create vX.Y.Z PPSA99810.zip PPSA99810.zip.sig PPSA99810.zip.sha256 ...` (ou `gh release upload --clobber`), mais os 3 assets do Linux quando gerados com `--linux`.
-  4. **Verificação Obrigatória**: Sempre executar `gh release view vX.Y.Z` e confirmar que todos os 3 assets do PS5 (e os 3 do Linux, se publicados) estão listados e públicos antes de considerar o release finalizado.
+  3. Publicar ou anexar com `gh release create vX.Y.Z PPSA99810.zip PPSA99810.zip.sig PPSA99810.zip.sha256 ...` (ou `gh release upload --clobber`).
+  4. **Verificação Obrigatória**: Sempre executar `gh release view vX.Y.Z` e confirmar que todos os 3 assets estão listados e públicos antes de considerar o release finalizado.
 
 ---
 
-## 7. Multiplataforma (PS5, Linux, Windows)
+## 7. Protocolo Obrigatório de Otimização de Performance (Benchmarking A/B no Console)
 
-- O **PS5 é a plataforma principal**; Linux e Windows rodam o mesmo núcleo do app (`src/app/app_core.cpp`) com backends próprios. O mapa completo está em `docs/multiplatform.md`.
-- **Toda alteração deve manter Linux e Windows compilando.** Uma funcionalidade exclusiva do PS5 vira no-op controlado por capacidade no desktop (`display::caps()`, `shell::canSelfUpdate()`...) ou tem a opção escondida — nunca quebra o build nem trava o app.
-- **NUNCA chame funções `sce*`, inclua headers do SDK do PS5 ou use `XCLOUD_PS5` (ou outro teste de PS5) fora dos arquivos de backend do PS5** (`*_ps5.cpp`, `src/platform/ps5/`, `src/display/gpu.cpp`). O script `tools/check-platform-boundaries.sh` verifica isso (também no CI).
-- Antes de considerar uma alteração pronta, compile os alvos de desktop (`ninja -C build-test` ou `build-host`, incluindo `psbox` — o app SDL3, quando o SDL3 existe — e `psbox-headless`, e rode `xcloud-tests`; `psbox-headless`, `xcloud-cli` e `xcloud-tests` nunca dependem do SDL), o app do PS5 (`ninja -C build-ps5 xcloud_app` + `bash tools/ps5/link.sh build-ps5`) e rode o script de fronteiras. Um link de desenvolvimento grava os símbolos em `symbols/vX.Y.Z-dev`; só o `tools/release.sh` grava `symbols/vX.Y.Z` (os da release, usados para decodificar crashes dos usuários).
-- O fluxo de validação por screenshots no console (seção 2) continua obrigatório para mudanças de UI no PS5.
-- No desktop, `psbox --selftest <dir>` (com `SDL_VIDEO_DRIVER=offscreen SDL_AUDIO_DRIVER=dummy`) verifica janela, telas, vídeo, overlay, entrada e áudio sem conta nem rede; use-o (e olhe os PNGs) ao mexer no display, shell ou UI do desktop. Opções que o PC não suporta somem pela capacidade (`ui::UiCaps`); no PS5 todas continuam visíveis.
+Para qualquer proposta de melhoria de desempenho, redução de latência ou otimização de pipeline (vídeo, áudio, GPU, rede ou entrada):
+
+- **Proibição de Otimizações Teóricas**: Nenhuma alteração de performance deve ser aceita apenas com base em estimativas ou testes sintéticos de desktop.
+- **Benchmarking Comparativo Mandatório (Original vs Modificado)**:
+  1. **Linha de Base (Original / Baseline)**:
+     - Executar uma sessão de teste no console PS5 sob condições fixadas (ex: 60 ou 120 segundos de gameplay ativa em jogo padrão como Fortnite).
+     - Coletar as métricas de referência do log oficial: `decodeMs` (média/pico), `drawMs` (GPU), `onScreenMs` (latência de tela), quadros descartados (`skipped`/`late`), recuperação de pacotes (`lost`/`recovered`), estabilidade da fila de áudio (`queued ms`, `empty grains`, `ms cut`) e taxa de relatórios de entrada.
+  2. **Medição da Versão Modificada**:
+     - Compilar, empacotar e enviar a build modificada para o console PS5.
+     - Executar o teste sob **exatamente as mesmas condições** (mesmo jogo, mesma cena/mapa, mesma duração de amostragem, mesma taxa de bits configurada).
+  3. **Relatório Comparativo Formal**:
+     - Apresentar tabela lado a lado com os números: **Original vs Modificado**.
+     - Apenas aceitar a modificação se os dados comprovarem ganho real mensurável sem regressões visuais, de áudio ou de estabilidade.
