@@ -892,7 +892,7 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
         existingLib = s_library;
     }
 
-    if (existingLib && existingLib->ownedKnown()) {
+    if (!forceRefresh && existingLib && existingLib->ownedKnown() && !existingLib->owned().empty()) {
         XC_LOGI("library: delta-sync against active library (forceRefresh=%d)", forceRefresh);
         g_ui->setLoading(true, 0, 0);
         auto publish = [](const app::Library& lib) {
@@ -907,16 +907,10 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
         g_ui->setLoading(false, 0, 0);
         publish(*existingLib);
 
-        if (forceRefresh) {
-            if (newCount > 0) {
-                std::string msg = ui::trf(ui::Str::LibraryUpdatedCount, std::to_string(newCount));
-                if (!shell::caps().console) g_ui->showToast(msg);
-                platform::notify(msg);
-            } else {
-                std::string msg = ui::tr(ui::Str::LibraryUpToDate);
-                if (!shell::caps().console) g_ui->showToast(msg);
-                platform::notify(msg);
-            }
+        if (newCount > 0) {
+            std::string msg = ui::trf(ui::Str::LibraryUpdatedCount, std::to_string(newCount));
+            if (!shell::caps().console) g_ui->showToast(msg);
+            platform::notify(msg);
         }
         return;
     }
@@ -980,6 +974,11 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
             g_ui->showError(ui::trf(ui::Str::LibraryFailed, err));
         }
         return;
+    }
+    if (forceRefresh) {
+        std::string msg = ui::tr(ui::Str::LibraryUpToDate);
+        if (!shell::caps().console) g_ui->showToast(msg);
+        platform::notify(msg);
     }
     std::vector<ui::GameRow> rows = library->rows();
     {

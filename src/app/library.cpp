@@ -270,7 +270,9 @@ static void seedKnownGames(std::map<std::string, std::string>& cloudTitleOf,
         cloudTitleOf[g.productId] = g.cloudTitleId;
         if (g.xboxTitleId && g.xboxTitleId[0]) xboxTitleOf[g.productId] = g.xboxTitleId;
         if (g.isFree) freeInStore.insert(g.productId);
-        gamePass.insert(g.productId);
+        if (std::string_view(g.productId) == "9NCPSQQD1Z66") {
+            gamePass.insert(g.productId);
+        }
         if (std::find(allGames.begin(), allGames.end(), g.productId) == allGames.end()) {
             allGames.push_back(g.productId);
         }
@@ -541,7 +543,9 @@ bool Library::loadCache(bool withLayout) {
         }
     }
     auto j = json::parse(text);
-    if (!j || (*j)["version"].asInt() != kCacheVersion) return false;
+    if (!j) return false;
+    int ver = (*j)["version"].asInt();
+    if (ver != 2 && ver != kCacheVersion) return false;
     if (market_.empty()) market_ = (*j)["market"].str();
     else if ((*j)["market"].str() != market_) return false;
     if (language_.empty()) language_ = (*j)["language"].str();
@@ -566,11 +570,17 @@ bool Library::loadCache(bool withLayout) {
     gamePassMember_ = (*j)["gamePassMember"].asBool();
     if (subscription_.empty()) subscription_ = (*j)["subscription"].str();
     for (const auto& p : (*j)["ownedProducts"].items()) ownedProducts_.insert(p.str());
-    for (const auto& p : (*j)["gamePass"].items()) {
-        knownGamePass_.insert(p.str());
-        if (withLayout) {
-            gamePass_.insert(p.str());
-            allGames_.push_back(p.str());
+    bool corruptedGamePass = (*j)["gamePass"].items().size() > 1050;
+    if (corruptedGamePass) {
+        XC_LOGW("library: cache gamePass has %zu items (likely contaminated), ignoring cached gamePass",
+                (*j)["gamePass"].items().size());
+    } else {
+        for (const auto& p : (*j)["gamePass"].items()) {
+            knownGamePass_.insert(p.str());
+            if (withLayout) {
+                gamePass_.insert(p.str());
+                allGames_.push_back(p.str());
+            }
         }
     }
     if (withLayout) {
@@ -629,7 +639,15 @@ bool Library::loadCache(bool withLayout) {
             }
         }
     }
-    ownershipKnown_ = !ownedTitles_.empty() || !ownedProducts_.empty() || !owned_.empty();
+    bool corruptedOwned = (owned_.size() <= 37 && ownedTitles_.size() > 100);
+    if (corruptedOwned) {
+        XC_LOGW("library: cache owned has only %zu items despite %zu streamable titles, invalidating cached ownership",
+                owned_.size(), ownedTitles_.size());
+        owned_.clear();
+        ownershipKnown_ = false;
+    } else {
+        ownershipKnown_ = !ownedTitles_.empty() || !ownedProducts_.empty() || !owned_.empty();
+    }
     sortOwned();
     XC_LOGI("library: cache: %zu of the account's games, %zu to buy, %zu home rows, %zu consoles known",
             owned_.size(), purchasable_.size(), layoutRows, platform_.size());
@@ -770,6 +788,9 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
     xcloud::ProductList allSigl;
     std::string siglErr;
     if (xcloud::fetchList(xcloud::sigl::kAllGames, market_, language_, allSigl, siglErr)) {
+        gamePass_.clear();
+        gamePass_.insert(allSigl.productIds.begin(), allSigl.productIds.end());
+        allGames_ = allSigl.productIds;
         for (const auto& pid : allSigl.productIds) {
             if (!pid.empty() && !products_.count(pid)) {
                 newProducts.push_back(pid);
@@ -783,13 +804,6 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
     if (newCount > 0) {
         std::string fetchErr;
         xcloud::fetchProducts(newProducts, market_, language_, products_, fetchErr, false);
-
-        for (const auto& pid : newProducts) {
-            if (std::find(allGames_.begin(), allGames_.end(), pid) == allGames_.end()) {
-                allGames_.push_back(pid);
-            }
-            gamePass_.insert(pid);
-        }
 
         for (auto& row : layout_) {
             if (row.isGrid) {
@@ -818,6 +832,7 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
         }
     }
     loadOwned(gssv, changed);
+    loadCatalogNames(changed, nullptr);
     saveCache();
     changed();
     return newCount;
@@ -1010,36 +1025,21 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
     if (stop && *stop) return;
     std::set<std::string> ownedTitles, ownedProducts;
     std::vector<Item> mine;
+    std::set<std::string> seenMine;
     std::map<std::string, std::string> toBuy;  // productId -> titleId
     bool member = false;
-    auto registerTitle = [&](const std::string& pid, const xcloud::Title& t, bool entitled, bool sub) {
+    auto registerCloudTitle = [&](const std::string& pid, const std::string& tid, const std::string& xboxId, bool freeStore, bool mkb) {
         if (pid.empty()) return;
-        if (!t.titleId.empty() && t.titleId != "None") {
-            cloudTitleOf_[pid] = t.titleId;
+        if (!tid.empty() && tid != "None") {
+            cloudTitleOf_[pid] = tid;
             auto it = products_.find(pid);
             if (it != products_.end() && (it->second.xcloudTitleId.empty() || it->second.xcloudTitleId == "None")) {
-                it->second.xcloudTitleId = t.titleId;
+                it->second.xcloudTitleId = tid;
             }
         }
-        if (!t.xboxTitleId.empty() && !xboxTitleOf_.count(pid)) xboxTitleOf_[pid] = t.xboxTitleId;
-        if (t.isFreeInStore) freeInStore_.insert(pid);
-        if (t.mouseKeyboard) mouseKeyboard_.insert(pid);
-
-        if (entitled) {
-            ownedProducts.insert(pid);
-            if (!gamePass_.count(pid) || !sub || t.titleId.find("CALLOFDUTY") != std::string::npos) {
-                mine.emplace_back(pid, t.titleId);
-            }
-        } else if (!gamePass_.count(pid) || t.titleId.find("CALLOFDUTY") != std::string::npos) {
-            toBuy[pid] = t.titleId;
-        }
-
-        if (sub) {
-            gamePass_.insert(pid);
-            if (std::find(allGames_.begin(), allGames_.end(), pid) == allGames_.end()) {
-                allGames_.push_back(pid);
-            }
-        }
+        if (!xboxId.empty() && !xboxTitleOf_.count(pid)) xboxTitleOf_[pid] = xboxId;
+        if (freeStore) freeInStore_.insert(pid);
+        if (mkb) mouseKeyboard_.insert(pid);
     };
 
     for (const auto& t : titles) {
@@ -1047,33 +1047,49 @@ void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const s
         if (xcloud::isNonGameAddon(t.titleId)) continue;
         if (t.hasEntitlement) ownedTitles.insert(t.titleId);
 
-        registerTitle(t.productId, t, t.hasEntitlement, t.viaSubscription);
+        registerCloudTitle(t.productId, t.titleId, t.xboxTitleId, t.isFreeInStore, t.mouseKeyboard);
         for (const auto& alt : t.alternateProductIds) {
-            registerTitle(alt, t, t.hasEntitlement, t.viaSubscription);
+            registerCloudTitle(alt, t.titleId, t.xboxTitleId, t.isFreeInStore, t.mouseKeyboard);
         }
-        if (t.titleId == "CALLOFDUTYHQ" || t.titleId.find("CALLOFDUTY") != std::string::npos) {
-            for (const auto& g : kKnownCloudGames) {
-                if (std::string_view(g.cloudTitleId) == t.titleId ||
-                    (t.titleId == "CALLOFDUTYHQ" && std::string_view(g.cloudTitleId) == "CALLOFDUTYHQ")) {
-                    registerTitle(g.productId, t, t.hasEntitlement, t.viaSubscription);
+
+        if (t.hasEntitlement) {
+            if (!t.productId.empty()) ownedProducts.insert(t.productId);
+            for (const auto& alt : t.alternateProductIds) {
+                if (!alt.empty()) ownedProducts.insert(alt);
+            }
+            // Game Pass games the account owns itself (free-to-play ones
+            // like Fortnite, without the subscription) are its games too.
+            // Also games outside the Game Pass catalog.
+            if (!t.productId.empty()) {
+                if (!gamePass_.count(t.productId) || !t.viaSubscription) {
+                    if (seenMine.insert(t.productId).second) {
+                        mine.emplace_back(t.productId, t.titleId);
+                    }
                 }
             }
+        } else if (!t.productId.empty() && !gamePass_.count(t.productId)) {
+            toBuy[t.productId] = t.titleId;
         }
     }
-    if (member) {
+
+    bool hasCod = member || ownedTitles.count("CALLOFDUTYHQ") || ownedTitles.count("CALLOFDUTYBLACKOPS6") ||
+                  ownedTitles.count("CALLOFDUTYMODERNWARFAREIII");
+    if (hasCod) {
         ownedTitles.insert("CALLOFDUTYHQ");
         ownedTitles.insert("CALLOFDUTYBLACKOPS6");
         ownedTitles.insert("CALLOFDUTYMODERNWARFAREIII");
-        xcloud::Title gpCod;
-        gpCod.titleId = "CALLOFDUTYHQ";
-        gpCod.hasEntitlement = true;
-        gpCod.viaSubscription = true;
-        for (const auto& g : kKnownCloudGames) {
-            if (std::string_view(g.cloudTitleId) == "CALLOFDUTYHQ" ||
-                std::string_view(g.cloudTitleId) == "CALLOFDUTYBLACKOPS6" ||
-                std::string_view(g.cloudTitleId) == "CALLOFDUTYMODERNWARFAREIII") {
-                registerTitle(g.productId, gpCod, true, true);
+    }
+    for (const auto& g : kKnownCloudGames) {
+        registerCloudTitle(g.productId, g.cloudTitleId, g.xboxTitleId ? g.xboxTitleId : "", g.isFree, false);
+        if (ownedTitles.count(g.cloudTitleId)) {
+            ownedProducts.insert(g.productId);
+            if (g.isFree || std::string_view(g.productId) == "9NCPSQQD1Z66") {
+                if (seenMine.insert(g.productId).second) {
+                    mine.emplace_back(g.productId, g.cloudTitleId);
+                }
             }
+        } else if (!gamePass_.count(g.productId)) {
+            toBuy[g.productId] = g.cloudTitleId;
         }
     }
     // Games to buy: the most popular in the cloud first, then the rest.

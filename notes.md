@@ -1,4 +1,14 @@
 <!-- LANG:PT -->
+## Novidades e Correções no v1.5.1
+
+### 🎮 Restauração Completa da Lista "Meus jogos"
+- **Recuperação de Todos os Jogos da Conta**: Corrigida a regressão crítica introduzida no v1.5.0 onde a lista "Meus jogos" exibia apenas Call of Duty e Fortnite. Todos os títulos comprados e gratuitos do usuário voltam a aparecer normalmente.
+- **Fim das Duplicatas de Call of Duty**: Removida a inserção em loop das dezenas de pacotes/DLCs de Call of Duty na biblioteca do usuário, mantendo apenas as entradas jogáveis legítimas (Modern Warfare 4 e Warzone).
+- **Auto-cura de Cache Local**: O aplicativo agora detecta automaticamente se o arquivo `library_cache.json` no console foi corrompido por versões anteriores e reconstrói o catálogo limpo de forma transparente.
+
+### ⚡ Atualização da Biblioteca (L3)
+- **Atualização Forçada Confiável**: Pressionar `L3` ("Atualizar") agora executa uma sincronização completa com os servidores da Microsoft, garantindo que novos títulos adquiridos apareçam imediatamente.
+
 ## Novidades e Melhorias no v1.5.0
 
 ### ⚙️ Reorganização das Configurações
@@ -35,6 +45,16 @@
 - **Alinhamento Perfeito**: Textos, seletores e chevrons perfeitamente alinhados à direita no menu de configurações.
 
 <!-- LANG:EN -->
+## What's New and Fixed in Version 1.5.1
+
+### 🎮 Full Restoration of "My Games" / Owned Titles
+- **Account Games Recovered**: Fixed critical regression in v1.5.0 where "My Games" displayed only Call of Duty and Fortnite. All purchased and streamable games associated with the user's account are restored.
+- **Removed Duplicate Call of Duty Entries**: Cleaned up the loop insertion that populated dozens of Call of Duty DLC/edition entries, retaining only clean playable titles (Modern Warfare 4 and Warzone).
+- **Automatic Cache Self-Healing**: App detects if previous versions stored a contaminated `library_cache.json` and automatically triggers a fresh sync to heal local storage.
+
+### ⚡ Manual Library Refresh (L3)
+- **Reliable Full Refresh**: Pressing `L3` ("Refresh") now performs a full refresh from Microsoft endpoints, ensuring freshly acquired titles show up immediately.
+
 ## What's New in Version 1.5.0
 
 ### ⚙️ Settings Menu Reorganization

@@ -5078,6 +5078,77 @@ static void testCallOfDutyModernWarfare4CatalogAndRefresh() {
         CHECK(foundMw4);
     }
 
+    // 7. Test loadOwned populates all owned and streamable titles, not just COD and Fortnite
+    {
+        net::setTestTransport([](const net::Request& req) {
+            net::Response r;
+            r.status = 200;
+            if (req.url.find("/v2/titles") != std::string::npos) {
+                r.body = R"({"results":[
+                    {"titleId":"FORTNITE","details":{"productId":"BT5P2X999VH2","hasEntitlement":true,"isFreeInStore":true,"userPrograms":["F2P"]}},
+                    {"titleId":"CYBERPUNK2077","details":{"productId":"BX3M8L83BBRW","hasEntitlement":true,"isFreeInStore":false,"userPrograms":[]}},
+                    {"titleId":"HALOINFINITE","details":{"productId":"9PP5G1F0C2B6","hasEntitlement":true,"isFreeInStore":true,"userPrograms":["F2P"]}},
+                    {"titleId":"CALLOFDUTYHQ","details":{"productId":"9N201KQXS5BM","hasEntitlement":true,"isFreeInStore":false,"userPrograms":["CALLISTO"]}}
+                ]})";
+            } else if (req.url.find("/v3/products") != std::string::npos) {
+                r.body = R"({"Products":{
+                    "BT5P2X999VH2":{"XCloudTitleId":"FORTNITE","ProductTitle":"Fortnite"},
+                    "BX3M8L83BBRW":{"XCloudTitleId":"CYBERPUNK2077","ProductTitle":"Cyberpunk 2077"},
+                    "9PP5G1F0C2B6":{"XCloudTitleId":"HALOINFINITE","ProductTitle":"Halo Infinite"},
+                    "9N201KQXS5BM":{"XCloudTitleId":"CALLOFDUTYHQ","ProductTitle":"Call of Duty®"},
+                    "9NCPSQQD1Z66":{"XCloudTitleId":"CALLOFDUTYHQ","ProductTitle":"Call of Duty®: Modern Warfare® 4"}
+                }})";
+            } else {
+                r.status = 503;
+            }
+            return r;
+        });
+
+        app::Library libOwnedAll;
+        std::string allCache = testDir + "/all_cache.json";
+        libOwnedAll.setCachePath(allCache);
+        std::atomic<bool> stop{false};
+        libOwnedAll.loadOwned(gssv, [] {}, &stop);
+
+        // Verify all 4 titles are in owned (Fortnite, Cyberpunk, Halo Infinite, Call of Duty)
+        std::set<std::string> ownedPids;
+        for (const auto& t : libOwnedAll.owned()) {
+            ownedPids.insert(t.productId);
+        }
+        CHECK(ownedPids.count("BT5P2X999VH2")); // Fortnite
+        CHECK(ownedPids.count("BX3M8L83BBRW")); // Cyberpunk 2077
+        CHECK(ownedPids.count("9PP5G1F0C2B6")); // Halo Infinite
+        CHECK(ownedPids.count("9NCPSQQD1Z66") || ownedPids.count("9N201KQXS5BM")); // COD
+        CHECK(libOwnedAll.owned().size() >= 4);
+    }
+
+    // 8. Test loadCache auto-healing of contaminated gamePass and truncated owned
+    {
+        std::string badCache = testDir + "/bad_cache.json";
+        std::string gpItems = "";
+        for (int i = 0; i < 1100; ++i) {
+            if (i > 0) gpItems += ",";
+            gpItems += "\"P_FAKE_" + std::to_string(i) + "\"";
+        }
+        std::string otItems = "";
+        for (int i = 0; i < 150; ++i) {
+            if (i > 0) otItems += ",";
+            otItems += "\"T_FAKE_" + std::to_string(i) + "\"";
+        }
+        std::string badJson = "{\"version\":2,\"market\":\"US\",\"language\":\"en-US\",\"products\":{},"
+                              "\"owned\":[{\"p\":\"COD\",\"t\":\"CALLOFDUTYHQ\"},{\"p\":\"FORTNITE\",\"t\":\"FORTNITE\"}],"
+                              "\"purchasable\":[],\"ownedTitles\":[" + otItems + "],\"ownedProducts\":[],\"gamePass\":[" + gpItems + "]}";
+        platform::writeFileAtomic(badCache, badJson);
+
+        app::Library healLib;
+        healLib.setCachePath(badCache);
+        CHECK(healLib.loadCache(false));
+        // Verify ownership was invalidated due to truncated owned list vs 150 titles
+        CHECK(!healLib.ownedKnown());
+        // Verify contaminated gamePass was discarded
+        CHECK(healLib.gamePassSearchPool().empty());
+    }
+
     net::setTestTransport({});
     std::system(("rm -rf " + testDir).c_str());
 }

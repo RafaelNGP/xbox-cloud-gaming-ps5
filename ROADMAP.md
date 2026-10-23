@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-23, v1.5.0.
+Last update: 2026-10-23, v1.5.1.
 
 ## Now
 
@@ -367,6 +367,11 @@ A browser-based visual layout editor embedded directly into the WebUI under the 
 
 ## Done
 
+- **v1.5.1**:
+  - Restored full "My Games" / owned games list (`owned_`), resolving regression where only Call of Duty and Fortnite appeared.
+  - Eliminated duplicate Call of Duty entries in user library while keeping Modern Warfare 4 and Warzone playable.
+  - Fixed manual library refresh (<kbd>L3</kbd>) ensuring full online synchronization and clear notification feedback.
+  - Implemented automatic local cache self-healing against corrupted `library_cache.json`.
 - **v1.5.0**:
   - Reorganized Settings menu with network/connectivity priority.
   - 1-Click direct free license acquisition on `Screen::Error` for unowned free games and launchers (Call of Duty BO6 Launcher, FFXIV Online Free Trial).
