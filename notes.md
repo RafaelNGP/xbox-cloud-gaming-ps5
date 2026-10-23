@@ -1,4 +1,12 @@
 <!-- LANG:PT -->
+## Novidades e Correções no v1.5.3
+
+### 🛍️ Aquisição Autônoma e Validação de Jogos Gratuitos
+- **Validação de Ponta a Ponta de Jogos Grátis**: Testada e comprovada em hardware real de PS5 a aquisição direta de títulos gratuitos da loja sem travas ou erros de catálogo.
+- **Inserção Imediata no Topo da Biblioteca**: Ao concluir o resgate de um jogo grátis, o título entra instantaneamente no índice 0 da aba **"Meus jogos"** sem necessidade de sincronização manual (<kbd>L3</kbd>).
+- **Transição Fluida para Streaming**: A tela de detalhes atualiza no mesmo instante o botão de compra para **"Jogar"**, permitindo iniciar a sessão na nuvem imediatamente com áudio, vídeo por hardware VPU (3.9 ms) e resposta do DualSense.
+- **Harness de Autoplay Robusto**: Novo modo de teste autônomo `claimtest` integrado ao pipeline de QA do console.
+
 ## Novidades e Correções no v1.5.2
 
 ### 🛍️ Aquisição Universal de Jogos Gratuitos e Persistência Imediata
@@ -68,6 +76,14 @@
 - **Alinhamento Perfeito**: Textos, seletores e chevrons perfeitamente alinhados à direita no menu de configurações.
 
 <!-- LANG:EN -->
+## What's New and Fixed in Version 1.5.3
+
+### 🛍️ Autonomous Free Game Claiming & Instant Library Reflection
+- **End-to-End Free Game Claiming**: Verified on real PS5 hardware that free titles from Microsoft Store are acquired seamlessly without catalog errors or hanging requests.
+- **Immediate Top-of-Library Insertion**: Upon claiming, the title appears instantly at index 0 of the **"My Games"** tab without requiring any manual library refresh (<kbd>L3</kbd>).
+- **Seamless Transition to Gameplay**: The details screen instantly unlocks the primary **"Play"** action, allowing immediate launch into cloud streaming with hardware VPU decoding (3.9 ms), 48 kHz audio, and full DualSense controls.
+- **Robust Autonomous Testing Harness**: Added `claimtest` to the automated console QA pipeline.
+
 ## What's New and Fixed in Version 1.5.2
 
 ### 🛍️ Universal Free Game Acquisition & Instant Persistence
