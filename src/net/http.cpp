@@ -846,6 +846,8 @@ Response performPaced(const Request& req) {
         int seconds = std::atoi(resp.header("retry-after").c_str());
         XC_LOGW("%s: HTTP 429, nothing more to it for %d s", url.host.c_str(), std::clamp(seconds > 0 ? seconds : 5, 1, 30));
         g_pacer.throttled(url.host, seconds, platform::nowMs());
+    } else if (resp.status >= 500) {
+        XC_LOGW("%s: HTTP %d (%s)", url.host.c_str(), resp.status, req.method.empty() ? "GET" : req.method.c_str());
     }
     return resp;
 }

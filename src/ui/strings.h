@@ -416,6 +416,7 @@ enum class Str {
     HoldToReset,
     LibraryUpToDate,
     LibraryUpdatedCount,
+    OfflineMode,
     Count
 };
 

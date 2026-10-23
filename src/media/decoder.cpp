@@ -41,10 +41,8 @@ void ffmpegLog(void*, int level, const char* fmt, va_list ap) {
     std::vsnprintf(line, sizeof line, fmt, ap);
     size_t n = std::strlen(line);
     while (n && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = 0;
-    // The first messages at info level (diagnostics), the rest at debug.
-    static std::atomic<int> shown{0};
-    if (shown++ < 40)
-        XC_LOGI("ffmpeg: %s", line);
+    if (level <= AV_LOG_ERROR)
+        XC_LOGE("ffmpeg: %s", line);
     else
         XC_LOGD("ffmpeg: %s", line);
 }
@@ -262,7 +260,7 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out, uint32_
     }
     if (rc < 0 && rc != AVERROR(EAGAIN)) {
         needsKeyframe_ = true;
-        if (failuresLogged_++ < 20) XC_LOGI("h264 send failed: %s (%zu bytes)", averr(rc).c_str(), len);
+        if (failuresLogged_++ == 0) XC_LOGD("h264 send failed: %s (%zu bytes)", averr(rc).c_str(), len);
         return false;
     }
     int sent = rc;
@@ -273,8 +271,8 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out, uint32_
     }
     if (rc < 0) {
         needsKeyframe_ = true;
-        if (failuresLogged_++ < 20)
-            XC_LOGI("h264 no picture: send=%d receive=%s (%zu bytes, first NAL type %d)", sent, averr(rc).c_str(),
+        if (failuresLogged_++ == 0)
+            XC_LOGD("h264 no picture: send=%d receive=%s (%zu bytes, first NAL type %d)", sent, averr(rc).c_str(),
                     len, len > 4 ? data[4] & 0x1f : -1);
         return false;
     }
@@ -282,7 +280,7 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out, uint32_
         int again = avcodec_send_packet(ctx_, packet_);
         if (again < 0) {
             needsKeyframe_ = true;
-            if (failuresLogged_++ < 20) XC_LOGI("h264 packet dropped: %s (%zu bytes)", averr(again).c_str(), len);
+            if (failuresLogged_++ == 0) XC_LOGD("h264 packet dropped: %s (%zu bytes)", averr(again).c_str(), len);
         }
     }
 

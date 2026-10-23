@@ -1404,6 +1404,7 @@ void AppUi::showError(const std::string& message, const std::string& url) {
     error_ = message;
     errorUrl_ = url;
     errorGame_ = {};
+    loading_ = false;
     regionRefused_ = countryPickerOpen_ = false;
     dirty_ = true;
 }
@@ -1414,6 +1415,7 @@ void AppUi::showRegionRefused(const std::string& message) {
     error_ = message;
     errorUrl_.clear();
     errorGame_ = {};
+    loading_ = false;
     regionRefused_ = true;
     countryPickerOpen_ = false;
     dirty_ = true;
@@ -1425,6 +1427,7 @@ void AppUi::showPlayError(const std::string& message, const GameTile& game) {
     error_ = message;
     errorUrl_.clear();
     errorGame_ = game;
+    loading_ = false;
     regionRefused_ = countryPickerOpen_ = false;
     dirty_ = true;
 }
@@ -4038,6 +4041,10 @@ UiEvent AppUi::handle(const NavInput& in) {
                 }
             } else if (in.accept) {
                 ev.action = Action::Retry;
+            } else if ((in.square || in.back) && !regionRefused_ && (!rows_.empty() || !owned_.empty())) {
+                screen_ = Screen::Home;
+                loading_ = false;
+                dirty_ = true;
             }
             if (regionRefused_ && in.square) {
                 countryPickerOpen_ = true;
@@ -5491,6 +5498,9 @@ void AppUi::drawError(Canvas& c) {
         drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconSquare, tr(Str::TryOtherCountry)},
                       {kIconOptions, tr(Str::Settings)}, {kIconTriangle, tr(Str::ReportProblem)},
                       {kIconTouchpad, tr(Str::HoldSignOut)}});
+    else if (!rows_.empty() || !owned_.empty())
+        drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconSquare, tr(Str::OfflineMode)},
+                      {kIconTriangle, tr(Str::ReportProblem)}, {kIconTouchpad, tr(Str::HoldSignOut)}});
     else
         drawHints(c, {{kIconCross, tr(Str::TryAgain)}, {kIconTriangle, tr(Str::ReportProblem)},
                       {kIconTouchpad, tr(Str::HoldSignOut)}});

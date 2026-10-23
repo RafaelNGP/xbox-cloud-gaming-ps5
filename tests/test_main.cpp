@@ -33,6 +33,7 @@
 #include "ui/stream_menu.h"
 #include "ui/strings.h"
 #include "util/json.h"
+#include "util/log.h"
 #include "auth/auth_manager.h"
 #include "stream/h264_receiver.h"
 #include "input/kbm.h"
@@ -5344,7 +5345,188 @@ static void testBlock1Corrections() {
     }
 }
 
+static void testBloco2Corrections() {
+    // 1. Splash screen input lock & Screen::Error offline option
+    {
+        ui::Fonts fonts;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+        CHECK(app.screen() == ui::Screen::Splash);
+
+        // All inputs while on Splash must be ignored/dropped
+        ui::NavInput in;
+        in.accept = true;
+        in.back = true;
+        in.options = true;
+        in.square = true;
+        in.triangle = true;
+        in.up = true;
+        in.down = true;
+        in.left = true;
+        in.right = true;
+        ui::UiEvent ev = app.handle(in);
+        CHECK(ev.action == ui::Action::None);
+        CHECK(app.screen() == ui::Screen::Splash);
+
+        // Error screen without cached rows cannot enter offline mode
+        app.showError("Connection failed");
+        CHECK(app.screen() == ui::Screen::Error);
+        in = {};
+        in.square = true;
+        ev = app.handle(in);
+        CHECK(app.screen() == ui::Screen::Error);
+
+        // Populate cached rows
+        ui::GameRow row;
+        row.title = "Offline Cached Games";
+        ui::GameTile tile;
+        tile.productId = "PROD_CACHE_1";
+        tile.titleId = "TITLE_CACHE_1";
+        tile.name = "Offline Game";
+        row.tiles.push_back(tile);
+        app.setRows({row});
+
+        // Error screen WITH cached rows: Square or Circle(Back) enters offline mode (Screen::Home)
+        in = {};
+        in.square = true;
+        ev = app.handle(in);
+        CHECK(app.screen() == ui::Screen::Home);
+
+        app.showError("Network timed out");
+        CHECK(app.screen() == ui::Screen::Error);
+        in = {};
+        in.back = true;
+        ev = app.handle(in);
+        CHECK(app.screen() == ui::Screen::Home);
+
+        // Error screen: loading flag is cleared when error is displayed and when offline mode is entered
+        app.setLoading(true, 5, 10);
+        app.showError("Disconnected");
+        CHECK(app.screen() == ui::Screen::Error);
+        in = {};
+        in.square = true;
+        ev = app.handle(in);
+        CHECK(app.screen() == ui::Screen::Home);
+
+        // Error screen with owned games but empty rows: can enter offline mode
+        ui::AppUi appOwned(fonts, images);
+        ui::GameTile ownedTile;
+        ownedTile.productId = "OWNED_1";
+        ownedTile.titleId = "TITLE_1";
+        ownedTile.playable = true;
+        appOwned.setOwned({ownedTile}, {}, true);
+        appOwned.showError("Auth error");
+        CHECK(appOwned.screen() == ui::Screen::Error);
+        in = {};
+        in.square = true;
+        ev = appOwned.handle(in);
+        CHECK(appOwned.screen() == ui::Screen::Home);
+    }
+
+    // 2. syncDelta: Eliminate false 24 new games popup
+    {
+        app::Library lib;
+        xcloud::GssvClient gssv;
+        std::string err;
+
+        // Set up test transport where listTitles returns 24 alternate IDs
+        // and fetchProducts returns empty/failure for them
+        net::setTestTransport([&](const net::Request& req) {
+            net::Response r;
+            if (req.url.find("titles") != std::string::npos) {
+                r.status = 200;
+                // Return 1 title with 24 alternate product IDs
+                json::Value root = json::Value::object();
+                json::Value results = json::Value::array();
+                json::Value item = json::Value::object();
+                item.set("titleId", "GAME_HQ");
+                json::Value details = json::Value::object();
+                details.set("productId", "PROD_HQ");
+                item.set("details", details);
+                json::Value alts = json::Value::array();
+                for (int i = 1; i <= 24; ++i) {
+                    alts.push("ALT_PROD_" + std::to_string(i));
+                }
+                item.set("alternateProductIds", alts);
+                results.push(item);
+                root.set("results", results);
+                r.body = root.dump();
+                return r;
+            }
+            if (req.url.find("sigls") != std::string::npos) {
+                r.status = 200;
+                r.body = R"({"productIds":["PROD_HQ"]})";
+                return r;
+            }
+            if (req.url.find("products") != std::string::npos) {
+                r.status = 200;
+                // Only return PROD_HQ with valid metadata, none of the 24 alternate IDs
+                r.body = R"({
+                    "Products": {
+                        "PROD_HQ": {
+                            "ProductTitle": "Call of Duty HQ"
+                        }
+                    }
+                })";
+                return r;
+            }
+            r.status = 200;
+            r.body = "{}";
+            return r;
+        });
+
+        // First sync: PROD_HQ is added (1 new game)
+        size_t count1 = lib.syncDelta(gssv, [&] {}, err);
+        CHECK(count1 == 1);
+
+        // Second sync (subsequent boot): PROD_HQ is already in products_,
+        // and 24 alternate IDs must NOT be computed as new games! newCount must be 0!
+        size_t count2 = lib.syncDelta(gssv, [&] {}, err);
+        CHECK(count2 == 0);
+
+        net::setTestTransport({});
+    }
+
+    // 3. Log hygiene & consecutive duplicate suppression
+    {
+        xc::log::setLevel(xc::log::Level::Info);
+
+        // Write identical message 5 times
+        XC_LOGI("bloco2_hygiene_test_repeated_log");
+        XC_LOGI("bloco2_hygiene_test_repeated_log");
+        XC_LOGI("bloco2_hygiene_test_repeated_log");
+        XC_LOGI("bloco2_hygiene_test_repeated_log");
+        XC_LOGI("bloco2_hygiene_test_repeated_log");
+
+        // Write a distinct message to trigger repeat count flush
+        XC_LOGI("bloco2_hygiene_test_distinct_log");
+
+        std::string after = xc::log::recentLogs();
+        CHECK(after.find("bloco2_hygiene_test_repeated_log") != std::string::npos);
+        CHECK(after.find("last message repeated 4 times") != std::string::npos);
+        CHECK(after.find("bloco2_hygiene_test_distinct_log") != std::string::npos);
+
+        // Test singular repetition: exactly 2 identical logs
+        XC_LOGI("bloco2_hygiene_test_twice_log");
+        XC_LOGI("bloco2_hygiene_test_twice_log");
+        xc::log::flush();
+        std::string afterTwice = xc::log::recentLogs();
+        CHECK(afterTwice.find("bloco2_hygiene_test_twice_log") != std::string::npos);
+        CHECK(afterTwice.find("last message repeated 1 time]") != std::string::npos);
+
+        // Test flush clears last message state: same message emitted after flush is printed afresh
+        XC_LOGI("bloco2_hygiene_test_twice_log");
+        xc::log::flush();
+        std::string afterFlush = xc::log::recentLogs();
+        size_t pos1 = afterFlush.find("bloco2_hygiene_test_twice_log");
+        CHECK(pos1 != std::string::npos);
+        size_t pos2 = afterFlush.find("bloco2_hygiene_test_twice_log", pos1 + 1);
+        CHECK(pos2 != std::string::npos);
+    }
+}
+
 int main() {
+    testBloco2Corrections();
     testBlock1Corrections();
     testCallOfDutyModernWarfare4CatalogAndRefresh();
     testBlock3Features();

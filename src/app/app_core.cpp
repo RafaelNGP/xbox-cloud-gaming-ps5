@@ -664,11 +664,6 @@ bool coreStartup() {
             g_ui->setOwned(initialLib->owned(), initialLib->purchasable(), initialLib->ownedKnown());
             g_ui->setMembership(initialLib->gamePassMember());
             g_ui->setSearchPools(initialLib->gamePassSearchPool(), initialLib->librarySearchPool());
-            struct stat accSt;
-            if (::stat((platform::dataDir() + "/account.json").c_str(), &accSt) == 0 && accSt.st_size > 0) {
-                g_ui->showHome();
-                g_ui->setLoading(true, 0, 0);
-            }
             XC_LOGI("instant-resume: loaded offline cache (%zu rows, %zu owned) in 0.01s",
                     initialLib->rows().size(), initialLib->owned().size());
         }

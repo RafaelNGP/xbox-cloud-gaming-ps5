@@ -439,6 +439,7 @@ constexpr Column kEnglish = {
     "Hold to reset",                                  // HoldToReset
     "Library is already up to date",                  // LibraryUpToDate
     "Library updated (%s new games)",                 // LibraryUpdatedCount
+    "Offline mode",                                   // OfflineMode
 };
 
 constexpr Column kPortugueseBR = {
@@ -848,6 +849,7 @@ constexpr Column kPortugueseBR = {
     "Segure para restaurar",                          // HoldToReset
     "Biblioteca já está atualizada",                  // LibraryUpToDate
     "Biblioteca atualizada (%s novos jogos)",         // LibraryUpdatedCount
+    "Modo offline",                                   // OfflineMode
 };
 
 constexpr Column kSpanish = {
@@ -1257,6 +1259,7 @@ constexpr Column kSpanish = {
     "Mantén para restablecer",                        // HoldToReset
     "La biblioteca ya está actualizada",              // LibraryUpToDate
     "Biblioteca actualizada (%s nuevos juegos)",      // LibraryUpdatedCount
+    "Modo sin conexión",                              // OfflineMode
 };
 
 constexpr Column kFrench = {
@@ -1666,6 +1669,7 @@ constexpr Column kFrench = {
     "Maintenir pour réinitialiser",                   // HoldToReset
     "La bibliothèque est déjà à jour",                // LibraryUpToDate
     "Bibliothèque mise à jour (%s nouveaux jeux)",    // LibraryUpdatedCount
+    "Mode hors ligne",                                // OfflineMode
 };
 
 constexpr Column kGerman = {
@@ -2075,6 +2079,7 @@ constexpr Column kGerman = {
     "Halten zum Zurücksetzen",                        // HoldToReset
     "Bibliothek ist bereits aktuell",                 // LibraryUpToDate
     "Bibliothek aktualisiert (%s neue Spiele)",       // LibraryUpdatedCount
+    "Offline-Modus",                                  // OfflineMode
 };
 
 constexpr Column kItalian = {
@@ -2484,6 +2489,7 @@ constexpr Column kItalian = {
     "Tieni premuto per ripristinare",                 // HoldToReset
     "La libreria è già aggiornata",                   // LibraryUpToDate
     "Libreria aggiornata (%s nuovi giochi)",          // LibraryUpdatedCount
+    "Modalità non in linea",                          // OfflineMode
 };
 
 constexpr std::array<const Column*, kLangs> kTable = {&kEnglish, &kPortugueseBR, &kSpanish,

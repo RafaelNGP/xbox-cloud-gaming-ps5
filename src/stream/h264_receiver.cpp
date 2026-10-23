@@ -335,9 +335,9 @@ void H264Receiver::accept(const uint8_t* d, size_t n, uint64_t now, const rtc::m
         // as a hole instead, NACKed when the next packet shows it (and
         // still missing if it was), then the frame dropped and a key frame
         // asked for, like any loss.
-        if (oversized_++ % 100 == 0)
-            XC_LOGW("video: RTP payload of %zu bytes is larger than %zu, treated as lost (%llu so far)", end - off,
-                    kMaxPayload, static_cast<unsigned long long>(oversized_));
+        if (oversized_++ == 0)
+            XC_LOGW("video: RTP payload of %zu bytes is larger than %zu, treated as lost", end - off,
+                    kMaxPayload);
         return;
     }
     if (missing_.erase(seq)) ++stats_.recovered;

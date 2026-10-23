@@ -122,11 +122,11 @@ bool Settings::load(const std::string& path) {
     if ((*j)["settingsVersion"].asInt(1) < 2) {
         if (deband == 1) deband = 3;
         if (upscaler == 0) upscaler = 2;
-        XC_LOGI("settings: from before v0.8.0; block smoothing %d, upscaling %d", deband, upscaler);
+        XC_LOGD("settings: from before v0.8.0; block smoothing %d, upscaling %d", deband, upscaler);
     }
     if ((*j)["settingsVersion"].asInt(1) < 3) {
         if (sharpness == 0) sharpness = 2;
-        XC_LOGI("settings: upgraded default sharpness to %d (FidelityFX RCAS)", sharpness);
+        XC_LOGD("settings: upgraded default sharpness to %d (FidelityFX RCAS)", sharpness);
     }
     regionRtt.clear();
     for (const auto& [name, ms] : (*j)["regionRtt"].members())

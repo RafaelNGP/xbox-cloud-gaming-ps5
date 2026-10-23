@@ -826,8 +826,8 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
             newProducts.push_back(t.productId);
         }
         for (const auto& alt : t.alternateProductIds) {
-            if (!alt.empty() && !products_.count(alt)) {
-                newProducts.push_back(alt);
+            if (!alt.empty() && !t.titleId.empty() && t.titleId != "None") {
+                cloudTitleOf_[alt] = t.titleId;
             }
         }
     }
@@ -847,32 +847,46 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
     std::sort(newProducts.begin(), newProducts.end());
     newProducts.erase(std::unique(newProducts.begin(), newProducts.end()), newProducts.end());
 
-    size_t newCount = newProducts.size();
-    if (newCount > 0) {
+    size_t newCount = 0;
+    if (!newProducts.empty()) {
         std::string fetchErr;
         xcloud::fetchProducts(newProducts, market_, language_, products_, fetchErr, false);
 
-        for (auto& row : layout_) {
-            if (row.isGrid) {
-                for (const auto& pid : newProducts) {
-                    bool exists = false;
-                    for (const auto& item : row.items) {
-                        if (item.first == pid) { exists = true; break; }
+        std::vector<std::string> actuallyAdded;
+        for (const auto& pid : newProducts) {
+            auto it = products_.find(pid);
+            if (it != products_.end() && !it->second.title.empty()) {
+                actuallyAdded.push_back(pid);
+            } else {
+                products_[pid].productId = pid;
+                products_[pid].detailedAt = platform::nowMs();
+            }
+        }
+        newCount = actuallyAdded.size();
+
+        if (newCount > 0) {
+            for (auto& row : layout_) {
+                if (row.isGrid) {
+                    for (const auto& pid : actuallyAdded) {
+                        bool exists = false;
+                        for (const auto& item : row.items) {
+                            if (item.first == pid) { exists = true; break; }
+                        }
+                        if (!exists) {
+                            std::string tid = cloudTitleOf_.count(pid) ? cloudTitleOf_[pid] : "";
+                            row.items.emplace_back(pid, tid);
+                        }
                     }
-                    if (!exists) {
-                        std::string tid = cloudTitleOf_.count(pid) ? cloudTitleOf_[pid] : "";
-                        row.items.emplace_back(pid, tid);
-                    }
-                }
-            } else if (!row.recent && row.badges) {
-                for (const auto& pid : newProducts) {
-                    bool exists = false;
-                    for (const auto& item : row.items) {
-                        if (item.first == pid) { exists = true; break; }
-                    }
-                    if (!exists) {
-                        std::string tid = cloudTitleOf_.count(pid) ? cloudTitleOf_[pid] : "";
-                        row.items.insert(row.items.begin(), {pid, tid});
+                } else if (!row.recent && row.badges) {
+                    for (const auto& pid : actuallyAdded) {
+                        bool exists = false;
+                        for (const auto& item : row.items) {
+                            if (item.first == pid) { exists = true; break; }
+                        }
+                        if (!exists) {
+                            std::string tid = cloudTitleOf_.count(pid) ? cloudTitleOf_[pid] : "";
+                            row.items.insert(row.items.begin(), {pid, tid});
+                        }
                     }
                 }
             }

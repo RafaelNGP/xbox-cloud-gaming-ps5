@@ -894,7 +894,11 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
 
     if (!forceRefresh && existingLib && existingLib->ownedKnown()) {
         XC_LOGI("library: delta-sync against active library (forceRefresh=%d)", forceRefresh);
-        g_ui->setLoading(true, 0, 0);
+        if (g_ui->screen() == ui::Screen::Splash) {
+            g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
+        } else {
+            g_ui->setLoading(true, 0, 0);
+        }
         auto publish = [](const app::Library& lib) {
             g_ui->setRows(lib.rows());
             g_ui->setOwned(lib.owned(), lib.purchasable(), lib.ownedKnown());
@@ -911,6 +915,13 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
             std::string msg = ui::trf(ui::Str::LibraryUpdatedCount, std::to_string(newCount));
             if (!shell::caps().console) g_ui->showToast(msg);
             platform::notify(msg);
+        } else if (forceRefresh) {
+            std::string msg = ui::tr(ui::Str::LibraryUpToDate);
+            if (!shell::caps().console) g_ui->showToast(msg);
+            platform::notify(msg);
+        }
+        if (g_ui->screen() == ui::Screen::Splash) {
+            g_ui->showHome();
         }
         return;
     }

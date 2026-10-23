@@ -725,14 +725,14 @@ bool createPipelines() {
                                  sizeof kShader_a4k_s_conv3};
         g.a4kReady = createPipeline(g.a4kD2s, kShader_a4k_d2s, sizeof kShader_a4k_d2s, d2s, 3, 0);
         for (int i = 0; i < 4 && g.a4kReady; ++i) g.a4kReady = createPipeline(g.a4kConv[i], code[i], bytes[i], conv, 2, 0);
-        if (!g.a4kReady) XC_LOGW("gpu: no Anime4K pipelines; FSR only");
+        if (!g.a4kReady) XC_LOGD("gpu: no Anime4K pipelines; FSR only");
         const uint32_t* rcode[4] = {kShader_a4k_r_conv0, kShader_a4k_r_conv1, kShader_a4k_r_conv2, kShader_a4k_r_conv3};
         const size_t rbytes[4] = {sizeof kShader_a4k_r_conv0, sizeof kShader_a4k_r_conv1, sizeof kShader_a4k_r_conv2,
                                   sizeof kShader_a4k_r_conv3};
         g.restoreReady = g.a4kReady;  // it uses the same feature maps
         for (int i = 0; i < 4 && g.restoreReady; ++i)
             g.restoreReady = createPipeline(g.restoreConv[i], rcode[i], rbytes[i], conv, 2, 0);
-        if (g.a4kReady && !g.restoreReady) XC_LOGW("gpu: no Anime4K Restore pipelines");
+        if (g.a4kReady && !g.restoreReady) XC_LOGD("gpu: no Anime4K Restore pipelines");
     }
     const VkDescriptorPoolSize sizes[] = {{sampled, 40}, {storage, 40}};
     VkDescriptorPoolCreateInfo pool{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
@@ -839,7 +839,7 @@ bool videoImages(uint32_t w, uint32_t h) {
             !createImage(g.features[1], VK_FORMAT_R16G16B16A16_SFLOAT, w, h, VK_IMAGE_USAGE_STORAGE_BIT) ||
             !createImage(g.a4k, VK_FORMAT_R8G8B8A8_UNORM, w * 2, h * 2,
                          VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)) {
-            XC_LOGW("gpu: no Anime4K feature maps; FSR only");
+            XC_LOGD("gpu: no Anime4K feature maps; FSR only");
             g.a4kReady = false;
         } else {
             // picture -> f0 -> f1 -> f0 -> f1 -> 2x (direct into upscaled when 2x == box, else g.a4k -> EASU)

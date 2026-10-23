@@ -17,6 +17,9 @@ bool setFile(const char* path);
 // Returns recent log lines kept in memory (up to 64 KiB).
 std::string recentLogs();
 
+// Flushes any buffered repeated log notifications.
+void flush();
+
 void write(Level level, const char* fmt, ...) __attribute__((format(printf, 2, 3)));
 
 }  // namespace xc::log
