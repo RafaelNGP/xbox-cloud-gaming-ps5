@@ -5122,7 +5122,7 @@ static void testCallOfDutyModernWarfare4CatalogAndRefresh() {
         CHECK(libOwnedAll.owned().size() >= 4);
     }
 
-    // 8. Test loadCache auto-healing of contaminated gamePass and truncated owned
+    // 8. Test loadCache auto-healing of contaminated gamePass and duplicate COD entries
     {
         std::string badCache = testDir + "/bad_cache.json";
         std::string gpItems = "";
@@ -5135,18 +5135,44 @@ static void testCallOfDutyModernWarfare4CatalogAndRefresh() {
             if (i > 0) otItems += ",";
             otItems += "\"T_FAKE_" + std::to_string(i) + "\"";
         }
+        std::string codItems = "";
+        for (int i = 0; i < 25; ++i) {
+            if (i > 0) codItems += ",";
+            codItems += "{\"p\":\"COD_" + std::to_string(i) + "\",\"t\":\"CALLOFDUTYHQ\"}";
+        }
         std::string badJson = "{\"version\":2,\"market\":\"US\",\"language\":\"en-US\",\"products\":{},"
-                              "\"owned\":[{\"p\":\"COD\",\"t\":\"CALLOFDUTYHQ\"},{\"p\":\"FORTNITE\",\"t\":\"FORTNITE\"}],"
+                              "\"owned\":[" + codItems + ",{\"p\":\"FORTNITE\",\"t\":\"FORTNITE\"}],"
                               "\"purchasable\":[],\"ownedTitles\":[" + otItems + "],\"ownedProducts\":[],\"gamePass\":[" + gpItems + "]}";
         platform::writeFileAtomic(badCache, badJson);
 
         app::Library healLib;
         healLib.setCachePath(badCache);
         CHECK(healLib.loadCache(false));
-        // Verify ownership was invalidated due to truncated owned list vs 150 titles
+        // Verify ownership was invalidated due to duplicate COD entries from v1.5.0 bug
         CHECK(!healLib.ownedKnown());
         // Verify contaminated gamePass was discarded
         CHECK(healLib.gamePassSearchPool().empty());
+    }
+
+    // 9. Test loadCache preserves legitimate cache for users with few owned games (<= 37) and Game Pass
+    {
+        std::string legitCache = testDir + "/legit_cache.json";
+        std::string otItems = "";
+        for (int i = 0; i < 200; ++i) {
+            if (i > 0) otItems += ",";
+            otItems += "\"T_FAKE_" + std::to_string(i) + "\"";
+        }
+        std::string legitJson = "{\"version\":2,\"market\":\"US\",\"language\":\"en-US\",\"products\":{},"
+                                "\"owned\":[{\"p\":\"FORTNITE\",\"t\":\"FORTNITE\"},{\"p\":\"CYBERPUNK\",\"t\":\"CYBERPUNK2077\"}],"
+                                "\"purchasable\":[],\"ownedTitles\":[" + otItems + "],\"ownedProducts\":[\"FORTNITE\",\"CYBERPUNK\"],"
+                                "\"gamePass\":[\"GP_GAME1\",\"GP_GAME2\"]}";
+        platform::writeFileAtomic(legitCache, legitJson);
+
+        app::Library legitLib;
+        legitLib.setCachePath(legitCache);
+        CHECK(legitLib.loadCache(false));
+        // Verify legitimate ownership with <= 37 games is PRESERVED, not discarded!
+        CHECK(legitLib.ownedKnown());
     }
 
     net::setTestTransport({});

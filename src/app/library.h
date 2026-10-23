@@ -58,7 +58,8 @@ public:
     void loadFirstScreen(const std::string& xblAuth, const Changed& changed, const std::atomic<bool>* stop = nullptr);
     // The account's titles: what it can play, what it could buy. Takes its own
     // GssvClient (a copy) so it can run on another thread.
-    void loadOwned(xcloud::GssvClient gssv, const Changed& changed, const std::atomic<bool>* stop = nullptr);
+    void loadOwned(xcloud::GssvClient gssv, const Changed& changed, const std::atomic<bool>* stop = nullptr,
+                   const std::vector<xcloud::Title>* preloadedTitles = nullptr);
     // Names and art of the whole Game Pass catalog and of the games to buy.
     void loadCatalogNames(const Changed& changed, const std::atomic<bool>* stop = nullptr);
     // Console generation of every known game; `xblAuth` from the profile.

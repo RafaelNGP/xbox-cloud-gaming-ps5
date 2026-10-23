@@ -892,7 +892,7 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
         existingLib = s_library;
     }
 
-    if (!forceRefresh && existingLib && existingLib->ownedKnown() && !existingLib->owned().empty()) {
+    if (!forceRefresh && existingLib && existingLib->ownedKnown()) {
         XC_LOGI("library: delta-sync against active library (forceRefresh=%d)", forceRefresh);
         g_ui->setLoading(true, 0, 0);
         auto publish = [](const app::Library& lib) {

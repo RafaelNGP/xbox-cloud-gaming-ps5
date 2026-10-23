@@ -639,10 +639,14 @@ bool Library::loadCache(bool withLayout) {
             }
         }
     }
-    bool corruptedOwned = (owned_.size() <= 37 && ownedTitles_.size() > 100);
+    size_t codCount = 0;
+    for (const auto& o : owned_) {
+        if (o.second.find("CALLOFDUTY") != std::string::npos) ++codCount;
+    }
+    bool corruptedOwned = (codCount > 20);
     if (corruptedOwned) {
-        XC_LOGW("library: cache owned has only %zu items despite %zu streamable titles, invalidating cached ownership",
-                owned_.size(), ownedTitles_.size());
+        XC_LOGW("library: cache owned has %zu duplicate Call of Duty entries (v1.5.0 bug), invalidating cached ownership",
+                codCount);
         owned_.clear();
         ownershipKnown_ = false;
     } else {
@@ -791,6 +795,7 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
         gamePass_.clear();
         gamePass_.insert(allSigl.productIds.begin(), allSigl.productIds.end());
         allGames_ = allSigl.productIds;
+        seedKnownGames(cloudTitleOf_, xboxTitleOf_, freeInStore_, gamePass_, allGames_, products_);
         for (const auto& pid : allSigl.productIds) {
             if (!pid.empty() && !products_.count(pid)) {
                 newProducts.push_back(pid);
@@ -831,7 +836,7 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
             }
         }
     }
-    loadOwned(gssv, changed);
+    loadOwned(gssv, changed, nullptr, &titles);
     loadCatalogNames(changed, nullptr);
     saveCache();
     changed();
@@ -872,21 +877,9 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
         lastErr = e;
     }
     seedKnownGames(cloudTitleOf_, xboxTitleOf_, freeInStore_, gamePass_, allGames_, products_);
-    if (!forceRefresh) {
-        // The account's games from the previous run, until loadOwned() refreshes
-        // them. Not its home rows: those are built below.
-        loadCache(false);
-    } else {
-        // Force refresh: read previous gamePass set for new additions delta, but bypass cached product tiles
-        std::string text;
-        if (!cachePath_.empty() && platform::readFile(cachePath_, text)) {
-            if (auto j = json::parse(text)) {
-                for (const auto& p : (*j)["gamePass"].items()) knownGamePass_.insert(p.str());
-                for (const auto& t : (*j)["ownedTitles"].items()) ownedTitles_.insert(t.str());
-                for (const auto& p : (*j)["ownedProducts"].items()) ownedProducts_.insert(p.str());
-            }
-        }
-    }
+    // The account's games from the previous run, until loadOwned() refreshes
+    // them. Not its home rows: those are built below.
+    loadCache(false);
 
     // "Jump back in": recently played games, Game Pass or the account's own
     // (rows() leaves out those it can't play; they also go first in "Your
@@ -1013,15 +1006,21 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
     return true;
 }
 
-void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const std::atomic<bool>* stop) {
+void Library::loadOwned(xcloud::GssvClient gssv, const Changed& changed, const std::atomic<bool>* stop,
+                        const std::vector<xcloud::Title>* preloadedTitles) {
     progress_ = {true, 0, 0};  // the account's list: no measure until the names
     changed();
-    std::vector<xcloud::Title> titles;
     std::string err;
-    if (!gssv.listTitles(titles, err, false)) {
-        XC_LOGW("%s", err.c_str());  // keep what the cache said
-        return;
+    std::vector<xcloud::Title> fetchedTitles;
+    const std::vector<xcloud::Title>* titlesPtr = preloadedTitles;
+    if (!titlesPtr) {
+        if (!gssv.listTitles(fetchedTitles, err, false)) {
+            XC_LOGW("%s", err.c_str());  // keep what the cache said
+            return;
+        }
+        titlesPtr = &fetchedTitles;
     }
+    const auto& titles = *titlesPtr;
     if (stop && *stop) return;
     std::set<std::string> ownedTitles, ownedProducts;
     std::vector<Item> mine;
