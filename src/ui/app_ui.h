@@ -338,6 +338,9 @@ public:
     // The game whose page is open, if its description or hero art hasn't
     // arrived; asked again every 5 s while missing (empty otherwise).
     std::string detailWanted(uint64_t nowMs);
+    // Focused game on the Home screen whose hero art is missing; asked again
+    // every 5 s while missing (empty otherwise).
+    std::string heroWanted(uint64_t nowMs);
     // The open page's game (xCloud title id) whose queue estimate is due
     // (one a minute per game); empty when none.
     std::string queueWanted(uint64_t nowMs);
@@ -450,6 +453,8 @@ public:
     void showFilteredSearch(Tab tab, bool cheapest, int mode, const std::string& genre, int language, int openList = -1);
     // The search keyboard's focus (row, column), for the tests.
     std::pair<int, int> searchKeyFocus() const;
+    int searchResultFocus() const;
+    bool isSearchOnKeys() const;
     std::vector<std::pair<std::string, PriceInfo>> searchResults(size_t max) const;
     void chooseFilter(Filter f, int index);
     std::vector<Filter> filterRow(int row) const;
@@ -553,7 +558,10 @@ private:
     // (letters, wide keys, the two rows of filters), as drawn: up / down
     // go to the nearest one on screen.
     std::vector<int> keyCenters(int row) const;
-    void runSearch();
+    void runSearch(bool keepPosition = false);
+    void syncHeroToRowsLocked(const std::string& productId, const std::string& titleId, const std::string& heroUrl,
+                             const std::string& description = "", const std::string& publisher = "",
+                             const std::vector<std::string>& categories = {});
     void openDetails(const GameTile& tile);
     void refreshDetail();
     void drawDetails(Canvas& c, uint64_t nowMs);
@@ -678,6 +686,8 @@ private:
     std::set<std::string> unclaimable_;
     std::string detailAskedFor_;
     uint64_t detailAskedAt_ = 0;
+    std::string heroAskedFor_;
+    uint64_t heroAskedAt_ = 0;
     std::string queueAskedFor_, queueTitle_;
     uint64_t queueAskedAt_ = 0;
     int queueSeconds_ = -1;  // for queueTitle_

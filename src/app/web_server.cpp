@@ -371,20 +371,21 @@ input:checked + .slider-sw:before { transform: translateX(20px); }
   justify-content: center;
   border-width: 2px;
   box-shadow: 0 3px 8px rgba(0,0,0,0.5);
-  transition: transform 0.06s;
+  transition: filter 0.06s, box-shadow 0.06s;
   cursor: pointer;
   touch-action: none;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .abxy-key:active, .abxy-key.pressed {
-  transform: scale(0.90) !important;
-  box-shadow: 0 0 16px rgba(255,255,255,0.8) !important;
-  filter: brightness(1.3);
+  box-shadow: 0 0 16px rgba(255,255,255,0.85) !important;
+  filter: brightness(1.35) !important;
 }
-.btn-y { top: 0; left: 50%; transform: translateX(-50%); background: #c68900; border-color: #ffd000; }
-.btn-a { bottom: 0; left: 50%; transform: translateX(-50%); background: #0e6b37; border-color: #22c55e; }
-.btn-x { top: 50%; left: 0; transform: translateY(-50%); background: #006eb8; border-color: #38bdf8; }
-.btn-b { top: 50%; right: 0; transform: translateY(-50%); background: #b80d1b; border-color: #f87171; }
+.btn-y { top: 0; left: 52px; background: #c68900; border-color: #ffd000; }
+.btn-a { bottom: 0; left: 52px; background: #0e6b37; border-color: #22c55e; }
+.btn-x { top: 52px; left: 0; background: #006eb8; border-color: #38bdf8; }
+.btn-b { top: 52px; right: 0; background: #b80d1b; border-color: #f87171; }
 
 /* Buttons & System Styling */
 .pad-btn {
@@ -3069,6 +3070,10 @@ uint64_t virtualGamepadActiveAt(int playerIndex) {
 void resetVirtualGamepads() {
     std::lock_guard<std::mutex> lock(s_vpadMutex);
     for (auto& slot : s_virtualPads) slot = {};
+}
+
+const char* webServerIndexHtml() {
+    return kIndexHtml;
 }
 
 void setWebServerHooks(WebServerHooks hooks) {

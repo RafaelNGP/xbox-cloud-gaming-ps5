@@ -5179,7 +5179,173 @@ static void testCallOfDutyModernWarfare4CatalogAndRefresh() {
     std::system(("rm -rf " + testDir).c_str());
 }
 
+static void testBlock1Corrections() {
+    using namespace xc;
+
+    // 1. WebUI Facebuttons ABXY static positioning & no transform on active/pressed
+    {
+        const char* html = app::webServerIndexHtml();
+        CHECK(html != nullptr);
+        std::string htmlStr(html);
+        CHECK(htmlStr.find(".btn-y { top: 0; left: 52px;") != std::string::npos);
+        CHECK(htmlStr.find(".btn-a { bottom: 0; left: 52px;") != std::string::npos);
+        CHECK(htmlStr.find(".btn-x { top: 52px; left: 0;") != std::string::npos);
+        CHECK(htmlStr.find(".btn-b { top: 52px; right: 0;") != std::string::npos);
+        // Ensure no transform in abxy-key:active or abxy-key.pressed
+        size_t abxyActivePos = htmlStr.find(".abxy-key:active, .abxy-key.pressed");
+        CHECK(abxyActivePos != std::string::npos);
+        size_t blockEnd = htmlStr.find("}", abxyActivePos);
+        CHECK(blockEnd != std::string::npos);
+        std::string abxyBlock = htmlStr.substr(abxyActivePos, blockEnd - abxyActivePos);
+        CHECK(abxyBlock.find("transform") == std::string::npos);
+        CHECK(abxyBlock.find("scale") == std::string::npos);
+        CHECK(abxyBlock.find("translate") == std::string::npos);
+        CHECK(htmlStr.find("-webkit-tap-highlight-color: transparent;") != std::string::npos);
+    }
+
+    // 2. Search cursor stability across background updates (pools, prices, delta-sync, setOwned, setRows)
+    {
+        ui::Fonts fonts;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+
+        std::vector<ui::GameTile> pool;
+        for (int i = 0; i < 12; ++i) {
+            ui::GameTile t;
+            t.productId = "GAME_ID_" + std::to_string(i);
+            t.titleId = "TITLE_" + std::to_string(i);
+            t.name = "Action Game " + std::to_string(i);
+            t.playable = true;
+            pool.push_back(t);
+        }
+        app.setSearchPools(pool, {});
+
+        // Open search with query "Action"
+        app.showFilteredSearch(ui::Tab::GamePass, false, 0, "", 0, -1);
+        app.typeText("Action\n"); // \n moves into results grid
+        CHECK(!app.isSearchOnKeys());
+        CHECK(app.searchResultFocus() == 0);
+
+        // Move cursor in grid to item 2
+        ui::NavInput navRight;
+        navRight.right = true;
+        app.handle(navRight);
+        CHECK(app.searchResultFocus() == 1);
+        app.handle(navRight);
+        CHECK(app.searchResultFocus() == 2);
+
+        // Simulate background pool update (e.g. hydration/delta-sync)
+        app.setSearchPools(pool, {});
+        // Focus MUST NOT reset to 0! It should be preserved at 2.
+        CHECK(!app.isSearchOnKeys());
+        CHECK(app.searchResultFocus() == 2);
+
+        // Simulate background price arrival
+        std::map<std::string, ui::PriceInfo> prices;
+        prices["GAME_ID_2"] = ui::PriceInfo{"$19.99", "$29.99", 19.99, 29.99};
+        app.setPrices(prices);
+        CHECK(app.searchResultFocus() == 2);
+
+        // Simulate background ownership update (delta sync)
+        app.setOwned({pool[0], pool[1], pool[2]}, {}, true);
+        CHECK(app.searchResultFocus() == 2);
+
+        // Simulate background rows update
+        ui::GameRow r;
+        r.title = "Featured";
+        r.tiles = pool;
+        app.setRows({r});
+        CHECK(app.searchResultFocus() == 2);
+    }
+
+    // 3. Friends playing shelf: hero art fetch, resolution, and persistence across Details & Rebuild
+    {
+        ui::Fonts fonts;
+        ui::ImageCache images([] {});
+        ui::AppUi app(fonts, images);
+
+        ui::GameTile friendTile;
+        friendTile.productId = "PROD_FRIEND_01";
+        friendTile.titleId = "TITLE_FRIEND_01";
+        friendTile.name = "Friend's Favorite";
+        friendTile.playable = true;
+        friendTile.heroUrl = ""; // Initially empty
+        friendTile.friends = {{"FriendTag", "http://example.com/pic.jpg"}};
+
+        ui::GameRow friendsRow;
+        friendsRow.title = "Friends playing now";
+        friendsRow.tiles = {friendTile};
+        app.setRows({friendsRow});
+        app.showHome();
+
+        // 3a. On Home screen with tile focused, heroWanted requests the missing heroUrl
+        CHECK(app.heroWanted(100) == "PROD_FRIEND_01");
+
+        // 3b. Detail arrives via setDetailInfo
+        std::string heroUrl = "https://images.example.com/hero_friend_01.jpg";
+        app.setDetailInfo("PROD_FRIEND_01", "Friend game description", "Studio A", {"Co-Op"}, heroUrl, "E", "ESRB", {});
+
+        // 3c. After details arrived, heroWanted no longer asks for it
+        CHECK(app.heroWanted(200).empty());
+
+        // 3d. User opens Details screen, then presses back to Home
+        app.showDetails(friendTile);
+        CHECK(app.screen() == ui::Screen::Details);
+
+        ui::NavInput navBack;
+        navBack.back = true;
+        app.handle(navBack);
+        CHECK(app.screen() == ui::Screen::Home);
+
+        // Verify the tile on the Friends shelf preserves the heroUrl!
+        ui::GameTile resultTile;
+        CHECK(app.findTile("TITLE_FRIEND_01", resultTile));
+        CHECK(resultTile.heroUrl == heroUrl);
+
+        // 3e. Crucial: Background rebuild (e.g. delta-sync or setOwned) MUST NOT wipe out heroUrl!
+        app.setOwned({}, {}, true);
+        CHECK(app.findTile("TITLE_FRIEND_01", resultTile));
+        CHECK(resultTile.heroUrl == heroUrl);
+
+        // 3f. Tile with partial metadata (only titleId, empty productId) resolves productId via pool
+        ui::GameTile partialTile;
+        partialTile.productId = ""; // Empty productId
+        partialTile.titleId = "TITLE_PARTIAL_99";
+        partialTile.name = "Partial Metadata Game";
+        partialTile.playable = true;
+        partialTile.heroUrl = "";
+
+        ui::GameTile catalogTile;
+        catalogTile.productId = "PROD_PARTIAL_99";
+        catalogTile.titleId = "TITLE_PARTIAL_99";
+        catalogTile.name = "Partial Metadata Game";
+        catalogTile.heroUrl = "";
+        catalogTile.playable = true;
+
+        ui::GameRow partialRow;
+        partialRow.title = "Friends playing partial";
+        partialRow.tiles = {partialTile};
+
+        app.setSearchPools({catalogTile}, {});
+        app.setRows({partialRow});
+        app.showHome();
+
+        // heroWanted must successfully resolve the productId "PROD_PARTIAL_99" from the catalog pool!
+        CHECK(app.heroWanted(300) == "PROD_PARTIAL_99");
+    }
+
+    // 4. Library::tile resolution by titleId
+    {
+        app::Library lib;
+        ui::GameTile resolved = lib.tile("", "CALLOFDUTYHQ");
+        CHECK(!resolved.productId.empty());
+        CHECK(resolved.productId == "9NCPSQQD1Z66" || resolved.productId == "9N201KQXS5BM" || resolved.productId == "9NNFG8BQRCXL");
+        CHECK(!resolved.heroUrl.empty());
+    }
+}
+
 int main() {
+    testBlock1Corrections();
     testCallOfDutyModernWarfare4CatalogAndRefresh();
     testBlock3Features();
     testWishlist();

@@ -101,6 +101,8 @@ public:
     // Delta-sync: discovers new/updated titles, only fetches missing metadata, updates rows in-place.
     size_t syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std::string& err);
     void markUnclaimable(const std::string& productId);
+    // Generates a tile for a product/title.
+    ui::GameTile tile(const std::string& productId, const std::string& titleId = {}) const;
 
 private:
     using Item = std::pair<std::string, std::string>;  // productId, titleId
@@ -111,7 +113,6 @@ private:
         std::vector<Item> items;
         bool recent = false;  // "Jump back in"
     };
-    ui::GameTile tile(const std::string& productId, const std::string& titleId = {}) const;
     std::vector<ui::GameTile> tiles(const std::vector<Item>& items) const;
     // Full details (hero art, description) for `ids` lacking them, in batches,
     // `changed` after each; false on a network error.

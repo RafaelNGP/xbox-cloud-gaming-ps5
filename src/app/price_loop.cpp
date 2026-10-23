@@ -125,6 +125,18 @@ void priceLoop() {
             }
             XC_LOGI("details of %s: %s", id.c_str(), ok ? "ok" : err.empty() ? "not in the catalog" : err.c_str());
         }
+        // Focused game on Home whose hero art is missing.
+        if (std::string id = market.empty() ? std::string() : g_ui->heroWanted(platform::nowMs()); !id.empty()) {
+            std::map<std::string, xcloud::Product> full;
+            std::string err;
+            bool ok = xcloud::fetchProducts({id}, market, language, full, err, true) && full.count(id);
+            if (ok) {
+                const auto& p = full[id];
+                g_ui->setDetailInfo(id, p.description, p.publisher, p.categories, p.heroUrl,
+                                    p.ratingAge, p.ratingSystem, p.ratingDescriptors);
+            }
+            XC_LOGI("hero of %s: %s", id.c_str(), ok ? "ok" : err.empty() ? "not in the catalog" : err.c_str());
+        }
         // The open page's queue estimate (a game the account can play).
         if (std::string title = g_ui->queueWanted(platform::nowMs()); !title.empty()) {
             std::unique_ptr<xcloud::GssvClient> client;

@@ -317,6 +317,39 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
     t.titleId = titleId;
     static const xcloud::Product s_dummy{};
     auto it = products_.find(productId);
+    if (it == products_.end() && !titleId.empty()) {
+        for (auto pit = products_.begin(); pit != products_.end(); ++pit) {
+            if (pit->second.xcloudTitleId == titleId) {
+                it = pit;
+                if (t.productId.empty()) t.productId = pit->first;
+                break;
+            }
+        }
+        if (it == products_.end()) {
+            for (const auto& [cpid, ctid] : cloudTitleOf_) {
+                if (ctid == titleId) {
+                    it = products_.find(cpid);
+                    if (it != products_.end()) {
+                        if (t.productId.empty()) t.productId = cpid;
+                        break;
+                    }
+                }
+            }
+        }
+        if (it == products_.end()) {
+            for (const auto& g : kKnownCloudGames) {
+                if (g.cloudTitleId && titleId == g.cloudTitleId) {
+                    if (t.productId.empty()) t.productId = g.productId;
+                    if (t.name.empty() && g.fallbackTitle) t.name = g.fallbackTitle;
+                    if (t.publisher.empty() && g.publisher) t.publisher = g.publisher;
+                    if (t.tileUrl.empty() && g.tileUrl) t.tileUrl = g.tileUrl;
+                    if (t.heroUrl.empty() && g.heroUrl) t.heroUrl = g.heroUrl;
+                    if (t.description.empty() && g.description) t.description = g.description;
+                    break;
+                }
+            }
+        }
+    }
     const xcloud::Product& p = (it != products_.end()) ? it->second : s_dummy;
     if (t.titleId.empty() || t.titleId == "None") {
         auto ct = cloudTitleOf_.find(productId);
@@ -459,6 +492,15 @@ std::vector<ui::GameRow> Library::rows() const {
         friendsRow.gamePassBadges = false;
         friendsRow.isGrid = false;
         friendsRow.tiles = friendsTiles_;
+        for (auto& t : friendsRow.tiles) {
+            ui::GameTile fresh = tile(t.productId, t.titleId);
+            if (!fresh.heroUrl.empty()) t.heroUrl = fresh.heroUrl;
+            if (!fresh.description.empty() && t.description.empty()) t.description = fresh.description;
+            if (!fresh.name.empty() && t.name.empty()) t.name = fresh.name;
+            if (!fresh.tileUrl.empty() && t.tileUrl.empty()) t.tileUrl = fresh.tileUrl;
+            if (!fresh.publisher.empty() && t.publisher.empty()) t.publisher = fresh.publisher;
+            if (!fresh.categories.empty() && t.categories.empty()) t.categories = fresh.categories;
+        }
 
         // Place right after "Jump back in" if present, otherwise at index 0
         size_t insertIdx = 0;
@@ -1350,14 +1392,23 @@ void Library::loadFriends(const std::string& xblAuth, const Changed& changed, co
     if (!xcloud::fetchFriendsPresence(xblAuth, presence, err, language_)) return;
     if (stop && *stop) return;
 
-    // Map Xbox Live Title ID -> Store Product ID
+    // Map Xbox Live Title ID / Cloud Title ID -> Store Product ID
     std::map<std::string, std::string> productByXbox;
     for (const auto& [pid, xid] : xboxTitleOf_) {
         if (!xid.empty()) productByXbox[xid] = pid;
     }
     for (const auto& [pid, prod] : products_) {
+        productByXbox[pid] = pid;
         if (!prod.xboxTitleId.empty() && !productByXbox.count(prod.xboxTitleId)) {
             productByXbox[prod.xboxTitleId] = pid;
+        }
+        if (!prod.xcloudTitleId.empty() && !productByXbox.count(prod.xcloudTitleId)) {
+            productByXbox[prod.xcloudTitleId] = pid;
+        }
+    }
+    for (const auto& [pid, cid] : cloudTitleOf_) {
+        if (!cid.empty() && !productByXbox.count(cid)) {
+            productByXbox[cid] = pid;
         }
     }
 
@@ -1377,9 +1428,29 @@ void Library::loadFriends(const std::string& xblAuth, const Changed& changed, co
     }
 
     std::vector<ui::GameTile> tiles;
+    std::vector<std::string> needDetails;
     for (auto& [pid, friendsList] : friendsByProduct) {
         ui::GameTile t = tile(pid);
         if (t.productId.empty() || !t.playable) continue;
+        if (t.heroUrl.empty()) {
+            auto pit = products_.find(pid);
+            if (pit != products_.end() && !pit->second.heroUrl.empty()) {
+                t.heroUrl = pit->second.heroUrl;
+            } else {
+                for (const auto& [otherPid, otherProd] : products_) {
+                    if (!otherProd.heroUrl.empty() &&
+                        ((!t.titleId.empty() && otherProd.xcloudTitleId == t.titleId) ||
+                         (!t.xboxTitleId.empty() && otherProd.xboxTitleId == t.xboxTitleId))) {
+                        t.heroUrl = otherProd.heroUrl;
+                        if (t.description.empty()) t.description = otherProd.description;
+                        break;
+                    }
+                }
+            }
+        }
+        if (t.heroUrl.empty() && !pid.empty()) {
+            needDetails.push_back(pid);
+        }
         t.friends = std::move(friendsList);
         tiles.push_back(std::move(t));
     }
@@ -1388,6 +1459,17 @@ void Library::loadFriends(const std::string& xblAuth, const Changed& changed, co
     if (!friendsTiles_.empty()) {
         XC_LOGI("library: %zu friends playing %zu accessible games now", presence.size(), friendsTiles_.size());
         changed();
+        if (!needDetails.empty()) {
+            fetchFull(needDetails, changed, stop);
+            for (auto& t : friendsTiles_) {
+                if (t.heroUrl.empty()) {
+                    auto fresh = tile(t.productId, t.titleId);
+                    if (!fresh.heroUrl.empty()) t.heroUrl = fresh.heroUrl;
+                    if (!fresh.description.empty() && t.description.empty()) t.description = fresh.description;
+                }
+            }
+            changed();
+        }
     }
 }
 

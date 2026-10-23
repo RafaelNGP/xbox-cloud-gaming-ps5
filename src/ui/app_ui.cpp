@@ -104,6 +104,8 @@ int posOf(const std::vector<SettingsRowPos>& rows, int row) {
 constexpr int kGridPitchY = 300;
 constexpr int kLibraryCols = 6;
 constexpr int kResultCols = 4;
+// Keeps the focused grid row on screen: scrolls once it passes the second row.
+inline float gridTarget(int focus, int cols) { return static_cast<float>(std::max(0, focus / cols - 1) * kGridPitchY); }
 constexpr int kGridTop = 236;       // y of the first card row (search results)
 constexpr int kLibraryTop = 160;    // y where "Your games" starts (its first heading)
 constexpr int kResultsX = 760;
@@ -398,7 +400,7 @@ void AppUi::setProfile(const std::string& gamertag, const std::string& gamerpicU
 void AppUi::setSubscription(const std::string& plan) {
     std::lock_guard<std::mutex> lock(mutex_);
     subscription_ = plan;
-    if (searching_) runSearch();
+    if (searching_) runSearch(true);
     dirty_ = true;
 }
 
@@ -412,7 +414,7 @@ void AppUi::setMembership(bool member) {
 void AppUi::setRows(std::vector<GameRow> rows) {
     std::lock_guard<std::mutex> lock(mutex_);
     allRows_ = std::move(rows);
-    rebuild();
+    rebuild(true);
 }
 
 void AppUi::setRowsLocked(std::vector<GameRow> rows) {
@@ -461,7 +463,7 @@ void AppUi::setOwned(std::vector<GameTile> owned, std::vector<GameTile> purchasa
     allOwned_ = std::move(owned);
     allPurchasable_ = std::move(purchasable);
     ownedKnown_ = known;
-    rebuild();
+    rebuild(true);
 }
 
 namespace {
@@ -566,7 +568,7 @@ void AppUi::rebuild(bool keepPosition) {
         for (int i = 0; libraryTile(i); ++i)
             if (libraryTile(i)->productId == focused) gridFocus_ = i;
     }
-    if (searching_) runSearch();
+    if (searching_) runSearch(true);
     refreshDetail();
     dirty_ = true;
 }
@@ -621,7 +623,7 @@ void AppUi::setPrefs(const std::vector<std::string>& hidden, LibrarySort sort, c
     favorites_ = std::set<std::string>(favorites.begin(), favorites.end());
     wishlist_ = std::set<std::string>(wishlist.begin(), wishlist.end());
     librarySort_ = sort;
-    rebuild();
+    rebuild(true);
 }
 
 void AppUi::setPlaytime(int64_t remainingSeconds, int64_t maxSeconds) {
@@ -712,9 +714,7 @@ void AppUi::setSearchPools(std::vector<GameTile> gamePass, std::vector<GameTile>
     std::lock_guard<std::mutex> lock(mutex_);
     gamePassPool_ = std::move(gamePass);
     libraryPool_ = std::move(library);
-    int keep = resultFocus_;
-    rebuild();  // hidden games may be in the pools only
-    if (searching_) resultFocus_ = std::min(keep, std::max(0, static_cast<int>(results_.size()) - 1));
+    rebuild(true);  // hidden games may be in the pools only; keep position in search and library
 }
 
 void AppUi::setRegionLatency(std::map<std::string, int> ms) {
@@ -728,8 +728,8 @@ void AppUi::setPrices(const std::map<std::string, PriceInfo>& prices) {
     for (const auto& [id, p] : prices) prices_[id] = p;
     // A list ordered or filtered by price fills in as prices arrive (not
     // while the user moves through it).
-    if (searching_ && searchOnKeys_ && tab_ == Tab::Library && (filterCheapest_ || filterFree_ || filterWishlist_))
-        runSearch();
+    if (searching_ && tab_ == Tab::Library && (filterCheapest_ || filterFree_ || filterWishlist_))
+        runSearch(true);
     dirty_ = true;
 }
 
@@ -775,6 +775,59 @@ std::string AppUi::detailWanted(uint64_t nowMs) {
     detailAskedFor_ = detail_.productId;
     detailAskedAt_ = nowMs;
     return detail_.productId;
+}
+
+std::string AppUi::heroWanted(uint64_t nowMs) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (screen_ != Screen::Home || searching_ || tab_ != Tab::GamePass) return {};
+    const GameTile* focus = focusedTile();
+    if (!focus || !focus->heroUrl.empty()) return {};
+
+    std::string pid = focus->productId;
+    if (pid.empty() && !focus->titleId.empty()) {
+        for (const auto* list : {&gamePassPool_, &libraryPool_, &allOwned_, &allPurchasable_}) {
+            for (const auto& t : *list) {
+                if (!t.productId.empty() && t.titleId == focus->titleId) {
+                    pid = t.productId;
+                    break;
+                }
+            }
+            if (!pid.empty()) break;
+        }
+        if (pid.empty()) {
+            for (const auto& row : allRows_) {
+                for (const auto& t : row.tiles) {
+                    if (!t.productId.empty() && t.titleId == focus->titleId) {
+                        pid = t.productId;
+                        break;
+                    }
+                }
+                if (!pid.empty()) break;
+            }
+        }
+        if (!pid.empty()) {
+            if (focusRow_ >= 0 && focusRow_ < static_cast<int>(rows_.size())) {
+                int col = focusCol_[static_cast<size_t>(focusRow_)];
+                if (col >= 0 && col < static_cast<int>(rows_[static_cast<size_t>(focusRow_)].tiles.size())) {
+                    rows_[static_cast<size_t>(focusRow_)].tiles[static_cast<size_t>(col)].productId = pid;
+                }
+            }
+            if (focusRow_ >= 0 && focusRow_ < static_cast<int>(allRows_.size())) {
+                int col = focusCol_[static_cast<size_t>(focusRow_)];
+                if (col >= 0 && col < static_cast<int>(allRows_[static_cast<size_t>(focusRow_)].tiles.size())) {
+                    allRows_[static_cast<size_t>(focusRow_)].tiles[static_cast<size_t>(col)].productId = pid;
+                }
+            }
+        }
+    }
+    if (pid.empty()) return {};
+
+    auto it = detailInfo_.find(pid);
+    if (it != detailInfo_.end() && !it->second.heroUrl.empty()) return {};
+    if (pid == heroAskedFor_ && nowMs - heroAskedAt_ < 5000) return {};
+    heroAskedFor_ = pid;
+    heroAskedAt_ = nowMs;
+    return pid;
 }
 
 std::string AppUi::queueWanted(uint64_t nowMs) {
@@ -830,20 +883,68 @@ std::string AppUi::tileName(const std::string& productId) const {
     return {};
 }
 
+void AppUi::syncHeroToRowsLocked(const std::string& productId, const std::string& titleId, const std::string& heroUrl,
+                                 const std::string& description, const std::string& publisher,
+                                 const std::vector<std::string>& categories) {
+    // Caller holds mutex_.
+    if (productId.empty() && titleId.empty()) return;
+    auto updateTile = [&](GameTile& t) {
+        bool match = (!productId.empty() && t.productId == productId) ||
+                     (!titleId.empty() && t.titleId == titleId);
+        if (match) {
+            if (t.productId.empty() && !productId.empty()) t.productId = productId;
+            if (t.titleId.empty() && !titleId.empty()) t.titleId = titleId;
+            if (!heroUrl.empty()) t.heroUrl = heroUrl;
+            if (!description.empty() && t.description.empty()) t.description = description;
+            if (!publisher.empty() && t.publisher.empty()) t.publisher = publisher;
+            if (!categories.empty() && t.categories.empty()) t.categories = categories;
+        }
+    };
+    for (auto& row : rows_) {
+        for (auto& t : row.tiles) updateTile(t);
+    }
+    for (auto& row : allRows_) {
+        for (auto& t : row.tiles) updateTile(t);
+    }
+    for (auto* list : {&owned_, &purchasable_, &allOwned_, &allPurchasable_, &gamePassPool_, &libraryPool_, &results_}) {
+        for (auto& t : *list) updateTile(t);
+    }
+}
+
 void AppUi::setDetailInfo(const std::string& productId, const std::string& description, const std::string& publisher,
                           const std::vector<std::string>& categories, const std::string& heroUrl,
                           const std::string& ratingAge, const std::string& ratingSystem,
                           const std::vector<std::string>& ratingDescriptors) {
     std::lock_guard<std::mutex> lock(mutex_);
     detailInfo_[productId] = {description, publisher, heroUrl, categories, ratingAge, ratingSystem, ratingDescriptors};
-    if (detail_.productId != productId) return;
-    if (!description.empty()) detail_.description = description;
-    if (!publisher.empty()) detail_.publisher = publisher;
-    if (!categories.empty()) detail_.categories = categories;
-    if (!heroUrl.empty()) detail_.heroUrl = heroUrl;
-    if (!ratingAge.empty()) detail_.ratingAge = ratingAge;
-    if (!ratingSystem.empty()) detail_.ratingSystem = ratingSystem;
-    if (!ratingDescriptors.empty()) detail_.ratingDescriptors = ratingDescriptors;
+    std::string matchingTitleId;
+    if (detail_.productId == productId || (!detail_.titleId.empty() && !productId.empty() && detail_.productId.empty())) {
+        if (detail_.productId.empty()) detail_.productId = productId;
+        if (!description.empty()) detail_.description = description;
+        if (!publisher.empty()) detail_.publisher = publisher;
+        if (!categories.empty()) detail_.categories = categories;
+        if (!heroUrl.empty()) detail_.heroUrl = heroUrl;
+        if (!ratingAge.empty()) detail_.ratingAge = ratingAge;
+        if (!ratingSystem.empty()) detail_.ratingSystem = ratingSystem;
+        if (!ratingDescriptors.empty()) detail_.ratingDescriptors = ratingDescriptors;
+        matchingTitleId = detail_.titleId;
+    }
+    syncHeroToRowsLocked(productId, matchingTitleId, heroUrl, description, publisher, categories);
+    if (!ratingAge.empty() || !ratingSystem.empty() || !ratingDescriptors.empty()) {
+        auto updateRating = [&](GameTile& t) {
+            if (t.productId == productId || (!matchingTitleId.empty() && t.titleId == matchingTitleId)) {
+                if (!ratingAge.empty() && t.ratingAge.empty()) t.ratingAge = ratingAge;
+                if (!ratingSystem.empty() && t.ratingSystem.empty()) t.ratingSystem = ratingSystem;
+                if (!ratingDescriptors.empty() && t.ratingDescriptors.empty()) t.ratingDescriptors = ratingDescriptors;
+            }
+        };
+        for (auto& row : rows_) for (auto& t : row.tiles) updateRating(t);
+        for (auto& row : allRows_) for (auto& t : row.tiles) updateRating(t);
+        for (auto* list : {&owned_, &purchasable_, &allOwned_, &allPurchasable_, &gamePassPool_, &libraryPool_, &results_}) {
+            for (auto& t : *list) updateRating(t);
+        }
+    }
+    if (searching_ && (filterMode_ || filterLanguage_)) runSearch(true);
     dirty_ = true;
 }
 
@@ -1090,12 +1191,19 @@ static bool matchSearchWord(const std::string& name, const std::string& word) {
     return false;
 }
 
-void AppUi::runSearch() {
+void AppUi::runSearch(bool keepPosition) {
     // Caller holds mutex_. The typed words narrow by name; the filters by
     // price and console. With filters and no words: every game that passes.
+    std::string focusedProductId;
+    std::string focusedTitleId;
+    int oldFocus = resultFocus_;
+    float oldScrollVal = resultScroll_.value;
+    if (keepPosition && resultFocus_ >= 0 && resultFocus_ < static_cast<int>(results_.size())) {
+        focusedProductId = results_[static_cast<size_t>(resultFocus_)].productId;
+        focusedTitleId = results_[static_cast<size_t>(resultFocus_)].titleId;
+    }
+
     results_.clear();
-    resultFocus_ = 0;
-    resultScroll_ = Anim{};
     std::string q = fold(query_);
     std::vector<std::string> words;
     for (size_t i = 0; i < q.size();) {
@@ -1105,7 +1213,11 @@ void AppUi::runSearch() {
         i = j + 1;
     }
     bool filtering = anyFilter();
-    if (words.empty() && !filtering) return;
+    if (words.empty() && !filtering) {
+        resultFocus_ = 0;
+        resultScroll_ = Anim{};
+        return;
+    }
     std::string compact = withoutSpaces(q);
     static const char* kConsoleCodes[] = {"", "XS", "ONE", "360"};
     struct Hit {
@@ -1199,10 +1311,35 @@ void AppUi::runSearch() {
     });
     size_t max = words.empty() ? kMaxFilterResults : kMaxResults;
     for (size_t i = 0; i < hits.size() && i < max; ++i) results_.push_back(*hits[i].tile);
+    if (keepPosition && !results_.empty()) {
+        int newFocus = -1;
+        if (!focusedProductId.empty() || !focusedTitleId.empty()) {
+            for (size_t i = 0; i < results_.size(); ++i) {
+                if ((!focusedProductId.empty() && results_[i].productId == focusedProductId) ||
+                    (!focusedTitleId.empty() && results_[i].titleId == focusedTitleId)) {
+                    newFocus = static_cast<int>(i);
+                    break;
+                }
+            }
+        }
+        if (newFocus >= 0) {
+            resultFocus_ = newFocus;
+        } else {
+            resultFocus_ = std::min(oldFocus, static_cast<int>(results_.size()) - 1);
+        }
+        resultScroll_.target = gridTarget(resultFocus_, kResultCols);
+        resultScroll_.value = oldScrollVal;
+    } else {
+        resultFocus_ = 0;
+        resultScroll_ = Anim{};
+    }
 }
 
 void AppUi::showHome(const std::string& toast) {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (screen_ == Screen::Details) {
+        syncHeroToRowsLocked(detail_.productId, detail_.titleId, detail_.heroUrl, detail_.description, detail_.publisher, detail_.categories);
+    }
     screen_ = Screen::Home;
     if (!caps_.console && !toast.empty()) {
         toast_ = toast;
@@ -2248,9 +2385,6 @@ bool moveInGrid(int& focus, int count, int cols, const NavInput& in) {
     return focus != before;
 }
 
-// Keeps the focused grid row on screen: scrolls once it passes the second row.
-float gridTarget(int focus, int cols) { return static_cast<float>(std::max(0, focus / cols - 1) * kGridPitchY); }
-
 }  // namespace
 
 AppUi::LibraryLayout AppUi::libraryLayout() const {
@@ -2696,6 +2830,16 @@ void AppUi::typeText(std::string_view utf8) {
 std::pair<int, int> AppUi::searchKeyFocus() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return {keyRow_, keyCol_};
+}
+
+int AppUi::searchResultFocus() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return resultFocus_;
+}
+
+bool AppUi::isSearchOnKeys() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return searchOnKeys_;
 }
 
 std::vector<int> AppUi::keyCenters(int row) const {
@@ -3221,6 +3365,9 @@ UiEvent AppUi::onMouseDown(float x, float y, int button) {
             return ev;
         }
         if (screen_ == Screen::Details || screen_ == Screen::Settings) {
+            if (screen_ == Screen::Details) {
+                syncHeroToRowsLocked(detail_.productId, detail_.titleId, detail_.heroUrl, detail_.description, detail_.publisher, detail_.categories);
+            }
             screen_ = Screen::Home;
             dirty_ = true;
             return ev;
@@ -3861,6 +4008,7 @@ UiEvent AppUi::handle(const NavInput& in) {
             if (in.r3 && !isAcquired(detail_)) toggleWishlist(detail_, ev);
             if (in.l3 && !detail_.xboxTitleId.empty()) openAchievements();
             if (in.back) {
+                syncHeroToRowsLocked(detail_.productId, detail_.titleId, detail_.heroUrl, detail_.description, detail_.publisher, detail_.categories);
                 screen_ = Screen::Home;
                 dirty_ = true;
             }
@@ -4867,7 +5015,58 @@ void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
     if (tab_ == Tab::Consoles) return drawConsoles(c, nowMs);
     const GameTile* focus = focusedTile();
     c.clear(kBg);
-    drawHero(c, nowMs, focus ? focus->heroUrl : std::string(), false);
+    std::string hero;
+    if (focus) {
+        hero = focus->heroUrl;
+        if (hero.empty() && !focus->productId.empty()) {
+            auto it = detailInfo_.find(focus->productId);
+            if (it != detailInfo_.end() && !it->second.heroUrl.empty()) {
+                hero = it->second.heroUrl;
+            }
+        }
+        if (hero.empty()) {
+            auto matchHero = [&](const GameTile& t) -> bool {
+                if (!t.heroUrl.empty()) {
+                    if (!focus->productId.empty() && t.productId == focus->productId) return true;
+                    if (!focus->titleId.empty() && t.titleId == focus->titleId) return true;
+                    if (!focus->xboxTitleId.empty() && t.xboxTitleId == focus->xboxTitleId) return true;
+                }
+                return false;
+            };
+            const GameTile* matched = nullptr;
+            for (const auto& r : rows_) {
+                for (const auto& t : r.tiles) {
+                    if (matchHero(t)) { matched = &t; break; }
+                }
+                if (matched) break;
+            }
+            if (!matched) {
+                for (const auto& r : allRows_) {
+                    for (const auto& t : r.tiles) {
+                        if (matchHero(t)) { matched = &t; break; }
+                    }
+                    if (matched) break;
+                }
+            }
+            if (!matched) {
+                for (const auto* list : {&gamePassPool_, &libraryPool_, &allOwned_, &allPurchasable_}) {
+                    for (const auto& t : *list) {
+                        if (matchHero(t)) { matched = &t; break; }
+                    }
+                    if (matched) break;
+                }
+            }
+            if (matched) {
+                hero = matched->heroUrl;
+                syncHeroToRowsLocked(matched->productId, matched->titleId, matched->heroUrl,
+                                     matched->description, matched->publisher, matched->categories);
+            }
+        }
+        if (!hero.empty()) {
+            syncHeroToRowsLocked(focus->productId, focus->titleId, hero);
+        }
+    }
+    drawHero(c, nowMs, hero, false);
 
     if (rows_.empty()) {
         drawCentered(c, fonts_.semibold, tr(Str::NoGames), 500, 32, kGray);
