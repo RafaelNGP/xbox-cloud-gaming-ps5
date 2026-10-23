@@ -4,7 +4,7 @@ Where PSBox Cloud Gaming goes next, most valuable first. Each item says why it
 matters, what "done" looks like, and how it is measured on the console.
 Status: **next** (being worked on), **planned**, **later**, **dropped**.
 
-Last update: 2026-10-23, v1.5.1.
+Last update: 2026-10-23, v1.5.2.
 
 ## Now
 
@@ -367,6 +367,13 @@ A browser-based visual layout editor embedded directly into the WebUI under the 
 
 ## Done
 
+- **v1.5.2**:
+  - Universal store acquisition engine without loading spinner loop, immediate local persistence (`mine`/`owned_`), and recent-first sorting on boot.
+  - Universal cross-gen deduplication (Xbox Series X|S prioritized over Xbox One) and removal of PC-only titles.
+  - Strict compliance with Microsoft SIGL shelf feeds and enriched Call of Duty artwork/metadata.
+  - Splash screen locks user inputs until authentication completes, preventing premature interactions.
+  - Eliminated false "24 new games" notification toast and sanitized logs with duplicate suppression.
+  - WebUI virtual controller ABXY buttons kept static and stable; search cursor focus stabilization; friends shelf hero art.
 - **v1.5.1**:
   - Restored full "My Games" / owned games list (`owned_`), resolving regression where only Call of Duty and Fortnite appeared.
   - Eliminated duplicate Call of Duty entries in user library while keeping Modern Warfare 4 and Warzone playable.

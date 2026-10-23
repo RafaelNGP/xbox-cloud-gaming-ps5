@@ -1,4 +1,27 @@
 <!-- LANG:PT -->
+## Novidades e Correções no v1.5.2
+
+### 🛍️ Aquisição Universal de Jogos Gratuitos e Persistência Imediata
+- **Engine Universal de Aquisição**: Aquisição direta na loja para qualquer jogo gratuito ou de catálogo sem travar em loops de loading ou requisições pendentes.
+- **Persistência Imediata na Biblioteca**: Títulos recém-adquiridos são imediatamente gravados no cache local (`mine` / `owned_`) e injetados na lista "Meus jogos" sem necessidade de reiniciar.
+- **Ordenação por Recentes no Boot**: A biblioteca no boot agora respeita a ordem de recência preservada pelo cache local.
+
+### 🎯 Filtros Estritos de Catálogo e Deduplicação Cross-Gen
+- **Deduplicação Universal Series X|S > Xbox One**: Para jogos cross-gen disponíveis em ambas as versões, a versão Xbox Series X|S tem prioridade absoluta, evitando títulos duplicados na biblioteca e no catálogo.
+- **Remoção de Títulos Exclusivos de PC**: Jogos exclusivos de PC sem suporte a streaming de console são rigorosamente filtrados do feed.
+- **Respeito Estrito aos Feeds SIGL**: Cada estante (como 'Novidades', 'Mais Populares', etc.) agora reflete fielmente o feed SIGL oficial da Microsoft sem contaminações.
+- **Artes e Metadados de Call of Duty**: Suporte completo para capas hero, logos e metadados oficiais dos jogos da franquia Call of Duty (MW4, Warzone, BO6).
+
+### 🛡️ Splash Screen Protegida e Fim do Falso Popup
+- **Splash Screen com Input Lock**: A tela de inicialização segura o usuário com inputs travados até que a autenticação e carregamento inicial estejam 100% prontos, prevenindo toques acidentais e race conditions.
+- **Eliminação do Falso Popup de "24 Novos Jogos"**: Corrigido o cálculo delta de novos jogos no login que reportava falsamente 24 jogos adicionados devido a IDs de teste/placeholder.
+- **Higienização Rigorosa de Logs**: Supressão de logs duplicados e ruídos em `xcloud.log`, mantendo métricas de rede, áudio e vídeo legíveis.
+
+### 🎮 WebUI Estável & Polimento de Navegação
+- **WebUI ABXY Estáticos**: Botões ABXY do controle virtual touch permanecem perfeitamente ancorados e estáticos durante interações.
+- **Estabilidade do Cursor na Busca**: O foco de navegação por D-pad/teclado na tela de busca não perde mais a posição ao alternar entre resultados.
+- **Arte Hero na Estante de Amigos**: Exibição da arte promocional Hero personalizada na estante de jogos dos amigos.
+
 ## Novidades e Correções no v1.5.1
 
 ### 🎮 Restauração Completa da Lista "Meus jogos"
@@ -45,6 +68,29 @@
 - **Alinhamento Perfeito**: Textos, seletores e chevrons perfeitamente alinhados à direita no menu de configurações.
 
 <!-- LANG:EN -->
+## What's New and Fixed in Version 1.5.2
+
+### 🛍️ Universal Free Game Acquisition & Instant Persistence
+- **Universal Store Acquisition Engine**: One-click direct acquisition for any free store title without loading spinner deadlocks or pending request stalls.
+- **Immediate Library Persistence**: Newly claimed games are instantly persisted to local storage (`mine` / `owned_`) and populated into "My Games" without needing an app restart.
+- **Recent-First Ordering at Boot**: Local cache hydration on startup accurately preserves and applies "Recent First" ordering.
+
+### 🎯 Strict Catalog Filtering & Cross-Gen Deduplication
+- **Universal Cross-Gen Deduplication (Series X|S > One)**: Dual-generation titles prioritize Xbox Series X|S cloud offerings, eliminating duplicated tiles across catalog feeds and library.
+- **PC-Only Game Filtering**: Non-streamable PC titles are strictly excluded from catalog shelves.
+- **Strict SIGL Feed Compliance**: Curated shelves faithfully mirror Microsoft SIGL feeds without cross-shelf contamination.
+- **Call of Duty Artwork & Metadata**: Full support for official hero art, logos, and descriptions for Call of Duty titles (MW4, Warzone, BO6).
+
+### 🛡️ Guarded Splash Screen & False Popup Elimination
+- **Guarded Splash Screen with Input Lock**: Startup splash retains user focus with locked inputs until sign-in and initial catalog sync complete, preventing premature input race conditions.
+- **Eliminated False "24 New Games" Popup**: Fixed delta sync count calculation that erroneously alerted users about 24 new games on fresh boot.
+- **Rigorous Log Sanitization**: Deduplication and noise filtering in `xcloud.log`, keeping telemetry, audio, and decode metrics crystal clear.
+
+### 🎮 Stable WebUI & Navigation Polish
+- **Static WebUI ABXY Layout**: Virtual touch controller ABXY layout remains solidly anchored and stable during touch gestures.
+- **Search Cursor Stability**: D-pad and virtual keyboard navigation in the search screen reliably retains tile focus.
+- **Friends Shelf Hero Artwork**: Friends shelf properly preserves and renders rich hero artwork.
+
 ## What's New and Fixed in Version 1.5.1
 
 ### 🎮 Full Restoration of "My Games" / Owned Titles
