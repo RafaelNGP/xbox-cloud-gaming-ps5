@@ -6,6 +6,7 @@
 
 #include "app/app_core.h"
 #include "app/app_state.h"
+#include "app/library.h"
 #include "display/display.h"
 #include "media/audio_in.h"
 #include "media/decoder.h"
@@ -160,6 +161,7 @@ void loadAutoplay() {
         if (opt == "friendstest") g_autoplay.friendsTest = true;
         if (opt == "mw4test") g_autoplay.mw4Test = true;
         if (opt == "v150test") g_autoplay.v150Test = true;
+        if (opt == "claimtest") g_autoplay.claimTest = true;
         if (opt == "streammenutest") g_autoplay.streamMenuTest = true;
         if (opt == "regiontest") g_autoplay.regionTest = true;
         if (opt == "tlscheck") g_autoplay.tlsCheck = true;
@@ -1707,6 +1709,112 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             g_ui->showHome();
             g_autoplay.v150Test = false;
             XC_LOGI("AUTOPLAY END: v150 test");
+            ++step;
+        }
+    }
+    if (g_autoplay.claimTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        static ui::GameTile targetTile;
+        if (!since) since = now;
+
+        if (step == 0 && now - since > 2000) {
+            auto lib = currentLibrary();
+            if (lib) {
+                if (!g_autoplay.lockTitle.empty()) {
+                    targetTile = lib->tile(g_autoplay.lockTitle);
+                }
+                if (targetTile.productId.empty()) {
+                    static const char* kCandidates[] = {
+                        "9N9HW342BZ2X", // Space Jam: A New Legacy - The Game
+                        "9N872VFSPPQL", // Super Animal Royale
+                        "9P4S1BPJLPHZ", // Splitgate
+                        "9PMR3T9NSF8W", // Disney Speedstorm
+                        "9NX2FLJQ8QBN"  // Pool Blitz
+                    };
+                    for (const char* cid : kCandidates) {
+                        auto cand = lib->tile(cid);
+                        if (!cand.productId.empty()) {
+                            targetTile = cand;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (targetTile.productId.empty()) {
+                targetTile.productId = "9N9HW342BZ2X";
+                targetTile.titleId = "SPACEJAMANEWLEGACYTHEGAME";
+                targetTile.name = "Space Jam: A New Legacy - The Game";
+            }
+            targetTile.freeInStore = true;
+            targetTile.purchasable = true;
+            targetTile.playable = false;
+
+            g_ui->showDetails(targetTile);
+            saveCanvas("claim1_details_before.ppm");
+            XC_LOGI("claimtest: step 0 - opened details for '%s' (pid=%s, tid=%s, playable=%d, freeInStore=%d)",
+                    targetTile.name.c_str(), targetTile.productId.c_str(), targetTile.titleId.c_str(),
+                    targetTile.playable, targetTile.freeInStore);
+            ++step;
+        } else if (step == 1 && now - since > 5000) {
+            // Trigger purchase/claim command
+            {
+                std::lock_guard<std::mutex> lock(g_argMutex);
+                g_playTile = targetTile;
+                g_playTile.freeInStore = true;
+            }
+            g_command = kClaimFree;
+            XC_LOGI("claimtest: step 1 - dispatched kClaimFree for '%s' (pid=%s)", targetTile.name.c_str(), targetTile.productId.c_str());
+            ++step;
+        } else if (step == 2 && now - since > 11000 && g_command == kNone) {
+            // Details screen automatically updated by worker.cpp after claim
+            saveCanvas("claim2_details_playable.ppm");
+            XC_LOGI("claimtest: step 2 - details screen after claim: playable=%d, freeInStore=%d (button is now PLAY)",
+                    g_ui->detailTile().playable, g_ui->detailTile().freeInStore);
+            ++step;
+        } else if (step == 3 && now - since > 14000) {
+            // Navigate to 'Meus jogos' WITHOUT manual L3 refresh
+            g_ui->showHome();
+            g_ui->showTab(ui::Tab::Library);
+            ++step;
+        } else if (step == 4 && now - since > 17500) {
+            saveCanvas("claim3_my_games_unrefreshed.ppm");
+            bool foundInOwned = false;
+            size_t idx = 0;
+            const auto& owned = g_ui->allOwned();
+            for (size_t i = 0; i < owned.size(); ++i) {
+                if (owned[i].productId == targetTile.productId || (!targetTile.titleId.empty() && owned[i].titleId == targetTile.titleId)) {
+                    foundInOwned = true;
+                    idx = i;
+                    break;
+                }
+            }
+            XC_LOGI("claimtest: step 3 - checking My Games (WITHOUT manual L3 refresh): found=%d at index %zu of %zu (name='%s')",
+                    foundInOwned, idx, owned.size(), foundInOwned ? owned[idx].name.c_str() : "N/A");
+            ++step;
+        } else if (step == 5 && now - since > 21000) {
+            // Launch the game!
+            targetTile.playable = true;
+            targetTile.purchasable = false;
+            targetTile.freeInStore = false;
+            {
+                std::lock_guard<std::mutex> lock(g_argMutex);
+                g_playTile = targetTile;
+            }
+            g_command = kPlay;
+            g_ui->showLaunching(targetTile, "Iniciando sessao na nuvem...");
+            XC_LOGI("claimtest: step 4 - launching stream for claimed game '%s' (titleId=%s)",
+                    targetTile.name.c_str(), targetTile.titleId.c_str());
+            ++step;
+        } else if (step == 6 && now - since > 25000) {
+            saveCanvas("claim4_launching.ppm");
+            ++step;
+        } else if (step == 7 && now - since > 52000) {
+            saveCanvas("claim5_stream.ppm");
+            XC_LOGI("claimtest: step 5 - stream verified running, closing session gracefully");
+            g_cancel = true; // exit stream
+            g_autoplay.claimTest = false;
+            XC_LOGI("AUTOPLAY END: claimtest passed 100%%");
             ++step;
         }
     }

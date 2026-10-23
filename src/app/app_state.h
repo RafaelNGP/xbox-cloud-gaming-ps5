@@ -57,6 +57,7 @@ void updateLibraryFavorites(const std::vector<std::string>& favorites);
 void updateLibraryWishlist(const std::vector<std::string>& wishlist);
 // Sets the initial library loaded from offline cache before worker thread runs.
 void setInitialLibrary(std::shared_ptr<Library> lib);
+std::shared_ptr<Library> currentLibrary();
 
 // The running stream, for the input thread.
 extern std::mutex g_playerMutex;

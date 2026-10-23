@@ -151,6 +151,11 @@ void setInitialLibrary(std::shared_ptr<Library> lib) {
     s_library = std::move(lib);
 }
 
+std::shared_ptr<Library> currentLibrary() {
+    std::lock_guard<std::mutex> lock(s_libraryMutex);
+    return s_library;
+}
+
 namespace {
 
 // Streams until the player ends or the user leaves; returns a status line.
@@ -1055,7 +1060,7 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
         !g_autoplay.consolesTab && !g_autoplay.settingsTest && !g_autoplay.keysTest && !g_autoplay.padMapTest &&
         !g_autoplay.imeTest && !g_autoplay.vibeTest && !g_autoplay.searchTest && !g_autoplay.quickTest && !g_autoplay.crashTest && !g_autoplay.scrollTest &&
         !g_autoplay.gridTest && !g_autoplay.gameSettingsTest && !g_autoplay.publisherTest && !g_autoplay.friendsTest &&
-        !g_autoplay.regionTest && !g_autoplay.mw4Test && !g_autoplay.v150Test) {
+        !g_autoplay.regionTest && !g_autoplay.mw4Test && !g_autoplay.v150Test && !g_autoplay.claimTest) {
         platform::sleepMs(6000);  // leave the home screen up for ui.ppm
         ui::GameTile tile;
         tile.titleId = g_autoplay.title;

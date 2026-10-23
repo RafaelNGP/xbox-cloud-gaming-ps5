@@ -55,6 +55,7 @@ struct Autoplay {
     bool libraryTest = false;    // open "Your games", save it at 4 s and 25 s
     bool mw4Test = false;        // "mw4test": search and open details for Call of Duty MW4
     bool v150Test = false;       // "v150test": verify new settings order and search gratis filter
+    bool claimTest = false;      // "claimtest": test free game acquisition, library persistence, and game launch
     bool vkTest = false;         // the GPU presenting instead of the CPU display
     bool cpuDisplay = false;     // the CPU display even where the GPU comes up
     int upscaler = -1;           // ai: Anime4K instead of the setting

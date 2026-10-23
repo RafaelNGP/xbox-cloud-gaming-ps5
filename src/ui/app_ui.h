@@ -460,6 +460,8 @@ public:
     std::vector<Filter> filterRow(int row) const;
     bool isAcquired(const GameTile& t) const;
     bool isFreeGame(const GameTile& t) const;
+    const GameTile& detailTile() const { return detail_; }
+    const std::vector<GameTile>& allOwned() const { return allOwned_; }
     // Autoplay tests: where the focus is ("Game Pass row 2 card 6", ...).
     std::string focusDescription() const;
     void invalidate();
