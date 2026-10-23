@@ -36,6 +36,8 @@
 
 namespace xc::app {
 
+void dedupeByTitle(std::vector<ui::GameTile>& tiles);
+
 class Library {
 public:
     // Called whenever anything the getters return changed.
@@ -114,6 +116,8 @@ private:
         bool recent = false;  // "Jump back in"
     };
     std::vector<ui::GameTile> tiles(const std::vector<Item>& items) const;
+    bool isPcOnly(const std::string& productId) const;
+    bool hasStreamingSupport(const ui::GameTile& t) const;
     // Full details (hero art, description) for `ids` lacking them, in batches,
     // `changed` after each; false on a network error.
     bool fetchFull(const std::vector<std::string>& ids, const Changed& changed, const std::atomic<bool>* stop,

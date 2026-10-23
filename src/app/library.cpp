@@ -56,6 +56,7 @@ json::Value productToJson(const xcloud::Product& p) {
         for (const auto& d : p.ratingDescriptors) rdesc.push(d);
         v.set("rdesc", rdesc);
     }
+    if (p.isPcOnly) v.set("isPc", true);
     return v;
 }
 
@@ -72,6 +73,7 @@ xcloud::Product productFromJson(const std::string& id, const json::Value& v) {
     p.posterUrl = v["poster"].str();
     p.heroUrl = v["hero"].str();
     for (const auto& c : v["categories"].items()) p.categories.push_back(xcloud::categoryName(c.str()));
+    p.isPcOnly = v["isPc"].asBool(false);
     p.detailed = v["d"].asBool(false);
     // Details from before their date was kept count from now (not all due at once).
     p.detailedAt = v["at"].asInt(static_cast<int64_t>(std::time(nullptr)));
@@ -95,6 +97,14 @@ json::Value itemsToJson(const std::vector<std::pair<std::string, std::string>>& 
     return a;
 }
 
+bool isStoreBigId(const std::string& s) {
+    if (s.size() != 12) return false;
+    for (char c : s) {
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) return false;
+    }
+    return true;
+}
+
 bool namesSeries(const std::string& title) {
     return title.find("Series X|S") != std::string::npos || title.find("Series X/S") != std::string::npos;
 }
@@ -114,21 +124,63 @@ int pairVersion(const xcloud::Product& p) {
     if (c.find("XBOXSERIES") != std::string::npos || c.find("SERIESXS") != std::string::npos || endsWith(c, "XS"))
         return 1;
     if (namesSeries(p.title) || endsWith(p.title, "X|S") || endsWith(p.title, "X/S")) return 1;
+    if (p.title.find("Xbox One") != std::string::npos || p.title.find("Xbox 360") != std::string::npos) return -1;
     return 0;
 }
 
-// Editions of one game ("Forza Horizon 5", "... Standard Edition") are
-// separate products that start the same cloud title: keep one, the shortest
-// name, where the first one was.
+static int tileQualityScore(const ui::GameTile& t) {
+    int score = 0;
+    // Platform priority: Xbox Series X|S gets absolute highest priority over Xbox One and 360
+    if (t.platform == xcloud::kPlatformSeries || t.platform == "Series" || t.platform == "XS") {
+        score += 10000;
+    } else if (namesSeries(t.name) || endsWith(t.name, "X|S") || endsWith(t.name, "X/S")) {
+        score += 10000;
+    } else if (t.titleId.find("XBOXSERIES") != std::string::npos ||
+               t.titleId.find("SERIESXS") != std::string::npos ||
+               endsWith(t.titleId, "XS")) {
+        score += 10000;
+    } else if (t.platform == xcloud::kPlatformOne || t.platform == "XboxOne" || t.platform == "ONE") {
+        score += 5000;
+    } else if (t.titleId.find("XBOXONE") != std::string::npos || t.name.find("Xbox One") != std::string::npos) {
+        score += 5000;
+    } else if (t.platform == xcloud::kPlatform360 || t.platform == "Xbox360" || t.platform == "360") {
+        score += 1000;
+    } else if (t.titleId.find("XBOX360") != std::string::npos || t.name.find("Xbox 360") != std::string::npos) {
+        score += 1000;
+    } else {
+        score += 3000;  // Unknown console
+    }
+
+    if (t.playable) score += 50;
+    if (t.detailed) score += 10;
+    if (!t.tileUrl.empty()) score += 10;
+    if (!t.heroUrl.empty()) score += 5;
+    if (!t.description.empty()) score += 5;
+
+    // Prefer shorter / cleaner title names when scores are otherwise tied
+    score -= static_cast<int>(std::min<size_t>(t.name.size(), 40));
+    return score;
+}
+
+}  // namespace
+
+// Universal deduplication: normalized base titles (stripping Xbox Series X|S,
+// Xbox One, PC, editions, etc.) and matching cloud title IDs.
+// Absolute priority to Xbox Series X|S over Xbox One; preserves playable & store capabilities.
 void dedupeByTitle(std::vector<ui::GameTile>& tiles) {
-    std::map<std::string, size_t> first;
+    std::map<std::string, size_t> keyMap;
+    std::map<std::string, size_t> tidMap;
+    std::map<std::string, size_t> xboxIdMap;
     std::vector<ui::GameTile> out;
+
     for (auto& t : tiles) {
-        std::string key = t.titleId;
-        if (t.titleId == "CALLOFDUTYHQ") {
-            // Call of Duty HQ is a unified launcher hub containing multiple distinct games:
-            // Modern Warfare 4, Warzone, Black Ops 7, Black Ops 6, etc.
-            // Dedupe only genuine duplicate editions within each experience.
+        if (t.productId.empty() || t.name.empty()) continue;
+
+        std::string norm = xcloud::normalizeBaseTitle(t.name);
+        std::string tid = t.titleId;
+
+        // Call of Duty HQ special sub-experience keying
+        if (tid == "CALLOFDUTYHQ") {
             std::string lower;
             lower.reserve(t.name.size());
             for (char c : t.name) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
@@ -136,49 +188,102 @@ void dedupeByTitle(std::vector<ui::GameTile>& tiles) {
                 lower.find("modern warfare® 4") != std::string::npos ||
                 lower.find("modern warfare iv") != std::string::npos ||
                 lower.find("call of duty 4") != std::string::npos) {
-                key = "CALLOFDUTYHQ:MW4";
+                norm = "codhq:mw4";
             } else if (lower.find("warzone") != std::string::npos) {
-                key = "CALLOFDUTYHQ:WARZONE";
+                norm = "codhq:warzone";
             } else if (lower.find("black ops 7") != std::string::npos) {
-                key = "CALLOFDUTYHQ:BO7";
+                norm = "codhq:bo7";
             } else if (lower.find("black ops 6") != std::string::npos) {
-                key = "CALLOFDUTYHQ:BO6";
+                norm = "codhq:bo6";
             } else if (lower == "call of duty" || lower == "call of duty®") {
-                key = "CALLOFDUTYHQ:HUB";
+                norm = "codhq:hub";
             } else {
-                key = "CALLOFDUTYHQ:" + t.productId;
+                norm = "codhq:" + t.productId;
             }
         }
-        auto it = first.find(key);
-        if (it == first.end()) {
-            first[key] = out.size();
+
+        size_t matchIdx = static_cast<size_t>(-1);
+
+        if (!norm.empty()) {
+            auto it = keyMap.find(norm);
+            if (it != keyMap.end()) matchIdx = it->second;
+        }
+
+        if (matchIdx == static_cast<size_t>(-1) && tid != "CALLOFDUTYHQ" && !tid.empty() && tid != "None" && !isStoreBigId(tid)) {
+            auto it = tidMap.find(tid);
+            if (it != tidMap.end()) matchIdx = it->second;
+        }
+
+        if (matchIdx == static_cast<size_t>(-1) && tid != "CALLOFDUTYHQ" && !t.xboxTitleId.empty() && !isStoreBigId(t.xboxTitleId)) {
+            auto it = xboxIdMap.find(t.xboxTitleId);
+            if (it != xboxIdMap.end()) matchIdx = it->second;
+        }
+
+        if (matchIdx == static_cast<size_t>(-1)) {
+            size_t idx = out.size();
+            if (!norm.empty()) keyMap[norm] = idx;
+            if (tid != "CALLOFDUTYHQ" && !tid.empty() && tid != "None" && !isStoreBigId(tid)) {
+                tidMap[tid] = idx;
+            }
+            if (tid != "CALLOFDUTYHQ" && !t.xboxTitleId.empty() && !isStoreBigId(t.xboxTitleId)) {
+                xboxIdMap[t.xboxTitleId] = idx;
+            }
             out.push_back(std::move(t));
         } else {
-            auto& exist = out[it->second];
+            auto& exist = out[matchIdx];
             bool anyPlayable = exist.playable || t.playable;
             bool anyPurchasable = exist.purchasable || t.purchasable;
             bool anyFree = exist.freeInStore || t.freeInStore;
-            if (t.name.size() < exist.name.size()) {
-                if (t.tileUrl.empty() && !exist.tileUrl.empty()) t.tileUrl = exist.tileUrl;
-                if (t.heroUrl.empty() && !exist.heroUrl.empty()) t.heroUrl = exist.heroUrl;
-                if (t.description.empty() && !exist.description.empty()) t.description = exist.description;
+            bool anyMkb = exist.mouseKeyboard || t.mouseKeyboard;
+
+            int scoreNew = tileQualityScore(t);
+            int scoreExist = tileQualityScore(exist);
+
+            if (scoreNew > scoreExist) {
+                // New tile is higher priority (e.g. Series X|S over Xbox One)
+                if (t.tileUrl.empty()) t.tileUrl = exist.tileUrl;
+                if (t.heroUrl.empty()) t.heroUrl = exist.heroUrl;
+                if (t.description.empty()) t.description = exist.description;
+                if (t.publisher.empty()) t.publisher = exist.publisher;
+                if (t.categories.empty()) t.categories = exist.categories;
+                if (t.ratingAge.empty()) t.ratingAge = exist.ratingAge;
+                if (t.ratingSystem.empty()) t.ratingSystem = exist.ratingSystem;
+                if (t.ratingDescriptors.empty()) t.ratingDescriptors = exist.ratingDescriptors;
+                if (t.platform.empty()) t.platform = exist.platform;
                 exist = std::move(t);
+            } else {
+                // Existing tile is higher or equal priority; absorb any metadata from new tile
+                if (exist.tileUrl.empty()) exist.tileUrl = t.tileUrl;
+                if (exist.heroUrl.empty()) exist.heroUrl = t.heroUrl;
+                if (exist.description.empty()) exist.description = t.description;
+                if (exist.publisher.empty()) exist.publisher = t.publisher;
+                if (exist.categories.empty()) exist.categories = t.categories;
+                if (exist.ratingAge.empty()) exist.ratingAge = t.ratingAge;
+                if (exist.ratingSystem.empty()) exist.ratingSystem = t.ratingSystem;
+                if (exist.ratingDescriptors.empty()) exist.ratingDescriptors = t.ratingDescriptors;
+                if (exist.platform.empty()) exist.platform = t.platform;
             }
             exist.playable = anyPlayable;
             exist.purchasable = anyPurchasable;
             exist.freeInStore = anyFree;
+            exist.mouseKeyboard = anyMkb;
+            if (!exist.detailed && !exist.description.empty() && !exist.tileUrl.empty() && !exist.heroUrl.empty()) {
+                exist.detailed = true;
+            }
+
+            if (!norm.empty()) keyMap[norm] = matchIdx;
+            if (exist.titleId != "CALLOFDUTYHQ" && !exist.titleId.empty() && exist.titleId != "None" && !isStoreBigId(exist.titleId)) {
+                tidMap[exist.titleId] = matchIdx;
+            }
+            if (exist.titleId != "CALLOFDUTYHQ" && !exist.xboxTitleId.empty() && !isStoreBigId(exist.xboxTitleId)) {
+                xboxIdMap[exist.xboxTitleId] = matchIdx;
+            }
         }
     }
     tiles = std::move(out);
 }
 
-bool isStoreBigId(const std::string& s) {
-    if (s.size() != 12) return false;
-    for (char c : s) {
-        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) return false;
-    }
-    return true;
-}
+namespace {
 
 struct KnownCloudGame {
     const char* productId;
@@ -228,36 +333,79 @@ static const KnownCloudGame kKnownCloudGames[] = {
      "18", "ClassInd", "Violência Extrema, Drogas Lícitas, Linguagem Imprópria",
      false},
     {"9N1N0NQNGK9W", "CALLOFDUTYBLACKOPS6", "1822992790", "Call of Duty®: Black Ops 6", "Activision Publishing Inc.",
-     nullptr, nullptr, nullptr, "Shooter",
+     "https://store-images.s-microsoft.com/image/apps.21616.14207097610490811.5b338e31-5c12-4d95-9a2a-2f16ceb01377.5c60a78b-cc32-4777-9141-90ebd76e88ad",
+     "https://store-images.s-microsoft.com/image/apps.28966.14207097610490811.5b338e31-5c12-4d95-9a2a-2f16ceb01377.acc0294d-61eb-49e2-a059-758d5b1227d4",
+     "https://store-images.s-microsoft.com/image/apps.5449.14207097610490811.5b338e31-5c12-4d95-9a2a-2f16ceb01377.54d31648-9587-49a6-b312-7df6ce023530",
+     "Shooter",
      "Call of Duty®: Black Ops 6 is a spy action thriller set in the early 90s, characterized by mind-bending narrative gameplay.",
      "18", "ClassInd", "Violência Extrema, Drogas Lícitas, Linguagem Imprópria",
      false},
     {"9P22THR57FV7", "CALLOFDUTYBLACKOPS6", "1822992790", "Call of Duty®: Black Ops 6 - Launcher", "Activision Publishing Inc.",
      nullptr, nullptr, nullptr, "Shooter", nullptr, "18", "ClassInd", nullptr, false},
     {"9NLZZ74TFD7P", "CALLOFDUTYMODERNWARFAREIII", "2003727579", "Call of Duty®: Modern Warfare® III", "Activision Publishing Inc.",
-     nullptr, nullptr, nullptr, "Shooter", nullptr, "18", "ClassInd", nullptr, false},
+     "https://store-images.s-microsoft.com/image/apps.44737.13702346117700120.96dcc05d-7589-4e95-abbc-4fbc3399d7ff.76cfb4be-3069-4cd2-a883-70654bf6898e",
+     "https://store-images.s-microsoft.com/image/apps.35931.13702346117700120.96dcc05d-7589-4e95-abbc-4fbc3399d7ff.bf621533-dad7-4478-8719-e8ff3da2223e",
+     "https://store-images.s-microsoft.com/image/apps.44508.13702346117700120.96dcc05d-7589-4e95-abbc-4fbc3399d7ff.aca3a7f0-6dab-4d13-be0a-c87a416eac22",
+     "Shooter",
+     "In the direct sequel to the record-breaking Call of Duty®: Modern Warfare® II, Captain Price and Task Force 141 face off against the ultimate threat.",
+     "18", "ClassInd", "Violência Extrema, Drogas Lícitas, Linguagem Imprópria", false},
     {"9PMFDKG5F9R7", "CALLOFDUTYMODERNWARFAREIII", "2003727579", "Call of Duty®: Modern Warfare® III", "Activision Publishing Inc.",
      nullptr, nullptr, nullptr, "Shooter", nullptr, "18", "ClassInd", nullptr, false},
     {"9NDKFJ6XDX2M", "CALLOFDUTYMODERNWARFAREIII", "2003727579", "Call of Duty®: Modern Warfare® III", "Activision Publishing Inc.",
      nullptr, nullptr, nullptr, "Shooter", nullptr, "18", "ClassInd", nullptr, false},
     {"9PNGFSX7S117", "CALLOFDUTYMODERNWARFAREII", "1959007243", "Call of Duty®: Modern Warfare® II", "Activision Publishing Inc.",
-     nullptr, nullptr, nullptr, "Shooter", nullptr, "18", "ClassInd", nullptr, false},
+     "https://store-images.s-microsoft.com/image/apps.62866.14349375889218622.77ec9575-f44b-4013-97c6-f9cd0bbc53f5.b1790761-1d9e-4ffd-b146-3f68bdeb949e",
+     "https://store-images.s-microsoft.com/image/apps.34778.14349375889218622.77ec9575-f44b-4013-97c6-f9cd0bbc53f5.fd60100a-bbb6-4eb3-a03c-6da8e90db089",
+     "https://store-images.s-microsoft.com/image/apps.46802.14349375889218622.77ec9575-f44b-4013-97c6-f9cd0bbc53f5.041995ec-87c2-4c88-b7a6-98dbdbb5c975",
+     "Shooter",
+     "Call of Duty®: Modern Warfare® II drops players into an unprecedented global conflict that features the return of the iconic Operators of Task Force 141.",
+     "18", "ClassInd", "Violência Extrema, Drogas Lícitas, Linguagem Imprópria", false},
     {"9N872NBW5XG5", "CALLOFDUTYMODERNWARFAREII", "1959007243", "Call of Duty®: Modern Warfare® II", "Activision Publishing Inc.",
      nullptr, nullptr, nullptr, "Shooter", nullptr, "18", "ClassInd", nullptr, false},
     {"9P7RQ1QFFF8R", "CALLOFDUTYMODERNWARFAREII", "1959007243", "Call of Duty®: Modern Warfare® II", "Activision Publishing Inc.",
      nullptr, nullptr, nullptr, "Shooter", nullptr, "18", "ClassInd", nullptr, false},
     {"9NVQBQ3F6W9W", "CALLOFDUTYMODERNWARFARE", "609700427", "Call of Duty®: Modern Warfare®", "Activision Publishing Inc.",
-     nullptr, nullptr, nullptr, "Shooter", nullptr, "18", "ClassInd", nullptr, false},
+     "https://store-images.s-microsoft.com/image/apps.52064.14393996338935986.84c4ee65-c726-49ae-925f-3dca581be2df.3e540e94-9e5a-41f5-9b00-c8f5190819f7",
+     "https://store-images.s-microsoft.com/image/apps.50528.14393996338935986.84c4ee65-c726-49ae-925f-3dca581be2df.31d66188-6781-49ce-a75a-b4247e73b89d",
+     "https://store-images.s-microsoft.com/image/apps.1926.14393996338935986.84c4ee65-c726-49ae-925f-3dca581be2df.46cd9cf0-2829-4517-a140-3d163199497f",
+     "Shooter",
+     "Experience a visceral Campaign or assemble your team in the ultimate online playground with multiple Special Ops challenges and a mix of Multiplayer maps and modes.",
+     "18", "ClassInd", "Violência Extrema, Drogas Lícitas, Linguagem Imprópria", false},
     {"C5DTJ99626K3", "CALLOFDUTYMODERNWARFARE", "609700427", "Call of Duty®: Modern Warfare®", "Activision Publishing Inc.",
-     nullptr, nullptr, nullptr, "Shooter", nullptr, "18", "ClassInd", nullptr, false},
-    {"9P7PFH4RMFZD", "CALLOFDUTYBLACKOPSCOLDWAR", "1746206771", "Call of Duty®: Black Ops Cold War", "Activision Publishing Inc.",
-     nullptr, nullptr, nullptr, "Shooter", nullptr, "18", "ClassInd", nullptr, false},
-    {"9NPLRJ9CC870", "CALLOFDUTYBLACKOPSCOLDWARXBOXSERIESXS", "1746206771", "Call of Duty®: Black Ops Cold War - Xbox Series X|S", "Activision Publishing Inc.",
-     nullptr, nullptr, nullptr, "Shooter", nullptr, "18", "ClassInd", nullptr, false},
-    {"9PHP6HF58MB5", "CALLOFDUTYVANGUARD", "1917992764", "Call of Duty®: Vanguard", "Activision Publishing Inc.",
-     nullptr, nullptr, nullptr, "Shooter", nullptr, "18", "ClassInd", nullptr, false},
-    {"9MWHTW1SF7RW", "CALLOFDUTYVANGUARDXBOXSERIESXS", "1917992764", "Call of Duty®: Vanguard - Xbox Series X|S", "Activision Publishing Inc.",
-     nullptr, nullptr, nullptr, "Shooter", nullptr, "18", "ClassInd", nullptr, false},
+     "https://store-images.s-microsoft.com/image/apps.52064.67185831113154542.823e899c-d262-40a0-91f6-eee04bdc3713.74be39c5-2d6e-4e6b-960b-7d8077da0142",
+     "https://store-images.s-microsoft.com/image/apps.50528.67185831113154542.823e899c-d262-40a0-91f6-eee04bdc3713.dd7010c6-9641-4c5a-b8b5-7eb16ddc67ea",
+     "https://store-images.s-microsoft.com/image/apps.1926.67185831113154542.823e899c-d262-40a0-91f6-eee04bdc3713.ca4b2ff5-8dc9-4774-a5f1-4e379a72cbda",
+     "Shooter",
+     "Experience a visceral Campaign or assemble your team in the ultimate online playground with multiple Special Ops challenges and a mix of Multiplayer maps and modes.",
+     "18", "ClassInd", "Violência Extrema, Drogas Lícitas, Linguagem Imprópria", false},
+    {"9P7PFH4RMFZD", "CALLOFDUTYBLACKOPSCOLDWAR", "1790482525", "Call of Duty®: Black Ops Cold War", "Activision Publishing Inc.",
+     "https://store-images.s-microsoft.com/image/apps.16401.14107985044965209.e8fed65f-093d-40d1-849f-6c564d2ad876.13b9c6b6-dddd-4f67-a303-b98250929229",
+     "https://store-images.s-microsoft.com/image/apps.25992.14107985044965209.e8fed65f-093d-40d1-849f-6c564d2ad876.89955624-8043-4f20-8620-4381e11a3546",
+     "https://store-images.s-microsoft.com/image/apps.52829.14107985044965209.e8fed65f-093d-40d1-849f-6c564d2ad876.8fe14720-2b8f-4b9c-aebf-07f1610816d5",
+     "Shooter",
+     "The iconic Black Ops series is back with Call of Duty®: Black Ops Cold War - the direct sequel to the original and fan-favorite Call of Duty®: Black Ops.\n\nWelcome to the brink. Welcome to Call of Duty®: Black Ops Cold War.",
+     "18", "ClassInd", "Violência Extrema, Drogas Lícitas, Linguagem Imprópria", false},
+    {"9NPLRJ9CC870", "CALLOFDUTYBLACKOPSCOLDWARXBOXSERIESXS", "1790482525", "Call of Duty®: Black Ops Cold War - Xbox Series X|S", "Activision Publishing Inc.",
+     "https://store-images.s-microsoft.com/image/apps.16401.13791444986287693.243003e9-8583-4df9-a0fc-2345d2f82ed4.e5e2cd4a-420a-41eb-bade-0eab002eab9c",
+     "https://store-images.s-microsoft.com/image/apps.25992.13791444986287693.243003e9-8583-4df9-a0fc-2345d2f82ed4.b477eb21-1438-49b1-bf72-a36ed8d74bb8",
+     "https://store-images.s-microsoft.com/image/apps.52829.13791444986287693.243003e9-8583-4df9-a0fc-2345d2f82ed4.92c561dc-948f-445a-ad29-5e287d884e0c",
+     "Shooter",
+     "The iconic Black Ops series is back with Call of Duty®: Black Ops Cold War - the direct sequel to the original and fan-favorite Call of Duty®: Black Ops.\n\nWelcome to the brink. Welcome to Call of Duty®: Black Ops Cold War.",
+     "18", "ClassInd", "Violência Extrema, Drogas Lícitas, Linguagem Imprópria", false},
+    {"9PHP6HF58MB5", "CALLOFDUTYVANGUARD", "1929807318", "Call of Duty®: Vanguard", "Activision Publishing Inc.",
+     "https://store-images.s-microsoft.com/image/apps.25644.14231872788446538.01bda410-79a7-42cd-a67b-497b17d840f1.b577a06e-1952-4f78-9ca8-6e43b94f985b",
+     "https://store-images.s-microsoft.com/image/apps.31712.14231872788446538.ec1df70e-1780-4ec2-90fc-de130713250f.37f86b3f-4921-4955-902e-3325f37a3e17",
+     "https://store-images.s-microsoft.com/image/apps.27881.14231872788446538.ec1df70e-1780-4ec2-90fc-de130713250f.b54d334f-52d0-45e1-ac31-c86b1d4b6ad6",
+     "Shooter",
+     "Call of Duty®: Vanguard includes a deeply engaging single player Campaign, a massive Multiplayer offering featuring over 20 maps including 16 built for core Multiplayer and an exciting new Zombies experience developed by Treyarch.",
+     "18", "ClassInd", "Violência Extrema, Drogas Lícitas, Linguagem Imprópria", false},
+    {"9MWHTW1SF7RW", "CALLOFDUTYVANGUARDXBOXSERIESXS", "1929807318", "Call of Duty®: Vanguard - Xbox Series X|S", "Activision Publishing Inc.",
+     "https://store-images.s-microsoft.com/image/apps.25644.13843233178803270.b12b929c-1b87-4fa1-900a-23a132dc9775.bdbacf51-1647-4c87-b9dc-6c455834d9bb",
+     "https://store-images.s-microsoft.com/image/apps.31712.13843233178803270.d4ae9cce-02bd-4f56-8f61-6e02568a7dfd.401708cf-3756-4e90-b73d-bd1a6d4e1c09",
+     "https://store-images.s-microsoft.com/image/apps.27881.13843233178803270.d4ae9cce-02bd-4f56-8f61-6e02568a7dfd.7b70ba8c-ba77-4fc3-af0d-cc1f87530bb0",
+     "Shooter",
+     "Call of Duty®: Vanguard includes a deeply engaging single player Campaign, a massive Multiplayer offering featuring over 20 maps including 16 built for core Multiplayer and an exciting new Zombies experience developed by Treyarch.",
+     "18", "ClassInd", "Violência Extrema, Drogas Lícitas, Linguagem Imprópria", false},
 };
 
 static void seedKnownGames(std::map<std::string, std::string>& cloudTitleOf,
@@ -270,11 +418,14 @@ static void seedKnownGames(std::map<std::string, std::string>& cloudTitleOf,
         cloudTitleOf[g.productId] = g.cloudTitleId;
         if (g.xboxTitleId && g.xboxTitleId[0]) xboxTitleOf[g.productId] = g.xboxTitleId;
         if (g.isFree) freeInStore.insert(g.productId);
-        if (std::string_view(g.productId) == "9NCPSQQD1Z66") {
+        bool isCodHub = (std::string_view(g.productId) == "9NCPSQQD1Z66" ||
+                         std::string_view(g.productId) == "9N201KQXS5BM" ||
+                         std::string_view(g.productId) == "9NNFG8BQRCXL");
+        if (isCodHub) {
             gamePass.insert(g.productId);
-        }
-        if (std::find(allGames.begin(), allGames.end(), g.productId) == allGames.end()) {
-            allGames.push_back(g.productId);
+            if (std::find(allGames.begin(), allGames.end(), g.productId) == allGames.end()) {
+                allGames.push_back(g.productId);
+            }
         }
         if (!products.count(g.productId)) {
             xcloud::Product p;
@@ -293,18 +444,23 @@ static void seedKnownGames(std::map<std::string, std::string>& cloudTitleOf,
                 p.ratingDescriptors.push_back(g.ratingDescriptors);
             }
             if (g.category && g.category[0]) p.categories.push_back(g.category);
-            p.detailed = true;
+            p.detailed = (g.description != nullptr && g.tileUrl != nullptr && g.heroUrl != nullptr);
             p.plan = xcloud::kPlanUltimate;
             products[g.productId] = std::move(p);
         } else {
             auto& p = products[g.productId];
             if (p.xcloudTitleId.empty() || p.xcloudTitleId == "None") p.xcloudTitleId = g.cloudTitleId;
+            if (p.title.empty() && g.fallbackTitle) p.title = g.fallbackTitle;
             if (p.description.empty() && g.description) p.description = g.description;
             if (p.tileUrl.empty() && g.tileUrl) p.tileUrl = g.tileUrl;
             if (p.posterUrl.empty() && g.posterUrl) p.posterUrl = g.posterUrl;
             if (p.heroUrl.empty() && g.heroUrl) p.heroUrl = g.heroUrl;
+            if (p.publisher.empty() && g.publisher) p.publisher = g.publisher;
             if (p.ratingAge.empty() && g.ratingAge) p.ratingAge = g.ratingAge;
             if (p.ratingSystem.empty() && g.ratingSystem) p.ratingSystem = g.ratingSystem;
+            if (p.categories.empty() && g.category) p.categories.push_back(g.category);
+            if (!p.detailed && !p.description.empty() && !p.tileUrl.empty() && !p.heroUrl.empty())
+                p.detailed = true;
         }
     }
 }
@@ -317,34 +473,49 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
     t.titleId = titleId;
     static const xcloud::Product s_dummy{};
     auto it = products_.find(productId);
-    if (it == products_.end() && !titleId.empty()) {
-        for (auto pit = products_.begin(); pit != products_.end(); ++pit) {
-            if (pit->second.xcloudTitleId == titleId) {
-                it = pit;
-                if (t.productId.empty()) t.productId = pit->first;
-                break;
+    if (it == products_.end()) {
+        if (!titleId.empty()) {
+            for (auto pit = products_.begin(); pit != products_.end(); ++pit) {
+                if (pit->second.xcloudTitleId == titleId) {
+                    it = pit;
+                    if (t.productId.empty()) t.productId = pit->first;
+                    break;
+                }
             }
-        }
-        if (it == products_.end()) {
-            for (const auto& [cpid, ctid] : cloudTitleOf_) {
-                if (ctid == titleId) {
-                    it = products_.find(cpid);
-                    if (it != products_.end()) {
-                        if (t.productId.empty()) t.productId = cpid;
-                        break;
+            if (it == products_.end()) {
+                for (const auto& [cpid, ctid] : cloudTitleOf_) {
+                    if (ctid == titleId) {
+                        it = products_.find(cpid);
+                        if (it != products_.end()) {
+                            if (t.productId.empty()) t.productId = cpid;
+                            break;
+                        }
                     }
                 }
             }
         }
         if (it == products_.end()) {
             for (const auto& g : kKnownCloudGames) {
-                if (g.cloudTitleId && titleId == g.cloudTitleId) {
+                bool match = (!productId.empty() && productId == g.productId) ||
+                             (!titleId.empty() && (titleId == g.cloudTitleId ||
+                              (titleId == "CALLOFDUTYCOLDWAR" && std::string_view(g.cloudTitleId) == "CALLOFDUTYBLACKOPSCOLDWAR")));
+                if (match) {
                     if (t.productId.empty()) t.productId = g.productId;
+                    if (t.titleId.empty() || t.titleId == "None" || isStoreBigId(t.titleId)) {
+                        if (g.cloudTitleId) t.titleId = g.cloudTitleId;
+                    }
                     if (t.name.empty() && g.fallbackTitle) t.name = g.fallbackTitle;
                     if (t.publisher.empty() && g.publisher) t.publisher = g.publisher;
                     if (t.tileUrl.empty() && g.tileUrl) t.tileUrl = g.tileUrl;
                     if (t.heroUrl.empty() && g.heroUrl) t.heroUrl = g.heroUrl;
                     if (t.description.empty() && g.description) t.description = g.description;
+                    if (t.categories.empty() && g.category) t.categories.push_back(g.category);
+                    if (t.ratingAge.empty() && g.ratingAge) t.ratingAge = g.ratingAge;
+                    if (t.ratingSystem.empty() && g.ratingSystem) t.ratingSystem = g.ratingSystem;
+                    if (t.ratingDescriptors.empty() && g.ratingDescriptors && g.ratingDescriptors[0]) {
+                        t.ratingDescriptors.push_back(g.ratingDescriptors);
+                    }
+                    if (!t.description.empty() && !t.tileUrl.empty() && !t.heroUrl.empty()) t.detailed = true;
                     break;
                 }
             }
@@ -373,8 +544,10 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
         if (auto lang = p.languages.find(language_.substr(0, language_.find('-'))); lang != p.languages.end())
             t.languages = lang->second;  // in the app's language
     } else {
-        if (isStoreBigId(productId)) t.name.clear();
-        else t.name = productId;
+        if (t.name.empty()) {
+            if (isStoreBigId(productId)) t.name.clear();
+            else t.name = productId;
+        }
     }
     t.freeInStore = freeInStore_.count(productId) > 0;
     // Free-to-play games are open to every plan and to no plan, even those
@@ -440,9 +613,58 @@ ui::GameTile Library::tile(const std::string& productId, const std::string& titl
     int version = sharedXbox_.count(xbox) ? pairVersion(p) : 0;
     if (version < 0) t.platform = xcloud::kPlatformOne;
     else if (version > 0) t.platform = xcloud::kPlatformSeries;
-    else if (namesSeries(p.title)) t.platform = xcloud::kPlatformSeries;
+    else if (namesSeries(p.title) || namesSeries(t.name)) t.platform = xcloud::kPlatformSeries;
+    else if (t.name.find("Xbox One") != std::string::npos || p.title.find("Xbox One") != std::string::npos) t.platform = xcloud::kPlatformOne;
+    else if (t.name.find("Xbox 360") != std::string::npos || p.title.find("Xbox 360") != std::string::npos) t.platform = xcloud::kPlatform360;
     else if (t.platform == xcloud::kPlatformSeries && seriesSiblings_.count(xbox)) t.platform = xcloud::kPlatformOne;
+    if (t.tileUrl.empty() || t.heroUrl.empty() || t.description.empty() ||
+        t.name.empty() || isStoreBigId(t.name) || (t.name == t.productId && isStoreBigId(t.productId)) ||
+        t.titleId.empty() || t.titleId == "None" || isStoreBigId(t.titleId)) {
+        for (const auto& g : kKnownCloudGames) {
+            bool match = (!t.productId.empty() && t.productId == g.productId) ||
+                         (!t.titleId.empty() && (t.titleId == g.cloudTitleId ||
+                          (t.titleId == "CALLOFDUTYCOLDWAR" && std::string_view(g.cloudTitleId) == "CALLOFDUTYBLACKOPSCOLDWAR")));
+            if (match) {
+                if (t.productId.empty()) t.productId = g.productId;
+                if ((t.titleId.empty() || t.titleId == "None" || isStoreBigId(t.titleId)) && g.cloudTitleId) {
+                    t.titleId = g.cloudTitleId;
+                }
+                if ((t.name.empty() || isStoreBigId(t.name) || t.name == t.productId) && g.fallbackTitle) {
+                    t.name = g.fallbackTitle;
+                }
+                if (t.tileUrl.empty() && g.tileUrl) t.tileUrl = g.tileUrl;
+                if (t.heroUrl.empty() && g.heroUrl) t.heroUrl = g.heroUrl;
+                if (t.description.empty() && g.description) t.description = g.description;
+                if (t.publisher.empty() && g.publisher) t.publisher = g.publisher;
+                if (t.categories.empty() && g.category) t.categories.push_back(g.category);
+                if (t.ratingAge.empty() && g.ratingAge) t.ratingAge = g.ratingAge;
+                if (t.ratingSystem.empty() && g.ratingSystem) t.ratingSystem = g.ratingSystem;
+                if (t.ratingDescriptors.empty() && g.ratingDescriptors && g.ratingDescriptors[0]) {
+                    t.ratingDescriptors.push_back(g.ratingDescriptors);
+                }
+                if (!t.description.empty() && !t.tileUrl.empty() && !t.heroUrl.empty()) t.detailed = true;
+                break;
+            }
+        }
+    }
     return t;
+}
+
+bool Library::isPcOnly(const std::string& productId) const {
+    auto it = products_.find(productId);
+    if (it != products_.end()) {
+        if (xcloud::isPcProduct(it->second)) return true;
+    }
+    return false;
+}
+
+bool Library::hasStreamingSupport(const ui::GameTile& t) const {
+    if (t.titleId.empty() || t.titleId == "None") return false;
+    if (t.titleId == t.productId && isStoreBigId(t.productId)) {
+        auto ct = cloudTitleOf_.find(t.productId);
+        if (ct == cloudTitleOf_.end() || ct->second.empty() || ct->second == "None") return false;
+    }
+    return true;
 }
 
 std::vector<ui::GameTile> Library::tiles(const std::vector<Item>& items) const {
@@ -452,6 +674,8 @@ std::vector<ui::GameTile> Library::tiles(const std::vector<Item>& items) const {
         if (xcloud::isNonGameAddon(t.titleId, t.name)) continue;
         if (t.productId.empty() || t.titleId.empty() || t.name.empty()) continue;
         if (isStoreBigId(t.name) || (t.name == t.productId && isStoreBigId(t.productId))) continue;
+        if (isPcOnly(t.productId) || xcloud::isPcTitle(t.name)) continue;
+        if (!hasStreamingSupport(t)) continue;
         out.push_back(std::move(t));
     }
     dedupeByTitle(out);
@@ -471,6 +695,8 @@ std::vector<ui::GameRow> Library::rows() const {
             if (t.productId.empty() || t.titleId.empty() || t.name.empty() ||
                 isStoreBigId(t.name) || (t.name == t.productId && isStoreBigId(t.productId)) ||
                 xcloud::isNonGameAddon(t.titleId, t.name)) continue;
+            if (isPcOnly(t.productId) || xcloud::isPcTitle(t.name)) continue;
+            if (!hasStreamingSupport(t)) continue;
             // "Jump back in": Game Pass games and the account's own (bought,
             // free-to-play); not one it can't start any more.
             if (r.recent && !gamePass_.empty() && !gamePass_.count(pid) && !t.playable) continue;
@@ -501,6 +727,7 @@ std::vector<ui::GameRow> Library::rows() const {
             if (!fresh.publisher.empty() && t.publisher.empty()) t.publisher = fresh.publisher;
             if (!fresh.categories.empty() && t.categories.empty()) t.categories = fresh.categories;
         }
+        dedupeByTitle(friendsRow.tiles);
 
         // Place right after "Jump back in" if present, otherwise at index 0
         size_t insertIdx = 0;
@@ -528,6 +755,7 @@ std::vector<ui::GameRow> Library::rows() const {
                 favRow.tiles.push_back(std::move(t));
             }
         }
+        dedupeByTitle(favRow.tiles);
         if (!favRow.tiles.empty()) {
             rows.insert(rows.begin(), std::move(favRow));
         }
@@ -863,33 +1091,29 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
             }
         }
         newCount = actuallyAdded.size();
-
-        if (newCount > 0) {
-            for (auto& row : layout_) {
-                if (row.isGrid) {
-                    for (const auto& pid : actuallyAdded) {
-                        bool exists = false;
-                        for (const auto& item : row.items) {
-                            if (item.first == pid) { exists = true; break; }
-                        }
-                        if (!exists) {
-                            std::string tid = cloudTitleOf_.count(pid) ? cloudTitleOf_[pid] : "";
-                            row.items.emplace_back(pid, tid);
-                        }
-                    }
-                } else if (!row.recent && row.badges) {
-                    for (const auto& pid : actuallyAdded) {
-                        bool exists = false;
-                        for (const auto& item : row.items) {
-                            if (item.first == pid) { exists = true; break; }
-                        }
-                        if (!exists) {
-                            std::string tid = cloudTitleOf_.count(pid) ? cloudTitleOf_[pid] : "";
-                            row.items.insert(row.items.begin(), {pid, tid});
-                        }
-                    }
-                }
+    }
+    allGames_.erase(std::remove_if(allGames_.begin(), allGames_.end(),
+                                   [&](const std::string& id) {
+                                       return isPcOnly(id);
+                                   }),
+                    allGames_.end());
+    for (auto it = gamePass_.begin(); it != gamePass_.end(); ) {
+        if (isPcOnly(*it)) it = gamePass_.erase(it);
+        else ++it;
+    }
+    for (auto& row : layout_) {
+        if (row.isGrid) {
+            row.items.clear();
+            for (const auto& pid : allGames_) {
+                std::string tid = cloudTitleOf_.count(pid) ? cloudTitleOf_[pid] : "";
+                row.items.emplace_back(pid, tid);
             }
+        } else {
+            row.items.erase(std::remove_if(row.items.begin(), row.items.end(),
+                                           [&](const auto& item) {
+                                               return isPcOnly(item.first);
+                                           }),
+                            row.items.end());
         }
     }
     loadOwned(gssv, changed, nullptr, &titles);
@@ -994,9 +1218,11 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
             const char* const kNewCod[] = {"9NCPSQQD1Z66", "9N201KQXS5BM"};
             for (const char* pid : kNewCod) {
                 auto it = std::find(list.productIds.begin(), list.productIds.end(), pid);
-                if (it != list.productIds.end()) list.productIds.erase(it);
-                size_t insertAt = std::min<size_t>(1, list.productIds.size());
-                list.productIds.insert(list.productIds.begin() + static_cast<long>(insertAt), pid);
+                if (it != list.productIds.end()) {
+                    list.productIds.erase(it);
+                    size_t insertAt = std::min<size_t>(1, list.productIds.size());
+                    list.productIds.insert(list.productIds.begin() + static_cast<long>(insertAt), pid);
+                }
             }
         }
         // "Most popular on cloud" also lists games to buy first (Cuphead...):
@@ -1004,13 +1230,15 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
         if (spec.sigl == xcloud::sigl::kMostPopular) {
             popular_ = list.productIds;
             // Position key cloud titles (Modern Warfare 4, Call of Duty HQ, Warzone)
-            // within the visible most popular shelf
+            // within the visible most popular shelf if legitimately in the feed
             const char* const kTopCod[] = {"9NCPSQQD1Z66", "9N201KQXS5BM", "9NNFG8BQRCXL"};
             for (const char* pid : kTopCod) {
                 auto it = std::find(list.productIds.begin(), list.productIds.end(), pid);
-                if (it != list.productIds.end()) list.productIds.erase(it);
-                size_t insertAt = std::min<size_t>(2, list.productIds.size());
-                list.productIds.insert(list.productIds.begin() + static_cast<long>(insertAt), pid);
+                if (it != list.productIds.end()) {
+                    list.productIds.erase(it);
+                    size_t insertAt = std::min<size_t>(2, list.productIds.size());
+                    list.productIds.insert(list.productIds.begin() + static_cast<long>(insertAt), pid);
+                }
             }
         }
         // Free-to-play: no Game Pass needed, so not filtered; each one the
@@ -1020,7 +1248,8 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
             freeInStore_.insert(list.productIds.begin(), list.productIds.end());
             XC_LOGI("library: %s: %zu games", list.title.c_str(), list.productIds.size());
         }
-        if (!gamePass_.empty() && !freeToPlay) {
+        bool isMostPopular = spec.sigl == xcloud::sigl::kMostPopular;
+        if (!gamePass_.empty() && !freeToPlay && !isMostPopular) {
             size_t before = list.productIds.size();
             list.productIds.erase(std::remove_if(list.productIds.begin(), list.productIds.end(),
                                                  [&](const std::string& id) {
@@ -1039,6 +1268,11 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
                 XC_LOGI("library: %s: %zu of %zu not in Game Pass/plan, left out", list.title.c_str(),
                         before - list.productIds.size(), before);
         }
+        list.productIds.erase(std::remove_if(list.productIds.begin(), list.productIds.end(),
+                                             [&](const std::string& id) {
+                                                 return isPcOnly(id);
+                                             }),
+                              list.productIds.end());
         if (spec.limit > 0 && list.productIds.size() > spec.limit) list.productIds.resize(spec.limit);
         std::vector<std::string> missing;
         for (const auto& id : list.productIds) {
@@ -1191,6 +1425,7 @@ void Library::loadCatalogNames(const Changed& changed, const std::atomic<bool>* 
         auto it = products_.find(id);
         bool needs = (it == products_.end()) ||
                      it->second.title.empty() ||
+                     it->second.tileUrl.empty() ||
                      (it->second.xcloudTitleId.empty() || it->second.xcloudTitleId == "None") ||
                      otherLanguage_.count(id);
         if (needs && queued.insert(id).second) missing.push_back(id);
@@ -1239,6 +1474,30 @@ void Library::loadCatalogNames(const Changed& changed, const std::atomic<bool>* 
         changed();  // each batch: the lists fill in as names arrive
     }
     progress_ = {};
+    allGames_.erase(std::remove_if(allGames_.begin(), allGames_.end(),
+                                   [&](const std::string& id) {
+                                       return isPcOnly(id);
+                                   }),
+                    allGames_.end());
+    for (auto it = gamePass_.begin(); it != gamePass_.end(); ) {
+        if (isPcOnly(*it)) it = gamePass_.erase(it);
+        else ++it;
+    }
+    for (auto& row : layout_) {
+        if (row.isGrid) {
+            row.items.clear();
+            for (const auto& pid : allGames_) {
+                std::string tid = cloudTitleOf_.count(pid) ? cloudTitleOf_[pid] : "";
+                row.items.emplace_back(pid, tid);
+            }
+        } else {
+            row.items.erase(std::remove_if(row.items.begin(), row.items.end(),
+                                           [&](const auto& item) {
+                                               return isPcOnly(item.first);
+                                           }),
+                            row.items.end());
+        }
+    }
     saveCache();
     XC_LOGI("library: search covers %zu Game Pass games and %zu of yours or to buy", gamePassSearchPool().size(),
             librarySearchPool().size());

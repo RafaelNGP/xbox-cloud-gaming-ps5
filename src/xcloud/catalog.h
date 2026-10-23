@@ -28,6 +28,7 @@ struct Product {
     std::string posterUrl;  // 2:3
     std::string heroUrl;    // 16:9 background
     std::vector<std::string> categories;
+    bool isPcOnly = false;
     // From the full details only (`detailed`): how it can be played
     // (kMode* bits) and, per language ("en", "pt"...: any of its locales),
     // what is translated (kLang* bits).
@@ -85,6 +86,13 @@ std::string categoryName(const std::string& storeName);
 
 // Returns true if titleId or titleName corresponds to a non-game add-on (artbook, soundtrack, install pack).
 bool isNonGameAddon(const std::string& titleId, const std::string& titleName = "");
+
+// Returns true if title or product represents a PC-only / non-cloud title.
+bool isPcTitle(const std::string& title);
+bool isPcProduct(const Product& p);
+
+// Normalizes a title for universal cross-edition and cross-platform deduplication.
+std::string normalizeBaseTitle(const std::string& title);
 
 bool fetchList(const std::string& siglId, const std::string& market, const std::string& language, ProductList& out,
                std::string& err);

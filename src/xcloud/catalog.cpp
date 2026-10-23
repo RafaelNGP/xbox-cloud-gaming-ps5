@@ -2,6 +2,9 @@
 // Copyright (C) 2026 RafaelNGP
 #include "xcloud/catalog.h"
 
+#include <algorithm>
+#include <cctype>
+#include <cstring>
 #include <ctime>
 
 #include "net/http.h"
@@ -118,6 +121,44 @@ bool fetchProducts(const std::vector<std::string>& ids, const std::string& marke
             if (prod.heroUrl.empty()) prod.heroUrl = imageUrl(p["Image_TitledHero"]);
             for (const auto& c : p["LocalizedCategories"].items()) prod.categories.push_back(categoryName(c.str()));
             parseContentRatings(p, market, prod.ratingAge, prod.ratingSystem, prod.ratingDescriptors);
+
+            bool hasConsole = false;
+            bool hasPc = false;
+            auto checkPlatformStr = [&](const std::string& s) {
+                if (s == "PC" || s == "Windows.Desktop" || s == "Win32") hasPc = true;
+                if (s == "XboxOne" || s == "XboxSeries" || s == "XboxSeriesX" || s == "XboxSeriesS" ||
+                    s == "Console" || s == "Xbox360") hasConsole = true;
+            };
+            if (p.has("Platforms") && p["Platforms"].isArray()) {
+                for (const auto& pl : p["Platforms"].items()) checkPlatformStr(pl.str());
+            }
+            if (p.has("AllowedPlatforms") && p["AllowedPlatforms"].isArray()) {
+                for (const auto& pl : p["AllowedPlatforms"].items()) checkPlatformStr(pl.str());
+            }
+            if (p.has("AvailablePlatforms") && p["AvailablePlatforms"].isArray()) {
+                for (const auto& pl : p["AvailablePlatforms"].items()) checkPlatformStr(pl.str());
+            }
+            if (p.has("SupportedPlatforms") && p["SupportedPlatforms"].isArray()) {
+                for (const auto& pl : p["SupportedPlatforms"].items()) checkPlatformStr(pl.str());
+            }
+
+            bool catPcOnly = false;
+            if (!prod.categories.empty()) {
+                bool hasOnlyPc = true;
+                for (const auto& cat : prod.categories) {
+                    std::string c = cat;
+                    for (char& ch : c) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                    if (c != "pc" && c != "pc games" && c != "jogos para pc" && c != "jogos de pc") {
+                        hasOnlyPc = false;
+                        break;
+                    }
+                }
+                catPcOnly = hasOnlyPc;
+            }
+
+            if ((hasPc && !hasConsole) || catPcOnly || (isPcTitle(prod.title) && !hasConsole)) {
+                prod.isPcOnly = true;
+            }
             if (full) {
                 // How it can be played, from the store's attributes, and the
                 // lowest Game Pass plan that includes it.
@@ -149,6 +190,7 @@ bool fetchProducts(const std::vector<std::string>& ids, const std::string& marke
                 if (prod.heroUrl.empty()) prod.heroUrl = existing->second.heroUrl;
                 if (prod.description.empty()) prod.description = existing->second.description;
                 if (prod.xcloudTitleId.empty()) prod.xcloudTitleId = existing->second.xcloudTitleId;
+                prod.isPcOnly = prod.isPcOnly || existing->second.isPcOnly;
                 if (!prod.detailed && existing->second.detailed) {
                     prod.detailed = existing->second.detailed;
                     prod.detailedAt = existing->second.detailedAt;
@@ -207,6 +249,253 @@ bool isNonGameAddon(const std::string& titleId, const std::string& titleName) {
         }
     }
     return false;
+}
+
+static bool endsWithNoCase(const std::string& s, const char* tail) {
+    size_t n = std::strlen(tail);
+    if (s.size() < n) return false;
+    for (size_t i = 0; i < n; ++i) {
+        if (std::tolower(static_cast<unsigned char>(s[s.size() - n + i])) !=
+            std::tolower(static_cast<unsigned char>(tail[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool isPcTitle(const std::string& title) {
+    if (title.empty()) return false;
+    static const char* const kPcTokens[] = {
+        " (pc)", " - pc", " [pc]", " for pc", " pc",
+        " (windows 10)", " - windows 10", " [windows 10]", " for windows 10",
+        " (windows 11)", " - windows 11", " [windows 11]", " for windows 11",
+        " (windows)", " - windows", " [windows]", " for windows",
+        " (win 10)", " - win 10", " [win 10]",
+        " windows 10 edition", " windows 11 edition", " windows edition",
+        " pc edition", " (pc edition)", " [pc edition]",
+    };
+    for (const char* tok : kPcTokens) {
+        if (endsWithNoCase(title, tok)) return true;
+    }
+    std::string lower;
+    lower.reserve(title.size());
+    for (char c : title) lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    if (lower.find("windows 10 edition") != std::string::npos ||
+        lower.find("windows 11 edition") != std::string::npos ||
+        lower.find("pc edition") != std::string::npos ||
+        lower.find("(pc)") != std::string::npos ||
+        lower.find("[pc]") != std::string::npos ||
+        lower.find("for windows") != std::string::npos) {
+        return true;
+    }
+    return false;
+}
+
+bool isPcProduct(const Product& p) {
+    if (p.isPcOnly) return true;
+    if (isPcTitle(p.title)) return true;
+    if (!p.categories.empty()) {
+        bool onlyPc = true;
+        for (const auto& cat : p.categories) {
+            std::string c = cat;
+            for (char& ch : c) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            if (c != "pc" && c != "pc games" && c != "jogos para pc" && c != "jogos de pc") {
+                onlyPc = false;
+                break;
+            }
+        }
+        if (onlyPc) return true;
+    }
+    return false;
+}
+
+std::string normalizeBaseTitle(const std::string& input) {
+    if (input.empty()) return "";
+
+    // 1. Lowercase, normalize dashes (en-dash, em-dash -> '-'), and remove UTF-8 symbols:
+    // ® (0xC2 0xAE), © (0xC2 0xA9), ™ (0xE2 0x84 0xA2), smart quotes (‘ ’), apostrophes.
+    std::string s;
+    s.reserve(input.size());
+    for (size_t i = 0; i < input.size(); ) {
+        unsigned char c = static_cast<unsigned char>(input[i]);
+        if (c == 0xC2 && i + 1 < input.size()) {
+            unsigned char c2 = static_cast<unsigned char>(input[i + 1]);
+            if (c2 == 0xAE || c2 == 0xA9) {
+                i += 2;
+                continue;
+            }
+        } else if (c == 0xE2 && i + 2 < input.size()) {
+            unsigned char c2 = static_cast<unsigned char>(input[i + 1]);
+            unsigned char c3 = static_cast<unsigned char>(input[i + 2]);
+            if (c2 == 0x84 && c3 == 0xA2) {
+                i += 3;
+                continue;
+            }
+            if (c2 == 0x80 && (c3 == 0x93 || c3 == 0x94)) {
+                // En-dash (–) or Em-dash (—) -> standard '-'
+                s.push_back('-');
+                i += 3;
+                continue;
+            }
+            if (c2 == 0x80 && (c3 == 0x98 || c3 == 0x99)) {
+                // Smart single quotes ‘ or ’ -> drop
+                i += 3;
+                continue;
+            }
+        }
+        if (c == '\'' || c == '`') {
+            ++i;
+            continue;
+        }
+        s.push_back(static_cast<char>(std::tolower(c)));
+        ++i;
+    }
+
+    auto trim = [](std::string& str) {
+        while (!str.empty() && (std::isspace(static_cast<unsigned char>(str.front())) ||
+                                str.front() == '-' || str.front() == ':' || str.front() == '/' ||
+                                str.front() == '|')) {
+            str.erase(str.begin());
+        }
+        while (!str.empty() && (std::isspace(static_cast<unsigned char>(str.back())) ||
+                                str.back() == '-' || str.back() == ':' || str.back() == '/' ||
+                                str.back() == '|')) {
+            str.pop_back();
+        }
+    };
+
+    trim(s);
+
+    // 2. Strip platform and edition suffixes iteratively
+    static const char* const kSuffixes[] = {
+        " (xbox series x|s)",
+        " (xbox series x/s)",
+        " (xbox series x)",
+        " (xbox series s)",
+        " [xbox series x|s]",
+        " [xbox series x/s]",
+        " - xbox series x|s",
+        " - xbox series x/s",
+        " - xbox series x",
+        " - xbox series s",
+        " : xbox series x|s",
+        " : xbox series x/s",
+        " for xbox series x|s",
+        " for xbox series x/s",
+        " for xbox series x",
+        " for xbox series s",
+        " xbox series x|s version",
+        " xbox series x/s version",
+        " versão xbox series x|s",
+        " versao xbox series x|s",
+        " xbox series x|s",
+        " xbox series x/s",
+        " xbox series x",
+        " xbox series s",
+        " (xbox one)",
+        " [xbox one]",
+        " - xbox one",
+        " : xbox one",
+        " for xbox one",
+        " xbox one version",
+        " versão xbox one",
+        " versao xbox one",
+        " xbox one",
+        " (xbox 360)",
+        " [xbox 360]",
+        " - xbox 360",
+        " : xbox 360",
+        " for xbox 360",
+        " xbox 360",
+        " (windows 11)",
+        " - windows 11",
+        " [windows 11]",
+        " for windows 11",
+        " windows 11",
+        " (windows 10)",
+        " - windows 10",
+        " [windows 10]",
+        " for windows 10",
+        " windows 10 edition",
+        " windows 10",
+        " (windows)",
+        " - windows",
+        " [windows]",
+        " for windows",
+        " (win 10)",
+        " - win 10",
+        " [win 10]",
+        " (pc)",
+        " - pc",
+        " [pc]",
+        " pc edition",
+        " digital deluxe edition",
+        " digital deluxe",
+        " deluxe edition",
+        " deluxe version",
+        " premium edition",
+        " premium version",
+        " definitive edition",
+        " ultimate edition",
+        " gold edition",
+        " special edition",
+        " game of the year edition",
+        " goty edition",
+        " anniversary edition",
+        " enhanced edition",
+        " standard edition",
+        " standard version",
+        " edição padrão",
+        " edicao padrao",
+        " cross-gen bundle",
+        " cross gen bundle",
+        " cross-gen edition",
+        " cross gen edition",
+        " pacote cross-gen",
+        " bundle cross-gen",
+        " remastered",
+        " remaster",
+        " remasterizado",
+        " remasterizada",
+        " edition",
+        " edição",
+        " edicao",
+    };
+
+    bool stripped = true;
+    while (stripped) {
+        stripped = false;
+        trim(s);
+        for (const char* suf : kSuffixes) {
+            size_t len = std::strlen(suf);
+            if (s.size() >= len && s.compare(s.size() - len, len, suf) == 0) {
+                s.erase(s.size() - len);
+                trim(s);
+                stripped = true;
+                break;
+            }
+        }
+    }
+
+    // 3. Normalize punctuation and spaces (apostrophes already handled, non-alphanumeric converted to space)
+    std::string clean;
+    clean.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        char c = s[i];
+        if (std::isalnum(static_cast<unsigned char>(c))) {
+            clean.push_back(c);
+        } else if (clean.empty() || clean.back() != ' ') {
+            clean.push_back(' ');
+        }
+    }
+    trim(clean);
+
+    // 4. Special cases: "aliens dark descent" -> "alien dark descent"
+    if (clean.rfind("aliens dark descent", 0) == 0) {
+        clean = "alien dark descent" + clean.substr(19);
+    }
+
+    return clean;
 }
 
 void parseContentRatings(const json::Value& p, const std::string& market,

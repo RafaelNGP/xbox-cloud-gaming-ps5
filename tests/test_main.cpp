@@ -5525,7 +5525,511 @@ static void testBloco2Corrections() {
     }
 }
 
+static void testBloco3Corrections() {
+    // -------------------------------------------------------------------------
+    // Item 1: Shelf Filters / Non-contamination
+    // Store/owned games (e.g. Tesla vs Lovecraft) must never contaminate Game Pass
+    // shelves (Recently Added, Most Popular, Leaving Soon, All Games).
+    // syncDelta must not inject arbitrary owned titles into rows.
+    // Paid games in "Most Popular" are only allowed if legitimately in kMostPopular.
+    // -------------------------------------------------------------------------
+    {
+        std::string testDir = "/tmp/test-bloco3-shelves";
+        std::system(("rm -rf " + testDir + " && mkdir -p " + testDir).c_str());
+        std::string cacheFile = testDir + "/library_cache.json";
+
+        std::map<std::string, std::string> siglFeeds;
+        siglFeeds[xcloud::sigl::kRecentlyAdded] = R"([{"siglId":"recent","title":"Recently Added"},{"id":"GP_RECENT_1"}])";
+        siglFeeds[xcloud::sigl::kMostPopular] = R"([{"siglId":"pop","title":"Most Popular"},{"id":"GP_POP_1"},{"id":"PAID_LEGIT_POP"}])";
+        siglFeeds[xcloud::sigl::kFreeToPlay] = R"([{"siglId":"f2p","title":"Free to Play"},{"id":"F2P_CLOUD_1"}])";
+        siglFeeds[xcloud::sigl::kLeavingSoon] = R"([{"siglId":"leaving","title":"Leaving Soon"},{"id":"GP_LEAVING_1"}])";
+        siglFeeds[xcloud::sigl::kAllGames] = R"([{"siglId":"all","title":"All Games"},{"id":"GP_RECENT_1"},{"id":"GP_POP_1"},{"id":"GP_LEAVING_1"}])";
+
+        std::string titlesV2Body = R"({"results":[]})";
+
+        net::setTestTransport([&](const net::Request& req) {
+            net::Response r;
+            r.status = 200;
+            if (req.url.find("sigls") != std::string::npos) {
+                for (const auto& [siglId, body] : siglFeeds) {
+                    if (req.url.find("id=" + siglId) != std::string::npos) {
+                        r.body = body;
+                        return r;
+                    }
+                }
+                r.body = "[]";
+                return r;
+            } else if (req.url.find("titles") != std::string::npos) {
+                r.body = titlesV2Body;
+                return r;
+            } else if (req.url.find("products") != std::string::npos) {
+                r.body = R"({
+                    "Products": {
+                        "GP_RECENT_1": {
+                            "XCloudTitleId": "T_REC",
+                            "ProductTitle": "Recent Cloud Game",
+                            "Image_Tile": {"URL": "https://store-images.s-microsoft.com/image/apps.tile"},
+                            "PassMetadataByPassProductId": {"CFQ7TTC0K5DJ": {}}
+                        },
+                        "GP_POP_1": {
+                            "XCloudTitleId": "T_POP",
+                            "ProductTitle": "Popular Cloud Game",
+                            "Image_Tile": {"URL": "https://store-images.s-microsoft.com/image/apps.tile"},
+                            "PassMetadataByPassProductId": {"CFQ7TTC0K5DJ": {}}
+                        },
+                        "PAID_LEGIT_POP": {
+                            "XCloudTitleId": "T_LEGIT_POP",
+                            "ProductTitle": "Elden Ring",
+                            "Image_Tile": {"URL": "https://store-images.s-microsoft.com/image/apps.tile"},
+                            "PassMetadataByPassProductId": {}
+                        },
+                        "F2P_CLOUD_1": {
+                            "XCloudTitleId": "T_F2P",
+                            "ProductTitle": "Free Cloud Shooter",
+                            "Image_Tile": {"URL": "https://store-images.s-microsoft.com/image/apps.tile"}
+                        },
+                        "GP_LEAVING_1": {
+                            "XCloudTitleId": "T_LEAVE",
+                            "ProductTitle": "Leaving Cloud Game",
+                            "Image_Tile": {"URL": "https://store-images.s-microsoft.com/image/apps.tile"},
+                            "PassMetadataByPassProductId": {"CFQ7TTC0K5DJ": {}}
+                        },
+                        "PROD_TESLA": {
+                            "XCloudTitleId": "TESLAVSLOVE",
+                            "ProductTitle": "Tesla vs Lovecraft",
+                            "Image_Tile": {"URL": "https://store-images.s-microsoft.com/image/apps.tile"}
+                        }
+                    }
+                })";
+                return r;
+            }
+            r.status = 503;
+            return r;
+        });
+
+        app::Library lib;
+        lib.setCachePath(cacheFile);
+        lib.setSubscription("Ultimate");
+        xcloud::GssvClient gssv;
+        std::string err;
+        CHECK(lib.load(gssv, "en-US", [] {}, err));
+
+        // Verify initial load shelves:
+        // PAID_LEGIT_POP should appear in Most Popular because it's legitimately in the feed
+        bool paidInPop = false;
+        bool paidInRecent = false;
+        bool paidInLeaving = false;
+        for (const auto& row : lib.rows()) {
+            for (const auto& t : row.tiles) {
+                if (t.productId == "PAID_LEGIT_POP") {
+                    if (row.title == "Most Popular") paidInPop = true;
+                    if (row.title == "Recently Added") paidInRecent = true;
+                    if (row.title == "Leaving Soon") paidInLeaving = true;
+                }
+            }
+        }
+        CHECK(paidInPop);
+        CHECK(!paidInRecent);
+        CHECK(!paidInLeaving);
+
+        // Now simulate user having bought / owned "Tesla vs Lovecraft" via /v2/titles
+        titlesV2Body = R"({
+            "results": [
+                {
+                    "titleId": "TESLAVSLOVE",
+                    "details": {
+                        "productId": "PROD_TESLA",
+                        "hasEntitlement": true,
+                        "isFreeInStore": false,
+                        "userPrograms": []
+                    }
+                }
+            ]
+        })";
+
+        // Call syncDelta: buying an owned store game outside Game Pass must NOT count as a Game Pass catalog addition
+        size_t deltaAdded = lib.syncDelta(gssv, [] {}, err);
+        CHECK(deltaAdded == 0);
+
+        // Verify Tesla vs Lovecraft is owned
+        bool teslaOwned = false;
+        for (const auto& t : lib.owned()) {
+            if (t.productId == "PROD_TESLA") teslaOwned = true;
+        }
+        CHECK(teslaOwned);
+
+        // CRITICAL CHECK: Tesla vs Lovecraft MUST NOT contaminate ANY Game Pass shelf
+        for (const auto& row : lib.rows()) {
+            for (const auto& t : row.tiles) {
+                CHECK(t.productId != "PROD_TESLA");
+                CHECK(t.titleId != "TESLAVSLOVE");
+            }
+        }
+
+        net::setTestTransport({});
+    }
+
+    // -------------------------------------------------------------------------
+    // Item 2: Universal Deduplication & PC Removal
+    // -------------------------------------------------------------------------
+    {
+        // 2a. normalizeBaseTitle
+        CHECK(xcloud::normalizeBaseTitle("A Way Out") == "a way out");
+        CHECK(xcloud::normalizeBaseTitle("A Way Out (Xbox One)") == "a way out");
+        CHECK(xcloud::normalizeBaseTitle("A Way Out – Xbox One") == "a way out"); // en-dash
+        CHECK(xcloud::normalizeBaseTitle("A Way Out: Standard Edition") == "a way out");
+        CHECK(xcloud::normalizeBaseTitle("Alien: Dark Descent") == "alien dark descent");
+        CHECK(xcloud::normalizeBaseTitle("Aliens: Dark Descent - Xbox Series X|S") == "alien dark descent");
+        CHECK(xcloud::normalizeBaseTitle("Aliens: Dark Descent – Xbox Series X|S") == "alien dark descent");
+        CHECK(xcloud::normalizeBaseTitle("Assassin's Creed® Unity") == "assassins creed unity");
+        CHECK(xcloud::normalizeBaseTitle("Assassin’s Creed Unity (Xbox One)") == "assassins creed unity"); // smart quote
+        CHECK(xcloud::normalizeBaseTitle("Assassin's Creed Unity (Xbox One)") == "assassins creed unity");
+        CHECK(xcloud::normalizeBaseTitle("Broken Age") == "broken age");
+        CHECK(xcloud::normalizeBaseTitle("Broken Age (PC)") == "broken age");
+        CHECK(xcloud::normalizeBaseTitle("Broken Age (Windows)") == "broken age");
+        CHECK(xcloud::normalizeBaseTitle("Broken Age (Windows 11)") == "broken age");
+        CHECK(xcloud::normalizeBaseTitle("Burnout™ Paradise Remastered") == "burnout paradise");
+        CHECK(xcloud::normalizeBaseTitle("Burnout Paradise Remastered - Xbox One") == "burnout paradise");
+        CHECK(xcloud::normalizeBaseTitle("Burnout Paradise Remastered – Xbox One") == "burnout paradise");
+        CHECK(xcloud::normalizeBaseTitle("FIFA 22 Xbox One") == "fifa 22");
+        CHECK(xcloud::normalizeBaseTitle("FIFA 22 Xbox Series X|S") == "fifa 22");
+        CHECK(xcloud::normalizeBaseTitle("Call of Duty®: Vanguard (Xbox One)") == "call of duty vanguard");
+        CHECK(xcloud::normalizeBaseTitle("Call of Duty®: Vanguard - Xbox Series X|S") == "call of duty vanguard");
+        CHECK(xcloud::normalizeBaseTitle("Grand Theft Auto V: Premium Edition") == "grand theft auto v");
+
+        // 2b. isPcTitle & isPcProduct
+        CHECK(xcloud::isPcTitle("Broken Age (PC)"));
+        CHECK(xcloud::isPcTitle("Broken Age (Windows)"));
+        CHECK(xcloud::isPcTitle("Broken Age (Windows 11)"));
+        CHECK(xcloud::isPcTitle("Age of Empires II: Definitive Edition (Windows 10)"));
+        CHECK(xcloud::isPcTitle("Fallout 76: PC Edition"));
+        CHECK(xcloud::isPcTitle("Sea of Thieves [PC]"));
+        CHECK(!xcloud::isPcTitle("Halo Infinite"));
+        CHECK(!xcloud::isPcTitle("Forza Horizon 5"));
+
+        xcloud::Product pcProd;
+        pcProd.title = "PC Simulator";
+        pcProd.categories = {"PC"};
+        CHECK(xcloud::isPcProduct(pcProd));
+
+        xcloud::Product consoleProd;
+        consoleProd.title = "Halo";
+        consoleProd.categories = {"Shooter"};
+        CHECK(!xcloud::isPcProduct(consoleProd));
+
+        // 2c. dedupeByTitle priority (Series X|S > Xbox One > 360) and capability merging
+        std::vector<ui::GameTile> tiles;
+
+        // Vanguard pair: Xbox One vs Series X|S
+        ui::GameTile vgOne;
+        vgOne.productId = "9PHP6HF58MB5";
+        vgOne.titleId = "VANGUARDONE";
+        vgOne.name = "Call of Duty®: Vanguard (Xbox One)";
+        vgOne.platform = "XboxOne";
+        vgOne.playable = true;
+        vgOne.purchasable = false;
+
+        ui::GameTile vgXs;
+        vgXs.productId = "9MWHTW1SF7RW";
+        vgXs.titleId = "VANGUARDXS";
+        vgXs.name = "Call of Duty®: Vanguard - Xbox Series X|S";
+        vgXs.platform = "Series";
+        vgXs.playable = false;
+        vgXs.purchasable = true;
+
+        // Cold War pair
+        ui::GameTile cwOne;
+        cwOne.productId = "9P7PFH4RMFZD";
+        cwOne.titleId = "COLDWARONE";
+        cwOne.name = "Call of Duty®: Black Ops Cold War (Xbox One)";
+        cwOne.platform = "XboxOne";
+
+        ui::GameTile cwXs;
+        cwXs.productId = "9NPLRJ9CC870";
+        cwXs.titleId = "COLDWARXS";
+        cwXs.name = "Call of Duty®: Black Ops Cold War - Xbox Series X|S";
+        cwXs.platform = "Series";
+
+        // A Way Out pair
+        ui::GameTile awo1;
+        awo1.productId = "AWAYOUT1";
+        awo1.titleId = "AWO_1";
+        awo1.name = "A Way Out";
+
+        ui::GameTile awo2;
+        awo2.productId = "AWAYOUT2";
+        awo2.titleId = "AWO_2";
+        awo2.name = "A Way Out (Xbox One)";
+
+        // Burnout Paradise Remastered pair
+        ui::GameTile bp1;
+        bp1.productId = "BP_1";
+        bp1.titleId = "BP_T1";
+        bp1.name = "Burnout™ Paradise Remastered";
+
+        ui::GameTile bp2;
+        bp2.productId = "BP_2";
+        bp2.titleId = "BP_T2";
+        bp2.name = "Burnout Paradise Remastered - Xbox One";
+
+        // Assassin's Creed Unity pair
+        ui::GameTile acu1;
+        acu1.productId = "ACU_1";
+        acu1.titleId = "ACU_T1";
+        acu1.name = "Assassin's Creed® Unity";
+
+        ui::GameTile acu2;
+        acu2.productId = "ACU_2";
+        acu2.titleId = "ACU_T2";
+        acu2.name = "Assassin's Creed Unity (Xbox One)";
+
+        // Alien Dark Descent pair
+        ui::GameTile add1;
+        add1.productId = "ADD_1";
+        add1.titleId = "ADD_T1";
+        add1.name = "Aliens: Dark Descent";
+
+        ui::GameTile add2;
+        add2.productId = "ADD_2";
+        add2.titleId = "ADD_T2";
+        add2.name = "Alien: Dark Descent - Xbox Series X|S";
+        add2.platform = "Series";
+
+        // FIFA 22 pair
+        ui::GameTile fifa1;
+        fifa1.productId = "FIFA_ONE";
+        fifa1.titleId = "FIFA_T1";
+        fifa1.name = "FIFA 22 Xbox One";
+        fifa1.platform = "XboxOne";
+
+        ui::GameTile fifa2;
+        fifa2.productId = "FIFA_XS";
+        fifa2.titleId = "FIFA_T2";
+        fifa2.name = "FIFA 22 Xbox Series X|S";
+        fifa2.platform = "Series";
+
+        tiles.push_back(vgOne);
+        tiles.push_back(vgXs);
+        tiles.push_back(cwOne);
+        tiles.push_back(cwXs);
+        tiles.push_back(awo1);
+        tiles.push_back(awo2);
+        tiles.push_back(bp1);
+        tiles.push_back(bp2);
+        tiles.push_back(acu1);
+        tiles.push_back(acu2);
+        tiles.push_back(add1);
+        tiles.push_back(add2);
+        tiles.push_back(fifa1);
+        tiles.push_back(fifa2);
+
+        app::dedupeByTitle(tiles);
+
+        // Exactly 7 deduplicated entries
+        CHECK(tiles.size() == 7);
+
+        // Vanguard: Series X|S preferred, capabilities merged
+        bool foundVanguard = false;
+        for (const auto& t : tiles) {
+            if (t.productId == "9MWHTW1SF7RW") {
+                foundVanguard = true;
+                CHECK(t.platform == "Series");
+                CHECK(t.playable);     // absorbed from vgOne
+                CHECK(t.purchasable);  // preserved from vgXs
+            }
+        }
+        CHECK(foundVanguard);
+
+        // Cold War: Series X|S preferred
+        bool foundColdWar = false;
+        for (const auto& t : tiles) {
+            if (t.productId == "9NPLRJ9CC870") {
+                foundColdWar = true;
+                CHECK(t.platform == "Series");
+            }
+        }
+        CHECK(foundColdWar);
+
+        // Alien Dark Descent: Series X|S preferred
+        bool foundAdd = false;
+        for (const auto& t : tiles) {
+            if (t.productId == "ADD_2") {
+                foundAdd = true;
+                CHECK(t.platform == "Series");
+            }
+        }
+        CHECK(foundAdd);
+
+        // FIFA 22: Series X|S preferred
+        bool foundFifa = false;
+        for (const auto& t : tiles) {
+            if (t.productId == "FIFA_XS") {
+                foundFifa = true;
+                CHECK(t.platform == "Series");
+            }
+        }
+        CHECK(foundFifa);
+
+        // 2d. Dominant Series priority: Series must win even if Xbox One has full metadata & shorter name
+        {
+            std::vector<ui::GameTile> domTest;
+            ui::GameTile richOne;
+            richOne.productId = "RICH_ONE";
+            richOne.titleId = "RICH_ONE_TID";
+            richOne.name = "Epic Game";
+            richOne.platform = "XboxOne";
+            richOne.playable = true;
+            richOne.detailed = true;
+            richOne.tileUrl = "https://example.com/one.png";
+            richOne.heroUrl = "https://example.com/one_hero.png";
+            richOne.description = "Awesome Xbox One version";
+
+            ui::GameTile bareXs;
+            bareXs.productId = "BARE_XS";
+            bareXs.titleId = "BARE_XS_TID";
+            bareXs.name = "Epic Game - Xbox Series X|S";
+            bareXs.platform = "Series";
+            bareXs.playable = false;
+            bareXs.detailed = false;
+
+            domTest.push_back(richOne);
+            domTest.push_back(bareXs);
+            app::dedupeByTitle(domTest);
+            CHECK(domTest.size() == 1);
+            CHECK(domTest[0].productId == "BARE_XS");
+            CHECK(domTest[0].platform == "Series");
+            CHECK(domTest[0].playable); // absorbed from richOne
+            CHECK(domTest[0].tileUrl == "https://example.com/one.png");
+            CHECK(domTest[0].description == "Awesome Xbox One version");
+
+            // Order independence: bareXs first, richOne second
+            std::vector<ui::GameTile> domTestRev;
+            domTestRev.push_back(bareXs);
+            domTestRev.push_back(richOne);
+            app::dedupeByTitle(domTestRev);
+            CHECK(domTestRev.size() == 1);
+            CHECK(domTestRev[0].productId == "BARE_XS");
+            CHECK(domTestRev[0].platform == "Series");
+            CHECK(domTestRev[0].playable);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Item 3: Call of Duty CDN Art & Metadata in kKnownCloudGames
+    // -------------------------------------------------------------------------
+    {
+        app::Library lib;
+
+        // Cold War Xbox One (9P7PFH4RMFZD)
+        ui::GameTile cwOne = lib.tile("9P7PFH4RMFZD", "CALLOFDUTYCOLDWAR");
+        CHECK(!cwOne.name.empty());
+        CHECK(cwOne.name.find("Cold War") != std::string::npos);
+        CHECK(!cwOne.titleId.empty() && cwOne.titleId != "None");
+        CHECK(!cwOne.tileUrl.empty());
+        CHECK(cwOne.tileUrl.find("store-images.s-microsoft.com") != std::string::npos);
+        CHECK(!cwOne.heroUrl.empty());
+        CHECK(!cwOne.description.empty());
+        CHECK(cwOne.description.find("Cold War") != std::string::npos);
+        CHECK(cwOne.detailed);
+
+        // Cold War Series X|S (9NPLRJ9CC870)
+        ui::GameTile cwXs = lib.tile("9NPLRJ9CC870", "CALLOFDUTYCOLDWAR");
+        CHECK(!cwXs.name.empty());
+        CHECK(cwXs.name.find("Cold War") != std::string::npos);
+        CHECK(!cwXs.titleId.empty() && cwXs.titleId != "None");
+        CHECK(!cwXs.tileUrl.empty());
+        CHECK(cwXs.tileUrl.find("store-images.s-microsoft.com") != std::string::npos);
+        CHECK(!cwXs.heroUrl.empty());
+        CHECK(!cwXs.description.empty());
+        CHECK(cwXs.detailed);
+
+        // Cold War query without titleId (store ID only)
+        ui::GameTile cwNoTid = lib.tile("9P7PFH4RMFZD", "");
+        CHECK(!cwNoTid.name.empty());
+        CHECK(!cwNoTid.titleId.empty() && cwNoTid.titleId != "None");
+        CHECK(!cwNoTid.tileUrl.empty());
+        CHECK(!cwNoTid.description.empty());
+        CHECK(cwNoTid.detailed);
+
+        // Cold War query without productId (cloudTitleId only)
+        ui::GameTile cwNoPid = lib.tile("", "CALLOFDUTYBLACKOPSCOLDWAR");
+        CHECK(!cwNoPid.name.empty());
+        CHECK(cwNoPid.productId == "9P7PFH4RMFZD");
+        CHECK(!cwNoPid.tileUrl.empty());
+        CHECK(cwNoPid.detailed);
+
+        // Vanguard Xbox One (9PHP6HF58MB5)
+        ui::GameTile vgOne = lib.tile("9PHP6HF58MB5", "CALLOFDUTYVANGUARD");
+        CHECK(!vgOne.name.empty());
+        CHECK(!vgOne.titleId.empty());
+        CHECK(!vgOne.tileUrl.empty());
+        CHECK(vgOne.tileUrl.find("store-images.s-microsoft.com") != std::string::npos);
+        CHECK(!vgOne.heroUrl.empty());
+        CHECK(!vgOne.description.empty());
+        CHECK(vgOne.description.find("Vanguard") != std::string::npos);
+        CHECK(vgOne.detailed);
+
+        // Vanguard Series X|S (9MWHTW1SF7RW)
+        ui::GameTile vgXs = lib.tile("9MWHTW1SF7RW", "CALLOFDUTYVANGUARD");
+        CHECK(!vgXs.name.empty());
+        CHECK(!vgXs.titleId.empty());
+        CHECK(!vgXs.tileUrl.empty());
+        CHECK(vgXs.tileUrl.find("store-images.s-microsoft.com") != std::string::npos);
+        CHECK(!vgXs.heroUrl.empty());
+        CHECK(!vgXs.description.empty());
+        CHECK(vgXs.detailed);
+
+        // Modern Warfare (9NVQBQ3F6W9W & C5DTJ99626K3)
+        ui::GameTile mw1 = lib.tile("9NVQBQ3F6W9W", "CALLOFDUTYMODERNWARFARE");
+        CHECK(!mw1.name.empty());
+        CHECK(!mw1.titleId.empty());
+        CHECK(!mw1.tileUrl.empty());
+        CHECK(mw1.tileUrl.find("store-images.s-microsoft.com") != std::string::npos);
+        CHECK(!mw1.heroUrl.empty());
+        CHECK(!mw1.description.empty());
+        CHECK(mw1.detailed);
+
+        ui::GameTile mw2 = lib.tile("C5DTJ99626K3", "CALLOFDUTYMODERNWARFARE");
+        CHECK(!mw2.name.empty());
+        CHECK(!mw2.titleId.empty());
+        CHECK(!mw2.tileUrl.empty());
+        CHECK(mw2.tileUrl.find("store-images.s-microsoft.com") != std::string::npos);
+        CHECK(!mw2.heroUrl.empty());
+        CHECK(!mw2.description.empty());
+        CHECK(mw2.detailed);
+
+        // Verify end-to-end processing through lib.tiles() without dropping cards
+        std::vector<std::pair<std::string, std::string>> codItems = {
+            {"9P7PFH4RMFZD", ""}, // Cold War Xbox One
+            {"9NPLRJ9CC870", ""}, // Cold War Series X|S
+            {"9PHP6HF58MB5", ""}, // Vanguard Xbox One
+            {"9MWHTW1SF7RW", ""}, // Vanguard Series X|S
+            {"9NVQBQ3F6W9W", ""}, // Modern Warfare 2019
+            {"C5DTJ99626K3", ""}  // Modern Warfare 2019 alt
+        };
+        std::vector<ui::GameTile> codTiles;
+        for (const auto& [pid, tid] : codItems) {
+            ui::GameTile t = lib.tile(pid, tid);
+            if (!t.productId.empty() && !t.titleId.empty() && !t.name.empty()) {
+                codTiles.push_back(std::move(t));
+            }
+        }
+        app::dedupeByTitle(codTiles);
+        // Exactly 3 deduplicated games (Cold War Series X|S, Vanguard Series X|S, Modern Warfare)
+        CHECK(codTiles.size() == 3);
+        for (const auto& t : codTiles) {
+            CHECK(!t.name.empty());
+            CHECK(!t.titleId.empty());
+            CHECK(!t.tileUrl.empty());
+            CHECK(!t.heroUrl.empty());
+            CHECK(!t.description.empty());
+            CHECK(t.detailed);
+        }
+    }
+}
+
 int main() {
+    testBloco3Corrections();
     testBloco2Corrections();
     testBlock1Corrections();
     testCallOfDutyModernWarfare4CatalogAndRefresh();
