@@ -3977,14 +3977,26 @@ static void testDesktopMouseNav() {
     uiApp.setRows({row});
     uiApp.showHome();
 
-    // 1. In default PS5 mode (caps_.desktopWindow == false), mouse events must be ignored
+    // 1. Mouse cursor state, initial position, and clamping
+    CHECK(uiApp.mouseCursorX() == 960.0f);
+    CHECK(uiApp.mouseCursorY() == 540.0f);
+    CHECK(!uiApp.mouseCursorVisible());
+
     {
         auto evMove = uiApp.onMouseMove(300.0f, 300.0f);
         CHECK(evMove.action == ui::Action::None);
+        CHECK(uiApp.mouseCursorX() == 300.0f);
+        CHECK(uiApp.mouseCursorY() == 300.0f);
+        CHECK(uiApp.mouseCursorVisible());
+
         auto evClick = uiApp.onMouseDown(300.0f, 300.0f, 1);
         CHECK(evClick.action == ui::Action::None);
         auto evWheel = uiApp.onMouseWheel(0.0f, 1.0f);
         CHECK(evWheel.action == ui::Action::None);
+
+        uiApp.setMouseCursor(2500.0f, -100.0f);
+        CHECK(uiApp.mouseCursorX() == 1919.0f);
+        CHECK(uiApp.mouseCursorY() == 0.0f);
     }
 
     // 2. Enable desktopWindow capability (Desktop / Steam Deck mode)

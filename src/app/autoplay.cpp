@@ -129,6 +129,7 @@ void loadAutoplay() {
         if (opt == "badca") g_autoplay.badCa = true;
         if (opt == "consolesempty") g_autoplay.consolesTab = g_autoplay.consolesEmpty = true;
         if (opt == "librarytest") g_autoplay.libraryTest = true;
+        if (opt == "mousetest") g_autoplay.mouseTest = true;
         if (opt == "block1test") g_autoplay.block1Test = true;
         if (opt == "block2test") g_autoplay.block2Test = true;
         if (opt == "block3test") g_autoplay.block3Test = true;
@@ -963,6 +964,20 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             saved = 1;
             g_autoplay.libraryTest = false;
             XC_LOGI("AUTOPLAY END: library test");
+        }
+    }
+    if (g_autoplay.mouseTest && uiSaved) {
+        static uint64_t mouseSince = 0;
+        static int saved = 0;
+        if (!mouseSince) {
+            g_ui->setMouseCursor(700.0f, 450.0f, true);
+            g_ui->onMouseMove(700.0f, 450.0f);
+            mouseSince = now;
+        } else if (saved == 0 && now - mouseSince > 2000) {
+            saveCanvas("mouse.ppm");
+            saved = 1;
+            g_autoplay.mouseTest = false;
+            XC_LOGI("AUTOPLAY END: mouse test");
         }
     }
     if (g_autoplay.vibeTest) {

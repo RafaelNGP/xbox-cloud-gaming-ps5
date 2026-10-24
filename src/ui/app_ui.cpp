@@ -3270,10 +3270,26 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
     }
 }
 
+void AppUi::setMouseCursor(float x, float y, bool visible) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    mouseCursorX_ = std::clamp(x, 0.0f, 1919.0f);
+    mouseCursorY_ = std::clamp(y, 0.0f, 1079.0f);
+    mouseCursorVisible_ = visible;
+    if (visible) {
+        mouseCursorVisibleUntil_ = platform::nowMs() + 3000;
+    }
+    dirty_ = true;
+}
+
 UiEvent AppUi::onMouseMove(float x, float y) {
     std::lock_guard<std::mutex> lock(mutex_);
     UiEvent ev;
-    if (!caps_.desktopWindow || screen_ == Screen::Streaming || screen_ == Screen::Splash) {
+    mouseCursorX_ = std::clamp(x, 0.0f, 1919.0f);
+    mouseCursorY_ = std::clamp(y, 0.0f, 1079.0f);
+    mouseCursorVisible_ = true;
+    mouseCursorVisibleUntil_ = platform::nowMs() + 3000;
+    dirty_ = true;
+    if (screen_ == Screen::Streaming || screen_ == Screen::Splash) {
         return ev;
     }
     if (screen_ == Screen::Home) {
@@ -3396,7 +3412,12 @@ UiEvent AppUi::onMouseMove(float x, float y) {
 UiEvent AppUi::onMouseDown(float x, float y, int button) {
     std::lock_guard<std::mutex> lock(mutex_);
     UiEvent ev;
-    if (!caps_.desktopWindow || screen_ == Screen::Streaming || screen_ == Screen::Splash) {
+    mouseCursorX_ = std::clamp(x, 0.0f, 1919.0f);
+    mouseCursorY_ = std::clamp(y, 0.0f, 1079.0f);
+    mouseCursorVisible_ = true;
+    mouseCursorVisibleUntil_ = platform::nowMs() + 3000;
+    dirty_ = true;
+    if (screen_ == Screen::Streaming || screen_ == Screen::Splash) {
         return ev;
     }
     if (button == 3) {
@@ -3675,7 +3696,10 @@ UiEvent AppUi::onMouseDown(float x, float y, int button) {
 UiEvent AppUi::onMouseWheel(float dx, float dy) {
     std::lock_guard<std::mutex> lock(mutex_);
     UiEvent ev;
-    if (!caps_.desktopWindow || screen_ == Screen::Streaming || screen_ == Screen::Splash) {
+    mouseCursorVisible_ = true;
+    mouseCursorVisibleUntil_ = platform::nowMs() + 3000;
+    dirty_ = true;
+    if (screen_ == Screen::Streaming || screen_ == Screen::Splash) {
         return ev;
     }
     if (screen_ == Screen::Home) {
@@ -4157,6 +4181,7 @@ bool AppUi::needsRedraw(uint64_t nowMs) const {
     std::lock_guard<std::mutex> lock(mutex_);
     if (screen_ == Screen::Streaming) return false;
     if (dirty_ || animating_) return true;
+    if (mouseCursorVisible_ && nowMs >= mouseCursorVisibleUntil_) return true;
     // A desktop's toast came or went (the PS5 sends system notifications).
     if (platform::toastsEnabled() && platform::toasts().version(nowMs) != toastsDrawn_) return true;
     // Spinners keep moving (about 30 fps is enough).
@@ -6994,6 +7019,64 @@ void AppUi::render(Canvas& c, uint64_t nowMs) {
         toastsDrawn_ = platform::toasts().version(nowMs);
         drawToasts(c, fonts_, platform::toasts().visible(nowMs), kW - kMargin, 132);
     }
+    if (mouseCursorVisible_ && nowMs >= mouseCursorVisibleUntil_) {
+        mouseCursorVisible_ = false;
+    }
+    if (mouseCursorVisible_ && screen_ != Screen::Streaming && screen_ != Screen::Splash) {
+        drawMouseCursor(c, mouseCursorX_, mouseCursorY_);
+    }
+}
+
+static const char* const kCursorRows[23] = {
+    "#...............",
+    "##..............",
+    "#W#.............",
+    "#WW#............",
+    "#WWW#...........",
+    "#WWWW#..........",
+    "#WWWWW#.........",
+    "#WWWWWW#........",
+    "#WWWWWWW#.......",
+    "#WWWWWWWW#......",
+    "#WWWWWWWWW#.....",
+    "#WWWWWWWWWW#....",
+    "#WWWWWWWWWWW#...",
+    "#WWWWWW######...",
+    "#WWWW##WW#......",
+    "#WW##.#WW#......",
+    "#W#...#WW#......",
+    "##.....#WW#.....",
+    "#......#WW#.....",
+    "........#WW#....",
+    "........#WW#....",
+    ".........#WW#...",
+    ".........####..."
+};
+
+void AppUi::drawMouseCursor(Canvas& c, float cursorX, float cursorY) {
+    static bool s_inited = false;
+    static uint8_t s_outline[23 * 16];
+    static uint8_t s_fill[23 * 16];
+    static uint8_t s_shadow[23 * 16];
+    if (!s_inited) {
+        s_inited = true;
+        for (int y = 0; y < 23; ++y) {
+            for (int x = 0; x < 16; ++x) {
+                char ch = kCursorRows[y][x];
+                s_shadow[y * 16 + x] = (ch == '#' || ch == 'W') ? 255 : 0;
+                s_outline[y * 16 + x] = (ch == '#') ? 255 : 0;
+                s_fill[y * 16 + x] = (ch == 'W') ? 255 : 0;
+            }
+        }
+    }
+    int ix = static_cast<int>(std::round(cursorX));
+    int iy = static_cast<int>(std::round(cursorY));
+    // Sombra sutil
+    c.drawMask(s_shadow, 16, 23, 16, ix + 2, iy + 2, rgba(0, 0, 0, 80));
+    // Borda preta fina
+    c.drawMask(s_outline, 16, 23, 16, ix, iy, rgba(0, 0, 0, 240));
+    // Seta branca nítida
+    c.drawMask(s_fill, 16, 23, 16, ix, iy, rgba(255, 255, 255, 255));
 }
 
 }  // namespace xc::ui

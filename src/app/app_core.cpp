@@ -943,6 +943,32 @@ bool Core::frame() {
             if (k.pressed) g_ui->captureKey(k.vk), swallowedKeys.push_back(k.vk);
         for (int b = 0; b < 5; ++b)
             if ((kbm.buttons & ~mouseButtonsBefore) & (1 << b)) g_ui->captureKey(static_cast<uint8_t>(input::kMouseLeft + b));
+    } else if (!inGame || streamScreen->menuOpen()) {
+        static float s_mouseCursorX = 960.0f;
+        static float s_mouseCursorY = 540.0f;
+        if (kbm.dx != 0 || kbm.dy != 0) {
+            s_mouseCursorX = std::clamp(s_mouseCursorX + static_cast<float>(kbm.dx), 0.0f, 1920.0f);
+            s_mouseCursorY = std::clamp(s_mouseCursorY + static_cast<float>(kbm.dy), 0.0f, 1080.0f);
+            ui::UiEvent mev = g_ui->onMouseMove(s_mouseCursorX, s_mouseCursorY);
+            if (mev.action != ui::Action::None) dispatchUiAction(mev);
+        }
+        uint8_t pressedButtons = kbm.buttons & ~mouseButtonsBefore;
+        if (pressedButtons & 1) { // Left click
+            ui::UiEvent mev = g_ui->onMouseDown(s_mouseCursorX, s_mouseCursorY, 1);
+            if (mev.action != ui::Action::None) dispatchUiAction(mev);
+        }
+        if (pressedButtons & 2) { // Right click
+            ui::UiEvent mev = g_ui->onMouseDown(s_mouseCursorX, s_mouseCursorY, 3);
+            if (mev.action != ui::Action::None) dispatchUiAction(mev);
+        }
+        if (pressedButtons & 4) { // Middle click
+            ui::UiEvent mev = g_ui->onMouseDown(s_mouseCursorX, s_mouseCursorY, 2);
+            if (mev.action != ui::Action::None) dispatchUiAction(mev);
+        }
+        if (kbm.wheel != 0) {
+            ui::UiEvent mev = g_ui->onMouseWheel(0.0f, static_cast<float>(kbm.wheel));
+            if (mev.action != ui::Action::None) dispatchUiAction(mev);
+        }
     }
     mouseButtonsBefore = kbm.buttons;
     std::erase_if(swallowedKeys, [&](uint8_t vk) { return !std::binary_search(kbm.held.begin(), kbm.held.end(), vk); });

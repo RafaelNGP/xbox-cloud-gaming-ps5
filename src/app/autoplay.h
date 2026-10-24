@@ -53,6 +53,7 @@ struct Autoplay {
     bool bitrateTest = false;    // "bitratetest": open settings, focus Bitrate row, test slider, save settings_bitrate_caps.ppm
     bool detailTest = false;     // open a game to buy far down the list, save its page
     bool libraryTest = false;    // open "Your games", save it at 4 s and 25 s
+    bool mouseTest = false;      // "mousetest": move mouse cursor and save mouse.ppm
     bool mw4Test = false;        // "mw4test": search and open details for Call of Duty MW4
     bool v150Test = false;       // "v150test": verify new settings order and search gratis filter
     bool claimTest = false;      // "claimtest": test free game acquisition, library persistence, and game launch

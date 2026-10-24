@@ -475,6 +475,10 @@ public:
     UiEvent onMouseMove(float x, float y);
     UiEvent onMouseDown(float x, float y, int button);
     UiEvent onMouseWheel(float dx, float dy);
+    float mouseCursorX() const { return mouseCursorX_; }
+    float mouseCursorY() const { return mouseCursorY_; }
+    bool mouseCursorVisible() const { return mouseCursorVisible_; }
+    void setMouseCursor(float x, float y, bool visible = true);
     // The keyboard keys' screen waits for a key: the main loop gives it the
     // next key or mouse button pressed (input::kMouseLeft..) instead of
     // moving through the screens with it.
@@ -789,6 +793,11 @@ private:
     int achScroll_ = 0;
     int detailButtonFocus_ = 0;  // 0 = Play / Claim, 1 = Achievements
     std::string webUrl_;
+    float mouseCursorX_ = 960.0f;
+    float mouseCursorY_ = 540.0f;
+    bool mouseCursorVisible_ = false;
+    uint64_t mouseCursorVisibleUntil_ = 0;
+    void drawMouseCursor(Canvas& c, float cursorX, float cursorY);
 };
 
 }  // namespace xc::ui
