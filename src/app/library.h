@@ -112,7 +112,7 @@ public:
         acquiredTitles_.insert(titles.begin(), titles.end());
     }
     // Delta-sync: discovers new/updated titles, only fetches missing metadata, updates rows in-place.
-    size_t syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std::string& err);
+    size_t syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std::string& err, const std::string& language = {});
     void markUnclaimable(const std::string& productId);
     // Generates a tile for a product/title.
     ui::GameTile tile(const std::string& productId, const std::string& titleId = {}) const;

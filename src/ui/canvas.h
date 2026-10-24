@@ -20,6 +20,7 @@ constexpr Color withAlpha(Color c, uint8_t a) { return (c & 0x00FFFFFFu) | (stat
 
 struct Image {
     int w = 0, h = 0;
+    bool opaque = false;
     std::vector<uint32_t> px;  // straight (not premultiplied) alpha
     size_t bytes() const { return px.size() * 4; }
 };
@@ -39,6 +40,7 @@ public:
 
     void setClip(Rect r);
     void resetClip() { clip_ = {0, 0, w_, h_}; }
+    void clearClip() { resetClip(); }
 
     void clear(Color c);
     // Alpha-blended, antialiased rounded corners when radius > 0.

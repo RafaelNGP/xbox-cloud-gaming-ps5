@@ -132,6 +132,7 @@ bool Settings::load(const std::string& path) {
     for (const auto& [name, ms] : (*j)["regionRtt"].members())
         if (ms.asInt() > 0) regionRtt[name] = static_cast<int>(ms.asInt());
     queueReadyAlert = (*j)["queueReadyAlert"].asBool(queueReadyAlert);
+    previewFeatures = (*j)["previewFeatures"].asBool(previewFeatures);
     titlePlaytime.clear();
     for (const auto& [id, sec] : (*j)["titlePlaytime"].members())
         if (sec.asInt() > 0) titlePlaytime[id] = static_cast<uint64_t>(sec.asInt());
@@ -273,6 +274,7 @@ bool Settings::save(const std::string& path) const {
     v.set("voiceRouting", voiceRouting);
     v.set("padSpeakerVolume", padSpeakerVolume);
     v.set("queueReadyAlert", queueReadyAlert);
+    v.set("previewFeatures", previewFeatures);
     json::Value pt = json::Value::object();
     for (const auto& [id, sec] : titlePlaytime)
         if (sec > 0) pt.set(id, static_cast<int64_t>(sec));

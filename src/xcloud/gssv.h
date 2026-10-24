@@ -109,6 +109,8 @@ public:
     const GssvLogin& session() const { return login_; }
     void setRegion(const Region& r) { region_ = r; }
     void setResolution(Resolution r) { resolution_ = r; }
+    void setPreviewFeatures(bool preview) { previewFeatures_ = preview; }
+    bool previewFeatures() const { return previewFeatures_; }
     Resolution resolution() const { return resolution_; }
     const Region& region() const { return region_; }
     bool isHome() const { return offering_ == "xhome"; }
@@ -153,6 +155,7 @@ private:
     GssvLogin login_;
     Region region_;
     std::string sessionPath_;
+    bool previewFeatures_ = true;
 };
 
 const char* toString(SessionState s);

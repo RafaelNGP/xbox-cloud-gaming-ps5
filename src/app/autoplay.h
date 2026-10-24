@@ -37,6 +37,8 @@ struct Autoplay {
     bool idle = false;
     bool consolesTab = false;    // "consolestab": open My consoles, save consoles.ppm
     bool consolesEmpty = false;  // with "consolestab": as if none were found
+    bool checkSignInTest = false;// "checksignintest": open sign-in check, verify 6 stages, save signin_check.ppm
+    bool freeTest = false;       // "freetest": simulate free account, verify FREE badge and game locks
     bool settingsTest = false;   // "settingstest": open the resolution list, save settings.ppm
     bool keysTest = false;       // "keystest": Settings' groups, the keyboard keys' screen, a key chosen (keys*.ppm)
     bool padMapTest = false;     // "padmaptest": the controller buttons' screen, a press captured, an incomplete map (padmap*.ppm)

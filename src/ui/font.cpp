@@ -19,6 +19,8 @@ namespace xc::ui {
 struct Font::Impl {
     stbtt_fontinfo info{};
     int ascent = 0, descent = 0, lineGap = 0;
+    int capY1 = 0;
+    bool hasCapBox = false;
 };
 
 Font::Font() : impl_(std::make_unique<Impl>()) {}
@@ -37,6 +39,9 @@ bool Font::load(const std::string& path) {
         return false;
     }
     stbtt_GetFontVMetrics(&impl_->info, &impl_->ascent, &impl_->descent, &impl_->lineGap);
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    impl_->hasCapBox = stbtt_GetCodepointBox(&impl_->info, 'H', &x0, &y0, &x1, &y1) != 0;
+    impl_->capY1 = y1;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         cache_.clear();
@@ -54,10 +59,9 @@ bool Font::usable() const {
 
 int Font::centeredY(int boxY, int boxH, int px) const {
     if (!usable()) return boxY;
-    // Cap height from the "H" glyph's box, in font units.
-    int x0, y0, x1, y1;
-    float capH = stbtt_GetCodepointBox(&impl_->info, 'H', &x0, &y0, &x1, &y1) ? y1 * scale(px) : 0.7f * px;
-    float ascent = impl_->ascent * scale(px);  // line top to baseline
+    float s = scale(px);
+    float capH = impl_->hasCapBox ? impl_->capY1 * s : 0.7f * px;
+    float ascent = impl_->ascent * s;  // line top to baseline
     // Cap top = y + ascent - capH; centre it: (boxH - capH) / 2 below boxY.
     return static_cast<int>(std::lround(boxY + (boxH - capH) / 2.0f - (ascent - capH)));
 }
@@ -86,7 +90,7 @@ const Font::Glyph& Font::glyph(uint32_t cp, int px) const {
     static const Glyph kNone;
     if (!usable()) return kNone;
     std::lock_guard<std::mutex> lock(mutex_);
-    auto key = std::make_pair(cp, px);
+    uint64_t key = (static_cast<uint64_t>(cp) << 32) | static_cast<uint32_t>(px);
     auto it = cache_.find(key);
     if (it != cache_.end()) return it->second;
     Glyph g;
@@ -124,18 +128,28 @@ int Font::draw(Canvas& c, std::string_view text, int x, int y, int px, Color col
 }
 
 std::string Font::fit(std::string_view text, int px, int maxWidth) const {
-    if (measure(text, px) <= maxWidth) return std::string(text);
     const char* dots = "...";
-    int budget = maxWidth - measure(dots, px);
-    std::string out;
-    int w = 0;
+    int dotsW = measure(dots, px);
+    int budget = maxWidth - dotsW;
+    int totalW = 0;
+    size_t cutIdx = 0;
+    bool cutSet = false;
     for (size_t i = 0; i < text.size();) {
         size_t start = i;
         int adv = glyph(nextCodepoint(text, i), px).advance;
-        if (w + adv > budget) break;
-        w += adv;
-        out.append(text.substr(start, i - start));
+        if (!cutSet && totalW + adv > budget) {
+            cutIdx = start;
+            cutSet = true;
+        }
+        totalW += adv;
+        if (totalW > maxWidth && cutSet) {
+            std::string out(text.substr(0, cutIdx));
+            while (!out.empty() && out.back() == ' ') out.pop_back();
+            return out + dots;
+        }
     }
+    if (totalW <= maxWidth) return std::string(text);
+    std::string out(text.substr(0, cutSet ? cutIdx : 0));
     while (!out.empty() && out.back() == ' ') out.pop_back();
     return out + dots;
 }

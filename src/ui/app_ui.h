@@ -134,6 +134,7 @@ struct SettingsChoice {
     int maxBitrateMbps = 0;    // 0 automatic, else 5 / 10 / 15 / 20 / 25 / 30 / 35 / 40 / 45 / 50
     int gameVolume = 100;      // percent: 25 / 50 / 75 / 100 / 150
     bool queueReadyAlert = true; // Queue-ready chime and rumble alert
+    bool previewFeatures = true; // xCloud preview client identification & ad-supported F2P streaming
     input::KeyMap keyMap = input::defaultKeyMap();  // the keyboard as a player's controller
     input::PadMap padMap = input::defaultPadMap();  // the controller's buttons toward the game (always complete)
     int gyroMode = 0;   // gyro aiming (input/gyro.h): 0 off, 1 always, 2 while L2 is held
@@ -308,6 +309,10 @@ public:
     // "Your games": the account's games, then those to buy; `known` false
     // while the account's games load.
     void setOwned(std::vector<GameTile> owned, std::vector<GameTile> purchasable, bool known);
+    // Coalesced update of rows, owned/purchasable, membership, search pools, and loading bar under a single lock and rebuild.
+    void setCatalogState(std::vector<GameRow> rows, std::vector<GameTile> owned, std::vector<GameTile> purchasable,
+                         bool ownedKnown, bool member, std::vector<GameTile> gpPool, std::vector<GameTile> libPool,
+                         bool loadingActive = false, size_t loadingDone = 0, size_t loadingTotal = 0);
     // "My consoles"; `known` false while they load.
     void setConsoles(std::vector<ConsoleTile> consoles, bool known);
     // The lists' background refresh: shown as a bar in "Your games" and the
@@ -370,7 +375,11 @@ public:
     void showError(const std::string& message, const std::string& url = {});
     // A game that could not start but may on another try (a free game got
     // on the phone meanwhile): Cross plays it again, Circle opens its page.
-    void showPlayError(const std::string& message, const GameTile& game);
+    void showPlayError(const std::string& message, const GameTile& game, const std::string& url = {});
+    bool isFreeAccount() const;
+    bool isFreeAccountLocked() const;
+    bool isEffectivePlayable(const GameTile& t) const;
+    bool isEffectivePlayableLocked(const GameTile& t) const;
     // The sign-in refused by xCloud: an error that also offers to sign in as
     // another country (Square), and Settings (Options).
     void showRegionRefused(const std::string& message);
@@ -533,7 +542,7 @@ private:
         std::vector<int> rowFirst;      // first tile index of each row
         int headerY[3] = {0, 0, 0};     // section headers, relative (0: yours, 1: to buy, 2: hidden)
     };
-    LibraryLayout libraryLayout() const;
+    const LibraryLayout& libraryLayout() const;
     const GameTile* libraryTile(int index) const;
     // Applies hiding and sorting to the received lists (caller holds mutex_).
     // `keepPosition`: the cursor stays where it is on screen (same section
@@ -665,6 +674,8 @@ private:
     bool ownedKnown_ = false;
     int gridFocus_ = 0;
     Anim gridScroll_;
+    mutable LibraryLayout cachedLibLayout_;
+    mutable bool libLayoutValid_ = false;
     bool searching_ = false;  // the search of `tab_` is open
     std::vector<GameTile> gamePassPool_, libraryPool_, results_;
     std::string query_;
@@ -792,6 +803,7 @@ private:
     bool achievementsOpen_ = false;
     int achScroll_ = 0;
     int detailButtonFocus_ = 0;  // 0 = Play / Claim, 1 = Achievements
+    Rect playRect_{}, achRect_{}, claimRect_{};
     std::string webUrl_;
     float mouseCursorX_ = 960.0f;
     float mouseCursorY_ = 540.0f;
@@ -799,5 +811,4 @@ private:
     uint64_t mouseCursorVisibleUntil_ = 0;
     void drawMouseCursor(Canvas& c, float cursorX, float cursorY);
 };
-
 }  // namespace xc::ui

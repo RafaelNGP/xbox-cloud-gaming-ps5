@@ -417,6 +417,13 @@ enum class Str {
     LibraryUpToDate,
     LibraryUpdatedCount,
     OfflineMode,
+    PreviewFeatures,
+    SettingDescPreviewFeatures,
+    GamePassRequired,
+    InQueueIndeterminate,
+    InQueueEstimated,
+    F2pPreviewRequiredDesc,
+    F2pPreviewAccountNeededDesc,
     Count
 };
 
@@ -437,6 +444,8 @@ const char* gameLocale();
 const char* tr(Str id);
 // tr() with one "%s" substituted.
 std::string trf(Str id, const std::string& arg);
+// tr() with two "%s" substituted in order.
+std::string trf(Str id, const std::string& arg1, const std::string& arg2);
 std::string touchpadActionLabel(int actionIndex);
 const char* touchpadTriggerLabel(int triggerIndex);
 

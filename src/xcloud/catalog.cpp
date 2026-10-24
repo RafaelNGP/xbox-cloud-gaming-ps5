@@ -190,6 +190,12 @@ bool fetchProducts(const std::vector<std::string>& ids, const std::string& marke
                 if (prod.heroUrl.empty()) prod.heroUrl = existing->second.heroUrl;
                 if (prod.description.empty()) prod.description = existing->second.description;
                 if (prod.xcloudTitleId.empty()) prod.xcloudTitleId = existing->second.xcloudTitleId;
+                if (prod.ratingAge.empty()) prod.ratingAge = existing->second.ratingAge;
+                if (prod.ratingSystem.empty()) prod.ratingSystem = existing->second.ratingSystem;
+                if (prod.ratingDescriptors.empty()) prod.ratingDescriptors = existing->second.ratingDescriptors;
+                if (prod.publisher.empty()) prod.publisher = existing->second.publisher;
+                if (prod.categories.empty()) prod.categories = existing->second.categories;
+                if (prod.xboxTitleId.empty()) prod.xboxTitleId = existing->second.xboxTitleId;
                 prod.isPcOnly = prod.isPcOnly || existing->second.isPcOnly;
                 if (!prod.detailed && existing->second.detailed) {
                     prod.detailed = existing->second.detailed;

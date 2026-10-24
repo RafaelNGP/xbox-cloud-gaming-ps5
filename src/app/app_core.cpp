@@ -324,6 +324,7 @@ bool coreStartup() {
             root.set("triggerStrength", g_settings.triggerStrength);
             root.set("audioHaptics", g_settings.audioHaptics);
             root.set("queueReadyAlert", g_settings.queueReadyAlert);
+            root.set("previewFeatures", g_settings.previewFeatures);
             root.set("videoDecoder", g_settings.videoDecoder);
             root.set("voiceRouting", g_settings.voiceRouting);
             root.set("padSpeakerVolume", g_settings.padSpeakerVolume);
@@ -392,6 +393,10 @@ bool coreStartup() {
                 }
                 if (root.has("queueReadyAlert")) {
                     g_settings.queueReadyAlert = root["queueReadyAlert"].asBool(g_settings.queueReadyAlert);
+                    changed = true;
+                }
+                if (root.has("previewFeatures")) {
+                    g_settings.previewFeatures = root["previewFeatures"].asBool(g_settings.previewFeatures);
                     changed = true;
                 }
                 if (root.has("videoDecoder")) {
@@ -663,12 +668,9 @@ bool coreStartup() {
         initialLib->setWishlist(g_settings.wishlist);
         if (initialLib->loadCache(true)) {
             setInitialLibrary(initialLib);
-            if (!initialLib->rows().empty()) {
-                g_ui->setRows(initialLib->rows());
-            }
-            g_ui->setOwned(initialLib->owned(), initialLib->purchasable(), initialLib->ownedKnown());
-            g_ui->setMembership(initialLib->gamePassMember());
-            g_ui->setSearchPools(initialLib->gamePassSearchPool(), initialLib->librarySearchPool());
+            g_ui->setCatalogState(initialLib->rows(), initialLib->owned(), initialLib->purchasable(),
+                                  initialLib->ownedKnown(), initialLib->gamePassMember(),
+                                  initialLib->gamePassSearchPool(), initialLib->librarySearchPool());
             XC_LOGI("instant-resume: loaded offline cache (%zu rows, %zu owned) in 0.01s",
                     initialLib->rows().size(), initialLib->owned().size());
         }
@@ -914,7 +916,12 @@ bool Core::frame() {
                        std::abs(pad.rightStickX) > 0.5f || std::abs(pad.rightStickY) > 0.5f;
         bool keyboard = ui::g_keyboardHints;
         if (keyPressed || kbm.moved) keyboard = true, keyboardActiveAt = now0();
-        else if (padUsed) keyboard = false;
+        else if (padUsed) {
+            keyboard = false;
+            if (g_ui->mouseCursorVisible()) {
+                g_ui->setMouseCursor(g_ui->mouseCursorX(), g_ui->mouseCursorY(), false);
+            }
+        }
         if (keyboard != ui::g_keyboardHints) {
             ui::g_keyboardHints = keyboard;
             g_ui->invalidate();
@@ -943,12 +950,12 @@ bool Core::frame() {
             if (k.pressed) g_ui->captureKey(k.vk), swallowedKeys.push_back(k.vk);
         for (int b = 0; b < 5; ++b)
             if ((kbm.buttons & ~mouseButtonsBefore) & (1 << b)) g_ui->captureKey(static_cast<uint8_t>(input::kMouseLeft + b));
-    } else if (!inGame || streamScreen->menuOpen()) {
+    } else if ((!inGame || streamScreen->menuOpen()) && !shell::caps().window) {
         static float s_mouseCursorX = 960.0f;
         static float s_mouseCursorY = 540.0f;
         if (kbm.dx != 0 || kbm.dy != 0) {
-            s_mouseCursorX = std::clamp(s_mouseCursorX + static_cast<float>(kbm.dx), 0.0f, 1920.0f);
-            s_mouseCursorY = std::clamp(s_mouseCursorY + static_cast<float>(kbm.dy), 0.0f, 1080.0f);
+            s_mouseCursorX = std::clamp(s_mouseCursorX + static_cast<float>(kbm.dx), 0.0f, 1919.0f);
+            s_mouseCursorY = std::clamp(s_mouseCursorY + static_cast<float>(kbm.dy), 0.0f, 1079.0f);
             ui::UiEvent mev = g_ui->onMouseMove(s_mouseCursorX, s_mouseCursorY);
             if (mev.action != ui::Action::None) dispatchUiAction(mev);
         }

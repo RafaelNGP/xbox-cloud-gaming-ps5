@@ -36,6 +36,17 @@ bool decodeImage(const std::string& bytes, Image& out) {
     out.px.resize(static_cast<size_t>(w) * h);
     std::memcpy(out.px.data(), data, out.px.size() * 4);
     stbi_image_free(data);
+    if (n < 4) {
+        out.opaque = true;
+    } else {
+        out.opaque = true;
+        for (uint32_t p : out.px) {
+            if ((p >> 24) != 255) {
+                out.opaque = false;
+                break;
+            }
+        }
+    }
     return true;
 }
 
@@ -52,6 +63,13 @@ Image coverResize(const Image& src, int w, int h) {
     const auto* start = reinterpret_cast<const unsigned char*>(&src.px[static_cast<size_t>(cy) * src.w + cx]);
     stbir_resize_uint8_srgb(start, cw, ch, src.w * 4, reinterpret_cast<unsigned char*>(out.px.data()), w, h, w * 4,
                             STBIR_RGBA);
+    out.opaque = true;
+    for (uint32_t p : out.px) {
+        if ((p >> 24) != 255) {
+            out.opaque = false;
+            break;
+        }
+    }
     return out;
 }
 
@@ -98,6 +116,13 @@ std::shared_ptr<const Image> ImageCache::get(const std::string& url, int w, int 
     Entry& e = entries_[key];
     e.lastUse = ++clock_;
     if (!e.image && !e.loading && (!e.failed || (e.retryAt && platform::nowMs() >= e.retryAt))) {
+        constexpr size_t kMaxPendingJobs = 48;
+        while (jobs_.size() >= kMaxPendingJobs) {
+            Job dropped = std::move(jobs_.back());
+            jobs_.pop_back();
+            auto dit = entries_.find(dropped.key);
+            if (dit != entries_.end()) dit->second.loading = false;
+        }
         e.loading = true;
         jobs_.push_front({key, url, w, h});
         cv_.notify_one();

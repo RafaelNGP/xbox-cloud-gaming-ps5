@@ -1,0 +1,2356 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 RafaelNGP
+#include "app/web_server.h"
+
+namespace xc::app {
+
+namespace {
+
+const char* kIndexHtml = R"html(<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>PSBox Cloud Gaming - Smartglass WebUI</title>
+<script>
+(function() {
+  function applyInitScale() {
+    var w = window.innerWidth || (document.documentElement ? document.documentElement.clientWidth : 360);
+    var h = window.innerHeight || (document.documentElement ? document.documentElement.clientHeight : 640);
+    var isLand = w > h;
+    var pScale = Math.min(1, Math.max(0.4, (w - 28) / 412));
+    var lsScale = Math.min(1, Math.max(0.35, Math.min((w - 24) / 915, (h - 78) / 412)));
+    var fsScale = Math.min(1.2, Math.max(0.4, Math.min((w - 28) / 915, (h - 20) / 412)));
+    document.documentElement.style.setProperty('--gp-scale', (isLand ? lsScale : pScale).toFixed(3));
+    document.documentElement.style.setProperty('--gp-fs-scale', fsScale.toFixed(3));
+  }
+  applyInitScale();
+  window.addEventListener('resize', applyInitScale);
+})();
+</script>
+<style>
+:root {
+  --bg: #0b0d13;
+  --surface: #141722;
+  --surface-alt: #1c2130;
+  --border: #282f44;
+  --primary: #107C41;
+  --primary-hover: #169c53;
+  --accent: #0070d8;
+  --text: #f0f3f8;
+  --text-dim: #9aa4b8;
+  --danger: #d93838;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+html { width: 100%; max-width: 100%; background: var(--bg); }
+body { width: 100%; max-width: 100%; margin: 0; padding: 0; overflow-x: hidden; overflow-y: auto; background: var(--bg); color: var(--text); -webkit-overflow-scrolling: touch; overscroll-behavior-y: none; }
+header { box-sizing: border-box; background: var(--surface); border-bottom: 1px solid var(--border); padding-top: max(18px, env(safe-area-inset-top, 18px)); padding-bottom: 12px; padding-left: max(16px, env(safe-area-inset-left, 16px)); padding-right: max(16px, env(safe-area-inset-right, 16px)); display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; max-width: 100%; overflow-x: hidden; }
+.brand { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; }
+.logo-icon { flex-shrink: 0; width: 32px; height: 32px; border-radius: 50%; box-shadow: 0 0 10px rgba(16, 124, 65, 0.45); }
+.brand-text { min-width: 0; flex: 1 1 auto; }
+.brand-text h1 { font-size: clamp(0.76rem, 3.6vw, 0.96rem); font-weight: 700; letter-spacing: 0.5px; color: #fff; text-transform: uppercase; line-height: 1.2; white-space: nowrap; }
+.brand-subtitle { font-size: 0.70rem; color: var(--text-dim); display: block; font-weight: 500; white-space: nowrap; }
+header .badge { background: var(--primary); color: #fff; font-size: 0.70rem; padding: 3px 7px; border-radius: 12px; font-weight: 600; text-transform: uppercase; flex-shrink: 0; }
+.nav-tabs { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--surface); border-bottom: 1px solid var(--border); width: 100%; max-width: 100%; overflow: hidden; }
+.nav-tab { min-width: 0; text-align: center; padding: 11px 4px; min-height: 44px; display: flex; align-items: center; justify-content: center; font-size: clamp(0.74rem, 2.8vw, 0.86rem); font-weight: 600; color: var(--text-dim); border-bottom: 2px solid transparent; border-right: 1px solid rgba(40, 47, 68, 0.45); border-top: 1px solid rgba(40, 47, 68, 0.45); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; -webkit-user-select: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.nav-tab.active { color: #fff; border-bottom-color: var(--primary); background: var(--surface-alt); }
+.tab-pane { display: none !important; height: 0 !important; max-height: 0 !important; overflow: hidden !important; width: 100%; }
+.tab-pane.active { display: block !important; height: auto !important; max-height: none !important; overflow: visible !important; }
+.content { max-width: 680px; width: 100%; margin: 12px auto 0 auto; padding: 0 12px 20px 12px; overflow-x: hidden; }
+.subnav { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; width: 100%; max-width: 100%; }
+.subnav .btn { flex: 1 1 120px; }
+.subnav .btn.active { background: var(--primary); border-color: var(--primary); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; margin-bottom: 14px; width: 100%; max-width: 100%; overflow-x: hidden; }
+.card:last-child { margin-bottom: 0 !important; }
+.card h2 { font-size: 1.0rem; margin-bottom: 8px; font-weight: 600; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card p { font-size: 0.82rem; color: var(--text-dim); margin-bottom: 12px; line-height: 1.4; word-break: break-word; }
+
+/* Search tabs & chips */
+.search-tabs { display: flex; gap: 8px; margin-bottom: 12px; width: 100%; max-width: 100%; }
+.search-tab { flex: 1 1 0; min-width: 0; padding: 10px 8px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 10px; color: var(--text-dim); font-size: clamp(0.82rem, 3.4vw, 0.88rem); font-weight: 600; cursor: pointer; transition: all 0.2s; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; outline: none; }
+.search-tab:hover { border-color: var(--primary); color: #fff; }
+.search-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 2px 8px rgba(16, 124, 65, 0.4); }
+.filter-section { margin-top: 12px; margin-bottom: 12px; width: 100%; max-width: 100%; }
+.filter-label { font-size: 0.76rem; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+.filter-chips { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; max-width: 100%; }
+.chip { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 6px 11px; border-radius: 20px; font-size: 0.80rem; font-weight: 600; background: var(--surface-alt); border: 1px solid var(--border); color: var(--text-dim); cursor: pointer; transition: all 0.2s; user-select: none; max-width: 100%; outline: none; white-space: nowrap; }
+.chip:hover { border-color: var(--primary-hover); color: var(--text); }
+.chip.active { background: rgba(16, 124, 65, 0.28); border-color: var(--primary); color: #4ade80; }
+.chip-select { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border-radius: 20px; background: var(--surface-alt); border: 1px solid var(--border); font-size: 0.80rem; color: var(--text-dim); font-weight: 600; max-width: 100%; }
+.chip-select.active { border-color: var(--primary); background: rgba(16, 124, 65, 0.28); color: #4ade80; }
+.chip-select select { background: transparent; border: none; color: #fff; font-size: 0.80rem; font-weight: 600; outline: none; cursor: pointer; padding: 2px 0; max-width: 100%; }
+.chip-select select option { background: var(--surface); color: #fff; }
+
+.input-group { display: flex; gap: 8px; margin-bottom: 12px; width: 100%; max-width: 100%; }
+input[type="text"] { flex: 1 1 auto; min-width: 0; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 0.92rem; color: #fff; outline: none; transition: border-color 0.2s; }
+input[type="text"]:focus { border-color: var(--primary); }
+.btn { display: inline-flex; align-items: center; justify-content: center; background: var(--surface-alt); color: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; min-height: 44px; font-size: 0.86rem; font-weight: 600; cursor: pointer; text-decoration: none; transition: background 0.15s, border-color 0.15s; max-width: 100%; white-space: normal; text-align: center; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+.btn:hover { background: var(--border); }
+.btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn-primary:hover { background: var(--primary-hover); }
+.status-pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; font-size: 0.80rem; background: rgba(16, 124, 65, 0.2); color: #4ade80; border: 1px solid rgba(16, 124, 65, 0.4); margin-top: 4px; max-width: 100%; word-break: break-word; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; flex-shrink: 0; }
+.grid-map { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 12px; width: 100%; max-width: 100%; }
+@media (min-width: 580px) {
+  .grid-map { grid-template-columns: repeat(2, 1fr); }
+}
+.map-item { background: var(--surface-alt); border: 1px solid var(--border); border-radius: 10px; padding: 9px 11px; display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; max-width: 100%; min-width: 0; flex-wrap: wrap; }
+.map-item label { font-size: 0.84rem; font-weight: 600; flex: 1 1 110px; min-width: 0; word-break: break-word; }
+.selects-wrap { display: flex; gap: 6px; flex-wrap: wrap; flex: 1 1 180px; min-width: 0; justify-content: flex-end; }
+.selects-wrap select { flex: 1 1 calc(50% - 4px); min-width: 85px; max-width: 100%; }
+.map-item > select { flex: 0 1 auto; max-width: 100%; min-width: 0; }
+select { background: var(--surface); color: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; font-size: 0.80rem; outline: none; min-width: 0; }
+.btn-row { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; width: 100%; max-width: 100%; }
+.btn-row .btn { flex: 1 1 130px; }
+pre { background: #07080b; border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-family: monospace; font-size: 0.78rem; color: #c4ccdc; overflow-x: auto; max-height: 380px; white-space: pre-wrap; word-break: break-all; max-width: 100%; }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #169c53; color: #fff; padding: 10px 20px; border-radius: 24px; font-size: 0.88rem; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 10000; max-width: 90%; text-align: center; }
+.toast.show { opacity: 1; }
+
+/* Telemetry & interactive controls */
+.telemetry-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; width: 100%; }
+.tel-item { background: var(--surface-alt); border: 1px solid var(--border); border-radius: 10px; padding: 9px 6px; text-align: center; }
+.tel-val { font-size: 1.10rem; font-weight: 700; color: #4ade80; }
+.tel-lbl { font-size: 0.70rem; color: var(--text-dim); text-transform: uppercase; margin-top: 3px; }
+.slider-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; width: 100%; }
+.slider-header { display: flex; justify-content: space-between; font-size: 0.84rem; font-weight: 600; }
+.slider-val { color: #4ade80; }
+input[type="range"] { width: 100%; accent-color: var(--primary); margin: 6px 0; }
+.toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.toggle-label { font-size: 0.86rem; font-weight: 600; }
+.switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider-sw { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--surface-alt); border: 1px solid var(--border); border-radius: 24px; transition: .25s; }
+.slider-sw:before { position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: .25s; }
+input:checked + .slider-sw { background-color: var(--primary); border-color: var(--primary); }
+input:checked + .slider-sw:before { transform: translateX(20px); }
+.btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn-danger:hover { background: #b82626; }
+.section-sub { font-size: 0.86rem; font-weight: 700; color: #4ade80; margin: 14px 0 6px 0; display: flex; align-items: center; justify-content: space-between; }
+
+/* Search overlay when streaming */
+.search-disabled-overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(11, 13, 19, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  z-index: 50;
+  color: #fff;
+  text-align: center;
+  padding: 20px;
+}
+.search-disabled-overlay .msg {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  background: rgba(20, 23, 34, 0.95);
+  border: 1px solid var(--border);
+  padding: 12px 22px;
+  border-radius: 20px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Virtual Gamepad */
+.gamepad-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.gamepad-container {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.player-select-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 6px;
+}
+.player-btn {
+  padding: 8px 6px;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text-dim);
+  font-size: clamp(0.74rem, 2.8vw, 0.84rem);
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.player-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(16, 124, 65, 0.4);
+}
+/* Virtual Gamepad Viewport & Modules (Exact Layout Studio Match) */
+:root {
+  --gp-scale: 1;
+  --gp-fs-scale: 1;
+}
+#tab-gamepad #gamepadCard {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.gamepad-viewport-wrapper {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  overflow: hidden;
+}
+.gamepad-container {
+  position: relative;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none !important;
+}
+.gamepad-module {
+  position: absolute;
+  transform-origin: center center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none !important;
+  box-sizing: border-box;
+}
+
+/* Stick Styling (Matching Layout Studio) */
+.stick-base {
+  position: relative;
+  width: 146px;
+  height: 146px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #1a2233 0%, #0d121c 100%);
+  border: 2px solid #334155;
+  box-shadow: inset 0 3px 10px rgba(0,0,0,0.8), 0 3px 8px rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+.stick-head {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #475569, #1e293b);
+  border: 2px solid #64748b;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.7);
+  pointer-events: none;
+  transform: translate(0px, 0px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stick-head::after {
+  content: '';
+  width: 45%;
+  height: 45%;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  background: radial-gradient(circle, #1e293b 0%, #334155 100%);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.7);
+}
+
+/* D-Pad Styling (Matching Layout Studio) */
+.dpad-container {
+  position: relative;
+  width: 150px;
+  height: 150px;
+}
+.dpad-arm {
+  position: absolute;
+  border-radius: 10px;
+  background: #1e2538;
+  border: 1.5px solid #3e4d70;
+  color: #94a3b8;
+  font-weight: 900;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+  transition: transform 0.06s, background 0.06s;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+.dpad-arm:active, .dpad-arm.pressed {
+  transform: scale(0.92);
+  background: #107c41 !important;
+  color: #fff !important;
+  border-color: #4ade80 !important;
+  box-shadow: 0 0 12px rgba(16, 124, 65, 0.8) !important;
+}
+.dpad-arm-up { top: 0; left: 33.33%; width: 33.33%; height: 35%; }
+.dpad-arm-down { bottom: 0; left: 33.33%; width: 33.33%; height: 35%; }
+.dpad-arm-left { top: 33.33%; left: 0; width: 35%; height: 33.33%; }
+.dpad-arm-right { top: 33.33%; right: 0; width: 35%; height: 33.33%; }
+.dpad-mid {
+  position: absolute;
+  top: 33.33%; left: 33.33%;
+  width: 33.33%; height: 33.33%;
+  background: #151a27;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* ABXY Styling (Matching Layout Studio) */
+.abxy-container {
+  position: relative;
+  width: 156px;
+  height: 156px;
+}
+.abxy-key {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  font-weight: 900;
+  font-size: 1.3rem;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-width: 2px;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+  transition: filter 0.06s, box-shadow 0.06s;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.abxy-key:active, .abxy-key.pressed {
+  box-shadow: 0 0 16px rgba(255,255,255,0.85) !important;
+  filter: brightness(1.35) !important;
+}
+.btn-y { top: 0; left: 52px; background: #c68900; border-color: #ffd000; }
+.btn-a { bottom: 0; left: 52px; background: #0e6b37; border-color: #22c55e; }
+.btn-x { top: 52px; left: 0; background: #006eb8; border-color: #38bdf8; }
+.btn-b { top: 52px; right: 0; background: #b80d1b; border-color: #f87171; }
+
+/* Buttons & System Styling */
+.pad-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #1e2538;
+  border: 1.5px solid #3e4d70;
+  border-radius: 10px;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  transition: transform 0.06s, background 0.06s;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  width: 100%;
+  height: 100%;
+}
+.pad-btn:active, .pad-btn.pressed {
+  transform: scale(0.92);
+  background: #107c41 !important;
+  border-color: #4ade80 !important;
+  box-shadow: 0 0 12px rgba(16, 124, 65, 0.7) !important;
+}
+.pad-btn-trigger {
+  font-weight: 800;
+  font-size: 1.05rem;
+  background: linear-gradient(180deg, #2e3a54, #182030);
+  border: 1.5px solid #4a5c82;
+  border-radius: 12px;
+}
+.pad-btn-bumper {
+  font-weight: 700;
+  font-size: 0.92rem;
+  border-radius: 10px;
+}
+.pad-btn-stick-click {
+  font-size: 0.82rem;
+  color: #94a3b8;
+  border-radius: 8px;
+}
+.center-sys-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+}
+.pad-btn-sys {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  height: 36px;
+  border-radius: 8px;
+}
+.pad-btn-nexus-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #107c41;
+  border: 2px solid #ffffff;
+  font-weight: 900;
+  font-size: 12px;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: none;
+  flex-shrink: 0;
+}
+.pad-btn-nexus-btn:active, .pad-btn-nexus-btn.pressed {
+  transform: scale(0.92);
+  filter: brightness(1.2);
+}
+
+/* Player Bar Styling (Clean minimalist capsule matching studio) */
+.player-bar-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: rgba(15, 23, 42, 0.9);
+  padding: 3px 6px;
+  border-radius: 12px;
+  border: 1px solid #1e293b;
+  width: 100%;
+  height: 100%;
+}
+.player-pill {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 800;
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  border: none;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+.player-pill.active {
+  background: #107c41;
+  color: #ffffff;
+  box-shadow: 0 0 8px rgba(16, 124, 65, 0.6);
+}
+.fs-only-exit { display: none; }
+
+/* Portrait Layout Positions (Exact Layout Studio Alignment) */
+#gamepadArea {
+  width: 412px !important;
+  min-width: 412px !important;
+  max-width: 412px !important;
+  flex-shrink: 0 !important;
+  height: 680px;
+}
+#gamepadArea #mod_player_bar { left: 130px; top: 10px; width: 152px !important; height: 44px; transform: scale(1.0); }
+#gamepadArea #mod_center_sys { left: 115px; top: 62px; width: 182px; height: 56px; transform: scale(1.0); }
+#gamepadArea #mod_btn_ls { left: 16px; top: 132px; width: 56px; height: 52px; transform: scale(1.25); }
+#gamepadArea #mod_btn_rs { left: 340px; top: 132px; width: 56px; height: 52px; transform: scale(1.25); }
+#gamepadArea #mod_btn_lt { left: 10px; top: 206px; width: 98px; height: 56px; transform: scale(1.0); }
+#gamepadArea #mod_btn_lb { left: 116px; top: 207px; width: 78px; height: 52px; transform: scale(1.0); }
+#gamepadArea #mod_btn_rb { left: 218px; top: 207px; width: 78px; height: 52px; transform: scale(1.0); }
+#gamepadArea #mod_btn_rt { left: 304px; top: 206px; width: 98px; height: 56px; transform: scale(1.0); }
+#gamepadArea #mod_stick_left { left: 21px; top: 282px; width: 166px; height: 166px; transform: scale(1.15); }
+#gamepadArea #mod_abxy { left: 218px; top: 282px; width: 176px; height: 176px; transform: scale(1.15); }
+#gamepadArea #mod_dpad { left: 19px; top: 488px; width: 160px !important; height: 160px; transform: scale(1.0); }
+#gamepadArea #mod_stick_right { left: 225px; top: 490px; width: 166px; height: 166px; transform: scale(1.0); }
+
+/* Responsive scale wrapper for Portrait */
+@media (orientation: portrait), (max-width: 600px) and (orientation: portrait) {
+  .gamepad-viewport-wrapper {
+    height: calc(680px * var(--gp-scale, 0.82));
+  }
+  #gamepadArea {
+    transform: scale(var(--gp-scale, 0.82));
+    transform-origin: top center;
+  }
+}
+
+/* Landscape Layout Positions (Exact Layout Studio Alignment) */
+@media (orientation: landscape), (max-height: 520px) {
+  .gamepad-status-bar {
+    display: none !important;
+  }
+  .gamepad-viewport-wrapper {
+    height: calc(412px * var(--gp-scale, 0.8));
+    min-height: calc(412px * var(--gp-scale, 0.8));
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    overflow: hidden;
+  }
+  #gamepadArea {
+    width: 915px !important;
+    min-width: 915px !important;
+    max-width: 915px !important;
+    flex-shrink: 0 !important;
+    height: 412px !important;
+    transform: scale(var(--gp-scale, 0.8));
+    transform-origin: top center !important;
+  }
+  #gamepadArea #mod_btn_lt { left: 10px; top: 10px; width: 94px; height: 54px; transform: scale(1.0); }
+  #gamepadArea #mod_btn_lb { left: 110px; top: 11px; width: 76px; height: 52px; transform: scale(1.0); }
+  #gamepadArea #mod_btn_ls { left: 192px; top: 11px; width: 54px; height: 52px; transform: scale(1.0); }
+  #gamepadArea #mod_player_bar { left: 381px; top: 12px; width: 152px !important; height: 44px; transform: scale(1.0); }
+  #gamepadArea #mod_center_sys { left: 342px; top: 66px; width: 230px; height: 56px; transform: scale(1.0); }
+  #gamepadArea #mod_btn_rs { left: 669px; top: 11px; width: 54px; height: 52px; transform: scale(1.0); }
+  #gamepadArea #mod_btn_rb { left: 729px; top: 11px; width: 76px; height: 52px; transform: scale(1.0); }
+  #gamepadArea #mod_btn_rt { left: 811px; top: 10px; width: 94px; height: 54px; transform: scale(1.0); }
+  #gamepadArea #mod_stick_left { left: 32px; top: 97px; width: 166px; height: 166px; transform: scale(1.3); }
+  #gamepadArea #mod_abxy { left: 712px; top: 97px; width: 176px; height: 176px; transform: scale(1.3); }
+  #gamepadArea #mod_dpad { left: 205px; top: 242px; width: 160px !important; height: 160px; transform: scale(1.05); }
+  #gamepadArea #mod_stick_right { left: 545px; top: 240px; width: 166px; height: 166px; transform: scale(1.2); }
+}
+
+/* Fullscreen Mode (Landscape) */
+#gamepadCard.gamepad-fullscreen, #gamepadCard:fullscreen, #gamepadCard:-webkit-full-screen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-width: 100vw !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  z-index: 9999 !important;
+  background: radial-gradient(circle at 50% 35%, #161c2c 0%, #090b11 100%) !important;
+  padding: env(safe-area-inset-top, 0) env(safe-area-inset-right, 14px) env(safe-area-inset-bottom, 8px) env(safe-area-inset-left, 14px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+}
+#gamepadCard.gamepad-fullscreen .gamepad-intro,
+#gamepadCard:fullscreen .gamepad-intro,
+#gamepadCard:-webkit-full-screen .gamepad-intro,
+#gamepadCard.gamepad-fullscreen .gamepad-status-bar,
+#gamepadCard:fullscreen .gamepad-status-bar,
+#gamepadCard:-webkit-full-screen .gamepad-status-bar {
+  display: none !important;
+}
+#gamepadCard.gamepad-fullscreen .fs-only-exit,
+#gamepadCard:fullscreen .fs-only-exit,
+#gamepadCard:-webkit-full-screen .fs-only-exit {
+  display: inline-flex !important;
+}
+#gamepadCard.gamepad-fullscreen .gamepad-viewport-wrapper,
+#gamepadCard:fullscreen .gamepad-viewport-wrapper,
+#gamepadCard:-webkit-full-screen .gamepad-viewport-wrapper {
+  width: calc(915px * var(--gp-fs-scale, 0.85)) !important;
+  height: calc(412px * var(--gp-fs-scale, 0.85)) !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+  position: relative !important;
+}
+#gamepadCard.gamepad-fullscreen #gamepadArea,
+#gamepadCard:fullscreen #gamepadArea,
+#gamepadCard:-webkit-full-screen #gamepadArea {
+  width: 915px !important;
+  min-width: 915px !important;
+  max-width: 915px !important;
+  flex-shrink: 0 !important;
+  height: 412px !important;
+  transform: scale(var(--gp-fs-scale, 0.85)) !important;
+  transform-origin: top center !important;
+}
+#gamepadCard.gamepad-fullscreen #mod_btn_lt { left: 10px !important; top: 10px !important; width: 94px !important; height: 54px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_btn_lb { left: 110px !important; top: 11px !important; width: 76px !important; height: 52px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_btn_ls { left: 192px !important; top: 11px !important; width: 54px !important; height: 52px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_player_bar { left: 381px !important; top: 12px !important; width: 152px !important; height: 44px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_center_sys { left: 342px !important; top: 66px !important; width: 230px !important; height: 56px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_btn_rs { left: 669px !important; top: 11px !important; width: 54px !important; height: 52px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_btn_rb { left: 729px !important; top: 11px !important; width: 76px !important; height: 52px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_btn_rt { left: 811px !important; top: 10px !important; width: 94px !important; height: 54px !important; transform: scale(1.0) !important; }
+#gamepadCard.gamepad-fullscreen #mod_stick_left { left: 32px !important; top: 97px !important; width: 166px !important; height: 166px !important; transform: scale(1.3) !important; }
+#gamepadCard.gamepad-fullscreen #mod_abxy { left: 712px !important; top: 97px !important; width: 176px !important; height: 176px !important; transform: scale(1.3) !important; }
+#gamepadCard.gamepad-fullscreen #mod_dpad { left: 205px !important; top: 242px !important; width: 160px !important; height: 160px !important; transform: scale(1.05) !important; }
+#gamepadCard.gamepad-fullscreen #mod_stick_right { left: 545px !important; top: 240px !important; width: 166px !important; height: 166px !important; transform: scale(1.2) !important; }
+
+@media (max-width: 600px) {
+  .nav-tabs { grid-template-columns: repeat(3, 1fr); }
+  .nav-tab { padding: 9px 4px; font-size: 0.74rem; }
+  .telemetry-grid { grid-template-columns: repeat(2, 1fr); }
+  .content { padding-left: 6px; padding-right: 6px; }
+  #tab-gamepad #gamepadCard { padding-left: 2px; padding-right: 2px; }
+}
+
+@media (orientation: landscape), (max-height: 520px) {
+  .nav-tabs {
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+  }
+  .nav-tab {
+    min-height: 36px;
+    padding: 5px 2px;
+    font-size: 0.72rem;
+  }
+  header {
+    display: none !important;
+  }
+  .content {
+    max-width: 960px;
+    margin: 2px auto 0 auto;
+    padding: 0 4px 6px 4px;
+  }
+  .card {
+    padding: 4px 8px;
+    margin-bottom: 0 !important;
+  }
+  .card h2 {
+    font-size: 0.88rem;
+    margin-bottom: 4px;
+  }
+  .card p {
+    font-size: 0.76rem;
+    margin-bottom: 6px;
+  }
+  .gamepad-intro {
+    display: block;
+    margin-bottom: 2px;
+  }
+  .gamepad-toolbar {
+    margin-bottom: 2px;
+    justify-content: flex-end;
+  }
+  .gamepad-status-bar {
+    display: none !important;
+  }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg class="logo-icon" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="50" cy="50" r="50" fill="#ffffff"/>
+      <path fill="#107C41" d="M 50.00 40.10 s 0.12 0.00 0.00 0.00 c 15.07 11.46 40.60 39.60 32.88 47.57 -8.84 7.72 -20.30 12.33 -32.88 12.33 s -24.16 -4.61 -32.88 -12.33 c -7.85 -7.97 17.81 -36.11 32.75 -47.45 0.00 -0.12 0.12 -0.12 0.12 -0.12 z m 26.03 -32.75 C 68.43 2.74 60.09 0.00 50.00 0.00 s -18.43 2.74 -26.03 7.35 c -0.12 0.00 -0.12 0.12 -0.12 0.25 s 0.12 0.12 0.25 0.12 c 9.71 -2.12 24.41 6.23 25.78 7.10 h 0.25 c 1.37 -0.87 16.06 -9.22 25.78 -7.10 0.12 0.00 0.25 0.00 0.25 -0.12 s 0.00 -0.25 -0.12 -0.25 z M 15.01 14.32 c -0.12 0.00 -0.12 0.12 -0.25 0.12 -9.09 9.09 -14.69 21.67 -14.69 35.49 0.00 11.33 3.86 21.92 10.21 30.26 0.00 0.12 0.12 0.12 0.25 0.12 s 0.12 -0.12 0.00 -0.25 c -3.86 -11.83 15.69 -40.35 25.78 -52.30 l 0.12 -0.12 c 0.00 -0.12 0.00 -0.12 -0.12 -0.12 -15.32 -15.19 -20.42 -13.57 -21.30 -13.20 z m 48.69 13.08 l -0.12 0.12 s 0.00 0.12 0.12 0.12 c 10.09 11.96 29.51 40.47 25.78 52.30 v 0.25 c 0.12 0.00 0.25 0.00 0.25 -0.12 6.35 -8.34 10.21 -18.93 10.21 -30.26 0.00 -13.82 -5.60 -26.40 -14.82 -35.49 -0.12 -0.12 -0.12 -0.12 -0.25 -0.12 -0.75 -0.25 -5.85 -1.87 -21.17 13.20 z"/>
+    </svg>
+    <div class="brand-text">
+      <h1>PSBOX CLOUD GAMING</h1>
+      <span class="brand-subtitle">Smartglass WebUI</span>
+    </div>
+  </div>
+  <span class="badge">v)html" XC_APP_VERSION R"html(</span>
+</header>
+
+<div class="nav-tabs">
+  <div class="nav-tab active" id="navTab-search" onclick="switchTab('search')">🔍 Busca</div>
+  <div class="nav-tab" id="navTab-settings" onclick="switchTab('settings')">⚙️ Configurações</div>
+  <div class="nav-tab" id="navTab-stream" onclick="switchTab('stream')">📺 Jogo Atual</div>
+  <div class="nav-tab" id="navTab-remap" onclick="switchTab('remap')">🎮 Mapeamento</div>
+  <div class="nav-tab" id="navTab-gamepad" onclick="switchTab('gamepad')">🕹️ Controle</div>
+  <div class="nav-tab" id="navTab-logs" onclick="switchTab('logs')">📋 Logs</div>
+</div>
+
+<div class="content">
+  <!-- TAB: SETTINGS -->
+  <div id="tab-settings" class="tab-pane" style="display:none;">
+    <div class="card">
+      <h2>⚙️ Configurações Gerais</h2>
+      <p>Ajuste opções gráficas, de controle e comportamento do aplicativo.</p>
+      
+      <div class="slider-group">
+        <div class="slider-header">
+          <span>Bitrate Máximo</span>
+          <span class="slider-val" id="valBitrate">Auto</span>
+        </div>
+        <input type="range" id="inputBitrate" min="0" max="50" step="5" value="0" oninput="onBitrateInput(this.value)">
+      </div>
+
+      <div class="toggle-row">
+        <span class="toggle-label">Modo 120 Hz (High Refresh / VRR)</span>
+        <label class="switch">
+          <input type="checkbox" id="check120Hz" onchange="markSettingsChanged()">
+          <span class="slider-sw"></span>
+        </label>
+      </div>
+
+      <div class="slider-group" style="margin-top: 10px;">
+        <div class="slider-header">
+          <span>Zona Morta - Analógico Esquerdo (L)</span>
+          <span class="slider-val" id="valDeadzoneL">15%</span>
+        </div>
+        <input type="range" id="inputDeadzoneL" min="0" max="50" step="1" value="15" oninput="document.getElementById('valDeadzoneL').textContent=this.value+'%'; markSettingsChanged()">
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-header">
+          <span>Zona Morta - Analógico Direito (R)</span>
+          <span class="slider-val" id="valDeadzoneR">15%</span>
+        </div>
+        <input type="range" id="inputDeadzoneR" min="0" max="50" step="1" value="15" oninput="document.getElementById('valDeadzoneR').textContent=this.value+'%'; markSettingsChanged()">
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-header">
+          <span>Vibração dos Gatilhos</span>
+          <span class="slider-val" id="valTriggerStrength">2</span>
+        </div>
+        <input type="range" id="inputTriggerStrength" min="0" max="4" step="1" value="2" oninput="document.getElementById('valTriggerStrength').textContent=this.value; markSettingsChanged()">
+      </div>
+
+      <div class="map-item" style="margin-bottom: 10px;">
+        <label>Barra de Luz DualSense</label>
+        <select id="selectLightBarMode" onchange="onLightBarModeChange()">
+          <option value="0">Cor do Jogo</option>
+          <option value="1">Cor Personalizada</option>
+          <option value="2">Desativada</option>
+        </select>
+        <input type="color" id="inputLightBarColor" value="#0070dc" style="margin-left: 8px; height: 32px; width: 44px; border: none; border-radius: 6px; cursor: pointer; display: none;" onchange="markSettingsChanged()">
+      </div>
+
+      <div class="toggle-row">
+        <span class="toggle-label">Aviso Sonoro de Fila (Queue Chime)</span>
+        <label class="switch">
+          <input type="checkbox" id="checkQueueAlert" onchange="markSettingsChanged()">
+          <span class="slider-sw"></span>
+        </label>
+      </div>
+
+      <div class="map-item" style="margin-top: 10px;">
+        <label>Decodificador de Vídeo</label>
+        <select id="selectVideoDecoder" onchange="markSettingsChanged()">
+          <option value="0">Hardware (libSceVideodec2 / HWAccel)</option>
+          <option value="1">Software (FFmpeg CPU)</option>
+        </select>
+      </div>
+
+      <div class="map-item" style="margin-top: 10px;">
+        <label>Saída do Chat de Voz</label>
+        <select id="selectVoiceRouting" onchange="markSettingsChanged()">
+          <option value="0">Automático (Alto-falante DualSense se disponível)</option>
+          <option value="1">Sempre TV / Headset Principal</option>
+        </select>
+      </div>
+
+      <div class="btn-row" style="margin-top: 16px;">
+        <button class="btn btn-primary" onclick="saveGeneralSettings()">Salvar Configurações</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: STREAM (JOGO ATUAL) -->
+  <div id="tab-stream" class="tab-pane" style="display:none;">
+    <div class="card">
+      <h2>📺 Jogo Atual & Telemetria</h2>
+      <p>Métricas de transmissão em tempo real e ajustes do menu de jogo (StreamMenu).</p>
+
+      <div class="telemetry-grid">
+        <div class="tel-item"><div class="tel-val" id="telFps">--</div><div class="tel-lbl">FPS</div></div>
+        <div class="tel-item"><div class="tel-val" id="telRtt">-- ms</div><div class="tel-lbl">RTT (Ping)</div></div>
+        <div class="tel-item"><div class="tel-val" id="telMbps">-- Mbps</div><div class="tel-lbl">Bitrate</div></div>
+        <div class="tel-item"><div class="tel-val" id="telLoss">0.0%</div><div class="tel-lbl">Perda Pkts</div></div>
+        <div class="tel-item"><div class="tel-val" id="telQp">--</div><div class="tel-lbl">QP (Qualidade)</div></div>
+        <div class="tel-item"><div class="tel-val" id="telDec">-- ms</div><div class="tel-lbl">Decodificação</div></div>
+      </div>
+
+      <div class="slider-group" style="margin-top: 10px;">
+        <div class="slider-header">
+          <span>Nitidez CAS (FidelityFX RCAS)</span>
+          <span class="slider-val" id="valCas">Média</span>
+        </div>
+        <input type="range" id="inputCas" min="0" max="3" step="1" value="2" oninput="sendStreamParam('sharpness', parseInt(this.value)); updateCasLabel(this.value);">
+      </div>
+
+      <div class="map-item" style="margin-bottom: 10px;">
+        <label>Upscaler de Imagem</label>
+        <select id="selectUpscaler" onchange="sendStreamParam('upscaler', parseInt(this.value))">
+          <option value="0">FSR 1.0</option>
+          <option value="1">Anime4K</option>
+          <option value="2">FSR 1.0 + Clean-up</option>
+          <option value="3">Anime4K + Clean-up</option>
+        </select>
+      </div>
+
+      <div class="map-item" style="margin-bottom: 10px;">
+        <label>Suavização de Blocos (Deband)</label>
+        <select id="selectDeband" onchange="sendStreamParam('deband', parseInt(this.value))">
+          <option value="0">Desativada</option>
+          <option value="1">Baixa</option>
+          <option value="2">Alta</option>
+          <option value="3">Automática (Bitrate-adaptive)</option>
+        </select>
+      </div>
+
+      <div class="slider-group">
+        <div class="slider-header">
+          <span>Volume Alto-falante DualSense</span>
+          <span class="slider-val" id="valPadSpeaker">100%</span>
+        </div>
+        <input type="range" id="inputPadSpeaker" min="0" max="100" step="5" value="100" oninput="document.getElementById('valPadSpeaker').textContent=this.value+'%'; sendStreamParam('padSpeakerVolume', parseInt(this.value));">
+      </div>
+
+      <div class="map-item" style="margin-bottom: 14px;">
+        <label>Perfis de Gatilho Inteligente</label>
+        <select id="selectSmartTriggers" onchange="sendStreamParam('triggerProfile', parseInt(this.value))">
+          <option value="0">Padrão (Standard Haptics)</option>
+          <option value="1">Tiro (Shooter - Hair Trigger)</option>
+          <option value="2">Corrida (Racing - Progressive Resistance)</option>
+        </select>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="sendStreamAction('xbox_guide')">Abrir Guia Xbox</button>
+        <button class="btn btn-danger" onclick="sendStreamAction('end_session')">Encerrar Sessão</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: SEARCH -->
+  <div id="tab-search" class="tab-pane active">
+    <div class="card" id="searchCard" style="position: relative;">
+      <div id="searchOverlay" class="search-disabled-overlay" style="display: none;">
+        <div class="msg">🔒 Desativado enquanto jogando</div>
+      </div>
+      <h2>🔍 Teclado Remoto para Busca</h2>
+      <p>Digite no celular para atualizar a pesquisa ativa na TV em tempo real sem precisar do controle.</p>
+      
+      <!-- Search destination tabs -->
+      <div class="search-tabs">
+        <button class="search-tab active" id="tabBtnGamePass" type="button" onclick="setSearchTab('gamepass')">🎮 Game Pass</button>
+        <button class="search-tab" id="tabBtnLibrary" type="button" onclick="setSearchTab('library')">📚 Meus jogos</button>
+      </div>
+
+      <div class="input-group">
+        <input type="text" id="searchInput" placeholder="Digite o nome de um jogo..." autocomplete="off">
+        <button class="btn" onclick="clearSearch()">Limpar</button>
+      </div>
+
+      <!-- Search filters -->
+      <div class="filter-section">
+        <div class="filter-label">Filtros da pesquisa:</div>
+        
+        <!-- Game Pass filters -->
+        <div id="filtersGamePass" class="filter-chips">
+          <div class="chip-select" id="chipSelectPlan">
+            <label for="filterPlan">👑 Plano:</label>
+            <select id="filterPlan" onchange="onFilterChange()">
+              <option value="0">Meu plano</option>
+              <option value="1">Ultimate</option>
+              <option value="2">Premium</option>
+              <option value="3">Essential</option>
+              <option value="4">Todos os planos</option>
+            </select>
+          </div>
+          <div class="chip-select" id="chipSelectConsoleGP">
+            <label for="filterConsoleGP">🎮 Console:</label>
+            <select id="filterConsoleGP" onchange="onFilterChange()">
+              <option value="0">Todos</option>
+              <option value="1">Series X|S</option>
+              <option value="2">Xbox One</option>
+              <option value="3">Xbox 360</option>
+            </select>
+          </div>
+          <button class="chip" id="chipMouseGP" type="button" onclick="toggleChip('chipMouseGP')">
+            ⌨️🖱️ Teclado e mouse
+          </button>
+          <div class="chip-select" id="chipSelectModeGP">
+            <label for="filterModeGP">👤 Modo:</label>
+            <select id="filterModeGP" onchange="onFilterChange()">
+              <option value="0">Todos</option>
+              <option value="1">Um jogador</option>
+              <option value="2">Multijogador online</option>
+              <option value="3">Cooperativo online</option>
+              <option value="4">Multijogador local</option>
+            </select>
+          </div>
+          <div class="chip-select" id="chipSelectLangGP">
+            <label for="filterLangGP">🌐 Idioma:</label>
+            <select id="filterLangGP" onchange="onFilterChange()">
+              <option value="0">Qualquer</option>
+              <option value="1">Legendas</option>
+              <option value="2">Dublado</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Meus Jogos (Library) filters -->
+        <div id="filtersLibrary" class="filter-chips" style="display:none;">
+          <button class="chip" id="chipWishlist" type="button" onclick="toggleChip('chipWishlist')">
+            💖 Lista de desejos
+          </button>
+          <button class="chip" id="chipFree" type="button" onclick="toggleChip('chipFree')">
+            🎁 Grátis
+          </button>
+          <button class="chip" id="chipCheapest" type="button" onclick="toggleChip('chipCheapest')">
+            🏷️ Menor preço
+          </button>
+          <div class="chip-select" id="chipSelectConsoleLib">
+            <label for="filterConsoleLib">🎮 Console:</label>
+            <select id="filterConsoleLib" onchange="onFilterChange()">
+              <option value="0">Todos</option>
+              <option value="1">Series X|S</option>
+              <option value="2">Xbox One</option>
+              <option value="3">Xbox 360</option>
+            </select>
+          </div>
+          <button class="chip" id="chipMouseLib" type="button" onclick="toggleChip('chipMouseLib')">
+            ⌨️🖱️ Teclado e mouse
+          </button>
+          <div class="chip-select" id="chipSelectModeLib">
+            <label for="filterModeLib">👤 Modo:</label>
+            <select id="filterModeLib" onchange="onFilterChange()">
+              <option value="0">Todos</option>
+              <option value="1">Um jogador</option>
+              <option value="2">Multijogador online</option>
+              <option value="3">Cooperativo online</option>
+              <option value="4">Multijogador local</option>
+            </select>
+          </div>
+          <div class="chip-select" id="chipSelectLangLib">
+            <label for="filterLangLib">🌐 Idioma:</label>
+            <select id="filterLangLib" onchange="onFilterChange()">
+              <option value="0">Qualquer</option>
+              <option value="1">Legendas</option>
+              <option value="2">Dublado</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="status-pill">
+        <div class="status-dot"></div>
+        <span id="searchStatus">Pronto para pesquisar</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: REMAP -->
+  <div id="tab-remap" class="tab-pane" style="display:none;">
+    <div class="subnav">
+      <button class="btn active" id="btnSubPad" onclick="switchRemapSub('pad')">🎮 DualSense</button>
+      <button class="btn" id="btnSubKey" onclick="switchRemapSub('key')">⌨️ Teclado</button>
+      <button class="btn" id="btnSubTouch" onclick="switchRemapSub('touch')">👆 Touchpad</button>
+    </div>
+
+    <div id="subRemapPad">
+      <div class="card">
+        <h2>🎮 Remapeamento de Botões (DualSense)</h2>
+        <p>Ajuste os botões do controle para o jogo na nuvem. Suas alterações são sincronizadas e salvas automaticamente.</p>
+        <div class="grid-map" id="padGrid"></div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveSettings()">Salvar no Console</button>
+          <button class="btn" onclick="resetPadMap()">Restaurar Controle Padrão</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="subRemapKey" style="display:none;">
+      <div class="card">
+        <h2>⌨️ Remapeamento de Teclado (WASD / Teclas)</h2>
+        <p>Mapeie teclas e botões do mouse para os comandos do Xbox na nuvem. Cada ação possui tecla Primária e Secundária.</p>
+        <div class="grid-map" id="keyGrid"></div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveSettings()">Salvar no Console</button>
+          <button class="btn" onclick="resetKeyMap()">Restaurar Teclado Padrão</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="subRemapTouch" style="display:none;">
+      <div class="card">
+        <h2>👆 Atalhos do Touchpad (DualSense)</h2>
+        <p>Configure o que cada gesto (deslizar) ou clique físico (lado esquerdo/direito) no touchpad faz durante o streaming. <strong>Touchpad + Options</strong> permanece sempre fixo para abrir o Menu do Jogo.</p>
+        <div class="grid-map" id="remapTouchpadShortcutsGrid"></div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="saveSettings()">Salvar no Console</button>
+          <button class="btn" onclick="resetTouchpadShortcuts()">Restaurar Touchpad Padrão</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: GAMEPAD (CONTROLE VIRTUAL) -->
+  <div id="tab-gamepad" class="tab-pane" style="display:none;">
+    <div class="card" id="gamepadCard">
+      <div class="gamepad-intro">
+        <div class="gamepad-toolbar">
+          <button type="button" class="btn btn-primary" id="btnFullscreenPad" onclick="toggleGamepadFullscreen()" style="padding: 6px 12px; font-size: 0.78rem;">
+            ⛶ Tela Cheia
+          </button>
+        </div>
+      </div>
+
+      <div class="gamepad-viewport-wrapper" id="gamepadScaleContainer">
+        <div class="gamepad-container" id="gamepadArea">
+
+          <!-- MODULE 1: Left Stick -->
+          <div id="mod_stick_left" class="gamepad-module">
+            <div class="stick-base" id="leftStickZone">
+              <div class="stick-head" id="leftStickHead"></div>
+            </div>
+          </div>
+
+          <!-- MODULE 2: D-Pad -->
+          <div id="mod_dpad" class="gamepad-module">
+            <div class="dpad-container" id="box_dpad">
+              <div class="dpad-arm dpad-arm-up" data-btn="dpadUp">▲</div>
+              <div class="dpad-arm dpad-arm-left" data-btn="dpadLeft">◀</div>
+              <div class="dpad-mid"></div>
+              <div class="dpad-arm dpad-arm-right" data-btn="dpadRight">▶</div>
+              <div class="dpad-arm dpad-arm-down" data-btn="dpadDown">▼</div>
+            </div>
+          </div>
+
+          <!-- MODULE 3: ABXY Diamond -->
+          <div id="mod_abxy" class="gamepad-module">
+            <div class="abxy-container" id="box_abxy">
+              <div class="abxy-key btn-y" data-btn="btnY">Y</div>
+              <div class="abxy-key btn-x" data-btn="btnX">X</div>
+              <div class="abxy-key btn-b" data-btn="btnB">B</div>
+              <div class="abxy-key btn-a" data-btn="btnA">A</div>
+            </div>
+          </div>
+
+          <!-- MODULE 4: Right Stick -->
+          <div id="mod_stick_right" class="gamepad-module">
+            <div class="stick-base" id="rightStickZone">
+              <div class="stick-head" id="rightStickHead"></div>
+            </div>
+          </div>
+
+          <!-- INDIVIDUAL SHOULDER & TRIGGER BUTTONS -->
+          <!-- MODULE 5: LT Trigger -->
+          <div id="mod_btn_lt" class="gamepad-module pad-bumper-left">
+            <button type="button" class="pad-btn pad-btn-trigger" id="btn_lt" data-btn="triggerL2">LT</button>
+          </div>
+
+          <!-- MODULE 6: LB Bumper -->
+          <div id="mod_btn_lb" class="gamepad-module pad-bumper-left">
+            <button type="button" class="pad-btn pad-btn-bumper" id="btn_lb" data-btn="btnL1">LB</button>
+          </div>
+
+          <!-- MODULE 7: LS Button -->
+          <div id="mod_btn_ls" class="gamepad-module pad-bumper-left">
+            <button type="button" class="pad-btn pad-btn-stick-click pad-btn-stick-btn" id="btn_ls" data-btn="btnL3">LS</button>
+          </div>
+
+          <!-- MODULE 8: RS Button -->
+          <div id="mod_btn_rs" class="gamepad-module pad-bumper-right">
+            <button type="button" class="pad-btn pad-btn-stick-click pad-btn-stick-btn" id="btn_rs" data-btn="btnR3">RS</button>
+          </div>
+
+          <!-- MODULE 9: RB Bumper -->
+          <div id="mod_btn_rb" class="gamepad-module pad-bumper-right">
+            <button type="button" class="pad-btn pad-btn-bumper" id="btn_rb" data-btn="btnR1">RB</button>
+          </div>
+
+          <!-- MODULE 10: RT Trigger -->
+          <div id="mod_btn_rt" class="gamepad-module pad-bumper-right">
+            <button type="button" class="pad-btn pad-btn-trigger" id="btn_rt" data-btn="triggerR2">RT</button>
+          </div>
+
+          <!-- MODULE 11: Center System Buttons (VIEW, X, MENU) -->
+          <div id="mod_center_sys" class="gamepad-module">
+            <div class="center-sys-container">
+              <button type="button" class="pad-btn pad-btn-sys" id="btn_view" data-btn="btnView">VIEW</button>
+              <button type="button" class="pad-btn-nexus-btn" id="btn_nexus" data-btn="btnNexus" aria-label="Xbox Guide" title="Xbox Guide">
+                <svg viewBox="0 0 100 100" width="22" height="22" style="pointer-events:none;display:block;">
+                  <circle cx="50" cy="50" r="48" fill="#ffffff"/>
+                  <path fill="#107C41" d="M 50.00 40.10 s 0.12 0.00 0.00 0.00 c 15.07 11.46 40.60 39.60 32.88 47.57 -8.84 7.72 -20.30 12.33 -32.88 12.33 s -24.16 -4.61 -32.88 -12.33 c -7.85 -7.97 17.81 -36.11 32.75 -47.45 0.00 -0.12 0.12 -0.12 0.12 -0.12 z m 26.03 -32.75 C 68.43 2.74 60.09 0.00 50.00 0.00 s -18.43 2.74 -26.03 7.35 c -0.12 0.00 -0.12 0.12 -0.12 0.25 s 0.12 0.12 0.25 0.12 c 9.71 -2.12 24.41 6.23 25.78 7.10 h 0.25 c 1.37 -0.87 16.06 -9.22 25.78 -7.10 0.12 0.00 0.25 0.00 0.25 -0.12 s 0.00 -0.25 -0.12 -0.25 z M 15.01 14.32 c -0.12 0.00 -0.12 0.12 -0.25 0.12 -9.09 9.09 -14.69 21.67 -14.69 35.49 0.00 11.33 3.86 21.92 10.21 30.26 0.00 0.12 0.12 0.12 0.25 0.12 s 0.12 -0.12 0.00 -0.25 c -3.86 -11.83 15.69 -40.35 25.78 -52.30 l 0.12 -0.12 c 0.00 -0.12 0.00 -0.12 -0.12 -0.12 -15.32 -15.19 -20.42 -13.57 -21.30 -13.20 z m 48.69 13.08 l -0.12 0.12 s 0.00 0.12 0.12 0.12 c 10.09 11.96 29.51 40.47 25.78 52.30 v 0.25 c 0.12 0.00 0.25 0.00 0.25 -0.12 6.35 -8.34 10.21 -18.93 10.21 -30.26 0.00 -13.82 -5.60 -26.40 -14.82 -35.49 -0.12 -0.12 -0.12 -0.12 -0.25 -0.12 -0.75 -0.25 -5.85 -1.87 -21.17 13.20 z"/>
+                </svg>
+              </button>
+              <button type="button" class="pad-btn pad-btn-sys" id="btn_menu" data-btn="btnMenu">MENU</button>
+              <button type="button" class="pad-btn pad-btn-sys fs-only-exit" id="btn_exit_fs" onclick="toggleGamepadFullscreen()" style="background:#451a1a;border-color:#b91c1c;color:#fca5a5;">✕ Sair</button>
+            </div>
+          </div>
+
+          <!-- MODULE 12: Player Selector (P1..P4) -->
+          <div id="mod_player_bar" class="gamepad-module">
+            <div class="player-bar-container">
+              <button type="button" class="player-pill active" id="btnPlayer1" onclick="setVirtualPlayer(1)">P1</button>
+              <button type="button" class="player-pill" id="btnPlayer2" onclick="setVirtualPlayer(2)">P2</button>
+              <button type="button" class="player-pill" id="btnPlayer3" onclick="setVirtualPlayer(3)">P3</button>
+              <button type="button" class="player-pill" id="btnPlayer4" onclick="setVirtualPlayer(4)">P4</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="status-pill gamepad-status-bar" style="margin-top: 10px;">
+        <div class="status-dot"></div>
+        <span id="gamepadStatus">Controle ativo para Jogador 1 (Principal)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: LOGS -->
+  <div id="tab-logs" class="tab-pane" style="display:none;">
+    <div class="card">
+      <h2>🐛 Enviar Relatório de Erro (GitHub)</h2>
+      <p>Gere um relatório completo da sessão atual com logs sanitizados (sem dados privados, e-mails ou tokens) formatado automaticamente para o repositório oficial no GitHub.</p>
+
+      <div class="form-group" style="margin-bottom: 10px;">
+        <label for="reportTitle" style="font-weight: 600; font-size: 0.82rem; display: block; margin-bottom: 4px;">Título do Problema (Opcional):</label>
+        <input type="text" id="reportTitle" class="form-control" placeholder="Ex: Queda de transmissão ou erro de áudio" style="width: 100%; box-sizing: border-box; padding: 8px 10px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 8px; color: #fff; font-size: 0.85rem;">
+      </div>
+
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label for="reportWhat" style="font-weight: 600; font-size: 0.82rem; display: block; margin-bottom: 4px;">O que aconteceu? (Opcional):</label>
+        <textarea id="reportWhat" class="form-control" rows="2" placeholder="Descreva brevemente o que você estava fazendo quando o erro ocorreu..." style="width: 100%; box-sizing: border-box; padding: 8px 10px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 8px; color: #fff; font-size: 0.85rem; resize: vertical;"></textarea>
+      </div>
+
+      <div class="btn-row" style="margin-top: 0; margin-bottom: 8px; gap: 8px; display: flex; flex-wrap: wrap;">
+        <button type="button" class="btn btn-primary" onclick="openGitHubReport()" id="btnOpenReport">🚀 Abrir Relatório no GitHub</button>
+        <button type="button" class="btn" onclick="copySanitizedReport()" id="btnCopyReport">📋 Copiar Relatório</button>
+        <button type="button" class="btn" onclick="previewReport()" id="btnPreviewReport">🔍 Pré-visualizar</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>📋 Download de Logs Cru</h2>
+      <p>Baixe o arquivo <code>xcloud.log</code> sanitizado (sem tokens ou dados privados) para inspeção local ou envio manual.</p>
+      <div class="btn-row" style="margin-top: 0; margin-bottom: 14px; gap: 8px; display: flex; flex-wrap: wrap;">
+        <a href="/api/log" download="xcloud.log" class="btn btn-primary">⬇️ Baixar xcloud.log</a>
+        <button type="button" class="btn" onclick="loadLogPreview()">Visualizar Últimas Linhas</button>
+      </div>
+      <pre id="logPreview">Clique em "Visualizar Últimas Linhas" ou "Pré-visualizar" para inspecionar os dados...</pre>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast">Alterações salvas com sucesso!</div>
+
+<script>
+const padFunctions = [
+  "A (Sul / Cruz)", "B (Leste / Círculo)", "X (Oeste / Quadrado)", "Y (Norte / Triângulo)",
+  "LB (L1)", "RB (R1)", "LT (L2)", "RT (R2)", "LS (L3)", "RS (R3)",
+  "View (Touchpad / Share)", "Menu (Options)", "D-pad Cima", "D-pad Baixo", "D-pad Esquerda", "D-pad Direita"
+];
+const padSources = [
+  {id: 0, name: "Cruz (South)"}, {id: 1, name: "Círculo (East)"}, {id: 2, name: "Quadrado (West)"}, {id: 3, name: "Triângulo (North)"},
+  {id: 4, name: "L1 (LB)"}, {id: 5, name: "R1 (RB)"}, {id: 6, name: "L2 (LT)"}, {id: 7, name: "R2 (RT)"},
+  {id: 8, name: "L3 (LS)"}, {id: 9, name: "R3 (RS)"}, {id: 10, name: "Touchpad (View)"}, {id: 11, name: "Options (Menu)"},
+  {id: 12, name: "D-pad Cima"}, {id: 13, name: "D-pad Baixo"}, {id: 14, name: "D-pad Esquerda"}, {id: 15, name: "D-pad Direita"}
+];
+
+const touchpadTriggers = [
+  {key: "swipeUp", label: "Deslizar ↑ (Cima)"},
+  {key: "swipeDown", label: "Deslizar ↓ (Baixo)"},
+  {key: "swipeLeft", label: "Deslizar ← (Esquerda)"},
+  {key: "swipeRight", label: "Deslizar → (Direita)"},
+  {key: "clickLeft", label: "Clique Esquerdo"},
+  {key: "clickRight", label: "Clique Direito"}
+];
+
+const touchpadActions = [
+  {id: "none", name: "Desativado"},
+  {id: "game_menu", name: "Menu do Jogo"},
+  {id: "xbox_button", name: "Botão Xbox (Guia)"},
+  {id: "toggle_stats", name: "Alternar Telemetria"},
+  {id: "toggle_mic_mute", name: "Silenciar Microfone"},
+  {id: "cycle_gyro", name: "Alternar Giroscópio"},
+  {id: "cycle_trigger_profile", name: "Alternar Perfil de Gatilho"},
+  {id: "view", name: "View"},
+  {id: "menu", name: "Menu"},
+  {id: "l3", name: "LS (L3)"},
+  {id: "r3", name: "RS (R3)"},
+  {id: "a", name: "A (Cruz)"},
+  {id: "b", name: "B (Círculo)"},
+  {id: "x", name: "X (Quadrado)"},
+  {id: "y", name: "Y (Triângulo)"},
+  {id: "lb", name: "LB (L1)"},
+  {id: "rb", name: "RB (R1)"},
+  {id: "dpad_up", name: "D-pad Cima"},
+  {id: "dpad_down", name: "D-pad Baixo"},
+  {id: "dpad_left", name: "D-pad Esquerda"},
+  {id: "dpad_right", name: "D-pad Direita"}
+];
+
+const defaultTouchpadShortcuts = {
+  swipeUp: "xbox_button",
+  swipeDown: "game_menu",
+  swipeLeft: "game_menu",
+  swipeRight: "xbox_button",
+  clickLeft: "view",
+  clickRight: "view"
+};
+
+const keyActionNames = [
+  "Analógico Esq. Cima", "Analógico Esq. Baixo", "Analógico Esq. Esquerda", "Analógico Esq. Direita",
+  "D-pad Cima", "D-pad Baixo", "D-pad Esquerda", "D-pad Direita",
+  "A (Cruz)", "B (Círculo)", "X (Quadrado)", "Y (Triângulo)",
+  "LB (L1)", "RB (R1)", "LT (L2)", "RT (R2)", "LS (L3)", "RS (R3)",
+  "View (Share / Touch)", "Menu (Options)"
+];
+
+const keyList = [
+  {id: 0, name: "(Nenhuma)"},
+  {id: 87, name: "W"}, {id: 65, name: "A"}, {id: 83, name: "S"}, {id: 68, name: "D"},
+  {id: 81, name: "Q"}, {id: 69, name: "E"}, {id: 82, name: "R"}, {id: 70, name: "F"},
+  {id: 67, name: "C"}, {id: 86, name: "V"}, {id: 90, name: "Z"}, {id: 88, name: "X"},
+  {id: 66, name: "B"}, {id: 71, name: "G"}, {id: 84, name: "T"}, {id: 89, name: "Y"},
+  {id: 72, name: "H"}, {id: 74, name: "J"}, {id: 75, name: "K"}, {id: 76, name: "L"},
+  {id: 77, name: "M"}, {id: 78, name: "N"}, {id: 79, name: "O"}, {id: 80, name: "P"},
+  {id: 85, name: "U"}, {id: 73, name: "I"},
+  {id: 48, name: "0"}, {id: 49, name: "1"}, {id: 50, name: "2"}, {id: 51, name: "3"},
+  {id: 52, name: "4"}, {id: 53, name: "5"}, {id: 54, name: "6"}, {id: 55, name: "7"},
+  {id: 56, name: "8"}, {id: 57, name: "9"},
+  {id: 32, name: "Espaço (Space)"},
+  {id: 16, name: "Shift"}, {id: 17, name: "Ctrl"}, {id: 18, name: "Alt"},
+  {id: 9, name: "Tab"}, {id: 27, name: "Esc"}, {id: 13, name: "Enter"}, {id: 8, name: "Backspace"},
+  {id: 38, name: "Seta Cima"}, {id: 40, name: "Seta Baixo"},
+  {id: 37, name: "Seta Esquerda"}, {id: 39, name: "Seta Direita"},
+  {id: 241, name: "Mouse L (Esq)"}, {id: 242, name: "Mouse R (Dir)"},
+  {id: 243, name: "Mouse M (Meio)"}, {id: 244, name: "Mouse 4"}, {id: 245, name: "Mouse 5"}
+];
+
+const defaultKeyMap = [
+  87, 0,  83, 0,  65, 0,  68, 0,
+  38, 0,  40, 0,  37, 0,  39, 0,
+  32, 0,  67, 0,  82, 0,  69, 0,
+  81, 0,  70, 0, 242, 0, 241, 0,
+  16, 0,  86, 243, 9, 0,  27, 0
+];
+
+let currentSettings = {
+  padMap: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15],
+  keyMap: [...defaultKeyMap],
+  touchpadShortcuts: {...defaultTouchpadShortcuts}
+};
+let lastSettingsVersion = 0;
+
+let currentSearchTab = 'gamepass';
+let currentFilters = {
+  plan: 0,
+  consoleGP: 0,
+  consoleLib: 0,
+  modeGP: 0,
+  modeLib: 0,
+  langGP: 0,
+  langLib: 0,
+  mouseGP: false,
+  mouseLib: false,
+  wishlist: false,
+  free: false,
+  cheapest: false
+};
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-pane').forEach(el => {
+    el.style.display = 'none';
+    el.classList.remove('active');
+  });
+  document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+  const pane = document.getElementById('tab-' + name);
+  if (pane) {
+    pane.style.display = 'block';
+    pane.classList.add('active');
+  }
+  const tabBtn = document.getElementById('navTab-' + name);
+  if (tabBtn) tabBtn.classList.add('active');
+  if (name === 'search') pollStreamingState();
+  if (name === 'gamepad') {
+    sendPadState(true);
+    updateGamepadScale();
+    setTimeout(updateGamepadScale, 10);
+  }
+  if (name === 'stream') {
+    loadStreamMenuState();
+    pollStats();
+  }
+}
+
+function switchRemapSub(mode) {
+  document.getElementById('subRemapPad').style.display = mode === 'pad' ? 'block' : 'none';
+  document.getElementById('subRemapKey').style.display = mode === 'key' ? 'block' : 'none';
+  const subTouch = document.getElementById('subRemapTouch');
+  if (subTouch) subTouch.style.display = mode === 'touch' ? 'block' : 'none';
+  document.getElementById('btnSubPad').classList.toggle('active', mode === 'pad');
+  document.getElementById('btnSubKey').classList.toggle('active', mode === 'key');
+  const btnTouch = document.getElementById('btnSubTouch');
+  if (btnTouch) btnTouch.classList.toggle('active', mode === 'touch');
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+const searchInput = document.getElementById('searchInput');
+let searchDebounce = null;
+
+function applySearchTabUI(tab) {
+  currentSearchTab = tab;
+  document.getElementById('tabBtnGamePass').classList.toggle('active', tab === 'gamepass');
+  document.getElementById('tabBtnLibrary').classList.toggle('active', tab === 'library');
+  document.getElementById('filtersGamePass').style.display = tab === 'gamepass' ? 'flex' : 'none';
+  document.getElementById('filtersLibrary').style.display = tab === 'library' ? 'flex' : 'none';
+}
+
+function setSearchTab(tab) {
+  applySearchTabUI(tab);
+  sendSearch(true);
+}
+
+function toggleChip(id) {
+  const el = document.getElementById(id);
+  el.classList.toggle('active');
+  const active = el.classList.contains('active');
+  if (id === 'chipWishlist') currentFilters.wishlist = active;
+  if (id === 'chipFree') currentFilters.free = active;
+  if (id === 'chipCheapest') currentFilters.cheapest = active;
+  if (id === 'chipMouseGP') currentFilters.mouseGP = active;
+  if (id === 'chipMouseLib') currentFilters.mouseLib = active;
+  sendSearch(true);
+}
+
+function onFilterChange() {
+  currentFilters.plan = parseInt(document.getElementById('filterPlan').value, 10);
+  currentFilters.consoleGP = parseInt(document.getElementById('filterConsoleGP').value, 10);
+  currentFilters.consoleLib = parseInt(document.getElementById('filterConsoleLib').value, 10);
+  currentFilters.modeGP = parseInt(document.getElementById('filterModeGP').value, 10);
+  currentFilters.modeLib = parseInt(document.getElementById('filterModeLib').value, 10);
+  currentFilters.langGP = parseInt(document.getElementById('filterLangGP').value, 10);
+  currentFilters.langLib = parseInt(document.getElementById('filterLangLib').value, 10);
+
+  document.getElementById('chipSelectPlan').classList.toggle('active', currentFilters.plan > 0);
+  document.getElementById('chipSelectConsoleGP').classList.toggle('active', currentFilters.consoleGP > 0);
+  document.getElementById('chipSelectConsoleLib').classList.toggle('active', currentFilters.consoleLib > 0);
+  document.getElementById('chipSelectModeGP').classList.toggle('active', currentFilters.modeGP > 0);
+  document.getElementById('chipSelectModeLib').classList.toggle('active', currentFilters.modeLib > 0);
+  document.getElementById('chipSelectLangGP').classList.toggle('active', currentFilters.langGP > 0);
+  document.getElementById('chipSelectLangLib').classList.toggle('active', currentFilters.langLib > 0);
+  sendSearch(true);
+}
+
+function updateSearchStatusText() {
+  const q = searchInput.value;
+  const isLib = currentSearchTab === 'library';
+  let status = isLib ? 'Meus jogos' : 'Game Pass';
+  if (q) status += ' • "' + q + '"';
+  const filterNames = [];
+  if (isLib) {
+    if (currentFilters.wishlist) filterNames.push('Lista de desejos');
+    if (currentFilters.free) filterNames.push('Grátis');
+    if (currentFilters.cheapest) filterNames.push('Menor preço');
+    if (currentFilters.mouseLib) filterNames.push('Teclado e mouse');
+    if (currentFilters.consoleLib > 0) {
+      const cNames = ['Todos', 'Series X|S', 'Xbox One', 'Xbox 360'];
+      filterNames.push(cNames[currentFilters.consoleLib]);
+    }
+    if (currentFilters.modeLib > 0) {
+      const mNames = ['Todos', 'Um jogador', 'Multijogador online', 'Cooperativo online', 'Multijogador local'];
+      filterNames.push(mNames[currentFilters.modeLib]);
+    }
+    if (currentFilters.langLib > 0) {
+      const lNames = ['Qualquer', 'Legendas', 'Dublado'];
+      filterNames.push(lNames[currentFilters.langLib]);
+    }
+  } else {
+    if (currentFilters.plan > 0) {
+      const pNames = ['Meu plano', 'Ultimate', 'Premium', 'Essential', 'Todos os planos'];
+      filterNames.push(pNames[currentFilters.plan]);
+    }
+    if (currentFilters.mouseGP) filterNames.push('Teclado e mouse');
+    if (currentFilters.consoleGP > 0) {
+      const cNames = ['Todos', 'Series X|S', 'Xbox One', 'Xbox 360'];
+      filterNames.push(cNames[currentFilters.consoleGP]);
+    }
+    if (currentFilters.modeGP > 0) {
+      const mNames = ['Todos', 'Um jogador', 'Multijogador online', 'Cooperativo online', 'Multijogador local'];
+      filterNames.push(mNames[currentFilters.modeGP]);
+    }
+    if (currentFilters.langGP > 0) {
+      const lNames = ['Qualquer', 'Legendas', 'Dublado'];
+      filterNames.push(lNames[currentFilters.langGP]);
+    }
+  }
+  if (filterNames.length > 0) {
+    status += ' [' + filterNames.join(', ') + ']';
+  }
+  document.getElementById('searchStatus').textContent = status;
+}
+
+function sendSearch(immediate = false) {
+  clearTimeout(searchDebounce);
+  const doFetch = () => {
+    const q = searchInput.value;
+    const isLib = currentSearchTab === 'library';
+    const activeFilters = {
+      plan: isLib ? 0 : currentFilters.plan,
+      console: isLib ? currentFilters.consoleLib : currentFilters.consoleGP,
+      mode: isLib ? currentFilters.modeLib : currentFilters.modeGP,
+      language: isLib ? currentFilters.langLib : currentFilters.langGP,
+      mouseKeyboard: isLib ? currentFilters.mouseLib : currentFilters.mouseGP,
+      wishlist: isLib ? currentFilters.wishlist : false,
+      free: isLib ? currentFilters.free : false,
+      cheapest: isLib ? currentFilters.cheapest : false
+    };
+
+    updateSearchStatusText();
+
+    fetch('/api/search', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        query: q,
+        tab: currentSearchTab,
+        filters: activeFilters
+      })
+    }).catch(e => console.error(e));
+  };
+
+  if (immediate) {
+    doFetch();
+  } else {
+    searchDebounce = setTimeout(doFetch, 120);
+  }
+}
+
+searchInput.addEventListener('input', () => {
+  sendSearch(false);
+});
+
+function clearSearch() {
+  searchInput.value = '';
+  sendSearch(true);
+}
+
+function renderTouchpadShortcutsGrid(containerId, idPrefix, tsObj, onChangeFn) {
+  const grid = document.getElementById(containerId);
+  if (!grid) return;
+  grid.innerHTML = '';
+  const ts = Object.assign({}, defaultTouchpadShortcuts, tsObj || {});
+  touchpadTriggers.forEach(trig => {
+    const item = document.createElement('div');
+    item.className = 'map-item';
+    const label = document.createElement('label');
+    label.textContent = trig.label;
+    const select = document.createElement('select');
+    select.id = idPrefix + '_' + trig.key;
+    touchpadActions.forEach((act, idx) => {
+      const opt = document.createElement('option');
+      opt.value = act.id;
+      opt.textContent = act.name;
+      if (ts[trig.key] === act.id || ts[trig.key] === idx) opt.selected = true;
+      select.appendChild(opt);
+    });
+    select.addEventListener('change', () => {
+      currentSettings.touchpadShortcuts = currentSettings.touchpadShortcuts || {...defaultTouchpadShortcuts};
+      currentSettings.touchpadShortcuts[trig.key] = select.value;
+      syncTouchpadSelects(trig.key, select.value);
+      if (onChangeFn) onChangeFn(trig.key, select.value);
+    });
+    item.appendChild(label);
+    item.appendChild(select);
+    grid.appendChild(item);
+  });
+}
+
+function syncTouchpadSelects(trigKey, val) {
+  ['tp_remap_'].forEach(prefix => {
+    const el = document.getElementById(prefix + trigKey);
+    if (el && el.value !== String(val)) el.value = val;
+  });
+}
+
+function readTouchpadShortcutsFromPrefix(prefix) {
+  const out = {...defaultTouchpadShortcuts};
+  touchpadTriggers.forEach(trig => {
+    const el = document.getElementById(prefix + '_' + trig.key);
+    if (el) out[trig.key] = el.value;
+  });
+  return out;
+}
+
+function renderAllTouchpadGrids(tsObj) {
+  const ts = Object.assign({}, defaultTouchpadShortcuts, tsObj || currentSettings.touchpadShortcuts || {});
+  currentSettings.touchpadShortcuts = ts;
+  renderTouchpadShortcutsGrid('remapTouchpadShortcutsGrid', 'tp_remap', ts, null);
+}
+
+function resetTouchpadShortcuts() {
+  currentSettings.touchpadShortcuts = {...defaultTouchpadShortcuts};
+  renderAllTouchpadGrids(currentSettings.touchpadShortcuts);
+  saveSettings();
+}
+
+function renderPadMap() {
+  const grid = document.getElementById('padGrid');
+  grid.innerHTML = '';
+  const map = Array.isArray(currentSettings.padMap) ? currentSettings.padMap
+            : (currentSettings.padMap && Array.isArray(currentSettings.padMap.map)) ? currentSettings.padMap.map
+            : [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15];
+  padFunctions.forEach((fnName, idx) => {
+    const item = document.createElement('div');
+    item.className = 'map-item';
+    const label = document.createElement('label');
+    label.textContent = fnName;
+    const select = document.createElement('select');
+    select.id = 'pad_fn_' + idx;
+    padSources.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.name;
+      if (map[idx] === s.id) opt.selected = true;
+      select.appendChild(opt);
+    });
+    item.appendChild(label);
+    item.appendChild(select);
+    grid.appendChild(item);
+  });
+}
+
+function renderKeyMap() {
+  const grid = document.getElementById('keyGrid');
+  grid.innerHTML = '';
+  const kmap = (currentSettings.keyMap && currentSettings.keyMap.length === 40) ? currentSettings.keyMap : defaultKeyMap;
+  keyActionNames.forEach((actName, idx) => {
+    const item = document.createElement('div');
+    item.className = 'map-item';
+    const label = document.createElement('label');
+    label.textContent = actName;
+    const selectsWrap = document.createElement('div');
+    selectsWrap.className = 'selects-wrap';
+    for (let slot = 0; slot < 2; slot++) {
+      const select = document.createElement('select');
+      select.id = 'key_act_' + idx + '_' + slot;
+      const code = kmap[idx * 2 + slot];
+      let hasMatch = false;
+      keyList.forEach(k => {
+        const opt = document.createElement('option');
+        opt.value = k.id;
+        opt.textContent = k.name;
+        if (code === k.id) { opt.selected = true; hasMatch = true; }
+        select.appendChild(opt);
+      });
+      if (!hasMatch && code > 0) {
+        const opt = document.createElement('option');
+        opt.value = code;
+        opt.textContent = "Key #" + code;
+        opt.selected = true;
+        select.appendChild(opt);
+      }
+      selectsWrap.appendChild(select);
+    }
+    item.appendChild(label);
+    item.appendChild(selectsWrap);
+    grid.appendChild(item);
+  });
+}
+
+function resetPadMap() {
+  currentSettings.padMap = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15];
+  renderPadMap();
+  saveSettings();
+}
+
+function resetKeyMap() {
+  currentSettings.keyMap = [...defaultKeyMap];
+  renderKeyMap();
+  saveSettings();
+}
+
+function saveSettings() {
+  const padMap = [];
+  for (let i = 0; i < 16; i++) {
+    const sel = document.getElementById('pad_fn_' + i);
+    padMap.push(sel ? parseInt(sel.value, 10) : i);
+  }
+  const keyMap = [];
+  for (let i = 0; i < 20; i++) {
+    const s0 = document.getElementById('key_act_' + i + '_0');
+    const s1 = document.getElementById('key_act_' + i + '_1');
+    keyMap.push(s0 ? parseInt(s0.value, 10) : 0);
+    keyMap.push(s1 ? parseInt(s1.value, 10) : 0);
+  }
+  const touchpadShortcuts = readTouchpadShortcutsFromPrefix('tp_remap');
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ padMap: padMap, keyMap: keyMap, touchpadShortcuts: touchpadShortcuts })
+  }).then(r => r.json()).then(res => {
+    if (res.ok) {
+      showToast('Configurações salvas no console!');
+    }
+  }).catch(e => showToast('Erro ao salvar configurações'));
+}
+
+function onBitrateInput(val) {
+  const v = parseInt(val, 10);
+  const el = document.getElementById('valBitrate');
+  if (el) el.textContent = (v === 0) ? 'Auto' : v + ' Mbps';
+}
+
+function onLightBarModeChange() {
+  const sel = document.getElementById('selectLightBarMode');
+  const colorInput = document.getElementById('inputLightBarColor');
+  if (sel && colorInput) {
+    colorInput.style.display = (sel.value === '1') ? 'inline-block' : 'none';
+  }
+}
+
+function markSettingsChanged() {
+}
+
+function saveGeneralSettings() {
+  const payload = {
+    maxBitrateMbps: parseInt(document.getElementById('inputBitrate').value, 10),
+    highRefresh: document.getElementById('check120Hz').checked,
+    deadzoneLeft: parseInt(document.getElementById('inputDeadzoneL').value, 10),
+    deadzoneRight: parseInt(document.getElementById('inputDeadzoneR').value, 10),
+    triggerStrength: parseInt(document.getElementById('inputTriggerStrength').value, 10),
+    lightBarMode: parseInt(document.getElementById('selectLightBarMode').value, 10),
+    lightBarColour: document.getElementById('inputLightBarColor').value,
+    queueReadyAlert: document.getElementById('checkQueueAlert').checked,
+    videoDecoder: parseInt(document.getElementById('selectVideoDecoder').value, 10),
+    voiceRouting: parseInt(document.getElementById('selectVoiceRouting').value, 10)
+  };
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload)
+  }).then(r => r.json()).then(res => {
+    if (res.ok) {
+      showToast('Configurações salvas no console!');
+    } else {
+      showToast('Erro ao salvar configurações');
+    }
+  }).catch(() => showToast('Erro ao salvar configurações'));
+}
+
+function updateCasLabel(val) {
+  const labels = ['Desativada', 'Baixa', 'Média', 'Alta'];
+  const el = document.getElementById('valCas');
+  if (el) el.textContent = labels[val] !== undefined ? labels[val] : 'Média';
+}
+
+function sendStreamParam(param, val) {
+  const body = {};
+  body[param] = val;
+  fetch('/api/stream', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  }).then(r => r.json()).then(res => {
+    if (res && res.ok) showToast('Aplicado na transmissão!');
+  }).catch(() => {});
+}
+
+function sendStreamAction(action) {
+  fetch('/api/stream', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ action: action })
+  }).then(r => r.json()).then(res => {
+    if (action === 'xbox_guide') showToast('Guia Xbox acionado');
+    if (action === 'end_session') showToast('Sessão encerrada');
+  }).catch(() => {});
+}
+
+function loadStreamMenuState() {
+  fetch('/api/stream').then(r => r.json()).then(s => {
+    if (s.sharpness !== undefined) {
+      const el = document.getElementById('inputCas');
+      if (el) { el.value = s.sharpness; updateCasLabel(s.sharpness); }
+    }
+    if (s.upscaler !== undefined) {
+      const el = document.getElementById('selectUpscaler');
+      if (el) el.value = s.upscaler;
+    }
+    if (s.deband !== undefined) {
+      const el = document.getElementById('selectDeband');
+      if (el) el.value = s.deband;
+    }
+    if (s.padSpeakerVolume !== undefined) {
+      const el = document.getElementById('inputPadSpeaker');
+      if (el) el.value = s.padSpeakerVolume;
+      const vlbl = document.getElementById('valPadSpeaker');
+      if (vlbl) vlbl.textContent = s.padSpeakerVolume + '%';
+    }
+    if (s.triggerProfile !== undefined) {
+      const el = document.getElementById('selectSmartTriggers');
+      if (el) el.value = s.triggerProfile;
+    }
+    if (s.touchpadShortcuts) {
+      renderAllTouchpadGrids(s.touchpadShortcuts);
+    }
+  }).catch(() => {});
+}
+
+function renderTelemetry(data) {
+  if (!data) return;
+  if (data.fps !== undefined) document.getElementById('telFps').textContent = data.fps;
+  if (data.rttMs !== undefined) document.getElementById('telRtt').textContent = data.rttMs + ' ms';
+  if (data.mbps !== undefined) document.getElementById('telMbps').textContent = (typeof data.mbps === 'number' ? data.mbps.toFixed(1) : data.mbps) + ' Mbps';
+  if (data.lossPct !== undefined) document.getElementById('telLoss').textContent = (typeof data.lossPct === 'number' ? data.lossPct.toFixed(1) : data.lossPct) + '%';
+  if (data.qp !== undefined) document.getElementById('telQp').textContent = data.qp;
+  if (data.decodeMs !== undefined) document.getElementById('telDec').textContent = (typeof data.decodeMs === 'number' ? data.decodeMs.toFixed(1) : data.decodeMs) + ' ms';
+}
+
+let ws = null;
+function initWs() {
+  try {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(proto + '//' + location.host + '/ws');
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'telemetry' && msg.stats) {
+          renderTelemetry(msg.stats);
+        } else if (msg.fps !== undefined) {
+          renderTelemetry(msg);
+        }
+      } catch (_) {}
+    };
+    ws.onclose = () => {
+      ws = null;
+      setTimeout(initWs, 2000);
+    };
+    ws.onerror = () => {
+      try { ws.close(); } catch(_) {}
+    };
+  } catch (_) {
+    ws = null;
+  }
+}
+initWs();
+
+function pollStats() {
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+  const streamTab = document.getElementById('tab-stream');
+  if (!streamTab || streamTab.style.display === 'none') return;
+  fetch('/api/stats').then(r => r.json()).then(renderTelemetry).catch(() => {});
+}
+setInterval(pollStats, 1000);
+
+function loadLogPreview() {
+  const p = document.getElementById('logPreview');
+  p.textContent = 'Carregando log...';
+  fetch('/api/log').then(r => r.text()).then(text => {
+    const lines = text.split('\n');
+    p.textContent = lines.slice(-50).join('\n') || 'Log vazio.';
+  }).catch(e => {
+    p.textContent = 'Erro ao carregar log: ' + e;
+  });
+}
+
+function getReportParams() {
+  const title = (document.getElementById('reportTitle')?.value || '').trim();
+  const what = (document.getElementById('reportWhat')?.value || '').trim();
+  return { title, what };
+}
+
+function openGitHubReport() {
+  const { title, what } = getReportParams();
+  const btn = document.getElementById('btnOpenReport');
+  btn.disabled = true;
+  btn.textContent = 'Gerando link...';
+  fetch('/api/report-issue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, what })
+  }).then(r => r.json()).then(data => {
+    btn.disabled = false;
+    btn.textContent = '🚀 Abrir Relatório no GitHub';
+    if (data && data.url) {
+      window.open(data.url, '_blank');
+      showToast('Formulário do GitHub aberto em nova aba!');
+    } else {
+      showToast('Erro ao obter link do relatório.');
+    }
+  }).catch(e => {
+    btn.disabled = false;
+    btn.textContent = '🚀 Abrir Relatório no GitHub';
+    showToast('Falha na requisição: ' + e);
+  });
+}
+
+function fallbackCopyText(text) {
+  return new Promise((resolve, reject) => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.top = '0';
+      ta.style.left = '0';
+      ta.style.width = '2em';
+      ta.style.height = '2em';
+      ta.style.padding = '0';
+      ta.style.border = 'none';
+      ta.style.outline = 'none';
+      ta.style.boxShadow = 'none';
+      ta.style.background = 'transparent';
+      ta.style.opacity = '0.01';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      if (typeof ta.setSelectionRange === 'function') {
+        ta.setSelectionRange(0, text.length);
+      }
+      let ok = false;
+      try {
+        ok = document.execCommand('copy');
+      } catch (_) {
+        ok = false;
+      }
+      document.body.removeChild(ta);
+      if (ok) resolve(); else reject(new Error('execCommand copy failed'));
+    } catch (e) { reject(e); }
+  });
+}
+
+function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).catch(() => fallbackCopyText(text));
+  }
+  return fallbackCopyText(text);
+}
+
+function copySanitizedReport() {
+  const { title, what } = getReportParams();
+  const btn = document.getElementById('btnCopyReport');
+  btn.disabled = true;
+  fetch('/api/report-issue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, what })
+  }).then(r => r.json()).then(data => {
+    btn.disabled = false;
+    if (data && data.excerpt) {
+      const markdown = `### ${data.title || 'Relatório de Erro'}\n\n**Plataforma:** ${data.platform || 'PlayStation 5 (PPSA99810)'}\n**Versão:** v${data.release || ')html" XC_APP_VERSION R"html('}\n**Firmware:** ${data.firmware || 'N/A'}\n\n**O que aconteceu:**\n${what || 'Relatório enviado via WebUI'}\n\n\`\`\`\n${data.excerpt}\n\`\`\``;
+      copyTextToClipboard(markdown).then(() => {
+        showToast('Relatório copiado para a área de transferência!');
+      }).catch(() => {
+        const p = document.getElementById('logPreview');
+        if (p) {
+          p.textContent = markdown;
+          p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        try {
+          window.prompt('Copie o relatório abaixo (Ctrl+C / Toque longo):', markdown);
+          showToast('Relatório preparado!');
+        } catch (_) {
+          showToast('Relatório preparado no campo abaixo para cópia!');
+        }
+      });
+    } else {
+      showToast('Erro ao gerar relatório.');
+    }
+  }).catch(e => {
+    btn.disabled = false;
+    showToast('Falha ao copiar: ' + e);
+  });
+}
+
+function previewReport() {
+  const { title, what } = getReportParams();
+  const p = document.getElementById('logPreview');
+  p.textContent = 'Carregando resumo do relatório sanitizado...';
+  fetch('/api/report-issue', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, what })
+  }).then(r => r.json()).then(data => {
+    if (data && data.excerpt) {
+      p.textContent = `=== RELATÓRIO PREPARADO ===\nTítulo: ${data.title}\nPlataforma: ${data.platform}\nVersão: v${data.release}\nFirmware: ${data.firmware}\n\n${data.excerpt}`;
+    } else {
+      p.textContent = 'Nenhum dado retornado.';
+    }
+  }).catch(e => {
+    p.textContent = 'Erro ao carregar pré-visualização: ' + e;
+  });
+}
+
+function applyLoadedSettings(s) {
+  currentSettings = Object.assign(currentSettings, s);
+  if (s.settingsVersion !== undefined) lastSettingsVersion = s.settingsVersion;
+  if (s.query !== undefined && document.activeElement !== searchInput) searchInput.value = s.query;
+  if (s.tab) {
+    currentSearchTab = s.tab;
+  }
+  if (s.filters) {
+    if (s.filters.wishlist !== undefined) {
+      currentFilters.wishlist = !!s.filters.wishlist;
+      const el = document.getElementById('chipWishlist');
+      if (el) el.classList.toggle('active', currentFilters.wishlist);
+    }
+    if (s.filters.free !== undefined) {
+      currentFilters.free = !!s.filters.free;
+      const el = document.getElementById('chipFree');
+      if (el) el.classList.toggle('active', currentFilters.free);
+    }
+    if (s.filters.cheapest !== undefined) {
+      currentFilters.cheapest = !!s.filters.cheapest;
+      const el = document.getElementById('chipCheapest');
+      if (el) el.classList.toggle('active', currentFilters.cheapest);
+    }
+    if (s.filters.mouseKeyboard !== undefined) {
+      currentFilters.mouseGP = !!s.filters.mouseKeyboard;
+      currentFilters.mouseLib = !!s.filters.mouseKeyboard;
+      const elGP = document.getElementById('chipMouseGP');
+      if (elGP) elGP.classList.toggle('active', currentFilters.mouseGP);
+      const elLib = document.getElementById('chipMouseLib');
+      if (elLib) elLib.classList.toggle('active', currentFilters.mouseLib);
+    }
+    if (s.filters.plan !== undefined) {
+      currentFilters.plan = s.filters.plan;
+      const sel = document.getElementById('filterPlan');
+      if (sel) sel.value = s.filters.plan;
+      const wrap = document.getElementById('chipSelectPlan');
+      if (wrap) wrap.classList.toggle('active', s.filters.plan > 0);
+    }
+    if (s.filters.console !== undefined) {
+      currentFilters.consoleGP = s.filters.console;
+      currentFilters.consoleLib = s.filters.console;
+      const selGP = document.getElementById('filterConsoleGP');
+      if (selGP) selGP.value = s.filters.console;
+      const selLib = document.getElementById('filterConsoleLib');
+      if (selLib) selLib.value = s.filters.console;
+      const wrapGP = document.getElementById('chipSelectConsoleGP');
+      if (wrapGP) wrapGP.classList.toggle('active', s.filters.console > 0);
+      const wrapLib = document.getElementById('chipSelectConsoleLib');
+      if (wrapLib) wrapLib.classList.toggle('active', s.filters.console > 0);
+    }
+    if (s.filters.mode !== undefined) {
+      currentFilters.modeGP = s.filters.mode;
+      currentFilters.modeLib = s.filters.mode;
+      const selGP = document.getElementById('filterModeGP');
+      if (selGP) selGP.value = s.filters.mode;
+      const selLib = document.getElementById('filterModeLib');
+      if (selLib) selLib.value = s.filters.mode;
+      const wrapGP = document.getElementById('chipSelectModeGP');
+      if (wrapGP) wrapGP.classList.toggle('active', s.filters.mode > 0);
+      const wrapLib = document.getElementById('chipSelectModeLib');
+      if (wrapLib) wrapLib.classList.toggle('active', s.filters.mode > 0);
+    }
+    if (s.filters.language !== undefined) {
+      currentFilters.langGP = s.filters.language;
+      currentFilters.langLib = s.filters.language;
+      const selGP = document.getElementById('filterLangGP');
+      if (selGP) selGP.value = s.filters.language;
+      const selLib = document.getElementById('filterLangLib');
+      if (selLib) selLib.value = s.filters.language;
+      const wrapGP = document.getElementById('chipSelectLangGP');
+      if (wrapGP) wrapGP.classList.toggle('active', s.filters.language > 0);
+      const wrapLib = document.getElementById('chipSelectLangLib');
+      if (wrapLib) wrapLib.classList.toggle('active', s.filters.language > 0);
+    }
+  }
+  if (s.maxBitrateMbps !== undefined) {
+    const el = document.getElementById('inputBitrate');
+    if (el) { el.value = s.maxBitrateMbps; onBitrateInput(s.maxBitrateMbps); }
+  }
+  if (s.highRefresh !== undefined) {
+    const el = document.getElementById('check120Hz');
+    if (el) el.checked = !!s.highRefresh;
+  }
+  if (s.deadzoneLeft !== undefined) {
+    const el = document.getElementById('inputDeadzoneL');
+    if (el) { el.value = s.deadzoneLeft; document.getElementById('valDeadzoneL').textContent = s.deadzoneLeft + '%'; }
+  }
+  if (s.deadzoneRight !== undefined) {
+    const el = document.getElementById('inputDeadzoneR');
+    if (el) { el.value = s.deadzoneRight; document.getElementById('valDeadzoneR').textContent = s.deadzoneRight + '%'; }
+  }
+  if (s.triggerStrength !== undefined) {
+    const el = document.getElementById('inputTriggerStrength');
+    if (el) { el.value = s.triggerStrength; document.getElementById('valTriggerStrength').textContent = s.triggerStrength; }
+  }
+  if (s.lightBarMode !== undefined) {
+    const el = document.getElementById('selectLightBarMode');
+    if (el) el.value = s.lightBarMode;
+    onLightBarModeChange();
+  }
+  if (s.lightBarColour) {
+    const el = document.getElementById('inputLightBarColor');
+    if (el) el.value = s.lightBarColour;
+  }
+  if (s.queueReadyAlert !== undefined) {
+    const el = document.getElementById('checkQueueAlert');
+    if (el) el.checked = !!s.queueReadyAlert;
+  }
+  if (s.videoDecoder !== undefined) {
+    const el = document.getElementById('selectVideoDecoder');
+    if (el) el.value = s.videoDecoder;
+  }
+  if (s.voiceRouting !== undefined) {
+    const el = document.getElementById('selectVoiceRouting');
+    if (el) el.value = s.voiceRouting;
+  }
+  applySearchTabUI(currentSearchTab);
+  updateSearchStatusText();
+  renderPadMap();
+  renderKeyMap();
+  renderAllTouchpadGrids(s.touchpadShortcuts);
+}
+
+function loadAllSettingsFromServer() {
+  fetch('/api/settings').then(r => r.json()).then(applyLoadedSettings).catch(() => {
+    renderPadMap();
+    renderKeyMap();
+    renderAllTouchpadGrids(currentSettings.touchpadShortcuts);
+  });
+}
+loadAllSettingsFromServer();
+
+// --- Virtual Gamepad & Streaming Polling ---
+let activePlayer = 1;
+const padState = {
+  btnA: false, btnB: false, btnX: false, btnY: false,
+  dpadUp: false, dpadDown: false, dpadLeft: false, dpadRight: false,
+  btnL1: false, btnR1: false, btnL3: false, btnR3: false,
+  btnView: false, btnMenu: false, btnNexus: false,
+  triggerL2: 0.0, triggerR2: 0.0,
+  leftStickX: 0.0, leftStickY: 0.0,
+  rightStickX: 0.0, rightStickY: 0.0
+};
+let padSendScheduled = false;
+
+function setVirtualPlayer(p) {
+  const prev = activePlayer;
+  activePlayer = p;
+  for (let i = 1; i <= 4; i++) {
+    const btn = document.getElementById('btnPlayer' + i);
+    if (btn) btn.classList.toggle('active', p === i);
+  }
+  const statusEl = document.getElementById('gamepadStatus');
+  if (statusEl) {
+    statusEl.textContent = 'Controle ativo para Jogador ' + p + (p === 1 ? ' (Principal)' : ' (Co-op Local)');
+  }
+  sendPadState(true, prev);
+}
+
+function toggleGamepadFullscreen() {
+  const card = document.getElementById('gamepadCard');
+  if (!card) return;
+  const isFs = card.classList.contains('gamepad-fullscreen') || document.fullscreenElement === card || document.webkitFullscreenElement === card;
+  if (!isFs) {
+    card.classList.add('gamepad-fullscreen');
+    if (card.requestFullscreen) {
+      card.requestFullscreen().catch(() => {});
+    } else if (card.webkitRequestFullscreen) {
+      try { card.webkitRequestFullscreen(); } catch (_) {}
+    }
+    if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('landscape').catch(() => {});
+    }
+  } else {
+    card.classList.remove('gamepad-fullscreen');
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      else if (document.webkitExitFullscreen) {
+        try { document.webkitExitFullscreen(); } catch (_) {}
+      }
+    }
+    if (screen.orientation && screen.orientation.unlock) {
+      try { screen.orientation.unlock(); } catch (_) {}
+    }
+  }
+  setTimeout(updateGamepadScale, 20);
+  setTimeout(updateGamepadScale, 150);
+}
+
+document.addEventListener('fullscreenchange', () => {
+  const card = document.getElementById('gamepadCard');
+  if (card && !document.fullscreenElement && !document.webkitFullscreenElement) {
+    card.classList.remove('gamepad-fullscreen');
+  }
+  setTimeout(updateGamepadScale, 30);
+});
+document.addEventListener('webkitfullscreenchange', () => {
+  const card = document.getElementById('gamepadCard');
+  if (card && !document.fullscreenElement && !document.webkitFullscreenElement) {
+    card.classList.remove('gamepad-fullscreen');
+  }
+  setTimeout(updateGamepadScale, 30);
+});
+
+function sendPadState(activeSwitch = false, prevPlayer = 0) {
+  const payload = { player: activePlayer, prevPlayer: prevPlayer, activeSwitch: !!activeSwitch, ...padState };
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload));
+  } else {
+    fetch('/api/gamepad', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
+  }
+}
+
+function schedulePadSend() {
+  if (padSendScheduled) return;
+  padSendScheduled = true;
+  requestAnimationFrame(() => {
+    padSendScheduled = false;
+    sendPadState(false);
+  });
+}
+
+function bindPadButtons() {
+  document.querySelectorAll('[data-btn]').forEach(el => {
+    const key = el.getAttribute('data-btn');
+    const isTrigger = key === 'triggerL2' || key === 'triggerR2';
+    const activeTouches = new Set();
+
+    const setDown = () => {
+      if (isTrigger) padState[key] = 1.0;
+      else padState[key] = true;
+      el.classList.add('pressed');
+      if (navigator.vibrate) {
+        try { navigator.vibrate(14); } catch (_) {}
+      }
+      sendPadState(false);
+    };
+
+    const setUp = () => {
+      if (isTrigger) padState[key] = 0.0;
+      else padState[key] = false;
+      el.classList.remove('pressed');
+      sendPadState(false);
+    };
+
+    el.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        activeTouches.add(e.changedTouches[i].identifier);
+      }
+      setDown();
+    }, { passive: false });
+
+    const onTouchEnd = (e) => {
+      e.preventDefault();
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        activeTouches.delete(e.changedTouches[i].identifier);
+      }
+      if (activeTouches.size === 0) setUp();
+    };
+
+    el.addEventListener('touchend', onTouchEnd, { passive: false });
+    el.addEventListener('touchcancel', onTouchEnd, { passive: false });
+    el.addEventListener('mousedown', (e) => { e.preventDefault(); setDown(); });
+    el.addEventListener('mouseup', (e) => { e.preventDefault(); setUp(); });
+    el.addEventListener('mouseleave', () => { if (activeTouches.size === 0 && el.classList.contains('pressed')) setUp(); });
+  });
+}
+
+function setupStick(zoneId, headId, stickKeyX, stickKeyY) {
+  const zone = document.getElementById(zoneId);
+  const head = document.getElementById(headId);
+  if (!zone || !head) return;
+
+  let activeTouchId = null;
+
+  function updateStick(clientX, clientY) {
+    const rect = zone.getBoundingClientRect();
+    const maxR = Math.max(28, (rect.width - head.offsetWidth) / 2);
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxR) {
+      dx = (dx / dist) * maxR;
+      dy = (dy / dist) * maxR;
+    }
+    head.style.transform = `translate(${dx}px, ${dy}px)`;
+    padState[stickKeyX] = Math.round((dx / maxR) * 100) / 100;
+    padState[stickKeyY] = Math.round((dy / maxR) * 100) / 100;
+    schedulePadSend();
+  }
+
+  function resetStick() {
+    head.style.transform = 'translate(0px, 0px)';
+    padState[stickKeyX] = 0.0;
+    padState[stickKeyY] = 0.0;
+    activeTouchId = null;
+    sendPadState(false);
+  }
+
+  zone.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    if (activeTouchId === null && e.changedTouches.length > 0) {
+      activeTouchId = e.changedTouches[0].identifier;
+      updateStick(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+    }
+  }, { passive: false });
+
+  zone.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === activeTouchId) {
+        updateStick(e.changedTouches[i].clientX, e.changedTouches[i].clientY);
+        break;
+      }
+    }
+  }, { passive: false });
+
+  const onTouchEnd = (e) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      if (e.changedTouches[i].identifier === activeTouchId) {
+        resetStick();
+        break;
+      }
+    }
+  };
+  zone.addEventListener('touchend', onTouchEnd, { passive: false });
+  zone.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+  // Mouse fallback
+  let isMouseDown = false;
+  zone.addEventListener('mousedown', (e) => {
+    isMouseDown = true;
+    updateStick(e.clientX, e.clientY);
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (isMouseDown) updateStick(e.clientX, e.clientY);
+  });
+  window.addEventListener('mouseup', () => {
+    if (isMouseDown) {
+      isMouseDown = false;
+      resetStick();
+    }
+  });
+}
+
+bindPadButtons();
+setupStick('leftStickZone', 'leftStickHead', 'leftStickX', 'leftStickY');
+setupStick('rightStickZone', 'rightStickHead', 'rightStickX', 'rightStickY');
+
+// Periodic streaming state poll and PS5 <-> WebUI settings version sync
+let isCurrentlyStreaming = false;
+function pollStreamingState() {
+  fetch('/api/status').then(r => r.json()).then(data => {
+    const streaming = !!data.streaming;
+    if (streaming !== isCurrentlyStreaming) {
+      isCurrentlyStreaming = streaming;
+      const overlay = document.getElementById('searchOverlay');
+      if (overlay) overlay.style.display = streaming ? 'flex' : 'none';
+      if (searchInput) searchInput.disabled = streaming;
+    }
+    if (data.settingsVersion !== undefined && data.settingsVersion !== lastSettingsVersion) {
+      lastSettingsVersion = data.settingsVersion;
+      applyLoadedSettings(data);
+      loadStreamMenuState();
+    }
+  }).catch(() => {});
+}
+setInterval(pollStreamingState, 1500);
+pollStreamingState();
+
+// Gamepad keepalive while gamepad tab is open (300ms ensures held buttons never drop)
+setInterval(() => {
+  const gpPane = document.getElementById('tab-gamepad');
+  if (gpPane && gpPane.style.display !== 'none') {
+    sendPadState(false);
+  }
+}, 300);
+
+function updateGamepadScale() {
+  const container = document.getElementById('gamepadScaleContainer');
+  const card = document.getElementById('gamepadCard');
+  if (!container || !card) return;
+  const isFs = card.classList.contains('gamepad-fullscreen') || document.fullscreenElement === card || document.webkitFullscreenElement === card;
+  const isLandscape = window.innerWidth > window.innerHeight;
+
+  if (isFs) {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const availW = container.clientWidth ? Math.max(200, container.clientWidth - 8) : (w - 28);
+    const availH = container.clientHeight ? Math.max(150, container.clientHeight - 8) : (h - 20);
+    const scale = Math.min(1.2, Math.max(0.4, Math.min(availW / 915, availH / 412)));
+    document.documentElement.style.setProperty('--gp-fs-scale', scale.toFixed(3));
+    document.documentElement.style.setProperty('--gp-scale', scale.toFixed(3));
+    return;
+  }
+
+  let availW = container.clientWidth;
+  if (!availW) {
+    const padding = window.innerWidth <= 600 ? 16 : 32;
+    availW = Math.max(0, window.innerWidth - padding);
+  }
+
+  if (!isLandscape) {
+    const targetW = Math.max(0, availW - 16);
+    const scale = Math.min(1, Math.max(0.4, targetW / 412));
+    document.documentElement.style.setProperty('--gp-scale', scale.toFixed(3));
+  } else {
+    const targetW = Math.max(0, availW - 16);
+    const availH = window.innerHeight;
+    const targetH = Math.max(120, availH - 78);
+    const scale = Math.min(1, Math.max(0.35, Math.min(targetW / 915, targetH / 412)));
+    document.documentElement.style.setProperty('--gp-scale', scale.toFixed(3));
+  }
+}
+window.addEventListener('resize', updateGamepadScale);
+window.addEventListener('orientationchange', () => setTimeout(updateGamepadScale, 50));
+window.addEventListener('DOMContentLoaded', updateGamepadScale);
+if (window.ResizeObserver) {
+  const ro = new ResizeObserver(() => updateGamepadScale());
+  const cardEl = document.getElementById('gamepadCard');
+  if (cardEl) ro.observe(cardEl);
+}
+
+// Hash & route navigation support: #gamepad, #gamepad-fs, #logs, #settings, /boost, /gamepad, etc.
+function checkHashNav() {
+  const p = (location.pathname || '').toLowerCase();
+  if (p.includes('/boost') || p.includes('/gamepad')) {
+    switchTab('gamepad');
+  }
+  const h = (location.hash || '').replace('#', '');
+  if (!h) return;
+  if (h === 'gamepad-fs') {
+    switchTab('gamepad');
+    const card = document.getElementById('gamepadCard');
+    if (card && !card.classList.contains('gamepad-fullscreen')) {
+      toggleGamepadFullscreen();
+    }
+  } else if (document.getElementById('tab-' + h)) {
+    switchTab(h);
+  }
+}
+window.addEventListener('hashchange', checkHashNav);
+checkHashNav();
+</script>
+</body>
+</html>)html";
+
+}  // namespace
+
+const char* webServerIndexHtml() {
+    return kIndexHtml;
+}
+
+}  // namespace xc::app

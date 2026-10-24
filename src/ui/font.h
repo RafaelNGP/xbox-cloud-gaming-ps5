@@ -6,11 +6,11 @@
 
 #include "ui/canvas.h"
 
-#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace xc::ui {
@@ -57,7 +57,7 @@ private:
     std::vector<unsigned char> data_;
     bool loaded_ = false;
     mutable std::mutex mutex_;
-    mutable std::map<std::pair<uint32_t, int>, Glyph> cache_;
+    mutable std::unordered_map<uint64_t, Glyph> cache_;
 };
 
 // The three weights the UI uses.

@@ -15,10 +15,10 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
-#include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace xc::ui {
@@ -63,7 +63,7 @@ private:
     size_t diskBudget_;
     std::mutex mutex_;
     std::condition_variable cv_;
-    std::map<std::string, Entry> entries_;
+    std::unordered_map<std::string, Entry> entries_;
     std::deque<Job> jobs_;  // newest first: what is on screen now wins
     size_t bytes_ = 0;
     uint64_t clock_ = 0;

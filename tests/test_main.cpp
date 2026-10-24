@@ -551,6 +551,7 @@ static void testPlaytimeLimit() {
     ui::Fonts fonts;
     ui::ImageCache images([] {});
     ui::AppUi app(fonts, images);
+    app.setSubscription("GamePass");
     ui::GameTile tile;
     tile.titleId = "TEST_TITLE_1";
     tile.productId = "TEST_PROD_1";
@@ -567,6 +568,107 @@ static void testPlaytimeLimit() {
     ui::UiEvent ev = app.handle(in);  // Details -> Play
     CHECK(ev.action == ui::Action::Play);
     CHECK(ev.game.titleId == "TEST_TITLE_1");
+}
+
+static void testFreeAccountPlayability() {
+    ui::Fonts fonts;
+    ui::ImageCache images([] {});
+    ui::AppUi app(fonts, images);
+    app.setSubscription("");  // Free account (no Game Pass)
+    CHECK(app.isFreeAccount());
+
+    ui::GameTile paidTile;
+    paidTile.titleId = "PAID_TITLE";
+    paidTile.productId = "PAID_PROD";
+    paidTile.playable = true;
+    paidTile.freeInStore = false;
+
+    ui::GameTile f2pTile;
+    f2pTile.titleId = "Fortnite";
+    f2pTile.productId = "9NBLGGH52538";
+    f2pTile.playable = true;
+    f2pTile.freeInStore = true;
+
+    ui::GameRow row;
+    row.title = "Games";
+    row.tiles = {paidTile, f2pTile};
+    app.setRows({row});
+    app.showHome();
+
+    // Paid game on free account: cannot launch
+    ui::NavInput in;
+    in.accept = true;
+    app.handle(in);  // Home -> Details
+    ui::UiEvent evPaid = app.handle(in);
+    CHECK(evPaid.action != ui::Action::Play);
+
+    // Back to home, select F2P game (index 1)
+    ui::NavInput back;
+    back.back = true;
+    app.handle(back);  // Details -> Home
+    ui::NavInput right;
+    right.right = true;
+    app.handle(right);  // Move to F2P game
+    app.handle(in);     // Home -> Details
+    ui::UiEvent evF2p = app.handle(in);
+    CHECK(evF2p.action == ui::Action::Play);
+    CHECK(evF2p.game.titleId == "Fortnite");
+}
+
+static void testDetailsHydrationAndPlaytimeBadge() {
+    ui::Fonts fonts;
+    ui::ImageCache images([] {});
+    ui::AppUi app(fonts, images);
+    app.setSubscription("GamePass");
+    CHECK(!app.isFreeAccount());
+
+    // Tile on home row with only titleId and productId (no description, no rating)
+    ui::GameTile lightTile;
+    lightTile.titleId = "GAME_WITH_FULL_DATA";
+    lightTile.productId = "PROD_FULL_DATA";
+    lightTile.name = "My Full Game";
+    lightTile.playable = true;
+
+    // Detailed tile in gamePassPool
+    ui::GameTile fullTile = lightTile;
+    fullTile.description = "Full detailed description of the game.";
+    fullTile.heroUrl = "https://example.com/hero.jpg";
+    fullTile.publisher = "Awesome Studio";
+    fullTile.categories = {"Action", "Adventure"};
+    fullTile.ratingAge = "14+";
+    fullTile.ratingSystem = "ClassInd";
+    fullTile.ratingDescriptors = {"Violência"};
+
+    app.setSearchPools({fullTile}, {});
+
+    ui::GameRow row;
+    row.title = "Jump Back In";
+    row.tiles = {lightTile};
+    app.setRows({row});
+    app.showHome();
+
+    // Set playtime in settings
+    ui::SettingsChoice c = app.settings();
+    c.titlePlaytime[lightTile.productId] = 3600; // 1 hour
+    app.setSettings(c);
+
+    // Open details
+    ui::NavInput in;
+    in.accept = true;
+    app.handle(in); // Opens Details
+
+    // Detail tile must have description, rating, publisher, categories, heroUrl hydrated!
+    ui::NavInput acceptInDetails;
+    acceptInDetails.accept = true;
+    ui::UiEvent ev = app.handle(acceptInDetails);
+    CHECK(ev.action == ui::Action::Play);
+    CHECK(ev.game.description == "Full detailed description of the game.");
+    CHECK(ev.game.publisher == "Awesome Studio");
+    CHECK(ev.game.ratingAge == "14+");
+    CHECK(ev.game.ratingSystem == "ClassInd");
+    CHECK(ev.game.heroUrl == "https://example.com/hero.jpg");
+    CHECK(!ev.game.ratingDescriptors.empty());
+    CHECK(ev.game.ratingDescriptors[0] == "Violência");
 }
 
 static void testSplashInputBlocking() {
@@ -2072,21 +2174,21 @@ static void testVisibleSettingsRows() {
     };
     const ui::UiCaps ps5;
     auto all = ui::visibleSettingsRows(ps5);
-    CHECK((ids(all) == std::vector<int>{0, 2, 8, 17, 18, 1, 20, 9, 10, 14, 12, 3, 15, 4, 21, 5, 6, 16, 19, 7, 23}));
-    CHECK((groups(all) == std::vector<bool>{false, false, false, false, false, true, false, false, false, true, false, false, false, false, false, false, false, false, true, false, true}));
+    CHECK((ids(all) == std::vector<int>{0, 2, 8, 17, 18, 1, 20, 9, 10, 14, 12, 3, 15, 4, 21, 5, 6, 16, 22, 19, 7, 23}));
+    CHECK((groups(all) == std::vector<bool>{false, false, false, false, false, true, false, false, false, true, false, false, false, false, false, false, false, false, false, true, false, true}));
     ui::UiCaps pc;
     pc.lightBar = pc.triggerRumble = pc.adaptiveTriggers = pc.gyro = pc.touchpad = false;
     pc.upscalers = pc.sharpen = pc.deband = pc.highRefresh = pc.console = pc.selfUpdate = false;
     pc.openUrl = true;
     auto desk = ui::visibleSettingsRows(pc);
-    CHECK((ids(desk) == std::vector<int>{0, 2, 8, 17, 18, 1, 20, 10, 14, 12, 3, 5, 16, 19, 7, 23}));
-    CHECK((groups(desk) == std::vector<bool>{false, false, false, false, false, true, false, false, true, false, false, false, false, true, false, true}));
+    CHECK((ids(desk) == std::vector<int>{0, 2, 8, 17, 18, 1, 20, 10, 14, 12, 3, 5, 16, 22, 19, 7, 23}));
+    CHECK((groups(desk) == std::vector<bool>{false, false, false, false, false, true, false, false, true, false, false, false, false, false, true, false, true}));
     // The desktop app's window: Display mode after the resolution, in the stream's group.
     ui::UiCaps win = pc;
     win.desktopWindow = true;
     auto w = ui::visibleSettingsRows(win);
-    CHECK((ids(w) == std::vector<int>{0, 2, 8, 17, 18, 1, 20, 13, 10, 14, 12, 3, 5, 16, 19, 7, 23}));
-    CHECK((groups(w) == std::vector<bool>{false, false, false, false, false, true, false, false, false, true, false, false, false, false, true, false, true}));
+    CHECK((ids(w) == std::vector<int>{0, 2, 8, 17, 18, 1, 20, 13, 10, 14, 12, 3, 5, 16, 22, 19, 7, 23}));
+    CHECK((groups(w) == std::vector<bool>{false, false, false, false, false, true, false, false, false, true, false, false, false, false, false, true, false, true}));
     ui::UiCaps xbox = pc;  // an Xbox pad: impulse triggers, no light bar
     xbox.triggerRumble = true;
     auto x = ids(ui::visibleSettingsRows(xbox));
@@ -2108,8 +2210,8 @@ static void testVisibleSettingsRows() {
     CHECK(ui::settingsRowPosition(ps5, 16) == 17);
     CHECK(ui::settingsRowPosition(ps5, 5) == 15 && ui::settingsRowPosition(ps5, 6) == 16);
     CHECK(ui::settingsRowPosition(ps5, 12) == 10 && ui::settingsRowPosition(ps5, 14) == 9);
-    CHECK(ui::settingsRowPosition(ps5, 22) == -1);
-    CHECK(ui::settingsRowPosition(ps5, 7) == 19 && ui::settingsRowPosition(ps5, 19) == 18 && ui::settingsRowPosition(ps5, 2) == 1);
+    CHECK(ui::settingsRowPosition(ps5, 22) == 18);
+    CHECK(ui::settingsRowPosition(ps5, 7) == 20 && ui::settingsRowPosition(ps5, 19) == 19 && ui::settingsRowPosition(ps5, 2) == 1);
     CHECK(ui::settingsRowPosition(ps5, 21) == 14);
     CHECK(ui::settingsRowPosition(pc, 5) == 11 && ui::settingsRowPosition(pc, 6) == -1 && ui::settingsRowPosition(pc, 4) == -1);
 }
@@ -4027,7 +4129,14 @@ static void testDesktopMouseNav() {
         CHECK(uiApp.detailWanted(100).empty());
     }
 
-    // 6. Mouse wheel scrolling
+    // 6. Clicking or hovering in the top bar area (y < 140) must not hit cards
+    {
+        auto evTop = uiApp.onMouseDown(120.0f, 100.0f, 1);
+        CHECK(evTop.action == ui::Action::None);
+        CHECK(uiApp.detailWanted(100).empty());
+    }
+
+    // 7. Mouse wheel scrolling
     {
         auto evWheel = uiApp.onMouseWheel(0.0f, 2.0f);
         CHECK(evWheel.action == ui::Action::None);
@@ -6085,7 +6194,7 @@ static void testBlock4OwnershipAndRecents() {
                 CHECK(t.name == "Just Dance 2026");
                 CHECK(t.playable);
                 CHECK(!t.purchasable);
-                CHECK(!t.freeInStore);
+                CHECK(t.freeInStore);
                 break;
             }
         }
@@ -6158,6 +6267,7 @@ static void testBlock4OwnershipAndRecents() {
                 jdFound = true;
                 CHECK(t.playable);
                 CHECK(!t.purchasable);
+                CHECK(t.freeInStore);
                 break;
             }
         }
@@ -6181,6 +6291,7 @@ static void testBlock4OwnershipAndRecents() {
         auto owned = bootLib.owned();
         CHECK(owned.size() == 2);
         CHECK(owned[0].productId == "9P368QBR2C5S");
+        CHECK(owned[0].freeInStore);
         CHECK(owned[1].productId == "PROD_OWNED1");
         bool bootFoundStore1 = false;
         bool bootFoundJdInPurchasable = false;
@@ -6246,6 +6357,9 @@ static void testBlock4OwnershipAndRecents() {
         ui::Fonts dummyFonts;
         ui::ImageCache images([] {});
         ui::AppUi appUi(dummyFonts, images);
+        appUi.setSubscription("Free");
+        appUi.setMembership(false);
+
         ui::GameTile t1, t2;
         t1.productId = "PID_OWNED";
         t1.titleId = "TID_OWNED";
@@ -6271,19 +6385,175 @@ static void testBlock4OwnershipAndRecents() {
         // Claim 9P368QBR2C5S
         appUi.markTileOwned("9P368QBR2C5S", "TID_JD");
 
-        // Now 9P368QBR2C5S should be in owned, playable, and not purchasable
+        // Now 9P368QBR2C5S should be in owned, playable, not purchasable, and still freeInStore so Free accounts can play it!
         CHECK(!appUi.purchasableAt(0, out)); // purchasable is now empty!
         CHECK(appUi.findTile("TID_JD", out));
         CHECK(out.productId == "9P368QBR2C5S");
         CHECK(out.playable);
         CHECK(!out.purchasable);
-        CHECK(!out.freeInStore);
+        CHECK(out.freeInStore);
+        CHECK(appUi.isEffectivePlayable(out));
     }
 
     std::system(("rm -rf " + testDir).c_str());
 }
 
+void testPhase1BugFixesAndPhase2Optimizations() {
+    // 1. GssvClient previewFeatures header propagation across authenticated requests
+    {
+        std::string lastDeviceInfo;
+        net::setTestTransport([&](const net::Request& req) {
+            for (const auto& [k, v] : req.headers) {
+                if (k == "X-MS-Device-Info" || k == "x-ms-device-info") lastDeviceInfo = v;
+            }
+            net::Response r;
+            r.status = 200;
+            if (req.url.find("/v2/login/user") != std::string::npos) {
+                r.body = R"({"gsToken":"tok","market":"US","offeringSettings":{"regions":[{"name":"EASTUS","baseUri":"https://eastus.gssv.com","isDefault":true}]}})";
+            } else if (req.url.find("/v2/titles") != std::string::npos) {
+                r.body = R"({"results":[]})";
+            }
+            return r;
+        });
+        xcloud::GssvClient gssv;
+        gssv.setPreviewFeatures(true);
+        std::string err;
+        auth::XblToken xblTok;
+        xblTok.token = "xbl_tok";
+        CHECK(gssv.login(xblTok, err));
+
+        lastDeviceInfo.clear();
+        std::vector<xcloud::Title> titles;
+        CHECK(gssv.listTitles(titles, err));
+        CHECK(lastDeviceInfo.find("play.xbox.com") != std::string::npos);
+
+        gssv.setPreviewFeatures(false);
+        lastDeviceInfo.clear();
+        CHECK(gssv.listTitles(titles, err));
+        CHECK(lastDeviceInfo.find("Microsoft.GamingApp") != std::string::npos);
+        net::setTestTransport({});
+    }
+
+    // 2. ProductId isolation when sharing titleId (Bug 1.5) & markUnclaimable (Bug 2.1)
+    {
+        ui::Fonts fonts;
+        fonts.load("assets/fonts");
+        ui::ImageCache images([] {});
+        ui::AppUi ui(fonts, images);
+
+        ui::GameTile baseEd, deluxeEd;
+        baseEd.productId = "PROD_BASE_01";
+        baseEd.titleId = "SHARED_TID";
+        baseEd.name = "Base Edition";
+        baseEd.playable = true;
+        baseEd.freeInStore = true;
+
+        deluxeEd.productId = "PROD_DELUXE1";
+        deluxeEd.titleId = "SHARED_TID";
+        deluxeEd.name = "Deluxe Edition";
+        deluxeEd.playable = false;
+        deluxeEd.purchasable = true;
+
+        ui::GameRow row;
+        row.title = "Row";
+        row.tiles = {baseEd, deluxeEd};
+        ui.setCatalogState({row}, {baseEd}, {deluxeEd}, true, true, {baseEd}, {deluxeEd}, false, 0, 0);
+
+        ui.setDetailInfo("PROD_BASE_01", "Base description only", "BasePub", {}, "https://example.com/base_hero.jpg");
+
+        ui.showDetails(deluxeEd);
+        CHECK(ui.detailTile().productId == "PROD_DELUXE1");
+        CHECK(ui.detailTile().description.empty());
+        CHECK(ui.detailTile().heroUrl.empty());
+
+        // markUnclaimable clears freeInStore across cached lists
+        ui.markUnclaimable("PROD_BASE_01");
+        ui::GameTile found;
+        CHECK(ui.findTile("SHARED_TID", found));
+        CHECK(!found.freeInStore);
+    }
+
+    // 3. Mouse hit-testing on Details (only inside button rect) and Settings rows 10 & 22 + right-click save
+    {
+        ui::Fonts fonts;
+        fonts.load("assets/fonts");
+        ui::ImageCache images([] {});
+        ui::AppUi ui(fonts, images);
+        ui::UiCaps caps;
+        caps.desktopWindow = true;
+        caps.touchpad = true;
+        ui.setCaps(caps);
+
+        ui::GameTile freeTile;
+        freeTile.productId = "9P_FREE_GAME";
+        freeTile.titleId = "TID_FREE";
+        freeTile.name = "Free Game";
+        freeTile.playable = false;
+        freeTile.freeInStore = true;
+
+        ui.showDetails(freeTile);
+        ui::Canvas c(1920, 1080);
+        ui.render(c, 1000);
+
+        // Clicking outside the ClaimFree button must NOT trigger ClaimFreeGame
+        auto evOutside = ui.onMouseDown(1500.0f, 200.0f, 1);
+        CHECK(evOutside.action == ui::Action::None);
+
+        // Open Settings and test Row 10 (Bitrate) accept and Row 22 (PreviewFeatures) click
+        ui.showHome();
+        ui.handle(ui::NavInput{.options = true});
+        CHECK(ui.screen() == ui::Screen::Settings);
+
+        // Navigate to row 10 (BitrateCap) and press accept
+        while (ui.settingsFocus() != 10) {
+            ui.handle(ui::NavInput{.down = true});
+        }
+        auto evBitrate = ui.handle(ui::NavInput{.accept = true});
+        CHECK(evBitrate.action == ui::Action::SettingsChanged);
+
+        // Right-click in Settings saves and exits to Home
+        auto evRightClick = ui.onMouseDown(500.0f, 500.0f, 3);
+        CHECK(ui.screen() == ui::Screen::Home);
+        CHECK(evRightClick.action == ui::Action::SettingsChanged);
+    }
+
+    // 4. Canvas fast paths (opaque drawImage, gradientV, gradientH, setClip/clearClip)
+    {
+        ui::Canvas c(64, 64);
+        c.gradientV({0, 0, 64, 64}, ui::rgba(20, 30, 40, 255), ui::rgba(10, 15, 20, 255));
+        c.gradientH({0, 0, 64, 64}, ui::rgba(0, 0, 0, 128), ui::rgba(0, 0, 0, 0));
+
+        ui::Image img;
+        img.w = 16;
+        img.h = 16;
+        img.opaque = true;
+        img.px.assign(16 * 16, ui::rgba(100, 150, 200, 255));
+
+        c.setClip({8, 8, 8, 8});
+        c.drawImage(img, 0, 0, 255, 0);
+        c.clearClip();
+        // Outside clip at (2, 2) should NOT be img color; inside clip at (10, 10) SHOULD be img color
+        CHECK(c.data()[2 * 64 + 2] != ui::rgba(100, 150, 200, 255));
+        CHECK(c.data()[10 * 64 + 10] == ui::rgba(100, 150, 200, 255));
+    }
+
+    // 5. Screen::SignIn redirect on sign-in completion
+    {
+        ui::Fonts fonts;
+        fonts.load("assets/fonts");
+        ui::ImageCache images([] {});
+        ui::AppUi ui(fonts, images);
+        ui.showSignIn("ABCD-1234", "https://www.microsoft.com/link");
+        CHECK(ui.screen() == ui::Screen::SignIn);
+        ui.showSplash("Carregando jogos...");
+        CHECK(ui.screen() == ui::Screen::Splash);
+        ui.showHome();
+        CHECK(ui.screen() == ui::Screen::Home);
+    }
+}
+
 int main() {
+    testPhase1BugFixesAndPhase2Optimizations();
     testBlock4OwnershipAndRecents();
     testBloco3Corrections();
     testBloco2Corrections();
@@ -6368,6 +6638,8 @@ int main() {
     testPlayerSwitchAndUnresolvedTiles();
     testWebReportAndGamepadLayout();
     testCodSearchRomanAndSettingsReset();
+    testFreeAccountPlayability();
+    testDetailsHydrationAndPlaytimeBadge();
     if (g_failures) {
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
         return 1;

@@ -120,6 +120,7 @@ struct Settings {
     int voiceRouting = 0;   // 0: Auto (DualSense Speaker if available), 1: Always TV/Headset
     int padSpeakerVolume = 100; // 0 to 100% (DualSense controller speaker)
     bool queueReadyAlert = true; // Queue-ready chime and rumble alert
+    bool previewFeatures = true; // xCloud preview client identification & ad-supported F2P streaming
     std::map<std::string, uint64_t> titlePlaytime; // accumulated playtime in seconds (productId or titleId -> seconds)
 
     uint64_t playtimeForGame(const std::string& productId, const std::string& titleId) const {

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace xc::ui {
 
@@ -162,15 +163,32 @@ void Canvas::gradientV(Rect r, Color top, Color bottom) {
         Color c = 0;
         for (int s = 0; s < 32; s += 8) c |= lerp8((top >> s) & 0xFF, (bottom >> s) & 0xFF, t) << s;
         uint32_t a = alphaOf(c);
+        if (a == 0) continue;
         uint32_t* row = &px_[static_cast<size_t>(y) * w_];
-        for (int x = b.x; x < b.x + b.w; ++x) blend(row[x], c, a);
+        if (a >= 255) {
+            std::fill_n(&row[b.x], b.w, c | 0xFF000000u);
+        } else {
+            uint32_t sr = (c & 0xFF) * a;
+            uint32_t sg = ((c >> 8) & 0xFF) * a;
+            uint32_t sb = ((c >> 16) & 0xFF) * a;
+            uint32_t inv = 255 - a;
+            for (int x = b.x; x < b.x + b.w; ++x) {
+                uint32_t d = row[x];
+                uint32_t dr = (sr + (d & 0xFF) * inv + 127) / 255;
+                uint32_t dg = (sg + ((d >> 8) & 0xFF) * inv + 127) / 255;
+                uint32_t db = (sb + ((d >> 16) & 0xFF) * inv + 127) / 255;
+                row[x] = 0xFF000000u | (db << 16) | (dg << 8) | dr;
+            }
+        }
     }
 }
 
 void Canvas::gradientH(Rect r, Color left, Color right) {
     Rect b = intersect(r, clip_);
     if (b.w <= 0 || b.h <= 0) return;
-    std::vector<Color> cols(static_cast<size_t>(b.w));
+    Color stackCols[2048];
+    std::vector<Color> heapCols;
+    Color* cols = b.w <= 2048 ? stackCols : (heapCols.resize(static_cast<size_t>(b.w)), heapCols.data());
     for (int x = b.x; x < b.x + b.w; ++x) {
         uint32_t t = r.w > 1 ? static_cast<uint32_t>((x - r.x) * 255 / (r.w - 1)) : 0;
         Color c = 0;
@@ -268,6 +286,10 @@ void Canvas::drawImage(const Image& img, int x, int y, uint8_t opacity, int radi
         uint32_t* row = &px_[static_cast<size_t>(yy) * w_];
         const uint32_t* src = &img.px[static_cast<size_t>(yy - y) * img.w];
         bool cornerRow = radius > 0 && (circle || yy < y + radius || yy >= y + img.h - radius);
+        if (!cornerRow && opacity >= 255 && img.opaque) {
+            std::memcpy(&row[b.x], &src[b.x - x], static_cast<size_t>(b.w) * sizeof(uint32_t));
+            continue;
+        }
         for (int xx = b.x; xx < b.x + b.w; ++xx) {
             uint32_t s = src[xx - x];
             uint32_t a = (alphaOf(s) * opacity + 127) / 255;

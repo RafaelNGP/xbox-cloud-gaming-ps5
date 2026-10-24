@@ -34,6 +34,8 @@ bool uiSaved = false;
 bool settingsShot = false;  // "settingstest": save the screen now
 bool bitrateShot = false;   // "bitratetest": save the screen now
 bool donationShot = false;  // "donationtest": save the screen now
+bool signInCheckShot = false; // "checksignintest": save the screen now
+bool freeUiShot = false, freeDetailsShot = false; // "freetest": save free account screenshots
 const char* keysShot = nullptr;  // "keystest": the screen to save now
 uint64_t homeSince = 0, launchSince = 0;
 bool launchSaved = false;
@@ -123,6 +125,8 @@ void loadAutoplay() {
         if (opt == "pad") g_autoplay.pad = true;
         if (opt == "consoles") g_autoplay.consoles = true;
         if (opt == "consolestab") g_autoplay.consolesTab = true;
+        if (opt == "checksignintest") g_autoplay.checkSignInTest = true;
+        if (opt == "freetest") g_autoplay.freeTest = true;
         if (opt == "settingstest") g_autoplay.settingsTest = true;
         if (opt == "keystest") g_autoplay.keysTest = true;
         if (opt == "padmaptest") g_autoplay.padMapTest = true;
@@ -317,9 +321,23 @@ void autoplayPad(input::ControllerState& pad) {
         // Step 0: Open details
         if (step == 0 && t >= 500) {
             ui::GameTile tile;
-            bool found = (!g_autoplay.title.empty() && g_ui->findTile(g_autoplay.title, tile)) ||
+            bool found = (!g_autoplay.lockTitle.empty() && g_ui->findTile(g_autoplay.lockTitle, tile)) ||
+                         (!g_autoplay.title.empty() && g_autoplay.title != "AUTOTEST" && g_ui->findTile(g_autoplay.title, tile)) ||
                          g_ui->firstTile(tile) || g_ui->purchasableAt(0, tile);
             if (found) {
+                ui::SettingsChoice c = g_ui->settings();
+                if (!tile.productId.empty() && !c.titlePlaytime.count(tile.productId)) c.titlePlaytime[tile.productId] = 240;
+                if (!tile.titleId.empty() && !c.titlePlaytime.count(tile.titleId)) c.titlePlaytime[tile.titleId] = 240;
+                g_ui->setSettings(c);
+                if (!tile.xboxTitleId.empty()) {
+                    xcloud::TitleAchievements ach;
+                    ach.totalCount = 100;
+                    ach.unlockedCount = 47;
+                    ach.totalGamerscore = 1300;
+                    ach.unlockedGamerscore = 485;
+                    g_ui->setTitleAchievements(tile.xboxTitleId, ach);
+                }
+                g_ui->setQueueTime(tile.titleId, 10);
                 g_ui->showDetails(tile);
                 step = 1;
                 // The test changes and saves this game's profile: what it was
@@ -815,6 +833,63 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         }
     }
 
+    if (g_autoplay.checkSignInTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        static SettingsWalk walk;
+        const uint64_t at[] = {500, 1500, 2500, 6000, 7000};
+        if (step < 5 && now - since >= at[step]) {
+            bool next = true;
+            if (step == 0) nav.options = true;
+            if (step == 1) next = walk.step(nav, downsTo(17));  // row 17: Sign in check
+            if (step == 2) {
+                if (onSettingsRow(17, "check signin test")) {
+                    nav.accept = true;
+                } else {
+                    g_autoplay.checkSignInTest = false;
+                    g_ui->showHome();
+                }
+            }
+            if (step == 3) {
+                signInCheckShot = true;
+            }
+            if (step == 4) {
+                nav.back = true;
+                g_ui->showHome();
+                g_autoplay.checkSignInTest = false;
+            }
+            if (next) ++step;
+        }
+    }
+
+    if (g_autoplay.freeTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) {
+            since = now;
+            g_ui->setSubscription("");
+        }
+        const uint64_t at[] = {500, 1500, 2500, 4500, 5500};
+        if (step < 5 && now - since >= at[step]) {
+            if (step == 0) freeUiShot = true;
+            if (step == 1) {
+                nav.accept = true;
+            }
+            if (step == 2) {
+                freeDetailsShot = true;
+            }
+            if (step == 3) {
+                nav.back = true;
+            }
+            if (step == 4) {
+                g_autoplay.freeTest = false;
+                XC_LOGI("AUTOPLAY END: free test finished");
+            }
+            ++step;
+        }
+    }
+
     if (g_autoplay.bitrateTest && uiSaved) {
         static uint64_t since = 0;
         static int step = 0;
@@ -1104,6 +1179,21 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         donationShot = false;
         saveCanvas("donation.ppm");
         XC_LOGI("AUTOPLAY END: donation screenshot saved");
+    }
+    if (signInCheckShot) {
+        signInCheckShot = false;
+        saveCanvas("signin_check.ppm");
+        XC_LOGI("AUTOPLAY END: check signin test (saved signin_check.ppm)");
+    }
+    if (freeUiShot) {
+        freeUiShot = false;
+        saveCanvas("free_ui.ppm");
+        XC_LOGI("AUTOPLAY: saved free_ui.ppm");
+    }
+    if (freeDetailsShot) {
+        freeDetailsShot = false;
+        saveCanvas("free_details.ppm");
+        XC_LOGI("AUTOPLAY: saved free_details.ppm");
     }
     if (g_autoplay.consolesTab && uiSaved) {
         static uint64_t shownAt = 0;
