@@ -33,6 +33,7 @@ LABEL_COLOURS = {
     "needs-info": "fbca04",
     "outdated-version": "c5def5",
     "crash": "b60205",
+    "unsupported-platform": "d93f0b",
 }
 AREA_COLOUR = "1d76db"
 FIRMWARE_COLOUR = "ededed"
@@ -44,6 +45,15 @@ STRINGS = {
         "outdated_latest": (
             "- This was reported on v{current}; the latest is **v{latest}** "
             "(the app offers it after sign-in, or Settings > Updates). Does it still happen there?"
+        ),
+        "unsupported_147": (
+            "- **Unsupported version (v1.4.7 / unofficial PS4 port)**: Version 1.4.7 is an unofficial "
+            "port for PS4 created by a third party. This repository develops and supports exclusively "
+            "the official **PlayStation 5** application (PPSA99810). Official support cannot be provided "
+            "for this PS4 build as it was not created or maintained by the author of this repository.\n\n"
+            "This issue is being closed as an unsupported version/platform.\n\n"
+            "*(Tip: If you are having issues claiming games or managing your account, visit https://www.xbox.com/play "
+            "in a PC or mobile browser to manage your account and claim titles directly).*"
         ),
         "ask_release": "the **app release** (Settings > Updates shows it, e.g. v1.3.2)",
         "ask_log": (
@@ -60,6 +70,16 @@ STRINGS = {
             "- Este relato foi enviado na v{current}; a versão mais recente é a **v{latest}** "
             "(o app oferece a atualização após o login ou em Configurações > Atualizações). O problema ainda ocorre nela?"
         ),
+        "unsupported_147": (
+            "- **Versão não suportada (v1.4.7 / port não-oficial de PS4)**: A versão 1.4.7 é uma modificação/port "
+            "não-oficial para PS4 desenvolvida por terceiros. Este repositório desenvolve e oferece suporte "
+            "exclusivamente para a versão oficial de **PlayStation 5** (PPSA99810). Não é possível oferecer suporte "
+            "técnico, investigar problemas ou realizar correções para essa versão de PS4, pois ela não foi feita "
+            "pelo mantenedor deste projeto.\n\n"
+            "Esta issue está sendo encerrada por se tratar de uma versão/plataforma não suportada.\n\n"
+            "*(Dica: Se estiver com problemas para resgatar jogos gratuitos ou gerenciar sua conta, acesse https://www.xbox.com/play "
+            "pelo navegador de um computador ou celular para resgatar os títulos diretamente na sua conta Xbox).*"
+        ),
         "ask_release": "a **versão do app** (mostrada em Configurações > Atualizações, ex.: v1.3.2)",
         "ask_log": (
             "o **xcloud.log** (`/data/psbox/xcloud.log` via FTP, ou use *Relatar um problema* "
@@ -74,6 +94,16 @@ STRINGS = {
         "outdated_latest": (
             "- Este reporte fue enviado en la v{current}; la versión más reciente es la **v{latest}** "
             "(la app ofrece actualizar tras iniciar sesión o en Configuración > Actualizaciones). ¿Sigue ocurriendo ahí?"
+        ),
+        "unsupported_147": (
+            "- **Versión no admitida (v1.4.7 / port no oficial de PS4)**: La versión 1.4.7 es una modificación/port "
+            "no oficial para PS4 desarrollado por terceros. Este repositorio desarrolla y ofrece soporte "
+            "exclusivamente para la versión oficial de **PlayStation 5** (PPSA99810). No es posible ofrecer asistencia "
+            "técnica, investigar problemas ni publicar correcciones para esa versión de PS4, ya que no fue creada "
+            "por el mantenedor de este proyecto.\n\n"
+            "Este reporte se cierra por tratarse de una versión/plataforma no admitida.\n\n"
+            "*(Consejo: Si tienes dificultades para reclamar juegos gratuitos o gestionar tu cuenta, accede a https://www.xbox.com/play "
+            "desde el navegador de un ordenador o móvil para reclamar los títulos directamente en tu cuenta de Xbox).*"
         ),
         "ask_release": "la **versión de la app** (se muestra en Configuración > Actualizaciones, ej.: v1.3.2)",
         "ask_log": (
@@ -165,8 +195,25 @@ def looks_like_log(text):
     return bool(re.search(r"\d\d:\d\d:\d\d \[[IWED]\]", text or ""))
 
 
+def is_unsupported_147(fields, release, title, body):
+    """Detects issues reporting version 1.4.7 or the unofficial PS4 port."""
+    if release == (1, 4, 7):
+        return True
+    app_rel = field(fields, "app release")
+    if re.search(r"\bv?1\.4\.7\b", app_rel, re.I):
+        return True
+    fw = field(fields, "ps5 firmware").strip().lower()
+    plat = field(fields, "platform").strip().lower()
+    if fw == "ps4" or plat == "ps4":
+        return True
+    text = f"{title or ''}\n{body or ''}"
+    if re.search(r"\bv?1\.4\.7\b", text, re.I):
+        return True
+    return False
+
+
 def triage(issue, rules, latest):
-    """-> (labels to add, comment text or None)."""
+    """-> (labels to add, comment text or None, should_close bool)."""
     title = (issue.get("title") or "")[:1000]
     body = (issue.get("body") or "")[:MAX_TEXT]
     fields = parse_form(body)
@@ -181,6 +228,11 @@ def triage(issue, rules, latest):
     lang = detect_lang(title, parts["what"], log)
     tr = STRINGS[lang]
     reply_key = f"reply_{lang}" if lang != "en" else "reply"
+
+    if is_unsupported_147(fields, release, title, body):
+        labels = ["unsupported-platform"]
+        out = [MARKER, tr["header"], "", tr["unsupported_147"]]
+        return labels, "\n".join(out), True
 
     labels, notes = [], []
     asked_update = False
@@ -214,7 +266,7 @@ def triage(issue, rules, latest):
         labels.append(f"fw: {firmware}")
 
     if not notes and not asks and not outdated:
-        return labels, None
+        return labels, None, False
     out = [MARKER, tr["header"], ""]
     for note in notes:
         out.append(f"- {note}")
@@ -222,7 +274,7 @@ def triage(issue, rules, latest):
         out.append(tr["outdated_latest"].format(current=".".join(map(str, release)), latest=latest))
     if asks:
         out.append(tr["ask_line"].format(asks=tr["ask_join"].join(asks)))
-    return labels, "\n".join(out)
+    return labels, "\n".join(out), False
 
 
 # --- GitHub ---------------------------------------------------------------------
@@ -247,7 +299,7 @@ def label_colour(name):
     return LABEL_COLOURS.get(name, "ededed")
 
 
-def apply(repo, number, labels, comment, token):
+def apply(repo, number, labels, comment, token, close=False):
     for name in labels:  # made the first time they're needed
         try:
             api("POST", f"/repos/{repo}/labels", token, {"name": name, "color": label_colour(name)})
@@ -256,15 +308,22 @@ def apply(repo, number, labels, comment, token):
                 raise
     if labels:
         api("POST", f"/repos/{repo}/issues/{number}/labels", token, {"labels": labels})
-    if comment is None:
-        return
-    mine = [c for c in api("GET", f"/repos/{repo}/issues/{number}/comments?per_page=100", token)
-            if MARKER in (c.get("body") or "") and c.get("user", {}).get("type") == "Bot"]
-    if mine:
-        if mine[0]["body"] != comment:
-            api("PATCH", f"/repos/{repo}/issues/comments/{mine[0]['id']}", token, {"body": comment})
-    else:
-        api("POST", f"/repos/{repo}/issues/{number}/comments", token, {"body": comment})
+    if comment is not None:
+        mine = [c for c in api("GET", f"/repos/{repo}/issues/{number}/comments?per_page=100", token)
+                if MARKER in (c.get("body") or "") and c.get("user", {}).get("type") == "Bot"]
+        if mine:
+            try:
+                if mine[0]["body"] != comment:
+                    api("PATCH", f"/repos/{repo}/issues/comments/{mine[0]['id']}", token, {"body": comment})
+            except urllib.error.HTTPError:
+                api("POST", f"/repos/{repo}/issues/{number}/comments", token, {"body": comment})
+        else:
+            api("POST", f"/repos/{repo}/issues/{number}/comments", token, {"body": comment})
+    if close:
+        try:
+            api("PATCH", f"/repos/{repo}/issues/{number}", token, {"state": "closed", "state_reason": "not_planned"})
+        except urllib.error.HTTPError as e:
+            print(f"Warning: could not close issue #{number}: {e}")
 
 
 def main(argv):
@@ -272,9 +331,10 @@ def main(argv):
     if len(argv) >= 3 and argv[1] == "--dry-run":
         issue = json.load(open(argv[2]))
         latest = argv[argv.index("--latest") + 1] if "--latest" in argv else None
-        labels, comment = triage(issue, rules, latest)
+        labels, comment, should_close = triage(issue, rules, latest)
         print("labels:", labels)
         print(comment or "(no comment)")
+        print(f"close: {should_close}")
         return 0
     repo, token = os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"]
     number = os.environ.get("TRIAGE_ISSUE", "").strip()
@@ -291,9 +351,9 @@ def main(argv):
         latest = api("GET", f"/repos/{repo}/releases/latest", token)["tag_name"].lstrip("v")
     except urllib.error.HTTPError:
         latest = None
-    labels, comment = triage(issue, rules, latest)
-    print(f"issue #{issue['number']}: labels {labels}, comment {'yes' if comment else 'no'}")
-    apply(repo, issue["number"], labels, comment, token)
+    labels, comment, should_close = triage(issue, rules, latest)
+    print(f"issue #{issue['number']}: labels {labels}, comment {'yes' if comment else 'no'}, close: {should_close}")
+    apply(repo, issue["number"], labels, comment, token, close=should_close)
     return 0
 
 

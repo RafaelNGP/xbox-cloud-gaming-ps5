@@ -23,6 +23,10 @@ LOG = "10:00:00 [I] === PSBox Cloud Gaming starting ===\n"
 
 class Triage(unittest.TestCase):
     def run_triage(self, body, title="A problem", latest="1.3.2"):
+        labels, comment, _ = triage.triage({"title": title, "body": body}, RULES, latest)
+        return labels, comment
+
+    def run_triage_full(self, body, title="A problem", latest="1.3.2"):
         return triage.triage({"title": title, "body": body}, RULES, latest)
 
     def test_known_error_fixed_in_newer_release(self):
@@ -124,6 +128,54 @@ class Triage(unittest.TestCase):
         )
         self.assertIn("Triagem automática", comment)
         self.assertIn("DNS bloqueado", comment)
+
+    def test_unsupported_147_english(self):
+        labels, comment, close = self.run_triage_full(
+            form("It crashed", "1.4.7", "Ps4", LOG),
+            title="Problem on 1.4.7",
+            latest="1.5.4"
+        )
+        self.assertEqual(labels, ["unsupported-platform"])
+        self.assertTrue(close)
+        self.assertIn("Automatic triage", comment)
+        self.assertIn("Unsupported version (v1.4.7 / unofficial PS4 port)", comment)
+        self.assertIn("PlayStation 5", comment)
+        self.assertNotIn("needs-info", labels)
+        self.assertNotIn("outdated-version", labels)
+
+    def test_unsupported_147_portuguese(self):
+        labels, comment, close = self.run_triage_full(
+            form("Não consigo entrar no jogo", "1.4.7", "13.00", LOG + "10:00:01 [I] settings: language pt-BR\n"),
+            title="Erro ao logar na conta",
+            latest="1.5.4"
+        )
+        self.assertEqual(labels, ["unsupported-platform"])
+        self.assertTrue(close)
+        self.assertIn("Triagem automática", comment)
+        self.assertIn("Versão não suportada (v1.4.7 / port não-oficial de PS4)", comment)
+        self.assertIn("não-oficial para PS4 desenvolvida por terceiros", comment)
+        self.assertIn("não foi feita pelo mantenedor", comment)
+
+    def test_unsupported_147_spanish(self):
+        labels, comment, close = self.run_triage_full(
+            form("No puedo iniciar sesión en el juego", "1.4.7", "13.00", LOG),
+            title="Error al iniciar sesión",
+            latest="1.5.4"
+        )
+        self.assertEqual(labels, ["unsupported-platform"])
+        self.assertTrue(close)
+        self.assertIn("Triaje automático", comment)
+        self.assertIn("Versión no admitida (v1.4.7 / port no oficial de PS4)", comment)
+
+    def test_unsupported_147_free_text(self):
+        labels, comment, close = self.run_triage_full(
+            "Estou usando a 1.4.7 e deu erro",
+            title="Ajuda com 1.4.7",
+            latest="1.5.4"
+        )
+        self.assertEqual(labels, ["unsupported-platform"])
+        self.assertTrue(close)
+        self.assertIn("Versão não suportada", comment)
 
     def test_rules_are_valid(self):
         import re
