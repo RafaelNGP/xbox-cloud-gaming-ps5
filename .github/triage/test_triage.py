@@ -177,6 +177,51 @@ class Triage(unittest.TestCase):
         self.assertTrue(close)
         self.assertIn("Versão não suportada", comment)
 
+    def test_empty_issue_known_claim_free(self):
+        labels, comment, close = self.run_triage_full(
+            "",
+            title="Call of Duty®: Modern Warfare® II is not on your account yet. It is ",
+            latest="1.5.4"
+        )
+        self.assertIn("area: catalog", labels)
+        self.assertEqual(close, "completed")
+        self.assertIn("Automatic triage", comment)
+        self.assertIn("Claiming a free-to-play game failed", comment)
+        self.assertIn("This issue was submitted with only a title", comment)
+
+    def test_empty_issue_known_portuguese(self):
+        labels, comment, close = self.run_triage_full(
+            "",
+            title="Mecha BREAK ainda não está na sua conta. É grátis: escaneie o cód",
+            latest="1.5.4"
+        )
+        self.assertIn("area: catalog", labels)
+        self.assertEqual(close, "completed")
+        self.assertIn("Triagem automática", comment)
+        self.assertIn("Falha ao resgatar jogo gratuito", comment)
+        self.assertIn("Esta issue foi enviada apenas com o título", comment)
+
+    def test_empty_issue_known_tls_clock(self):
+        labels, comment, close = self.run_triage_full(
+            "No description provided",
+            title="Secure connections were refused because the PS5's date and time look wrong",
+            latest="1.5.4"
+        )
+        self.assertIn("area: certificates", labels)
+        self.assertEqual(close, "completed")
+        self.assertIn("Certificate verification failed", comment)
+        self.assertIn("This issue was submitted with only a title", comment)
+
+    def test_empty_issue_unknown_leaves_open(self):
+        labels, comment, close = self.run_triage_full(
+            "",
+            title="Something completely random that does not match any rule",
+            latest="1.5.4"
+        )
+        self.assertEqual(labels, [])
+        self.assertIsNone(comment)
+        self.assertFalse(close)
+
     def test_rules_are_valid(self):
         import re
         for rule in RULES:

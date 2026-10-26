@@ -9,7 +9,10 @@
         "0x804101e1",
         "dns lookup failed",
         "sinkhole ip",
-        "connect failed to (?:login\\.live\\.com|[^\\s]+\\.xboxlive\\.com|[^\\s]+\\.microsoft\\.com)[^\\n]*errno 61"
+        "connect failed to (?:login\\.live\\.com|[^\\s]+\\.xboxlive\\.com|[^\\s]+\\.microsoft\\.com)[^\\n]*errno 61",
+        "dns.*bloqueado",
+        "dns.*servidores da microsoft",
+        "dns.*microsoft servers"
       ],
       "fixed_in": "1.3.2",
       "reply": "**DNS blocked or sinkholed** (`0x8041013d` / `0x804101e1` / `errno 61`): the DNS configured on your PS5 or router is blocking Microsoft/Xbox domains (`login.live.com`, `*.xboxlive.com`). To keep Sony updates blocked while allowing Xbox Cloud Gaming, run the **NanoDNS** payload on your PS5 and set the PS5 network **Primary DNS** to your PS5's local IP address and **Secondary DNS** to `0.0.0.0` (or use `1.1.1.1` / `8.8.8.8` if you don't use a DNS blocker).",
@@ -23,7 +26,10 @@
         "2148916233",
         "8015dc09",
         "xsts authorization for http://gssv\\.xboxlive\\.com/ failed: http 401",
-        "no xbox profile"
+        "no xbox profile",
+        "has no xbox profile",
+        "sem perfil xbox",
+        "sin perfil de xbox"
       ],
       "fixed_in": "1.3.1",
       "reply": "**No Xbox profile (Gamertag) on this Microsoft account** (`XErr 2148916233` / `HTTP 401` on XSTS): this Microsoft account has never signed into Xbox before. Open https://www.xbox.com in a browser, sign in once with the same account to create your free Xbox Gamertag, and then sign in again on the PS5.",
@@ -39,7 +45,13 @@
         "erro ao resgatar",
         "purchasefd\\.mp\\.microsoft\\.com",
         "useralreadyownscontent",
-        "9p22thr57fv7"
+        "9p22thr57fv7",
+        "not on your account yet",
+        "ainda n[aã]o est[aá] na sua conta",
+        "a[uú]n no est[aá] en tu cuenta",
+        "escaneie o c[oó]digo",
+        "scan the code",
+        "escanea el c[oó]digo"
       ],
       "fixed_in": "1.3.2",
       "reply": "**Claiming a free-to-play game failed**: v1.3.2 fixes in-app claiming for titles like *Call of Duty®* (`9P22THR57FV7`), automatically refreshes the Microsoft Store token when needed, selects direct free offers, and treats `UserAlreadyOwnsContent` as already owned. Please update to **v1.3.2** or newer (or claim the game for free at https://www.xbox.com).",
@@ -65,7 +77,14 @@
       "patterns": [
         "-9984",
         "certificate verification failed",
-        "certificate refused"
+        "certificate refused",
+        "secure connections were refused",
+        "conex[oõ]es seguras foram recusadas",
+        "conexiones seguras fueron rechazadas",
+        "date and time look wrong",
+        "date and time look w",
+        "data e a hora.*parecem erradas",
+        "fecha y.*hora.*parecen incorrectas"
       ],
       "fixed_in": "1.3.2",
       "reply": "**Certificate verification failed** (-9984): if this happens when starting a game on a regional server (such as Central India `CIA.core.gssv-play-prod.xboxlive.com`), **v1.3.2** fixes out-of-order intermediate certificate chains automatically. Otherwise, the most common cause is the console's **date and time** being wrong (Settings > System > Date and Time: set it correctly, or set it from the internet), or a DNS/proxy intercepting Microsoft's sites.",
@@ -80,7 +99,9 @@
         "not available in this region",
         "xcloud login failed: http 403",
         "unsupported ?market",
-        "sign in as another country"
+        "sign in as another country",
+        "recusou o login",
+        "rechaz[oó] el inicio de sesi[oó]n"
       ],
       "fixed_in": "0.9.6",
       "reply": "**xCloud refused the sign-in**: cloud gaming may not be offered in your country, or the account has no Game Pass plan with cloud gaming. Since v0.9.6 that error offers *Sign in as another country* (opt-in, at your own risk).",
@@ -95,7 +116,10 @@
         "consoledidnotwake",
         "cloud streaming service to be ready",
         "didn't wake",
-        "did not wake"
+        "did not wake",
+        "did not answer",
+        "n[aã]o respondeu",
+        "no respondi[oó]"
       ],
       "reply": "**Your Xbox didn't answer**: on the Xbox, Settings > General > Power options: choose *Sleep* (not *Shutdown*), and Settings > Devices & connections > Remote features: turn them on. If it was asleep for long, turn it on by hand once and try again.",
       "reply_pt": "**Seu console Xbox não respondeu**: no Xbox, vá em Configurações > Geral > Opções de energia e escolha *Suspensão* (não *Desligar*), e ative os *Recursos remotos* em Configurações > Dispositivos e conexões. Se o console estiver desligado há muito tempo, ligue-o manualmente uma vez e tente novamente.",
@@ -106,7 +130,10 @@
       "label": "area: catalog",
       "patterns": [
         "noentitlement",
-        "not entitled"
+        "not entitled",
+        "n[aã]o est[aá] na sua assinatura",
+        "no est[aá] en tu suscripci[oó]n",
+        "not in your subscription"
       ],
       "reply": "**Not on your account / plan**: xCloud says the account can't stream that game. It may need another Game Pass plan, or buying it.",
       "reply_pt": "**Jogo não disponível na sua conta / plano**: o xCloud informou que sua conta não possui permissão para transmitir este jogo. Pode ser necessário adquirir o jogo ou um plano Game Pass compatível.",

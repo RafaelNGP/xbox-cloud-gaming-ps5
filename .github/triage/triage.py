@@ -55,6 +55,10 @@ STRINGS = {
             "*(Tip: If you are having issues claiming games or managing your account, visit https://www.xbox.com/play "
             "in a PC or mobile browser to manage your account and claim titles directly).*"
         ),
+        "empty_title_known": (
+            "\n*(This issue was submitted with only a title. As it matches a known problem, "
+            "the solution above has been provided automatically and this issue is now closed.)*"
+        ),
         "ask_release": "the **app release** (Settings > Updates shows it, e.g. v1.3.2)",
         "ask_log": (
             "the **xcloud.log** (`/data/psbox/xcloud.log` over FTP; before v0.9.7 in `/data/homebrew/PPSA99810/`, "
@@ -80,6 +84,10 @@ STRINGS = {
             "*(Dica: Se estiver com problemas para resgatar jogos gratuitos ou gerenciar sua conta, acesse https://www.xbox.com/play "
             "pelo navegador de um computador ou celular para resgatar os títulos diretamente na sua conta Xbox).*"
         ),
+        "empty_title_known": (
+            "\n*(Esta issue foi enviada apenas com o título. Como corresponde a um problema já conhecido, "
+            "a orientação acima foi fornecida automaticamente e a issue está sendo encerrada.)*"
+        ),
         "ask_release": "a **versão do app** (mostrada em Configurações > Atualizações, ex.: v1.3.2)",
         "ask_log": (
             "o **xcloud.log** (`/data/psbox/xcloud.log` via FTP, ou use *Relatar um problema* "
@@ -104,6 +112,10 @@ STRINGS = {
             "Este reporte se cierra por tratarse de una versión/plataforma no admitida.\n\n"
             "*(Consejo: Si tienes dificultades para reclamar juegos gratuitos o gestionar tu cuenta, accede a https://www.xbox.com/play "
             "desde el navegador de un ordenador o móvil para reclamar los títulos directamente en tu cuenta de Xbox).*"
+        ),
+        "empty_title_known": (
+            "\n*(Esta incidencia se envió únicamente con el título. Dado que coincide con un problema conocido, "
+            "la solución anterior se ha proporcionado automáticamente y se procede a cerrar la incidencia.)*"
         ),
         "ask_release": "la **versión de la app** (se muestra en Configuración > Actualizaciones, ej.: v1.3.2)",
         "ask_log": (
@@ -195,6 +207,18 @@ def looks_like_log(text):
     return bool(re.search(r"\d\d:\d\d:\d\d \[[IWED]\]", text or ""))
 
 
+def is_empty_issue(body, fields):
+    """Returns True if the issue has no description/content beyond its title."""
+    if not (body or "").strip():
+        return True
+    cleaned = (body or "").strip()
+    if cleaned in ("_No response_", "No description provided"):
+        return True
+    if fields:
+        return all(not v.strip() for v in fields.values())
+    return False
+
+
 def is_unsupported_147(fields, release, title, body):
     """Detects issues reporting version 1.4.7 or the unofficial PS4 port."""
     if release == (1, 4, 7):
@@ -232,7 +256,9 @@ def triage(issue, rules, latest):
     if is_unsupported_147(fields, release, title, body):
         labels = ["unsupported-platform"]
         out = [MARKER, tr["header"], "", tr["unsupported_147"]]
-        return labels, "\n".join(out), True
+        return labels, "\n".join(out), "not_planned"
+
+    empty_issue = is_empty_issue(body, fields)
 
     labels, notes = [], []
     asked_update = False
@@ -249,6 +275,15 @@ def triage(issue, rules, latest):
             note += tr["update_rule"].format(current=".".join(map(str, release)), fixed=rule["fixed_in"])
             asked_update = True
         notes.append(note)
+
+    if empty_issue:
+        if notes:
+            out = [MARKER, tr["header"], ""]
+            for note in notes:
+                out.append(f"- {note}")
+            out.append(tr["empty_title_known"])
+            return labels, "\n".join(out), "completed"
+        return labels, None, False
 
     asks = []
     if not fields:  # not the bug form (a question, an idea): nothing to ask for
@@ -321,7 +356,8 @@ def apply(repo, number, labels, comment, token, close=False):
             api("POST", f"/repos/{repo}/issues/{number}/comments", token, {"body": comment})
     if close:
         try:
-            api("PATCH", f"/repos/{repo}/issues/{number}", token, {"state": "closed", "state_reason": "not_planned"})
+            state_reason = close if isinstance(close, str) else "not_planned"
+            api("PATCH", f"/repos/{repo}/issues/{number}", token, {"state": "closed", "state_reason": state_reason})
         except urllib.error.HTTPError as e:
             print(f"Warning: could not close issue #{number}: {e}")
 
