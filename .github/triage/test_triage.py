@@ -222,6 +222,34 @@ class Triage(unittest.TestCase):
         self.assertIsNone(comment)
         self.assertFalse(close)
 
+    def test_reddit_community_invite(self):
+        # English normal triage
+        _, comment, _ = self.run_triage_full(
+            form("Sign-in problem", "1.5.0", "13.60", LOG + "10:00:03 [E] sign-in failed: DNS lookup failed for login.live.com: 0x8041013d"),
+            title="Sign-in failed",
+            latest="1.5.4"
+        )
+        self.assertIn("https://www.reddit.com/r/PSBoxCloudGaming/", comment)
+        self.assertIn("Join our community on Reddit", comment)
+
+        # Portuguese empty issue
+        _, comment_pt, _ = self.run_triage_full(
+            "",
+            title="Mecha BREAK ainda não está na sua conta. É grátis: escaneie o cód",
+            latest="1.5.4"
+        )
+        self.assertIn("https://www.reddit.com/r/PSBoxCloudGaming/", comment_pt)
+        self.assertIn("Participe da nossa comunidade no Reddit", comment_pt)
+
+        # Spanish issue
+        _, comment_es, _ = self.run_triage_full(
+            form("No puedo iniciar sesión", "1.5.0", "13.60", LOG),
+            title="Error al iniciar sesión",
+            latest="1.5.4"
+        )
+        self.assertIn("https://www.reddit.com/r/PSBoxCloudGaming/", comment_es)
+        self.assertIn("Únete a nuestra comunidad en Reddit", comment_es)
+
     def test_rules_are_valid(self):
         import re
         for rule in RULES:

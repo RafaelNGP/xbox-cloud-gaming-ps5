@@ -66,6 +66,10 @@ STRINGS = {
         ),
         "ask_join": " and ",
         "ask_line": "- To look into it, please add {asks}.",
+        "reddit_invite": (
+            "💬 **Join our community on Reddit**: Visit [r/PSBoxCloudGaming](https://www.reddit.com/r/PSBoxCloudGaming/) "
+            "for discussions, updates, and community support!"
+        ),
     },
     "pt": {
         "header": "Triagem automática (regras automáticas; o mantenedor também lerá esta issue):",
@@ -95,6 +99,10 @@ STRINGS = {
         ),
         "ask_join": " e ",
         "ask_line": "- Para investigarmos melhor, por favor adicione {asks}.",
+        "reddit_invite": (
+            "💬 **Participe da nossa comunidade no Reddit**: Acesse [r/PSBoxCloudGaming](https://www.reddit.com/r/PSBoxCloudGaming/) "
+            "para novidades, dicas e suporte da comunidade!"
+        ),
     },
     "es": {
         "header": "Triaje automático (reglas automáticas; el mantenedor también leerá este reporte):",
@@ -106,7 +114,7 @@ STRINGS = {
         "unsupported_147": (
             "- **Versión no admitida (v1.4.7 / port no oficial de PS4)**: La versión 1.4.7 es una modificación/port "
             "no oficial para PS4 desarrollado por terceros. Este repositorio desarrolla y ofrece soporte "
-            "exclusivamente para la versión oficial de **PlayStation 5** (PPSA99810). No es posible ofrecer asistencia "
+            "exclusivamente para a versión oficial de **PlayStation 5** (PPSA99810). No es posible ofrecer asistencia "
             "técnica, investigar problemas ni publicar correcciones para esa versión de PS4, ya que no fue creada "
             "por el mantenedor de este proyecto.\n\n"
             "Este reporte se cierra por tratarse de una versión/plataforma no admitida.\n\n"
@@ -124,6 +132,10 @@ STRINGS = {
         ),
         "ask_join": " y ",
         "ask_line": "- Para revisarlo, por favor añade {asks}.",
+        "reddit_invite": (
+            "💬 **Únete a nuestra comunidad en Reddit**: ¡Visita [r/PSBoxCloudGaming](https://www.reddit.com/r/PSBoxCloudGaming/) "
+            "para novedades, consejos y soporte de la comunidad!"
+        ),
     },
 }
 
@@ -255,7 +267,7 @@ def triage(issue, rules, latest):
 
     if is_unsupported_147(fields, release, title, body):
         labels = ["unsupported-platform"]
-        out = [MARKER, tr["header"], "", tr["unsupported_147"]]
+        out = [MARKER, tr["header"], "", tr["unsupported_147"], "", tr["reddit_invite"]]
         return labels, "\n".join(out), "not_planned"
 
     empty_issue = is_empty_issue(body, fields)
@@ -282,6 +294,8 @@ def triage(issue, rules, latest):
             for note in notes:
                 out.append(f"- {note}")
             out.append(tr["empty_title_known"])
+            out.append("")
+            out.append(tr["reddit_invite"])
             return labels, "\n".join(out), "completed"
         return labels, None, False
 
@@ -309,6 +323,8 @@ def triage(issue, rules, latest):
         out.append(tr["outdated_latest"].format(current=".".join(map(str, release)), latest=latest))
     if asks:
         out.append(tr["ask_line"].format(asks=tr["ask_join"].join(asks)))
+    out.append("")
+    out.append(tr["reddit_invite"])
     return labels, "\n".join(out), False
 
 
