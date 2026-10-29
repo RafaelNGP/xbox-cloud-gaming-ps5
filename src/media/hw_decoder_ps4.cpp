@@ -8,7 +8,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <mutex>
 #include <unistd.h>
+#include <unordered_map>
 
 extern "C" {
 int sceSysmoduleLoadModule(uint32_t id);
@@ -17,9 +19,11 @@ int sceKernelLoadStartModule(const char* path, size_t argc, const void* argv, ui
 size_t sceKernelGetDirectMemorySize();
 int sceKernelAllocateDirectMemory(int64_t searchStart, int64_t searchEnd, size_t length, size_t alignment,
                                   int memoryType, int64_t* physicalAddress);
+int sceKernelReleaseDirectMemory(int64_t physicalAddress, size_t length);
 int sceKernelMapDirectMemory(void** address, size_t length, int protection, int flags, int64_t physicalAddress,
                              size_t alignment);
 int sceKernelMapNamedFlexibleMemory(void** address, size_t length, int protection, int flags, const char* name);
+int sceKernelMunmap(void* address, size_t length);
 
 // PS4 libSceVideodec2 structures
 struct Vdec2DecoderConfig {
@@ -101,24 +105,70 @@ inline size_t align16k(size_t n) {
     return (n + 0x3FFF) & ~static_cast<size_t>(0x3FFF);
 }
 
-void* allocDirect(size_t size, int memoryType, const char* label) {
-    if (size == 0) return nullptr;
-    size = align16k(size);
-    int64_t phys = 0;
-    int rc = sceKernelAllocateDirectMemory(0, static_cast<int64_t>(sceKernelGetDirectMemorySize()),
-                                           size, 0x4000, memoryType, &phys);
-    if (rc != 0) {
-        XC_LOGW("hwdec: %s: allocate %zu bytes failed: 0x%08x", label, size, static_cast<unsigned>(rc));
-        return nullptr;
-    }
+struct DirectMem {
     void* addr = nullptr;
-    rc = sceKernelMapDirectMemory(&addr, size, kProtectionRw, 0, phys, 0x4000);
-    if (rc != 0 || !addr) {
-        XC_LOGW("hwdec: %s: map %zu bytes failed: 0x%08x", label, size, static_cast<unsigned>(rc));
-        return nullptr;
+    int64_t phys = 0;
+    size_t size = 0;
+};
+
+struct FlexibleMem {
+    void* addr = nullptr;
+    size_t size = 0;
+};
+
+DirectMem allocDirect(size_t size, int memoryType, const char* label) {
+    DirectMem mem{};
+    if (size == 0) return mem;
+    mem.size = align16k(size);
+    int rc = sceKernelAllocateDirectMemory(0, static_cast<int64_t>(sceKernelGetDirectMemorySize()),
+                                           mem.size, 0x4000, memoryType, &mem.phys);
+    if (rc != 0) {
+        XC_LOGW("hwdec: %s: allocate %zu bytes failed: 0x%08x", label, mem.size, static_cast<unsigned>(rc));
+        mem.size = 0;
+        return mem;
     }
-    return addr;
+    rc = sceKernelMapDirectMemory(&mem.addr, mem.size, kProtectionRw, 0, mem.phys, 0x4000);
+    if (rc != 0 || !mem.addr) {
+        XC_LOGW("hwdec: %s: map %zu bytes failed: 0x%08x", label, mem.size, static_cast<unsigned>(rc));
+        sceKernelReleaseDirectMemory(mem.phys, mem.size);
+        mem.addr = nullptr;
+        mem.phys = 0;
+        mem.size = 0;
+        return mem;
+    }
+    return mem;
 }
+
+void freeDirect(DirectMem& mem) {
+    if (mem.addr && mem.size > 0) {
+        sceKernelMunmap(mem.addr, mem.size);
+    }
+    if (mem.size > 0) {
+        sceKernelReleaseDirectMemory(mem.phys, mem.size);
+    }
+    mem.addr = nullptr;
+    mem.phys = 0;
+    mem.size = 0;
+}
+
+void freeFlexible(FlexibleMem& mem) {
+    if (mem.addr && mem.size > 0) {
+        sceKernelMunmap(mem.addr, mem.size);
+    }
+    mem.addr = nullptr;
+    mem.size = 0;
+}
+
+struct DecoderAllocations {
+    DirectMem computeBuf;
+    FlexibleMem decCpu;
+    DirectMem decGpu;
+    DirectMem decCpuGpu;
+    DirectMem frameBuf;
+};
+
+static std::mutex s_allocMutex;
+static std::unordered_map<const HwDecoder*, DecoderAllocations> s_allocations;
 
 } // namespace
 
@@ -136,11 +186,25 @@ HwDecoder::~HwDecoder() {
         sceVideodec2ReleaseComputeQueue(computeQueue_);
         computeQueue_ = nullptr;
     }
+    {
+        std::lock_guard<std::mutex> lock(s_allocMutex);
+        auto it = s_allocations.find(this);
+        if (it != s_allocations.end()) {
+            freeDirect(it->second.frameBuf);
+            freeDirect(it->second.decCpuGpu);
+            freeDirect(it->second.decGpu);
+            freeFlexible(it->second.decCpu);
+            freeDirect(it->second.computeBuf);
+            s_allocations.erase(it);
+        }
+    }
     frameBuffer_ = nullptr;
     frameBufferSize_ = 0;
 }
 
 bool HwDecoder::init(int maxWidth, int maxHeight) {
+    if (decoder_) return true;
+
     int rc = sceSysmoduleLoadModule(kVideodecModule);
     XC_LOGI("hwdec: sceSysmoduleLoadModule(VIDEODEC2) -> 0x%08x", static_cast<unsigned>(rc));
     if (rc < 0 && rc != static_cast<int>(0x80020002) && rc != static_cast<int>(0x8002000e)) {
@@ -160,6 +224,30 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
     }
     sceSysmoduleLoadModuleInternal(0x80000015);
 
+    DecoderAllocations allocs{};
+    auto rollback = [&]() {
+        if (decoder_) {
+            Vdec2Frame frm{};
+            frm.size = sizeof(frm);
+            Vdec2Output out{};
+            out.size = sizeof(out);
+            sceVideodec2Flush(decoder_, &frm, &out);
+            sceVideodec2DeleteDecoder(decoder_);
+            decoder_ = nullptr;
+        }
+        if (computeQueue_) {
+            sceVideodec2ReleaseComputeQueue(computeQueue_);
+            computeQueue_ = nullptr;
+        }
+        freeDirect(allocs.frameBuf);
+        frameBuffer_ = nullptr;
+        frameBufferSize_ = 0;
+        freeDirect(allocs.decCpuGpu);
+        freeDirect(allocs.decGpu);
+        freeFlexible(allocs.decCpu);
+        freeDirect(allocs.computeBuf);
+    };
+
     // Query and allocate compute queue memory
     Vdec2ComputeMemory computeMem{};
     computeMem.size = sizeof(computeMem);
@@ -171,11 +259,11 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
     }
 
     size_t computeBytes = align16k(computeMem.cpuGpuSize);
-    void* computeBuf = allocDirect(computeBytes, kMemoryTypeOnion, "compute queue");
-    if (!computeBuf) {
+    allocs.computeBuf = allocDirect(computeBytes, kMemoryTypeOnion, "compute queue");
+    if (!allocs.computeBuf.addr) {
         return false;
     }
-    computeMem.cpuGpu = computeBuf;
+    computeMem.cpuGpu = allocs.computeBuf.addr;
 
     // Allocate compute queue across pipes 0..4
     void* queue = nullptr;
@@ -192,6 +280,7 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
     }
     if (!queue) {
         XC_LOGW("hwdec: failed to allocate compute queue on all pipes");
+        rollback();
         return false;
     }
     computeQueue_ = queue;
@@ -216,6 +305,7 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
     rc = sceVideodec2QueryDecoderMemoryInfo(&decCfg, &decMem);
     if (rc != 0) {
         XC_LOGW("hwdec: sceVideodec2QueryDecoderMemoryInfo failed: 0x%08x", static_cast<unsigned>(rc));
+        rollback();
         return false;
     }
 
@@ -225,33 +315,51 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
         rc = sceKernelMapNamedFlexibleMemory(&cpuMem, cpuBytes, kProtectionRw, 0, "PSBoxVdecCpu");
         if (rc != 0 || !cpuMem) {
             XC_LOGW("hwdec: allocate flexible memory %zu failed: 0x%08x", cpuBytes, static_cast<unsigned>(rc));
+            rollback();
             return false;
         }
         decMem.cpu = cpuMem;
         decMem.cpuSize = cpuBytes;
+        allocs.decCpu = {cpuMem, cpuBytes};
     }
 
     if (decMem.gpuSize > 0) {
-        decMem.gpu = allocDirect(decMem.gpuSize, kMemoryTypeGarlic, "decoder gpu");
-        if (!decMem.gpu) return false;
+        allocs.decGpu = allocDirect(decMem.gpuSize, kMemoryTypeGarlic, "decoder gpu");
+        if (!allocs.decGpu.addr) {
+            rollback();
+            return false;
+        }
+        decMem.gpu = allocs.decGpu.addr;
     }
 
     if (decMem.cpuGpuSize > 0) {
-        decMem.cpuGpu = allocDirect(decMem.cpuGpuSize, kMemoryTypeOnion, "decoder cpu+gpu");
-        if (!decMem.cpuGpu) return false;
+        allocs.decCpuGpu = allocDirect(decMem.cpuGpuSize, kMemoryTypeOnion, "decoder cpu+gpu");
+        if (!allocs.decCpuGpu.addr) {
+            rollback();
+            return false;
+        }
+        decMem.cpuGpu = allocs.decCpuGpu.addr;
     }
 
     frameBufferSize_ = align16k(decMem.maxFrameSize > 0 ? decMem.maxFrameSize : (static_cast<size_t>(maxWidth) * maxHeight * 3 / 2 + 64));
-    frameBuffer_ = static_cast<uint8_t*>(allocDirect(frameBufferSize_, kMemoryTypeGarlic, "frame buffer"));
-    if (!frameBuffer_) {
+    allocs.frameBuf = allocDirect(frameBufferSize_, kMemoryTypeOnion, "frame buffer");
+    if (!allocs.frameBuf.addr) {
+        rollback();
         return false;
     }
+    frameBuffer_ = static_cast<uint8_t*>(allocs.frameBuf.addr);
 
     rc = sceVideodec2CreateDecoder(&decCfg, &decMem, &decoder_);
     XC_LOGI("hwdec: sceVideodec2CreateDecoder -> 0x%08x", static_cast<unsigned>(rc));
     if (rc != 0 || !decoder_) {
         decoder_ = nullptr;
+        rollback();
         return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_allocMutex);
+        s_allocations[this] = allocs;
     }
 
     XC_LOGI("hwdec: PS4 decoder running, frame buffer %zu bytes", frameBufferSize_);

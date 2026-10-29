@@ -6552,7 +6552,32 @@ void testPhase1BugFixesAndPhase2Optimizations() {
     }
 }
 
+static void testSizedUrl() {
+    // Protocol-relative URLs
+    CHECK(ui::sizedUrl("//store-images.s-microsoft.com/image.png", 300, 450) ==
+          "https://store-images.s-microsoft.com/image.png?w=300&h=450&mode=scale&q=75&format=jpg");
+    // store-images q=75
+    CHECK(ui::sizedUrl("https://store-images.s-microsoft.com/image.png", 1920, 1080) ==
+          "https://store-images.s-microsoft.com/image.png?w=1920&h=1080&mode=scale&q=75&format=jpg");
+    CHECK(ui::sizedUrl("https://store-images.s-microsoft.com/image.png?param=1", 100, 100) ==
+          "https://store-images.s-microsoft.com/image.png?param=1&w=100&h=100&mode=scale&q=75&format=jpg");
+    // images-eds-ssl.xboxlive.com format=jpg without quality
+    CHECK(ui::sizedUrl("https://images-eds-ssl.xboxlive.com/image.png", 400, 600) ==
+          "https://images-eds-ssl.xboxlive.com/image.png?w=400&h=600&format=jpg");
+    CHECK(ui::sizedUrl("https://images-eds-ssl.xboxlive.com/image.png?foo=bar", 200, 300) ==
+          "https://images-eds-ssl.xboxlive.com/image.png?foo=bar&w=200&h=300&format=jpg");
+    // other URLs untouched
+    CHECK(ui::sizedUrl("https://assets.xbox.com/img.png", 100, 100) == "https://assets.xbox.com/img.png");
+    // invalid dimensions or empty string untouched
+    CHECK(ui::sizedUrl("", 100, 100).empty());
+    CHECK(ui::sizedUrl("https://store-images.s-microsoft.com/image.png", 0, 100) ==
+          "https://store-images.s-microsoft.com/image.png");
+    CHECK(ui::sizedUrl("https://images-eds-ssl.xboxlive.com/image.png", 100, -1) ==
+          "https://images-eds-ssl.xboxlive.com/image.png");
+}
+
 int main() {
+    testSizedUrl();
     testPhase1BugFixesAndPhase2Optimizations();
     testBlock4OwnershipAndRecents();
     testBloco3Corrections();

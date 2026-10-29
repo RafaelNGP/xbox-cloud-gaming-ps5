@@ -35,4 +35,12 @@ if [ -f "$DEST/include/bits/alltypes.h" ]; then
     sed -i 's/typedef struct { unsigned __attr\[2\]; } pthread_rwlockattr_t;/typedef struct { void *__attr; } pthread_rwlockattr_t;/' "$DEST/include/bits/alltypes.h"
 fi
 
+if [ -f "$DEST/include/orbis/VideoOut.h" ]; then
+    sed -i 's/void sceVideoOutWaitVblank();/int32_t sceVideoOutWaitVblank(int32_t handle);/' "$DEST/include/orbis/VideoOut.h"
+fi
+
+if [ -f "$DEST/include/orbis/libkernel.h" ]; then
+    sed -i 's/void scePthreadSetaffinity();/int32_t scePthreadSetaffinity(OrbisPthread, uint64_t);/' "$DEST/include/orbis/libkernel.h"
+fi
+
 echo "OpenOrbis toolchain installed at $DEST."

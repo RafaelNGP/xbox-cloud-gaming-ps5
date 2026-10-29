@@ -289,13 +289,18 @@ bool acquireBuffer(bool wait = true) {
     for (int attempt = 0; attempt < 4; ++attempt) {
         OrbisVideoOutFlipStatus status{};
         int64_t shown = g_flipMarker;  // no status: assume everything shown
-        if (g_flipMarker && sceVideoOutGetFlipStatus(g_videoHandle, &status) == 0 && status.flipArg > 0)
+        bool gotStatus = (g_flipMarker && sceVideoOutGetFlipStatus(g_videoHandle, &status) == 0);
+        if (gotStatus && status.flipArg > 0)
             shown = status.flipArg;
         int onScreen = -1;
-        for (int i = 0; i < kBuffers; ++i)
-            if (g_bufferMarker[i] >= 0 && g_bufferMarker[i] <= shown &&
-                (onScreen < 0 || g_bufferMarker[i] > g_bufferMarker[onScreen]))
-                onScreen = i;
+        if (gotStatus && status.currentBuffer >= 0 && status.currentBuffer < kBuffers) {
+            onScreen = status.currentBuffer;
+        } else {
+            for (int i = 0; i < kBuffers; ++i)
+                if (g_bufferMarker[i] >= 0 && g_bufferMarker[i] <= shown &&
+                    (onScreen < 0 || g_bufferMarker[i] > g_bufferMarker[onScreen]))
+                    onScreen = i;
+        }
         int best = -1;
         for (int i = 0; i < kBuffers; ++i) {
             if (i == onScreen || (g_bufferMarker[i] >= 0 && g_bufferMarker[i] > shown)) continue;
@@ -306,7 +311,7 @@ bool acquireBuffer(bool wait = true) {
             return true;
         }
         if (!wait) return false;
-        sceVideoOutWaitVblank();
+        sceVideoOutWaitVblank(g_videoHandle);
     }
     // Flip status not moving: fall back to round robin.
     g_currentBuffer = static_cast<int>(g_flipMarker % kBuffers);

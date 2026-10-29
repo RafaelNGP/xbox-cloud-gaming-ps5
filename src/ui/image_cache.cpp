@@ -73,20 +73,20 @@ Image coverResize(const Image& src, int w, int h) {
     return out;
 }
 
-namespace {
-
-// store-images.s-microsoft.com resizes on request: fetch close to the size
-// we draw instead of the multi-megapixel original.
+// store-images.s-microsoft.com and images-eds-ssl.xboxlive.com resize on request:
+// fetch close to the size we draw instead of the multi-megapixel original.
 std::string sizedUrl(std::string url, int w, int h) {
+    if (url.empty() || w <= 0 || h <= 0) return url;
     if (url.rfind("//", 0) == 0) url = "https:" + url;
     if (url.find("store-images.s-microsoft.com") != std::string::npos) {
         url += url.find('?') == std::string::npos ? "?" : "&";
-        url += "w=" + std::to_string(w) + "&h=" + std::to_string(h) + "&mode=scale&q=90&format=jpg";
+        url += "w=" + std::to_string(w) + "&h=" + std::to_string(h) + "&mode=scale&q=75&format=jpg";
+    } else if (url.find("images-eds-ssl.xboxlive.com") != std::string::npos) {
+        url += url.find('?') == std::string::npos ? "?" : "&";
+        url += "w=" + std::to_string(w) + "&h=" + std::to_string(h) + "&format=jpg";
     }
     return url;
 }
-
-}  // namespace
 
 ImageCache::ImageCache(std::function<void()> onReady, size_t budgetBytes, std::string diskDir,
                        size_t diskBudgetBytes)

@@ -27,6 +27,8 @@ namespace xc::ui {
 bool decodeImage(const std::string& bytes, Image& out);
 // Scales `src` to fill w x h, cropping the excess around the centre.
 Image coverResize(const Image& src, int w, int h);
+// Sized URL rewrite for store-images and images-eds-ssl.
+std::string sizedUrl(std::string url, int w, int h);
 
 class ImageCache {
 public:

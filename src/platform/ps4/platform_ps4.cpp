@@ -53,6 +53,9 @@ int sceSysmoduleLoadModule(uint32_t id);
 int sceSysmoduleLoadModuleInternal(uint32_t id);
 int sceRandomGetRandomNumber(void* buf, size_t size);
 int scePthreadCreate(pthread_t* thread, const pthread_attr_t* attr, void* (*entry)(void*), void* arg, const char* name);
+pthread_t scePthreadSelf(void);
+int scePthreadSetaffinity(pthread_t thread, uint64_t mask);
+int scePthreadSetprio(pthread_t thread, int prio);
 
 static inline int getNetErrno(int ret) {
     int* err = sceNetErrnoLoc();
@@ -922,18 +925,17 @@ void setThreadAffinity(ThreadRole role, const char* name) {
     if (name && *name) {
         pthread_set_name_np(pthread_self(), name);
     }
-    static cpu_set_t s_procMask;
-    static bool s_procMaskQueried = false;
+    static std::once_flag s_maskOnce;
     static int s_allowedCpus[32];
     static int s_numAllowedCpus = 0;
 
-    if (!s_procMaskQueried) {
-        s_procMaskQueried = true;
-        CPU_ZERO(&s_procMask);
-        int grc = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &s_procMask);
+    std::call_once(s_maskOnce, [&]() {
+        cpu_set_t procMask;
+        CPU_ZERO(&procMask);
+        int grc = pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &procMask);
         if (grc == 0) {
             for (int i = 0; i < 32; ++i) {
-                if (CPU_ISSET(i, &s_procMask)) {
+                if (CPU_ISSET(i, &procMask)) {
                     s_allowedCpus[s_numAllowedCpus++] = i;
                 }
             }
@@ -949,17 +951,18 @@ void setThreadAffinity(ThreadRole role, const char* name) {
         for (int i = 0; i < s_numAllowedCpus; ++i) {
             XC_LOGI("  cpu slot %d: logical core %d", i, s_allowedCpus[i]);
         }
-    }
+    });
 
     if (s_numAllowedCpus <= 1) {
         return;
     }
 
-    cpu_set_t mask;
-    CPU_ZERO(&mask);
+    uint64_t orbisMask = 0;
     auto setSlot = [&](int slotIndex) {
         int idx = s_allowedCpus[slotIndex % s_numAllowedCpus];
-        CPU_SET(idx, &mask);
+        if (idx >= 0 && idx < 64) {
+            orbisMask |= (UINT64_C(1) << idx);
+        }
     };
 
     switch (role) {
@@ -984,22 +987,22 @@ void setThreadAffinity(ThreadRole role, const char* name) {
         }
         break;
     }
-    int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &mask);
+    int rc = scePthreadSetaffinity(scePthreadSelf(), orbisMask);
     if (rc != 0) {
-        XC_LOGW("pthread_setaffinity_np(%s): %d", name ? name : "thread", rc);
+        XC_LOGW("scePthreadSetaffinity(%s, 0x%llx): 0x%08x", name ? name : "thread",
+                static_cast<unsigned long long>(orbisMask), static_cast<unsigned>(rc));
     } else {
-        XC_LOGI("thread %s pinned to role %d", name ? name : "unknown", static_cast<int>(role));
+        XC_LOGI("thread %s pinned to role %d (mask 0x%llx)", name ? name : "unknown",
+                static_cast<int>(role), static_cast<unsigned long long>(orbisMask));
     }
 }
 
 void setThreadRealtimePriority() {
-    struct sched_param param{};
-    param.sched_priority = 64; // Orbis audio realtime priority
-    int rc = pthread_setschedparam(pthread_self(), SCHED_RR, &param);
+    int rc = scePthreadSetprio(scePthreadSelf(), 256);
     if (rc != 0) {
-        XC_LOGW("pthread_setschedparam(SCHED_RR, 64): %d (the audio thread keeps the default)", rc);
+        XC_LOGW("scePthreadSetprio(256): 0x%08x (the audio thread keeps the default)", static_cast<unsigned>(rc));
     } else {
-        XC_LOGI("thread elevated to SCHED_RR (prio=64)");
+        XC_LOGI("thread elevated to realtime priority (scePthreadSetprio 256)");
     }
 }
 
