@@ -211,17 +211,20 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
         return false;
     }
 
-    // Load firmware helper modules (available on retail PS4 firmware)
-    for (const char* sprx : {
-        "/system/common/lib/libSceVdecCore.sprx",
-        "/system/common/lib/libSceVdecSavc.sprx",
-        "/system/common/lib/libSceVdecSavc2.sprx",
-        "/system/common/lib/libSceVdecwrap.sprx"
-    }) {
-        int res = 0;
-        int mrc = sceKernelLoadStartModule(sprx, 0, nullptr, 0, nullptr, &res);
-        XC_LOGI("hwdec: load %s -> 0x%08x", sprx, static_cast<unsigned>(mrc));
+    if (rc != 0) {
+        // Fallback: try loading firmware helper modules manually
+        for (const char* sprx : {
+            "/system/common/lib/libSceVdecCore.sprx",
+            "/system/common/lib/libSceVdecSavc.sprx",
+            "/system/common/lib/libSceVdecSavc2.sprx",
+            "/system/common/lib/libSceVdecwrap.sprx"
+        }) {
+            int res = 0;
+            int mrc = sceKernelLoadStartModule(sprx, 0, nullptr, 0, nullptr, &res);
+            XC_LOGI("hwdec: load %s -> 0x%08x", sprx, static_cast<unsigned>(mrc));
+        }
     }
+
     sceSysmoduleLoadModuleInternal(0x80000015);
 
     DecoderAllocations allocs{};
@@ -297,6 +300,7 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
     decCfg.maxDpbFrames = 4;
     decCfg.pipelineDepth = 1;
     decCfg.computeQueue = reinterpret_cast<uint64_t>(computeQueue_);
+    decCfg.cpuAffinity = 0x3F; // 6 user cores on PS4 Jaguar APU (cores 0..5)
     decCfg.cpuPriority = 700;
     decCfg.optimizeProgressive = 1;
 

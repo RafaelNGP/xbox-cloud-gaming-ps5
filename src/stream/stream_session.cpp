@@ -423,7 +423,13 @@ struct StreamSession::Impl {
         XC_LOGI("webrtc: createPeer starting");
         rtc::Configuration config;
         config.disableAutoNegotiation = true;
-        pc = std::make_shared<rtc::PeerConnection>(config);
+        try {
+            pc = std::make_shared<rtc::PeerConnection>(config);
+        } catch (const std::exception& e) {
+            XC_LOGE("webrtc: PeerConnection failed to create: %s", e.what());
+            fail(std::string("WebRTC peer creation failed: ") + e.what());
+            return;
+        }
         XC_LOGI("webrtc: PeerConnection created");
 
         pc->onLocalCandidate([this](rtc::Candidate c) {
