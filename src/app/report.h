@@ -16,10 +16,10 @@ struct Info {
     std::string title;     // the issue's title
     std::string what;      // what happened (the error shown, or the crash)
     std::string release;   // app version
-    std::string firmware;  // PS5 system software, when known
+    std::string firmware;  // console system software, when known
     std::string log;       // logExcerpt()'s
     std::string crash;     // crash: SIGSEGV pc=eboot+0x... (from the marker)
-    std::string platform;  // platform name ("PlayStation 5 (PPSA99810)", "Linux", etc.)
+    std::string platform;  // platform name ("PlayStation 4", "PlayStation 5", "Linux", etc.)
 };
 
 // The bug form's link, at most `maxLength` characters: the log is cut from

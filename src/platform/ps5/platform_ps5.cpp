@@ -242,7 +242,7 @@ std::string firmwareVersion() {
 }
 
 std::string platformName() {
-    return "PlayStation 5 (PPSA99810)";
+    return "PlayStation 5";
 }
 
 // One user per app sandbox: nothing to hide the sign-in from.

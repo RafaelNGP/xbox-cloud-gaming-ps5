@@ -95,7 +95,7 @@ bool restartApp();
 // The console's system software ("13.00"); empty where unknown.
 std::string firmwareVersion();
 
-// Platform description ("PlayStation 5 (PPSA99810)" or "Linux").
+// Platform description ("PlayStation 4", "PlayStation 5", "Linux", etc.).
 std::string platformName();
 
 bool readFile(const std::string& path, std::string& out);

@@ -80,7 +80,7 @@ std::string lower(std::string s) {
 int bioSend(void* ctx, const unsigned char* buf, size_t len) {
     int fd = *static_cast<int*>(ctx);
     int flags = 0;
-#ifdef MSG_NOSIGNAL
+#if defined(MSG_NOSIGNAL) && (MSG_NOSIGNAL != 0) && !defined(__PS4__)
     flags = MSG_NOSIGNAL;  // a connection the server dropped: an error, not SIGPIPE
 #endif
     ssize_t n = ::send(fd, buf, len, flags);

@@ -1849,7 +1849,7 @@ function copySanitizedReport() {
   }).then(r => r.json()).then(data => {
     btn.disabled = false;
     if (data && data.excerpt) {
-      const markdown = `### ${data.title || 'Relatório de Erro'}\n\n**Plataforma:** ${data.platform || 'PlayStation 5 (PPSA99810)'}\n**Versão:** v${data.release || ')html" XC_APP_VERSION R"html('}\n**Firmware:** ${data.firmware || 'N/A'}\n\n**O que aconteceu:**\n${what || 'Relatório enviado via WebUI'}\n\n\`\`\`\n${data.excerpt}\n\`\`\``;
+      const markdown = `### ${data.title || 'Relatório de Erro'}\n\n**Plataforma:** ${data.platform || 'PlayStation 5'}\n**Versão:** v${data.release || ')html" XC_APP_VERSION R"html('}\n**Firmware:** ${data.firmware || 'N/A'}\n\n**O que aconteceu:**\n${what || 'Relatório enviado via WebUI'}\n\n\`\`\`\n${data.excerpt}\n\`\`\``;
       copyTextToClipboard(markdown).then(() => {
         showToast('Relatório copiado para a área de transferência!');
       }).catch(() => {

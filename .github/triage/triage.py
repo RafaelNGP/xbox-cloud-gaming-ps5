@@ -3,7 +3,7 @@
 # Copyright (C) 2026 RafaelNGP
 """Triage of a new or edited issue, by rules (no AI, nothing to pay).
 
-Reads the bug form's fields (What happened?, App release, PS5 firmware,
+Reads the bug form's fields (What happened?, App release, PlayStation Firmware,
 xcloud.log), matches rules.json's known problems, and then on the issue:
 adds labels (never removes one), and writes or updates ONE comment (marked
 with MARKER) in the reporter's language (English, Portuguese, or Spanish)
@@ -238,7 +238,7 @@ def is_unsupported_147(fields, release, title, body):
     app_rel = field(fields, "app release")
     if re.search(r"\bv?1\.4\.7\b", app_rel, re.I):
         return True
-    fw = field(fields, "ps5 firmware").strip().lower()
+    fw = field(fields, "playstation firmware", "ps5 firmware").strip().lower()
     plat = field(fields, "platform").strip().lower()
     if fw == "ps4" or plat == "ps4":
         return True
@@ -259,7 +259,7 @@ def triage(issue, rules, latest):
     if not fields:  # not the form: all of it is "what happened"
         parts["what"] = body
     release = version_tuple(field(fields, "app release"))
-    firmware = firmware_of(field(fields, "ps5 firmware"))
+    firmware = firmware_of(field(fields, "playstation firmware", "ps5 firmware"))
     latest_t = version_tuple(latest) if latest else None
     lang = detect_lang(title, parts["what"], log)
     tr = STRINGS[lang]

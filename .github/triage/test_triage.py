@@ -13,7 +13,7 @@ RULES = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 def form(what="", release="", firmware="", log=""):
     def section(title, text):
         return f"### {title}\n\n{text or '_No response_'}\n\n"
-    return (section("What happened?", what) + section("App release", release) + section("PS5 firmware", firmware) +
+    return (section("What happened?", what) + section("App release", release) + section("PlayStation Firmware", firmware) +
             section("Game(s) affected", "") + section("Network", "Wired") +
             section("xcloud.log", f"```text\n{log}\n```" if log else ""))
 
@@ -67,6 +67,13 @@ class Triage(unittest.TestCase):
         labels, comment = self.run_triage(form("Something odd", "v1.3.2", "13.60", LOG))
         self.assertEqual(labels, ["fw: 13.60"])
         self.assertIsNone(comment)
+
+    def test_legacy_ps5_firmware_label_recognized(self):
+        legacy_body = ("### What happened?\n\nSomething\n\n### App release\n\nv1.3.2\n\n"
+                       "### PS5 firmware\n\n13.60\n\n### Game(s) affected\n\n_No response_\n\n"
+                       "### Network\n\nWired\n\n### xcloud.log\n\n_No response_\n\n")
+        labels, _ = self.run_triage(legacy_body)
+        self.assertIn("fw: 13.60", labels)
 
     def test_app_version_typed_as_firmware_is_ignored(self):
         labels, _ = self.run_triage(form("x", "0.9.5", "0.9.5", LOG))

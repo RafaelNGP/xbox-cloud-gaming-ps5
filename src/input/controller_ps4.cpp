@@ -87,8 +87,6 @@ struct Slot {
     char name[64]{};
 };
 Slot g_slots[4];
-bool g_userServiceInit = false;
-bool g_padInit = false;
 bool g_rumbleLogged = false;
 
 inline float normStick(uint8_t v) {
@@ -241,15 +239,27 @@ bool init() {
         XC_LOGE("scePadInit failed: 0x%08x", static_cast<unsigned>(rc));
         return false;
     }
+    SceUserServiceInitializeParams param{0x2FF};
+    rc = sceUserServiceInitialize(&param);
+    if (rc != 0 && rc != static_cast<int>(0x80960003)) {
+        XC_LOGW("sceUserServiceInitialize: 0x%08x", static_cast<unsigned>(rc));
+    }
     int32_t uid = -1;
     rc = sceUserServiceGetInitialUser(&uid);
-    if (rc != 0) {
-        SceUserServiceInitializeParams param{0};
-        sceUserServiceInitialize(&param);
-        rc = sceUserServiceGetInitialUser(&uid);
+    if (rc != 0 || uid < 0) {
+        SceUserServiceLoginUserIdList list{};
+        if (sceUserServiceGetLoginUserIdList(&list) == 0) {
+            for (int32_t u : list.userId) {
+                if (u > 0) {
+                    uid = u;
+                    rc = 0;
+                    break;
+                }
+            }
+        }
     }
     if (rc != 0 || uid < 0) {
-        XC_LOGE("sceUserServiceGetInitialUser failed: 0x%08x", static_cast<unsigned>(rc));
+        XC_LOGE("sceUserServiceGetInitialUser failed: 0x%08x (uid=%d)", static_cast<unsigned>(rc), uid);
         return false;
     }
     openPad(0, uid);

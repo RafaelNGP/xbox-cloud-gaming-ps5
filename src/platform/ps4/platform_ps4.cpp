@@ -51,6 +51,25 @@ int sceSysmoduleLoadModule(uint32_t id);
 int sceSysmoduleLoadModuleInternal(uint32_t id);
 int sceRandomGetRandomNumber(void* buf, size_t size);
 
+static inline int getNetErrno(int ret) {
+    int* err = sceNetErrnoLoc();
+    if (err && *err > 0) {
+        return *err;
+    }
+    uint32_t uret = static_cast<uint32_t>(ret);
+    if ((uret & 0xFFFFFE00) == 0x80410000) {
+        return static_cast<int>(uret & 0xFF);
+    }
+    if (ret < 0 && ret > -256) {
+        return -ret;
+    }
+    return ret < 0 ? -ret : 0;
+}
+
+static inline int sanitizeNetFlags(int flags) {
+    return flags & 0xC3;
+}
+
 int ioctl(int fd, unsigned long request, ...) {
     void* arg = nullptr;
     va_list ap;
@@ -68,7 +87,6 @@ int ioctl(int fd, unsigned long request, ...) {
 
 static std::mutex s_sockMutex;
 static std::unordered_map<int, uint16_t> s_boundPorts;
-static std::atomic<uint16_t> s_nextEphemeralPort{50100};
 
 int socket(int domain, int type, int protocol) {
     if (protocol == 17) {
@@ -77,7 +95,7 @@ int socket(int domain, int type, int protocol) {
     int baseType = type & 0xF;
     int s = sceNetSocket("", domain, baseType, protocol);
     if (s < 0) {
-        errno = (sceNetErrnoLoc && *sceNetErrnoLoc() > 0) ? *sceNetErrnoLoc() : -s;
+        errno = getNetErrno(s);
         return -1;
     }
     if (type & 0x4000) { // SOCK_NONBLOCK
@@ -90,7 +108,7 @@ int socket(int domain, int type, int protocol) {
 int bind(int fd, const struct sockaddr* addr, socklen_t len) {
     if (!addr || len < sizeof(struct sockaddr_in)) {
         int rc = sceNetBind(fd, addr, len);
-        if (rc < 0) { errno = *sceNetErrnoLoc(); return -1; }
+        if (rc < 0) { errno = getNetErrno(rc); return -1; }
         return rc;
     }
     const auto* raw = reinterpret_cast<const uint8_t*>(addr);
@@ -107,7 +125,7 @@ int bind(int fd, const struct sockaddr* addr, socklen_t len) {
     // range (old 50100+) collides with ports the PS4 network stack reserves.
     int rc = sceNetBind(fd, &boundAddr, sizeof(boundAddr));
     if (rc < 0) {
-        errno = *sceNetErrnoLoc();
+        errno = getNetErrno(rc);
         return -1;
     }
     if (port != 0) {
@@ -159,10 +177,11 @@ int getsockname(int fd, struct sockaddr* addr, socklen_t* len) {
 
 ssize_t sendto(int fd, const void* buf, size_t len, int flags,
                const struct sockaddr* dest_addr, socklen_t addrlen) {
+    flags = sanitizeNetFlags(flags);
     if (!dest_addr || addrlen < 2) {
         int ret = sceNetSendto(fd, buf, len, flags, nullptr, 0);
         if (ret < 0) {
-            errno = sceNetErrnoLoc ? *sceNetErrnoLoc() : -ret;
+            errno = getNetErrno(ret);
             return -1;
         }
         return ret;
@@ -179,7 +198,7 @@ ssize_t sendto(int fd, const void* buf, size_t len, int flags,
 
     int ret = sceNetSendto(fd, buf, len, flags, &fixedAddr, addrlen);
     if (ret < 0) {
-        errno = sceNetErrnoLoc ? *sceNetErrnoLoc() : -ret;
+        errno = getNetErrno(ret);
         return -1;
     }
     return ret;
@@ -187,10 +206,11 @@ ssize_t sendto(int fd, const void* buf, size_t len, int flags,
 
 ssize_t recvfrom(int fd, void* buf, size_t len, int flags,
                  struct sockaddr* src_addr, socklen_t* addrlen) {
+    flags = sanitizeNetFlags(flags);
     unsigned int slen = addrlen ? static_cast<unsigned int>(*addrlen) : 0;
     int ret = sceNetRecvfrom(fd, buf, len, flags, src_addr, addrlen ? &slen : nullptr);
     if (ret < 0) {
-        errno = sceNetErrnoLoc ? *sceNetErrnoLoc() : -ret;
+        errno = getNetErrno(ret);
         return -1;
     }
     if (addrlen) *addrlen = slen;
@@ -203,18 +223,18 @@ ssize_t recvfrom(int fd, void* buf, size_t len, int flags,
 }
 
 ssize_t send(int fd, const void* buf, size_t len, int flags) {
-    int ret = sceNetSend(fd, buf, len, flags);
+    int ret = sceNetSend(fd, buf, len, sanitizeNetFlags(flags));
     if (ret < 0) {
-        errno = sceNetErrnoLoc ? *sceNetErrnoLoc() : -ret;
+        errno = getNetErrno(ret);
         return -1;
     }
     return ret;
 }
 
 ssize_t recv(int fd, void* buf, size_t len, int flags) {
-    int ret = sceNetRecv(fd, buf, len, flags);
+    int ret = sceNetRecv(fd, buf, len, sanitizeNetFlags(flags));
     if (ret < 0) {
-        errno = sceNetErrnoLoc ? *sceNetErrnoLoc() : -ret;
+        errno = getNetErrno(ret);
         return -1;
     }
     return ret;
@@ -232,7 +252,7 @@ int connect(int fd, const struct sockaddr* addr, socklen_t len) {
     }
     int ret = sceNetConnect(fd, &fixedAddr, len);
     if (ret < 0) {
-        errno = sceNetErrnoLoc ? *sceNetErrnoLoc() : -ret;
+        errno = getNetErrno(ret);
         return -1;
     }
     return ret;
@@ -241,7 +261,7 @@ int connect(int fd, const struct sockaddr* addr, socklen_t len) {
 int listen(int fd, int backlog) {
     int ret = sceNetListen(fd, backlog);
     if (ret < 0) {
-        errno = sceNetErrnoLoc ? *sceNetErrnoLoc() : -ret;
+        errno = getNetErrno(ret);
         return -1;
     }
     return ret;
@@ -251,7 +271,7 @@ int accept(int fd, struct sockaddr* addr, socklen_t* addrlen) {
     unsigned int slen = addrlen ? static_cast<unsigned int>(*addrlen) : 0;
     int ret = sceNetAccept(fd, addr, addrlen ? &slen : nullptr);
     if (ret < 0) {
-        errno = sceNetErrnoLoc ? *sceNetErrnoLoc() : -ret;
+        errno = getNetErrno(ret);
         return -1;
     }
     if (addrlen) *addrlen = slen;
@@ -261,7 +281,7 @@ int accept(int fd, struct sockaddr* addr, socklen_t* addrlen) {
 int setsockopt(int fd, int level, int optname, const void* optval, socklen_t optlen) {
     int ret = sceNetSetsockopt(fd, level, optname, optval, optlen);
     if (ret < 0) {
-        errno = sceNetErrnoLoc ? *sceNetErrnoLoc() : -ret;
+        errno = getNetErrno(ret);
         return -1;
     }
     return 0;
@@ -271,7 +291,7 @@ int getsockopt(int fd, int level, int optname, void* optval, socklen_t* optlen) 
     unsigned int olen = optlen ? static_cast<unsigned int>(*optlen) : 0;
     int ret = sceNetGetsockopt(fd, level, optname, optval, optlen ? &olen : nullptr);
     if (ret < 0) {
-        errno = sceNetErrnoLoc ? *sceNetErrnoLoc() : -ret;
+        errno = getNetErrno(ret);
         return -1;
     }
     if (optlen) *optlen = olen;
@@ -712,7 +732,7 @@ std::string firmwareVersion() {
 }
 
 std::string platformName() {
-    return "PlayStation 4 (BREW99810)";
+    return "PlayStation 4";
 }
 
 void makePrivate(const std::string&) {}

@@ -20,3 +20,17 @@ struct sockaddr_storage {
 #ifndef SO_NBIO
 #define SO_NBIO 0x1200
 #endif
+
+#ifndef SO_NOSIGPIPE
+#define SO_NOSIGPIPE 0x0800
+#endif
+
+#undef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+
+#undef MSG_DONTWAIT
+#define MSG_DONTWAIT 0x0080
+
+#undef MSG_WAITALL
+#define MSG_WAITALL 0x0040
+

@@ -26,7 +26,8 @@ body:
       label: Platform
       description: Platform where you run the application.
       options:
-        - PlayStation 5 (PPSA99810)
+        - PlayStation 4
+        - PlayStation 5
         - Linux
         - Other
     validations:
@@ -41,7 +42,7 @@ body:
   - type: input
     id: firmware
     attributes:
-      label: PS5 firmware
+      label: PlayStation Firmware
       placeholder: e.g. 4.03
     validations:
       required: true
