@@ -82,7 +82,7 @@ bool varied(const Shot& s) {
 }
 
 void drawCanvas(const ui::Canvas& c) {
-    std::lock_guard<std::mutex> lock(display::frameMutex());
+    std::lock_guard<std::recursive_mutex> lock(display::frameMutex());
     display::drawRgba(c.data());
     display::present();
 }
@@ -122,7 +122,7 @@ Yuv colourBars() {
 }
 
 void drawVideo(const Yuv& f) {
-    std::lock_guard<std::mutex> lock(display::frameMutex());
+    std::lock_guard<std::recursive_mutex> lock(display::frameMutex());
     display::drawYuv420(f.y.data(), f.u.data(), f.v.data(), f.w, f.w / 2, f.w / 2, f.w, f.h, false);
     display::present();
 }
@@ -351,7 +351,7 @@ int desktopSelftest(const std::string& dir) {
         nv12Uv[i * 2 + 1] = bars.v[i];
     }
     {
-        std::lock_guard<std::mutex> lock(display::frameMutex());
+        std::lock_guard<std::recursive_mutex> lock(display::frameMutex());
         display::drawNv12(bars.y.data(), nv12Uv.data(), bars.w, bars.w, bars.w, bars.h, false);
         display::present();
     }

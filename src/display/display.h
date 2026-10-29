@@ -19,7 +19,7 @@ constexpr unsigned kHeight = 1080;
 bool init(bool preferGpu = true);
 void shutdown();
 // Held by whoever draws a frame (UI thread or video thread).
-std::mutex& frameMutex();
+std::recursive_mutex& frameMutex();
 void present();
 
 // Copies a linear 1920x1080 RGBA (0xAABBGGRR) image to the back buffer

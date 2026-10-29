@@ -66,7 +66,7 @@ Frame g_front;         // the picture on screen
 Overlay g_overlayShown;
 bool g_frontPending = false, g_overlayPending = false;  // not uploaded yet
 
-std::mutex g_frameMutex;  // display.h's: held around a draw and its present()
+std::recursive_mutex g_frameMutex;  // display.h's: held around a draw and its present()
 Frame g_back;             // being drawn (under g_frameMutex)
 
 std::mutex g_mailboxMutex;
@@ -218,7 +218,7 @@ void sdlSetFullscreen(bool on) {
 
 void sdlToggleFullscreen() { sdlSetFullscreen(!sdlIsFullscreen()); }
 
-std::mutex& frameMutex() { return g_frameMutex; }
+std::recursive_mutex& frameMutex() { return g_frameMutex; }
 
 bool init(bool preferGpu) {
     if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) {

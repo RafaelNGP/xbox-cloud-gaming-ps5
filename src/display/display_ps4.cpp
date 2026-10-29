@@ -39,7 +39,7 @@ uint8_t* g_buffers[kBuffers]{};
 int g_currentBuffer = 0;
 int64_t g_flipMarker = 0;
 std::array<int64_t, kBuffers> g_bufferMarker{-1, -1, -1};
-std::mutex g_frameMutex;
+std::recursive_mutex g_frameMutex;
 std::atomic<int> g_sharpness{0};
 
 struct Overlay {
@@ -280,7 +280,7 @@ void shutdown() {
     g_mappedMemory = nullptr;
 }
 
-std::mutex& frameMutex() { return g_frameMutex; }
+std::recursive_mutex& frameMutex() { return g_frameMutex; }
 
 namespace {
 // Picks the back buffer for the next frame: not on screen, not queued.
@@ -545,7 +545,7 @@ bool lastShown(uint64_t& id, uint64_t& atUs) {
     return true;
 }
 bool readBackRgb(std::vector<uint8_t>& rgb, int& width, int& height) {
-    std::lock_guard<std::mutex> lock(g_frameMutex);
+    std::lock_guard<std::recursive_mutex> lock(g_frameMutex);
     if (!g_buffers[g_currentBuffer]) return false;
     width = kWidth;
     height = kHeight;

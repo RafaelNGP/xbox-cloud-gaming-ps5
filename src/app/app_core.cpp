@@ -298,11 +298,14 @@ bool coreStartup() {
         bool ok = fonts.loadIcons(shell::iconFontPaths());
         XC_LOGI("system icon font: %s", ok ? "loaded" : "not found (drawn icons)");
     }
+    const size_t imageBudget = (platform::platformName().find("PlayStation 4") != std::string::npos)
+                                   ? (48u << 20)
+                                   : (160u << 20);
     g_images = std::make_unique<ui::ImageCache>(
         [] {
             if (g_ui) g_ui->invalidate();
         },
-        160u << 20, platform::dataDir() + "/imgcache");
+        imageBudget, platform::dataDir() + "/imgcache");
     g_ui = std::make_unique<ui::AppUi>(fonts, *g_images);
     g_ui->showSplash(ui::tr(ui::Str::SigningIn));
     startPriceLoop();
@@ -1252,7 +1255,7 @@ bool Core::frame() {
             ++logged;
             XC_LOGI("ui render %llu ms", static_cast<unsigned long long>(t1 - t0));
         }
-        std::lock_guard<std::mutex> lock(display::frameMutex());
+        std::lock_guard<std::recursive_mutex> lock(display::frameMutex());
         if (g_ui->screen() != ui::Screen::Streaming) {
             display::drawRgba(canvas->data());
             display::present();  // paced by the next draw waiting for a free buffer

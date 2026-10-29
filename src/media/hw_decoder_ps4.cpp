@@ -161,7 +161,8 @@ void freeFlexible(FlexibleMem& mem) {
 
 struct DecoderAllocations {
     DirectMem computeBuf;
-    FlexibleMem decCpu;
+    DirectMem decCpuDirect;
+    FlexibleMem decCpuFlex;
     DirectMem decGpu;
     DirectMem decCpuGpu;
     DirectMem frameBuf;
@@ -193,7 +194,8 @@ HwDecoder::~HwDecoder() {
             freeDirect(it->second.frameBuf);
             freeDirect(it->second.decCpuGpu);
             freeDirect(it->second.decGpu);
-            freeFlexible(it->second.decCpu);
+            freeFlexible(it->second.decCpuFlex);
+            freeDirect(it->second.decCpuDirect);
             freeDirect(it->second.computeBuf);
             s_allocations.erase(it);
         }
@@ -247,7 +249,8 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
         frameBufferSize_ = 0;
         freeDirect(allocs.decCpuGpu);
         freeDirect(allocs.decGpu);
-        freeFlexible(allocs.decCpu);
+        freeFlexible(allocs.decCpuFlex);
+        freeDirect(allocs.decCpuDirect);
         freeDirect(allocs.computeBuf);
     };
 
@@ -315,16 +318,23 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
 
     if (decMem.cpuSize > 0) {
         size_t cpuBytes = align16k(decMem.cpuSize);
-        void* cpuMem = nullptr;
-        rc = sceKernelMapNamedFlexibleMemory(&cpuMem, cpuBytes, kProtectionRw, 0, "PSBoxVdecCpu");
-        if (rc != 0 || !cpuMem) {
-            XC_LOGW("hwdec: allocate flexible memory %zu failed: 0x%08x", cpuBytes, static_cast<unsigned>(rc));
-            rollback();
-            return false;
+        allocs.decCpuDirect = allocDirect(cpuBytes, kMemoryTypeOnion, "decoder cpu");
+        if (allocs.decCpuDirect.addr) {
+            decMem.cpu = allocs.decCpuDirect.addr;
+            decMem.cpuSize = allocs.decCpuDirect.size;
+        } else {
+            XC_LOGW("hwdec: direct onion memory for cpu failed, falling back to flexible memory");
+            void* cpuMem = nullptr;
+            rc = sceKernelMapNamedFlexibleMemory(&cpuMem, cpuBytes, kProtectionRw, 0, "PSBoxVdecCpu");
+            if (rc != 0 || !cpuMem) {
+                XC_LOGW("hwdec: allocate flexible memory %zu failed: 0x%08x", cpuBytes, static_cast<unsigned>(rc));
+                rollback();
+                return false;
+            }
+            decMem.cpu = cpuMem;
+            decMem.cpuSize = cpuBytes;
+            allocs.decCpuFlex = {cpuMem, cpuBytes};
         }
-        decMem.cpu = cpuMem;
-        decMem.cpuSize = cpuBytes;
-        allocs.decCpu = {cpuMem, cpuBytes};
     }
 
     if (decMem.gpuSize > 0) {

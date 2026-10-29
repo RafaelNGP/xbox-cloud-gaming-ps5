@@ -572,6 +572,11 @@ struct StreamSession::Impl {
     bool start(std::string& err) {
         XC_LOGI("webrtc: start() calling createPeer");
         createPeer();
+        if (!pc || failed) {
+            std::lock_guard<std::mutex> lock(mutex);
+            err = failReason.empty() ? "WebRTC PeerConnection initialization failed" : failReason;
+            return false;
+        }
         XC_LOGI("webrtc: calling pc->setLocalDescription");
         pc->setLocalDescription(rtc::Description::Type::Offer);
         XC_LOGI("webrtc: setLocalDescription returned; waiting for ICE gathering");

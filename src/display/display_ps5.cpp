@@ -144,8 +144,8 @@ bool init(bool preferGpu) {
     return true;
 }
 
-std::mutex& frameMutex() {
-    static std::mutex m;
+std::recursive_mutex& frameMutex() {
+    static std::recursive_mutex m;
     return m;
 }
 

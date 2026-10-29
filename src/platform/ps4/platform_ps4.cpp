@@ -83,12 +83,8 @@ int ioctl(int fd, unsigned long request, ...) {
     arg = va_arg(ap, void*);
     va_end(ap);
 
-    if ((request == 0x8004667eUL || request == 0x5421 || request == FIONBIO) && arg) {
-        int on = *reinterpret_cast<const int*>(arg) ? 1 : 0;
-        int rc = sceNetSetsockopt(fd, 0xffff /*SOL_SOCKET*/, 0x1200 /*SO_NBIO*/, &on, sizeof(on));
-        if (rc == 0) return 0;
-        errno = getNetErrno(rc);
-        return -1;
+    if (request == 0x5421) {
+        request = 0x8004667eUL; // Translate Linux FIONBIO to FreeBSD/Orbis FIONBIO
     }
 
     // On PS4/shadPS4, socket ioctls like FIONBIO/FIONREAD must be routed to sceNetIoctl.
@@ -109,7 +105,7 @@ int fcntl(int fd, int cmd, ...) {
     if (cmd == F_SETFL) {
         long flags = reinterpret_cast<intptr_t>(arg);
         int on = (flags & O_NONBLOCK) ? 1 : 0;
-        if (sceNetSetsockopt(fd, 0xffff /*SOL_SOCKET*/, 0x1200 /*SO_NBIO*/, &on, sizeof(on)) == 0) {
+        if (sceNetIoctl(fd, 0x8004667eUL /*FIONBIO*/, &on) >= 0) {
             return 0;
         }
     } else if (cmd == F_GETFL) {
@@ -149,7 +145,6 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
     if (!attr) {
         if (pthread_attr_init(&customAttr) == 0) {
             pthread_attr_setstacksize(&customAttr, 1024 * 1024); // 1 MB stack
-            pthread_attr_setinheritsched(&customAttr, PTHREAD_EXPLICIT_SCHED);
             attr = &customAttr;
             createdAttr = true;
         }
@@ -173,8 +168,8 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
     if (rc != 0) {
         rc = scePthreadCreate(thread, attr, start_routine, arg, "xcloud_worker");
         if (rc < 0) {
-            rc = (-rc) & 0xFF;
-            if (rc == 0) rc = EAGAIN;
+            uint32_t uret = static_cast<uint32_t>(rc);
+            rc = ((uret & 0xFFFF0000) == 0x80020000) ? static_cast<int>(uret & 0xFFFF) : EAGAIN;
         }
     }
 
@@ -202,7 +197,7 @@ int socket(int domain, int type, int protocol) {
 #endif
     if ((type & SOCK_NONBLOCK) || (type & 04000) || (type & 0x800) || (type & 0x4000) || (type & 0x20000000)) {
         int nbio = 1;
-        sceNetSetsockopt(s, 0xffff, 0x1200, &nbio, sizeof(nbio));
+        sceNetIoctl(s, 0x8004667eUL /*FIONBIO*/, &nbio);
     }
     return s;
 }

@@ -9,8 +9,8 @@
 
 namespace xc::display {
 
-std::mutex& frameMutex() {
-    static std::mutex m;
+std::recursive_mutex& frameMutex() {
+    static std::recursive_mutex m;
     return m;
 }
 bool init(bool) { return true; }

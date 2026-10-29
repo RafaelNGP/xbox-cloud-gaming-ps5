@@ -441,7 +441,7 @@ struct StreamPlayer::Impl {
                 continue;
             }
             bool screenshot = saveSnapshotIfAsked(pic);
-            std::lock_guard<std::mutex> lock(display::frameMutex());
+            std::lock_guard<std::recursive_mutex> lock(display::frameMutex());
             if (decodedFrames == 1) {
                 XC_LOGI("first draw %dx%d (%s, %s)", pic.width, pic.height,
                         pic.format == media::Picture::Format::Nv12 ? "NV12" : "YUV420P",
