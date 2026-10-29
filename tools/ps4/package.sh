@@ -108,15 +108,14 @@ if [ -f "$OO_PS4_TOOLCHAIN/samples/hello_world/sce_sys/about/right.sprx" ]; then
     cp "$OO_PS4_TOOLCHAIN/samples/hello_world/sce_sys/about/right.sprx" "$STAGE_DIR/sce_sys/about/right.sprx"
 fi
 
-# Avoid bundling legacy libc.prx in sce_module unless explicitly requested,
-# as overriding system libc causes CE-34878-0 crashes on retail PS4 firmwares (9.00/11.00).
-if [[ ${XC_PS4_INCLUDE_SCE_MODULE:-0} == 1 ]]; then
-    for m in libc.prx libSceFios2.prx; do
-        if [ -f "$OO_PS4_TOOLCHAIN/samples/hello_world/sce_module/$m" ]; then
-            cp "$OO_PS4_TOOLCHAIN/samples/hello_world/sce_module/$m" "$STAGE_DIR/sce_module/$m"
-        fi
-    done
-fi
+# OpenOrbis runtime requires stub modules in sce_module/ to satisfy system loader verification
+for m in libc.prx libSceFios2.prx; do
+    if [ -f "$REPO_DIR/ps4/sce_module/$m" ]; then
+        cp "$REPO_DIR/ps4/sce_module/$m" "$STAGE_DIR/sce_module/$m"
+    elif [ -f "$OO_PS4_TOOLCHAIN/samples/hello_world/sce_module/$m" ]; then
+        cp "$OO_PS4_TOOLCHAIN/samples/hello_world/sce_module/$m" "$STAGE_DIR/sce_module/$m"
+    fi
+done
 
 SFO="$STAGE_DIR/sce_sys/param.sfo"
 "$TOOLS/PkgTool.Core" sfo_new "$SFO"

@@ -1,0 +1,418 @@
+(function(){
+  if(window.__redditFeedbackExtractorLoaded && document.getElementById('reddit-feedback-trigger-btn')){
+    document.getElementById('reddit-feedback-trigger-btn').click();
+    return;
+  }
+  var s = document.createElement('style');
+  s.textContent = '/* Reddit Feedback Timeline Extractor UI */\n#reddit-feedback-trigger-btn {\n  position: fixed;\n  bottom: 24px;\n  right: 24px;\n  z-index: 999999;\n  background: linear-gradient(135deg, #107c10 0%, #0e600e 100%);\n  color: #ffffff;\n  border: 1px solid #1f9a1f;\n  border-radius: 28px;\n  padding: 10px 18px;\n  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;\n  font-size: 14px;\n  font-weight: 600;\n  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);\n  cursor: pointer;\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);\n}\n\n#reddit-feedback-trigger-btn:hover {\n  transform: translateY(-2px) scale(1.02);\n  background: linear-gradient(135deg, #139913 0%, #107c10 100%);\n  box-shadow: 0 6px 20px rgba(16, 124, 16, 0.5);\n}\n\n#reddit-feedback-overlay {\n  position: fixed;\n  top: 0;\n  left: 0;\n  width: 100vw;\n  height: 100vh;\n  background: rgba(0, 0, 0, 0.75);\n  backdrop-filter: blur(6px);\n  z-index: 9999999;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  opacity: 0;\n  pointer-events: none;\n  transition: opacity 0.2s ease-in-out;\n}\n\n#reddit-feedback-overlay.active {\n  opacity: 1;\n  pointer-events: auto;\n}\n\n#reddit-feedback-modal {\n  width: 90vw;\n  max-width: 960px;\n  height: 85vh;\n  background: #121316;\n  border: 1px solid #2d3139;\n  border-radius: 14px;\n  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.8);\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;\n  color: #e1e4ea;\n}\n\n.rf-header {\n  padding: 16px 24px;\n  border-bottom: 1px solid #242730;\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  background: #181a1f;\n}\n\n.rf-title {\n  font-size: 18px;\n  font-weight: 700;\n  color: #ffffff;\n  display: flex;\n  align-items: center;\n  gap: 10px;\n}\n\n.rf-title-badge {\n  background: #107c10;\n  color: #fff;\n  padding: 2px 8px;\n  border-radius: 12px;\n  font-size: 12px;\n  font-weight: 600;\n}\n\n.rf-close-btn {\n  background: transparent;\n  border: none;\n  color: #8c93a0;\n  font-size: 22px;\n  cursor: pointer;\n  padding: 4px 8px;\n  border-radius: 6px;\n  transition: background 0.15s, color 0.15s;\n}\n\n.rf-close-btn:hover {\n  background: #242730;\n  color: #ffffff;\n}\n\n.rf-stats-bar {\n  display: flex;\n  gap: 16px;\n  padding: 12px 24px;\n  background: #14161b;\n  border-bottom: 1px solid #20232b;\n  font-size: 13px;\n  overflow-x: auto;\n}\n\n.rf-stat-item {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  color: #9ba1b0;\n}\n\n.rf-stat-val {\n  font-weight: 700;\n  color: #ffffff;\n}\n\n.rf-stat-crash {\n  color: #ff5252;\n}\n\n.rf-stat-working {\n  color: #4caf50;\n}\n\n.rf-filters-bar {\n  display: flex;\n  gap: 8px;\n  padding: 10px 24px;\n  background: #121316;\n  border-bottom: 1px solid #20232b;\n  align-items: center;\n  flex-wrap: wrap;\n}\n\n.rf-filter-pill {\n  background: #1c1f26;\n  border: 1px solid #2c303a;\n  color: #a4abb9;\n  padding: 5px 12px;\n  border-radius: 16px;\n  font-size: 12px;\n  cursor: pointer;\n  transition: all 0.15s;\n}\n\n.rf-filter-pill:hover, .rf-filter-pill.active {\n  background: #272c38;\n  color: #ffffff;\n  border-color: #3b4252;\n}\n\n.rf-filter-pill.active {\n  border-color: #107c10;\n  background: #143516;\n  color: #a7e0a7;\n}\n\n.rf-content-area {\n  flex: 1;\n  overflow-y: auto;\n  padding: 20px 24px;\n  display: flex;\n  flex-direction: column;\n  gap: 12px;\n}\n\n.rf-comment-card {\n  background: #16181e;\n  border: 1px solid #232731;\n  border-radius: 10px;\n  padding: 14px 16px;\n  display: flex;\n  flex-direction: column;\n  gap: 8px;\n  transition: border-color 0.15s;\n}\n\n.rf-comment-card:hover {\n  border-color: #333846;\n}\n\n.rf-comment-card.is-op {\n  border-left: 4px solid #107c10;\n  background: #131914;\n}\n\n.rf-comment-card.has-crash {\n  border-left: 4px solid #ff5252;\n  background: #1c1416;\n}\n\n.rf-comment-card.has-working {\n  border-left: 4px solid #4caf50;\n}\n\n.rf-meta-row {\n  display: flex;\n  align-items: center;\n  gap: 10px;\n  font-size: 12px;\n  flex-wrap: wrap;\n}\n\n.rf-author {\n  font-weight: 700;\n  color: #e6edf3;\n}\n\n.rf-author.is-op {\n  color: #49c449;\n}\n\n.rf-badge-op {\n  background: #107c10;\n  color: white;\n  padding: 1px 6px;\n  border-radius: 8px;\n  font-size: 10px;\n  font-weight: 700;\n}\n\n.rf-time {\n  color: #7d8590;\n}\n\n.rf-delta {\n  background: #20242e;\n  color: #8fa0ba;\n  padding: 2px 7px;\n  border-radius: 10px;\n  font-size: 11px;\n}\n\n.rf-tag {\n  padding: 2px 7px;\n  border-radius: 10px;\n  font-size: 11px;\n  font-weight: 600;\n}\n\n.rf-tag-crash {\n  background: rgba(255, 82, 82, 0.2);\n  color: #ff7575;\n  border: 1px solid rgba(255, 82, 82, 0.4);\n}\n\n.rf-tag-ps4 {\n  background: rgba(0, 112, 209, 0.2);\n  color: #58a6ff;\n  border: 1px solid rgba(0, 112, 209, 0.4);\n}\n\n.rf-tag-ps5 {\n  background: rgba(142, 68, 173, 0.2);\n  color: #d2a8ff;\n  border: 1px solid rgba(142, 68, 173, 0.4);\n}\n\n.rf-tag-working {\n  background: rgba(76, 175, 80, 0.2);\n  color: #7ee787;\n  border: 1px solid rgba(76, 175, 80, 0.4);\n}\n\n.rf-tag-logs {\n  background: rgba(255, 193, 7, 0.2);\n  color: #f2cc60;\n  border: 1px solid rgba(255, 193, 7, 0.4);\n}\n\n.rf-comment-body {\n  font-size: 13.5px;\n  line-height: 1.55;\n  color: #c9d1d9;\n  white-space: pre-wrap;\n  word-break: break-word;\n}\n\n.rf-reply-info {\n  font-size: 11px;\n  color: #8b949e;\n  font-style: italic;\n}\n\n.rf-actions-bar {\n  padding: 14px 24px;\n  border-top: 1px solid #20232b;\n  background: #14161b;\n  display: flex;\n  justify-content: space-between;\n  align-items: center;\n  flex-wrap: wrap;\n  gap: 12px;\n}\n\n.rf-btn-group {\n  display: flex;\n  gap: 10px;\n}\n\n.rf-btn {\n  padding: 8px 16px;\n  border-radius: 8px;\n  font-size: 13px;\n  font-weight: 600;\n  cursor: pointer;\n  border: 1px solid transparent;\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  transition: all 0.15s ease;\n}\n\n.rf-btn-primary {\n  background: #107c10;\n  color: #ffffff;\n  border-color: #1a9c1a;\n}\n\n.rf-btn-primary:hover {\n  background: #139913;\n}\n\n.rf-btn-secondary {\n  background: #21262d;\n  color: #c9d1d9;\n  border-color: #30363d;\n}\n\n.rf-btn-secondary:hover {\n  background: #30363d;\n  color: #ffffff;\n}\n\n.rf-toast {\n  position: fixed;\n  bottom: 80px;\n  right: 24px;\n  background: #107c10;\n  color: white;\n  padding: 10px 18px;\n  border-radius: 8px;\n  font-size: 13px;\n  font-weight: 600;\n  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);\n  z-index: 10000000;\n  opacity: 0;\n  transform: translateY(10px);\n  transition: all 0.2s ease;\n  pointer-events: none;\n}\n\n.rf-toast.show {\n  opacity: 1;\n  transform: translateY(0);\n}\n';
+  document.head.appendChild(s);
+  // SPDX-License-Identifier: MIT
+// Reddit Feedback Timeline Extractor for AI Pair Programming (Antigravity)
+(function () {
+  'use strict';
+
+  // Prevent multiple injections
+  if (window.__redditFeedbackExtractorLoaded) return;
+  window.__redditFeedbackExtractorLoaded = true;
+
+  let postData = null;
+  let commentsList = [];
+  let currentFilter = 'all';
+  let sortOrder = 'asc'; // 'asc' (oldest first) or 'desc' (newest first)
+
+  // Format timestamp into developer's local date/time string
+  function formatTime(unixSec) {
+    const d = new Date(unixSec * 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    const mm = pad(d.getMonth() + 1);
+    const dd = pad(d.getDate());
+    const hh = pad(d.getHours());
+    const min = pad(d.getMinutes());
+    const ss = pad(d.getSeconds());
+    return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+  }
+
+  // Format elapsed time relative to post creation
+  function formatDelta(commentSec, postSec) {
+    const diff = commentSec - postSec;
+    if (diff < 0) return 'before post';
+    const mins = Math.floor(diff / 60);
+    if (mins < 60) return `+${mins}m`;
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    if (hours < 24) return `+${hours}h ${remMins}m`;
+    const days = Math.floor(hours / 24);
+    const remHours = hours % 24;
+    return `+${days}d ${remHours}h`;
+  }
+
+  // Detect relevant technical tags in text
+  function detectTags(text) {
+    const tags = [];
+    const t = text.toLowerCase();
+
+    if (/ce-34878-0|crash|freeze|freezing|error|panic|closing|crashed|fechou|travou|erro|falha|blue screen|tela azul/.test(t)) {
+      tags.push({ id: 'crash', label: '🚨 Crash / Error', cls: 'rf-tag-crash' });
+    }
+    if (/ps4\b|ps4 pro|ps4 fat|slim\b|orbis|cusa/.test(t)) {
+      tags.push({ id: 'ps4', label: '🕹️ PS4', cls: 'rf-tag-ps4' });
+    }
+    if (/ps5\b|prospero|ppsa|vulkan/.test(t)) {
+      tags.push({ id: 'ps5', label: '🎮 PS5', cls: 'rf-tag-ps5' });
+    }
+    if (/11\.00|9\.00|13\.02|12\.50|goldhen|pppwn|hen\b|spoof/.test(t)) {
+      tags.push({ id: 'fw', label: '⚙️ Firmware', cls: 'rf-tag-ps4' });
+    }
+    if (/\b(working|works|worked|tested|smooth|running|funcionou|rodou|perfeito|rodando)\b/.test(t) && !/not working|doesn'?t work|não funcionou/.test(t)) {
+      tags.push({ id: 'working', label: '✅ Working', cls: 'rf-tag-working' });
+    }
+    if (/ftp\b|boot\.log|xcloud\.log|crash\.marker|\/data\/psbox/.test(t)) {
+      tags.push({ id: 'logs', label: '❓ Logs / Diag', cls: 'rf-tag-logs' });
+    }
+    if (/bitrate|latency|audio|sound|stutter|lag\b|fps\b|resolution|1080|1440|webrtc/.test(t)) {
+      tags.push({ id: 'stream', label: '🌐 Stream / Latency', cls: 'rf-tag-ps5' });
+    }
+
+    return tags;
+  }
+
+  // Recursive comment tree flattener
+  function flattenComments(nodeList, parentAuthor = null, depth = 0) {
+    const result = [];
+    if (!nodeList || !Array.isArray(nodeList)) return result;
+
+    for (const item of nodeList) {
+      if (item.kind !== 't1' || !item.data) continue;
+      const c = item.data;
+      const body = c.body || '';
+      const tags = detectTags(body);
+
+      result.push({
+        id: c.id,
+        author: c.author || '[deleted]',
+        isOp: !!c.is_submitter,
+        createdUtc: c.created_utc || 0,
+        score: c.score || 0,
+        body: body,
+        permalink: c.permalink ? 'https://reddit.com' + c.permalink : '',
+        parentAuthor: parentAuthor,
+        depth: depth,
+        tags: tags
+      });
+
+      if (c.replies && c.replies.data && c.replies.data.children) {
+        result.push(...flattenComments(c.replies.data.children, c.author, depth + 1));
+      }
+    }
+    return result;
+  }
+
+  // Extract from Reddit JSON endpoint
+  async function fetchThreadData() {
+    // Clean path without query parameters or hash
+    let path = window.location.pathname.replace(/\/+$/, '');
+    if (!path.includes('/comments/')) {
+      throw new Error('Please open a specific Reddit post to extract its timeline.');
+    }
+
+    const jsonUrl = `${path}.json?raw_json=1&limit=500`;
+    const resp = await fetch(jsonUrl, { credentials: 'include' });
+    if (!resp.ok) {
+      throw new Error(`Reddit API returned HTTP ${resp.status}`);
+    }
+
+    const json = await resp.json();
+    if (!Array.isArray(json) || json.length < 2) {
+      throw new Error('Unexpected Reddit response format.');
+    }
+
+    const postObj = json[0].data.children[0].data;
+    postData = {
+      title: postObj.title || 'Untitled Post',
+      author: postObj.author || '[unknown]',
+      subreddit: postObj.subreddit_name_prefixed || 'r/reddit',
+      createdUtc: postObj.created_utc || Math.floor(Date.now() / 1000),
+      permalink: 'https://reddit.com' + (postObj.permalink || path),
+      numComments: postObj.num_comments || 0,
+      score: postObj.score || 0,
+      upvoteRatio: Math.round((postObj.upvote_ratio || 1) * 100)
+    };
+
+    commentsList = flattenComments(json[1].data.children, postData.author, 0);
+    return { postData, commentsList };
+  }
+
+  // Generate clean Markdown for AI / Antigravity
+  function generateMarkdown() {
+    if (!postData) return '';
+
+    const postTime = formatTime(postData.createdUtc);
+    const sorted = [...commentsList].sort((a, b) => a.createdUtc - b.createdUtc);
+
+    const crashCount = sorted.filter(c => c.tags.some(t => t.id === 'crash')).length;
+    const workingCount = sorted.filter(c => c.tags.some(t => t.id === 'working')).length;
+    const ps4Count = sorted.filter(c => c.tags.some(t => t.id === 'ps4')).length;
+    const ps5Count = sorted.filter(c => c.tags.some(t => t.id === 'ps5')).length;
+
+    let md = `# 📢 Reddit Feedback Timeline: ${postData.title}\n\n`;
+    md += `- **Post URL**: [${postData.title}](${postData.permalink})\n`;
+    md += `- **Subreddit**: ${postData.subreddit} | **Author**: u/${postData.author} (OP)\n`;
+    md += `- **Published At**: \`${postTime}\` | **Score**: ${postData.score} (${postData.upvoteRatio}% upvoted)\n`;
+    md += `- **Comments Analyzed**: ${sorted.length}\n`;
+    md += `- **Summary**: 🚨 ${crashCount} Crashes/Errors | ✅ ${workingCount} Confirmed Working | 🕹️ ${ps4Count} PS4 | 🎮 ${ps5Count} PS5\n\n`;
+
+    md += `---\n\n`;
+    md += `## 🕒 Chronological Event Timeline\n\n`;
+
+    for (const c of sorted) {
+      const timeStr = formatTime(c.createdUtc);
+      const delta = formatDelta(c.createdUtc, postData.createdUtc);
+      const tagStr = c.tags.length > 0 ? c.tags.map(t => `\`${t.label}\``).join(' ') : '`💬 Feedback`';
+      const opBadge = c.isOp ? ' **[OP / Dev]**' : '';
+      const replyInfo = c.parentAuthor ? ` *(replying to u/${c.parentAuthor})*` : '';
+
+      md += `### [${delta}] \`${timeStr}\` — **u/${c.author}**${opBadge}${replyInfo}\n`;
+      md += `**Tags**: ${tagStr} | **Score**: ${c.score} | [Link](${c.permalink})\n\n`;
+      
+      // Indent or blockquote the comment body
+      const indented = c.body.split('\n').map(l => `> ${l}`).join('\n');
+      md += `${indented}\n\n`;
+    }
+
+    return md;
+  }
+
+  // Toast notification
+  function showToast(msg) {
+    let toast = document.getElementById('rf-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'rf-toast';
+      toast.className = 'rf-toast';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 3500);
+  }
+
+  // Render modal content
+  function renderModalUI(overlay) {
+    const postTime = formatTime(postData.createdUtc);
+    let list = [...commentsList];
+
+    if (sortOrder === 'asc') {
+      list.sort((a, b) => a.createdUtc - b.createdUtc);
+    } else {
+      list.sort((a, b) => b.createdUtc - a.createdUtc);
+    }
+
+    if (currentFilter !== 'all') {
+      if (currentFilter === 'op') {
+        list = list.filter(c => c.isOp);
+      } else {
+        list = list.filter(c => c.tags.some(t => t.id === currentFilter));
+      }
+    }
+
+    const crashCount = commentsList.filter(c => c.tags.some(t => t.id === 'crash')).length;
+    const workingCount = commentsList.filter(c => c.tags.some(t => t.id === 'working')).length;
+
+    overlay.innerHTML = `
+      <div id="reddit-feedback-modal">
+        <div class="rf-header">
+          <div class="rf-title">
+            <span>📊 Feedback Timeline</span>
+            <span class="rf-title-badge">${postData.subreddit}</span>
+          </div>
+          <button class="rf-close-btn" id="rf-btn-close">&times;</button>
+        </div>
+
+        <div class="rf-stats-bar">
+          <div class="rf-stat-item">Post Time: <span class="rf-stat-val">${postTime}</span></div>
+          <div class="rf-stat-item">Total Comments: <span class="rf-stat-val">${commentsList.length}</span></div>
+          <div class="rf-stat-item rf-stat-crash">🚨 Crashes/Errors: <span class="rf-stat-val rf-stat-crash">${crashCount}</span></div>
+          <div class="rf-stat-item rf-stat-working">✅ Working: <span class="rf-stat-val rf-stat-working">${workingCount}</span></div>
+        </div>
+
+        <div class="rf-filters-bar">
+          <span style="font-size: 12px; color: #8c93a0; margin-right: 4px;">Filters:</span>
+          <button class="rf-filter-pill ${currentFilter === 'all' ? 'active' : ''}" data-filter="all">All (${commentsList.length})</button>
+          <button class="rf-filter-pill ${currentFilter === 'crash' ? 'active' : ''}" data-filter="crash">🚨 Crashes (${crashCount})</button>
+          <button class="rf-filter-pill ${currentFilter === 'working' ? 'active' : ''}" data-filter="working">✅ Working (${workingCount})</button>
+          <button class="rf-filter-pill ${currentFilter === 'ps4' ? 'active' : ''}" data-filter="ps4">🕹️ PS4</button>
+          <button class="rf-filter-pill ${currentFilter === 'ps5' ? 'active' : ''}" data-filter="ps5">🎮 PS5</button>
+          <button class="rf-filter-pill ${currentFilter === 'op' ? 'active' : ''}" data-filter="op">👑 OP (Dev)</button>
+          <div style="flex: 1;"></div>
+          <button class="rf-filter-pill" id="rf-btn-toggle-sort">
+            ${sortOrder === 'asc' ? '⏱️ Oldest First (Timeline)' : '⏱️ Newest First'}
+          </button>
+        </div>
+
+        <div class="rf-content-area" id="rf-comments-container">
+          ${list.map(c => `
+            <div class="rf-comment-card ${c.isOp ? 'is-op' : ''} ${c.tags.some(t => t.id === 'crash') ? 'has-crash' : ''} ${c.tags.some(t => t.id === 'working') ? 'has-working' : ''}">
+              <div class="rf-meta-row">
+                <span class="rf-author ${c.isOp ? 'is-op' : ''}">u/${c.author}</span>
+                ${c.isOp ? '<span class="rf-badge-op">OP</span>' : ''}
+                ${c.parentAuthor ? `<span class="rf-reply-info">↳ replying to u/${c.parentAuthor}</span>` : ''}
+                <span class="rf-delta">${formatDelta(c.createdUtc, postData.createdUtc)}</span>
+                <span class="rf-time">${formatTime(c.createdUtc)}</span>
+                <span style="color: #6e7681;">• score: ${c.score}</span>
+                ${c.tags.map(t => `<span class="rf-tag ${t.cls}">${t.label}</span>`).join('')}
+              </div>
+              <div class="rf-comment-body">${escapeHtml(c.body)}</div>
+            </div>
+          `).join('')}
+          ${list.length === 0 ? '<div style="text-align: center; color: #7d8590; padding: 40px;">No comments matched this filter.</div>' : ''}
+        </div>
+
+        <div class="rf-actions-bar">
+          <div style="font-size: 12px; color: #8c93a0;">
+            Showing <b>${list.length}</b> of <b>${commentsList.length}</b> events
+          </div>
+          <div class="rf-btn-group">
+            <button class="rf-btn rf-btn-secondary" id="rf-btn-dl-json">💾 Download JSON</button>
+            <button class="rf-btn rf-btn-secondary" id="rf-btn-dl-md">💾 Download Markdown</button>
+            <button class="rf-btn rf-btn-primary" id="rf-btn-copy-ai">📋 Copy for AI (Antigravity)</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Bind event handlers
+    document.getElementById('rf-btn-close').addEventListener('click', () => {
+      overlay.classList.remove('active');
+    });
+
+    document.querySelectorAll('.rf-filter-pill[data-filter]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        currentFilter = e.currentTarget.getAttribute('data-filter');
+        renderModalUI(overlay);
+      });
+    });
+
+    document.getElementById('rf-btn-toggle-sort').addEventListener('click', () => {
+      sortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
+      renderModalUI(overlay);
+    });
+
+    document.getElementById('rf-btn-copy-ai').addEventListener('click', async () => {
+      const md = generateMarkdown();
+      try {
+        await navigator.clipboard.writeText(md);
+        showToast('📋 Timeline copied to clipboard! Paste directly into Antigravity.');
+      } catch (err) {
+        showToast('Error copying to clipboard: ' + err);
+      }
+    });
+
+    document.getElementById('rf-btn-dl-md').addEventListener('click', () => {
+      const md = generateMarkdown();
+      const slug = (postData.title || 'reddit_feedback')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .substring(0, 40);
+      downloadBlob(md, `feedback_${slug}.md`, 'text/markdown');
+      showToast('💾 Markdown file downloaded!');
+    });
+
+    document.getElementById('rf-btn-dl-json').addEventListener('click', () => {
+      const data = {
+        post: postData,
+        extractedAt: new Date().toISOString(),
+        comments: commentsList
+      };
+      const jsonStr = JSON.stringify(data, null, 2);
+      const slug = (postData.title || 'reddit_feedback')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .substring(0, 40);
+      downloadBlob(jsonStr, `feedback_${slug}.json`, 'application/json');
+      showToast('💾 JSON file downloaded!');
+    });
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  function downloadBlob(content, filename, contentType) {
+    const blob = new Blob([content], { type: contentType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+  }
+
+  // Initialize UI components
+  function init() {
+    // Only show if we are on a post page
+    if (!window.location.pathname.includes('/comments/')) return;
+
+    // Create trigger button
+    let triggerBtn = document.getElementById('reddit-feedback-trigger-btn');
+    if (!triggerBtn) {
+      triggerBtn = document.createElement('button');
+      triggerBtn.id = 'reddit-feedback-trigger-btn';
+      triggerBtn.innerHTML = `<span>💬</span><span>Extract Timeline</span>`;
+      document.body.appendChild(triggerBtn);
+    }
+
+    // Create overlay
+    let overlay = document.getElementById('reddit-feedback-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'reddit-feedback-overlay';
+      document.body.appendChild(overlay);
+
+      // Close on clicking overlay outside modal
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          overlay.classList.remove('active');
+        }
+      });
+
+      // Close on Esc key
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && overlay.classList.contains('active')) {
+          overlay.classList.remove('active');
+        }
+      });
+    }
+
+    triggerBtn.addEventListener('click', async () => {
+      triggerBtn.innerHTML = `<span>⏳</span><span>Extracting...</span>`;
+      try {
+        await fetchThreadData();
+        renderModalUI(overlay);
+        overlay.classList.add('active');
+      } catch (err) {
+        alert('Could not extract Reddit comments: ' + err.message);
+      } finally {
+        triggerBtn.innerHTML = `<span>💬</span><span>Extract Timeline</span>`;
+      }
+    });
+  }
+
+  init();
+})();
+
+  setTimeout(function(){
+    var b = document.getElementById('reddit-feedback-trigger-btn');
+    if(b) b.click();
+  }, 100);
+})();

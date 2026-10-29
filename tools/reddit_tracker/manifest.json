@@ -10,6 +10,12 @@
   "host_permissions": [
     "*://*.reddit.com/*"
   ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "reddit-feedback-tracker@psbox.local",
+      "strict_min_version": "109.0"
+    }
+  },
   "content_scripts": [
     {
       "matches": [
