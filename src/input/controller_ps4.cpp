@@ -258,11 +258,11 @@ bool init() {
             }
         }
     }
-    if (rc != 0 || uid < 0) {
-        XC_LOGE("sceUserServiceGetInitialUser failed: 0x%08x (uid=%d)", static_cast<unsigned>(rc), uid);
-        return false;
+    if (rc == 0 && uid > 0) {
+        openPad(0, uid);
+    } else {
+        XC_LOGW("sceUserServiceGetInitialUser: 0x%08x (uid=%d), will retry in refreshPads", static_cast<unsigned>(rc), uid);
     }
-    openPad(0, uid);
     refreshPads();
     return true;
 }
@@ -275,6 +275,22 @@ void refreshPads() {
             if (u == user) return true;
         return false;
     };
+
+    // If slot 0 is not yet open, try to bind it to the initial user or first active user
+    if (g_slots[0].handle < 0) {
+        int32_t uid = -1;
+        if (sceUserServiceGetInitialUser(&uid) == 0 && uid > 0) {
+            openPad(0, uid);
+        } else {
+            for (int32_t u : list.userId) {
+                if (u > 0) {
+                    openPad(0, u);
+                    break;
+                }
+            }
+        }
+    }
+
     for (int i = 1; i < 4; ++i) {
         if (g_slots[i].handle >= 0 && !signedIn(g_slots[i].userId)) closePad(i);
     }
@@ -283,6 +299,10 @@ void refreshPads() {
         bool known = false;
         for (const Slot& p : g_slots) known |= (p.userId == user);
         if (known) continue;
+        if (g_slots[0].handle < 0) {
+            openPad(0, user);
+            continue;
+        }
         for (int i = 1; i < 4; ++i) {
             if (g_slots[i].handle < 0) {
                 openPad(i, user);
@@ -297,7 +317,11 @@ void shutdown() {
 }
 
 bool poll(ControllerState& out) {
-    return pollPad(0, out);
+    if (pollPad(0, out)) return true;
+    for (int i = 1; i < 4; ++i) {
+        if (g_slots[i].handle >= 0 && pollPad(i, out)) return true;
+    }
+    return false;
 }
 
 void setEmbeddedMicActive(bool /*active*/, int /*pad*/) {}
