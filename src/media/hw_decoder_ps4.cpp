@@ -199,15 +199,17 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
     // Query decoder memory requirements
     Vdec2DecoderConfig decCfg{};
     decCfg.size = sizeof(decCfg);
-    decCfg.resourceType = 0; // standard
-    decCfg.codecType = 0;    // H.264
-    decCfg.profile = 2;      // High profile
-    decCfg.maxLevel = 42;    // Level 4.2
+    decCfg.resourceType = 1; // standard
+    decCfg.codecType = 1;    // H.264 (AVC)
+    decCfg.profile = 100;    // High profile
+    decCfg.maxLevel = 51;    // Level 5.1
     decCfg.maxWidth = maxWidth;
     decCfg.maxHeight = maxHeight;
     decCfg.maxDpbFrames = 4;
-    decCfg.pipelineDepth = 2;
+    decCfg.pipelineDepth = 1;
     decCfg.computeQueue = reinterpret_cast<uint64_t>(computeQueue_);
+    decCfg.cpuPriority = 700;
+    decCfg.optimizeProgressive = 1;
 
     Vdec2DecoderMemory decMem{};
     decMem.size = sizeof(decMem);

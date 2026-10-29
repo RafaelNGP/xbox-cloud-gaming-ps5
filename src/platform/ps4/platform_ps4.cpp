@@ -12,6 +12,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <dlfcn.h>
+#include <orbis/NetCtl.h>
 
 #include <arpa/inet.h>
 #include <atomic>
@@ -50,6 +52,7 @@ int _close(int fd);
 int sceSysmoduleLoadModule(uint32_t id);
 int sceSysmoduleLoadModuleInternal(uint32_t id);
 int sceRandomGetRandomNumber(void* buf, size_t size);
+int scePthreadCreate(pthread_t* thread, const pthread_attr_t* attr, void* (*entry)(void*), void* arg, const char* name);
 
 static inline int getNetErrno(int ret) {
     int* err = sceNetErrnoLoc();
@@ -77,12 +80,105 @@ int ioctl(int fd, unsigned long request, ...) {
     arg = va_arg(ap, void*);
     va_end(ap);
 
+    if ((request == 0x8004667eUL || request == 0x5421 || request == FIONBIO) && arg) {
+        int on = *reinterpret_cast<const int*>(arg) ? 1 : 0;
+        int rc = sceNetSetsockopt(fd, 0xffff /*SOL_SOCKET*/, 0x1200 /*SO_NBIO*/, &on, sizeof(on));
+        if (rc == 0) return 0;
+        errno = getNetErrno(rc);
+        return -1;
+    }
+
     // On PS4/shadPS4, socket ioctls like FIONBIO/FIONREAD must be routed to sceNetIoctl.
     int rc = sceNetIoctl(fd, request, arg);
     if (rc >= 0) {
         return rc;
     }
     return _ioctl(fd, request, arg);
+}
+
+int fcntl(int fd, int cmd, ...) {
+    void* arg = nullptr;
+    va_list ap;
+    va_start(ap, cmd);
+    arg = va_arg(ap, void*);
+    va_end(ap);
+
+    if (cmd == F_SETFL) {
+        long flags = reinterpret_cast<intptr_t>(arg);
+        int on = (flags & O_NONBLOCK) ? 1 : 0;
+        if (sceNetSetsockopt(fd, 0xffff /*SOL_SOCKET*/, 0x1200 /*SO_NBIO*/, &on, sizeof(on)) == 0) {
+            return 0;
+        }
+    } else if (cmd == F_GETFL) {
+        typedef int (*RealFcntlFn)(int, int, ...);
+        static RealFcntlFn real_fcntl = nullptr;
+        if (!real_fcntl) {
+            real_fcntl = reinterpret_cast<RealFcntlFn>(dlsym(RTLD_NEXT, "fcntl"));
+        }
+        if (real_fcntl) {
+            int ret = real_fcntl(fd, cmd);
+            if (ret >= 0) return ret;
+        }
+        return 0;
+    }
+
+    typedef int (*RealFcntlFn)(int, int, ...);
+    static RealFcntlFn real_fcntl = nullptr;
+    if (!real_fcntl) {
+        real_fcntl = reinterpret_cast<RealFcntlFn>(dlsym(RTLD_NEXT, "fcntl"));
+    }
+    if (real_fcntl) {
+        return real_fcntl(fd, cmd, arg);
+    }
+    return 0;
+}
+
+
+int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
+                   void* (*start_routine)(void*), void* arg) {
+    if (!thread || !start_routine) {
+        return EINVAL;
+    }
+
+    pthread_attr_t customAttr;
+    bool createdAttr = false;
+
+    if (!attr) {
+        if (pthread_attr_init(&customAttr) == 0) {
+            pthread_attr_setstacksize(&customAttr, 1024 * 1024); // 1 MB stack
+            pthread_attr_setinheritsched(&customAttr, PTHREAD_EXPLICIT_SCHED);
+            attr = &customAttr;
+            createdAttr = true;
+        }
+    }
+
+    typedef int (*RealPthreadCreateFn)(pthread_t*, const pthread_attr_t*, void* (*)(void*), void*);
+    static RealPthreadCreateFn real_pthread_create = nullptr;
+    static bool s_resolved = false;
+    if (!s_resolved) {
+        s_resolved = true;
+        void* sym = dlsym(RTLD_NEXT, "pthread_create");
+        if (sym && sym != reinterpret_cast<void*>(&pthread_create)) {
+            real_pthread_create = reinterpret_cast<RealPthreadCreateFn>(sym);
+        }
+    }
+
+    int rc = -1;
+    if (real_pthread_create) {
+        rc = real_pthread_create(thread, attr, start_routine, arg);
+    }
+    if (rc != 0) {
+        rc = scePthreadCreate(thread, attr, start_routine, arg, "xcloud_worker");
+        if (rc < 0) {
+            rc = (-rc) & 0xFF;
+            if (rc == 0) rc = EAGAIN;
+        }
+    }
+
+    if (createdAttr) {
+        pthread_attr_destroy(&customAttr);
+    }
+    return rc;
 }
 
 static std::mutex s_sockMutex;
@@ -98,9 +194,12 @@ int socket(int domain, int type, int protocol) {
         errno = getNetErrno(s);
         return -1;
     }
-    if (type & 0x4000) { // SOCK_NONBLOCK
+#ifndef SOCK_NONBLOCK
+#define SOCK_NONBLOCK 04000
+#endif
+    if ((type & SOCK_NONBLOCK) || (type & 04000) || (type & 0x800) || (type & 0x4000) || (type & 0x20000000)) {
         int nbio = 1;
-        sceNetIoctl(s, 0x8004667e, &nbio); // FIONBIO
+        sceNetSetsockopt(s, 0xffff, 0x1200, &nbio, sizeof(nbio));
     }
     return s;
 }
@@ -118,8 +217,13 @@ int bind(int fd, const struct sockaddr* addr, socklen_t len) {
 
     struct sockaddr_in boundAddr{};
     std::memcpy(&boundAddr, addr, std::min<size_t>(len, sizeof(boundAddr)));
-    if (boundAddr.sin_len == 0) boundAddr.sin_len = sizeof(boundAddr);
-    if (boundAddr.sin_family == 0 && raw[0] == AF_INET) boundAddr.sin_family = AF_INET;
+    if (boundAddr.sin_family == 0 && raw[0] == AF_INET) {
+        boundAddr.sin_family = AF_INET;
+        boundAddr.sin_len = sizeof(struct sockaddr_in);
+    } else if (boundAddr.sin_len == 0 || boundAddr.sin_len < sizeof(struct sockaddr_in)) {
+        boundAddr.sin_len = sizeof(struct sockaddr_in);
+    }
+    if (boundAddr.sin_family == 0) boundAddr.sin_family = AF_INET;
 
     // Port 0 lets the stack pick a free ephemeral port. Forcing a fixed high
     // range (old 50100+) collides with ports the PS4 network stack reserves.
@@ -131,6 +235,18 @@ int bind(int fd, const struct sockaddr* addr, socklen_t len) {
     if (port != 0) {
         std::lock_guard<std::mutex> lock(s_sockMutex);
         s_boundPorts[fd] = port;
+    } else {
+        struct sockaddr_in actual{};
+        unsigned int actualLen = sizeof(actual);
+        if (sceNetGetsockname(fd, &actual, &actualLen) == 0 && actual.sin_port != 0) {
+            std::lock_guard<std::mutex> lock(s_sockMutex);
+            s_boundPorts[fd] = ntohs(actual.sin_port);
+        } else {
+            std::lock_guard<std::mutex> lock(s_sockMutex);
+            if (s_boundPorts.find(fd) == s_boundPorts.end()) {
+                s_boundPorts[fd] = static_cast<uint16_t>(50100 + (fd % 1000));
+            }
+        }
     }
     return 0;
 }
@@ -141,18 +257,29 @@ int getsockname(int fd, struct sockaddr* addr, socklen_t* len) {
         unsigned int nlen = static_cast<unsigned int>(*len);
         if (sceNetGetsockname(fd, addr, &nlen) == 0) {
             auto* sin = reinterpret_cast<struct sockaddr_in*>(addr);
-            if (sin->sin_family == AF_INET || sin->sin_family == AF_INET6 ||
-                reinterpret_cast<const uint8_t*>(addr)[0] == AF_INET) {
+            const auto* raw = reinterpret_cast<const uint8_t*>(addr);
+            if (raw[0] == AF_INET && raw[1] == 0) {
+                sin->sin_len = sizeof(struct sockaddr_in);
+                sin->sin_family = AF_INET;
+            } else if (sin->sin_family == AF_INET || sin->sin_family == AF_INET6) {
                 if (sin->sin_len == 0) sin->sin_len = sizeof(struct sockaddr_in);
-                if (sin->sin_family == 0) sin->sin_family = AF_INET;
-                if (sin->sin_port == 0) {
-                    std::lock_guard<std::mutex> lock(s_sockMutex);
-                    auto it = s_boundPorts.find(fd);
-                    if (it != s_boundPorts.end()) sin->sin_port = htons(it->second);
-                }
-                *len = nlen;
-                return 0;
             }
+            if (sin->sin_port == 0) {
+                std::lock_guard<std::mutex> lock(s_sockMutex);
+                auto it = s_boundPorts.find(fd);
+                if (it != s_boundPorts.end()) {
+                    sin->sin_port = htons(it->second);
+                } else {
+                    uint16_t fallbackPort = static_cast<uint16_t>(50100 + (fd % 1000));
+                    s_boundPorts[fd] = fallbackPort;
+                    sin->sin_port = htons(fallbackPort);
+                }
+            } else {
+                std::lock_guard<std::mutex> lock(s_sockMutex);
+                s_boundPorts[fd] = ntohs(sin->sin_port);
+            }
+            *len = nlen;
+            return 0;
         }
     }
     uint16_t port = 0;
@@ -163,6 +290,7 @@ int getsockname(int fd, struct sockaddr* addr, socklen_t* len) {
             port = it->second;
         } else {
             port = static_cast<uint16_t>(50100 + (fd % 1000));
+            s_boundPorts[fd] = port;
         }
     }
     auto* sin = reinterpret_cast<struct sockaddr_in*>(addr);
@@ -485,21 +613,55 @@ extern "C" int getifaddrs(struct ifaddrs** ifap) {
     if (!ifap) return -1;
     *ifap = nullptr;
 
-    int s = socket(AF_INET, SOCK_DGRAM, 0);
-    if (s < 0) return 0;
+    struct sockaddr_in local{};
+    local.sin_family = AF_INET;
+    local.sin_len = sizeof(struct sockaddr_in);
 
-    struct sockaddr_in probe{};
-    probe.sin_family = AF_INET;
-    probe.sin_port = htons(53);
-    probe.sin_addr.s_addr = htonl(0x08080808); // 8.8.8.8
-    if (connect(s, reinterpret_cast<struct sockaddr*>(&probe), sizeof(probe)) != 0) {
-        close(s);
-        return 0;
+    struct sockaddr_in mask{};
+    mask.sin_family = AF_INET;
+    mask.sin_len = sizeof(struct sockaddr_in);
+    mask.sin_addr.s_addr = htonl(0xFFFFFF00);
+
+    // 1. Query sceNetCtlGetInfo from libSceNetCtl
+    OrbisNetCtlInfo info{};
+    int ctlRc = sceNetCtlGetInfo(14 /*ORBIS_NET_CTL_INFO_IP_ADDRESS*/, &info);
+    if (ctlRc != 0) {
+        sceNetCtlInit();
+        ctlRc = sceNetCtlGetInfo(14, &info);
+    }
+    if (ctlRc != 0 || info.ip_address[0] == '\0') {
+        ctlRc = sceNetCtlGetInfo(16 /*SCE_NET_CTL_INFO_IP_ADDRESS fallback*/, &info);
+    }
+    if (ctlRc == 0 && info.ip_address[0] != '\0') {
+        info.ip_address[sizeof(info.ip_address) - 1] = '\0';
+        inet_pton(AF_INET, info.ip_address, &local.sin_addr);
+
+        OrbisNetCtlInfo maskInfo{};
+        if (sceNetCtlGetInfo(15 /*ORBIS_NET_CTL_INFO_NETMASK*/, &maskInfo) == 0 && maskInfo.netmask[0] != '\0') {
+            maskInfo.netmask[sizeof(maskInfo.netmask) - 1] = '\0';
+            inet_pton(AF_INET, maskInfo.netmask, &mask.sin_addr);
+        }
     }
 
-    struct sockaddr_in local{};
-    socklen_t localLen = sizeof(local);
-    if (getsockname(s, reinterpret_cast<struct sockaddr*>(&local), &localLen) != 0 || local.sin_addr.s_addr == 0) {
+    // 2. Fallback: Connect UDP socket to 8.8.8.8:53 to query kernel routing
+    if (local.sin_addr.s_addr == 0) {
+        int s = socket(AF_INET, SOCK_DGRAM, 0);
+        if (s >= 0) {
+            struct sockaddr_in probe{};
+            probe.sin_len = sizeof(probe);
+            probe.sin_family = AF_INET;
+            probe.sin_port = htons(53);
+            probe.sin_addr.s_addr = htonl(0x08080808); // 8.8.8.8
+            if (connect(s, reinterpret_cast<struct sockaddr*>(&probe), sizeof(probe)) == 0) {
+                socklen_t localLen = sizeof(local);
+                getsockname(s, reinterpret_cast<struct sockaddr*>(&local), &localLen);
+            }
+            close(s);
+        }
+    }
+
+    // 3. Fallback: /data/psbox/local_ip.txt override file
+    if (local.sin_addr.s_addr == 0) {
         FILE* fp = std::fopen("/data/psbox/local_ip.txt", "r");
         if (fp) {
             char buf[64]{};
@@ -510,13 +672,14 @@ extern "C" int getifaddrs(struct ifaddrs** ifap) {
             }
             std::fclose(fp);
         }
-        if (local.sin_addr.s_addr == 0) {
-            inet_pton(AF_INET, "192.168.15.30", &local.sin_addr);
-        }
+    }
+
+    // 4. Default fallback: ensure libjuice never receives an empty interface list
+    if (local.sin_addr.s_addr == 0) {
+        inet_pton(AF_INET, "192.168.15.30", &local.sin_addr);
     }
     local.sin_family = AF_INET;
     local.sin_len = sizeof(struct sockaddr_in);
-    close(s);
 
     struct Entry {
         struct ifaddrs ifa;
@@ -530,8 +693,7 @@ extern "C" int getifaddrs(struct ifaddrs** ifap) {
 
     std::strncpy(e->name, "eth0", sizeof(e->name) - 1);
     e->addr = local;
-    e->mask.sin_family = AF_INET;
-    e->mask.sin_addr.s_addr = htonl(0xFFFFFF00);
+    e->mask = mask;
 
     e->ifa.ifa_next = nullptr;
     e->ifa.ifa_name = e->name;
@@ -657,6 +819,10 @@ bool init() {
     if (rc < 0 && rc != static_cast<int>(0x80410101)) {
         XC_LOGW("sceNetInit: 0x%08x", static_cast<unsigned>(rc));
     }
+    int ctlRc = sceNetCtlInit();
+    if (ctlRc < 0 && ctlRc != static_cast<int>(0x80410101) && ctlRc != static_cast<int>(0x80412101)) {
+        XC_LOGW("sceNetCtlInit: 0x%08x", static_cast<unsigned>(ctlRc));
+    }
     int pool = sceNetPoolCreate("xcloud", 32 * 1024, 0);
     if (pool < 0) {
         XC_LOGE("sceNetPoolCreate: 0x%08x (host names will not resolve)", static_cast<unsigned>(pool));
@@ -665,7 +831,9 @@ bool init() {
     return true;
 }
 
-void shutdown() {}
+void shutdown() {
+    sceNetCtlTerm();
+}
 
 std::string appDir() { return "/app0"; }
 std::string dataDir() { return g_dataDir; }
