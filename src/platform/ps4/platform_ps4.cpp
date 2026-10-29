@@ -56,6 +56,7 @@ int scePthreadCreate(pthread_t* thread, const pthread_attr_t* attr, void* (*entr
 pthread_t scePthreadSelf(void);
 int scePthreadSetaffinity(pthread_t thread, uint64_t mask);
 int scePthreadSetprio(pthread_t thread, int prio);
+int sceKernelAvailableFlexibleMemorySize(size_t* sizeOut);
 
 static inline int getNetErrno(int ret) {
     int* err = sceNetErrnoLoc();
@@ -133,6 +134,33 @@ int fcntl(int fd, int cmd, ...) {
 }
 
 
+// The OpenOrbis headers carry musl's _SC_* numbering, but the only sysconf() the linker
+// finds is Sony's libkernel one (FreeBSD numbering). libc++'s hardware_concurrency()
+// calls sysconf(84): musl's _SC_NPROCESSORS_ONLN, FreeBSD's _SC_THREAD_CPUTIME. Whatever
+// libkernel answers then becomes the size of libdatachannel's ThreadPool (rtc::impl::Init
+// spawns max(hardware_concurrency(), MIN_THREADPOOL_SIZE) threads at the first
+// PeerConnection). 4XCLOUD links musl's own sysconf for this; here the musl numbers are
+// answered directly. hardware_concurrency() is the only caller in the binary.
+long sysconf(int name) {
+    switch (name) {
+    case 83:  // musl _SC_NPROCESSORS_CONF
+    case 84:  // musl _SC_NPROCESSORS_ONLN
+        return 6;  // cores 0-5 are the title's (the affinity masks use 0x3F)
+    case 30:  // musl _SC_PAGESIZE
+        return 16384;
+    case 2:  // musl _SC_CLK_TCK
+        return 100;
+    case 4:  // musl _SC_OPEN_MAX
+        return 1024;
+    default:
+        errno = EINVAL;
+        return -1;
+    }
+}
+
+static std::atomic<int> s_threadsCreated{0};
+static std::atomic<bool> s_threadFailLogged{false};
+
 int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
                    void* (*start_routine)(void*), void* arg) {
     if (!thread || !start_routine) {
@@ -165,8 +193,10 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
     if (real_pthread_create) {
         rc = real_pthread_create(thread, attr, start_routine, arg);
     }
+    int sceRc = 0;
     if (rc != 0) {
         rc = scePthreadCreate(thread, attr, start_routine, arg, "xcloud_worker");
+        sceRc = rc;
         if (rc < 0) {
             uint32_t uret = static_cast<uint32_t>(rc);
             rc = ((uret & 0xFFFF0000) == 0x80020000) ? static_cast<int>(uret & 0xFFFF) : EAGAIN;
@@ -175,6 +205,14 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
 
     if (createdAttr) {
         pthread_attr_destroy(&customAttr);
+    }
+    if (rc == 0) {
+        s_threadsCreated.fetch_add(1, std::memory_order_relaxed);
+    } else if (!s_threadFailLogged.exchange(true)) {
+        size_t freeFlex = 0;
+        sceKernelAvailableFlexibleMemorySize(&freeFlex);
+        XC_LOGE("pthread_create failed: rc=%d (sce 0x%08x) after %d threads, %zu MB flexible memory free",
+                rc, static_cast<unsigned>(sceRc), s_threadsCreated.load(), freeFlex >> 20);
     }
     return rc;
 }

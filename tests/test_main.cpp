@@ -6566,6 +6566,9 @@ static void testSizedUrl() {
           "https://images-eds-ssl.xboxlive.com/image.png?w=400&h=600&format=jpg");
     CHECK(ui::sizedUrl("https://images-eds-ssl.xboxlive.com/image.png?foo=bar", 200, 300) ==
           "https://images-eds-ssl.xboxlive.com/image.png?foo=bar&w=200&h=300&format=jpg");
+    // an EDS URL that already names a format keeps it (a second format= is HTTP 400)
+    CHECK(ui::sizedUrl("https://images-eds-ssl.xboxlive.com/image?url=abc&format=png", 20, 20) ==
+          "https://images-eds-ssl.xboxlive.com/image?url=abc&format=png&w=20&h=20");
     // other URLs untouched
     CHECK(ui::sizedUrl("https://assets.xbox.com/img.png", 100, 100) == "https://assets.xbox.com/img.png");
     // invalid dimensions or empty string untouched
