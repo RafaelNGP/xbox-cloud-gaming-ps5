@@ -219,6 +219,7 @@ void onSignal(int sig, siginfo_t* info, void* uctx) {
     appendStr(kind, sizeof kind, klen, ")");
 
     uintptr_t pc = 0, rbp = 0, rsp = 0;
+#if !defined(__ORBIS__) && !defined(__PS4__)
     if (uctx) {
         const auto* uc = static_cast<const ucontext_t*>(uctx);
 #if defined(__FreeBSD__) || defined(__PROSPERO__) || defined(XCLOUD_PS5)
@@ -236,6 +237,21 @@ void onSignal(int sig, siginfo_t* info, void* uctx) {
     if ((sig == SIGSEGV || sig == SIGBUS) && faultAddr == 0 && uctx) {
         const auto* uc = static_cast<const ucontext_t*>(uctx);
         faultAddr = static_cast<uintptr_t>(uc->uc_mcontext.mc_addr);
+    }
+#endif
+#else
+    uintptr_t faultAddr = info ? reinterpret_cast<uintptr_t>(info->si_addr) : 0;
+    if (uctx) {
+        // FreeBSD amd64 ucontext: 16-byte sigset, then mcontext of 8-byte slots.
+        const auto* mc = reinterpret_cast<const uint64_t*>(static_cast<const char*>(uctx) + 16);
+        rbp = static_cast<uintptr_t>(mc[9]);
+        pc = static_cast<uintptr_t>(mc[20]);
+        rsp = static_cast<uintptr_t>(mc[23]);
+        if (faultAddr == 0) faultAddr = static_cast<uintptr_t>(mc[17]);
+        // Calling a null function pointer leaves the caller's return address at [rsp].
+        if (pc == 0 && rsp != 0 && (rsp & 7) == 0) {
+            pc = *reinterpret_cast<const uintptr_t*>(rsp);
+        }
     }
 #endif
 
@@ -275,6 +291,18 @@ void install(const std::string& markerPath) {
         appendStr(crashLine, sizeof crashLine, clen, "crash: terminate pc=");
         appendCodeAddr(crashLine, sizeof crashLine, clen, caller ? caller - 1 : 0);
         appendStr(crashLine, sizeof crashLine, clen, " addr=0x0");
+#if defined(__ORBIS__)
+        if (auto ep = std::current_exception()) {
+            try {
+                std::rethrow_exception(ep);
+            } catch (const std::exception& e) {
+                appendStr(crashLine, sizeof crashLine, clen, " what=");
+                appendStr(crashLine, sizeof crashLine, clen, e.what());
+            } catch (...) {
+                appendStr(crashLine, sizeof crashLine, clen, " what=<non-std>");
+            }
+        }
+#endif
         writeMarker("uncaught exception", crashLine);
         struct sigaction dfl{};
         dfl.sa_handler = SIG_DFL;

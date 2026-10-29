@@ -139,6 +139,8 @@ std::string stream(xcloud::GssvClient& gssv) {
     const uint64_t started = platform::nowMs();
     uint64_t nextTick = started;
     bool snapshot1 = false, snapshot2 = false, snapshot3 = false, snapshot4 = false;
+    uint64_t nextPeriodicShot = 150000;
+    int periodicShotIdx = 5;
     bool autoplayDone = false;
     int bestRtt = -1;  // lowest round trip seen: the region's latency
     int tallest = 0;   // the tallest picture seen (the probe's measure)
@@ -201,6 +203,10 @@ std::string stream(xcloud::GssvClient& gssv) {
             if (!snapshot4 && elapsed >= 110000) {
                 snapshot4 = true;
                 player.requestSnapshot(platform::dataDir() + "/frame4.ppm");
+            }
+            if (elapsed >= nextPeriodicShot) {
+                nextPeriodicShot = elapsed + 30000;
+                player.requestSnapshot(platform::dataDir() + "/frame" + std::to_string(periodicShotIdx++) + ".ppm");
             }
         }
         if (platform::nowMs() >= nextTick) {

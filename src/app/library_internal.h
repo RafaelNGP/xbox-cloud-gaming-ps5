@@ -162,6 +162,13 @@ inline const KnownCloudGame kKnownCloudGames[] = {
      "Shooter",
      "Call of Duty®: Vanguard includes a deeply engaging single player Campaign, a massive Multiplayer offering featuring over 20 maps including 16 built for core Multiplayer and an exciting new Zombies experience developed by Treyarch.",
      "18", "ClassInd", "Violência Extrema, Drogas Lícitas, Linguagem Imprópria", false},
+    {"BT5P2X999VH2", "FORTNITE", "267695549", "Fortnite", "Epic Games Inc.",
+     "https://store-images.s-microsoft.com/image/apps.20392.70702278257994163.6d75301b-59c3-4a73-b70c-5901ae9cbb44.24e2eab9-1b75-4157-ba8b-006f4624d839",
+     "https://store-images.s-microsoft.com/image/apps.17283.70702278257994163.6d75301b-59c3-4a73-b70c-5901ae9cbb44.bd4108fb-c5af-4a9a-90c5-9a25a46d76a1",
+     "https://store-images.s-microsoft.com/image/apps.9161.70702278257994163.6d75301b-59c3-4a73-b70c-5901ae9cbb44.315efab2-af78-4d3e-b99d-e89298f83ad9",
+     "Shooter",
+     "Everything you love, all in Fortnite.",
+     "16", "ClassInd", "Violência, Compras no Jogo", true},
 };
 
 inline void seedKnownGames(std::map<std::string, std::string>& cloudTitleOf,

@@ -10,6 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # XCLOUD_PS5 is set by cmake/ps5.toolchain.cmake.
 option(XCLOUD_PS5 "Build for the PS5 (payload SDK)" OFF)
+option(XC_TARGET_PS4 "Build for the PS4 (OpenOrbis)" OFF)
 include(cmake/platform.cmake)
 
 # --- Portable core: auth, HTTPS, xCloud protocol -----------------------------
@@ -56,10 +57,14 @@ endif()
 # mbedTLS and libdatachannel are built from deps/ for both targets.
 include(cmake/deps/mbedtls.cmake)
 target_link_libraries(xcloud_core PUBLIC xc_mbedtls xc_platform)
-if(NOT XCLOUD_PS5)
+if(NOT XCLOUD_PS5 AND NOT XC_TARGET_PS4)
     find_package(Threads REQUIRED)
 endif()
 include(cmake/deps/libdatachannel.cmake)
+if(XC_TARGET_PS4)
+    target_compile_definitions(datachannel-static PUBLIC HAVE_SCONN_LEN HAVE_SA_LEN __Userspace__)
+    target_compile_definitions(usrsctp PUBLIC HAVE_SCONN_LEN HAVE_SA_LEN __Userspace__)
+endif()
 
 # --- WebRTC streaming: SDP/ICE, data channels, input reports ----------------
 add_library(xcloud_stream STATIC
@@ -158,6 +163,46 @@ if(XCLOUD_PS5)
     # The USB keyboard / mouse backend kept the warnings it had in xcloud_core.
     set_source_files_properties(src/input/kbm_ps5.cpp PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Wno-unused-parameter")
     target_link_libraries(xcloud_app PUBLIC xcloud_stream xcloud_media xcloud_ui)
+elseif(XC_TARGET_PS4)
+    target_sources(xcloud_core PRIVATE
+        src/platform/ps4/platform_ps4.cpp
+        src/platform/ps4/keyboard_ps4.cpp
+        src/platform/ps4/condition_variable_ps4.cpp
+        src/platform/posix_common.cpp
+    )
+
+    add_executable(xcloud_ps4.elf
+        $<TARGET_OBJECTS:xcloud_appcore>
+        src/app/ps4_main.cpp
+        src/app/shell_ps4.cpp
+        src/display/display_ps4.cpp
+        src/media/hw_decoder_ps4.cpp
+        src/input/controller_ps4.cpp
+        src/input/kbm_ps4.cpp
+        src/media/audio_out_ps4.cpp
+        src/media/audio_in_ps4.cpp
+    )
+    target_link_libraries(xcloud_ps4.elf PRIVATE
+        xcloud_stream
+        xcloud_media
+        xcloud_ui
+        xcloud_core
+        xc_ffmpeg
+        datachannel-static
+        -lSceVideoOut
+        -lScePad
+        -lSceAudioOut
+        -lSceAudioIn
+        -lSceKeyboard
+        -lSceMouse
+        -lSceNet
+        -lSceImeDialog
+        -lSceCommonDialog
+        -lSceUserService
+        -lSceSystemService
+        -lSceSysmodule
+        -lkernel
+    )
 else()
     target_link_libraries(xcloud_core PUBLIC Threads::Threads)
     if(WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
@@ -207,7 +252,7 @@ endif()
 # --- The desktop app on SDL3 (psbox) ----------------------------------------
 # cmake/deps/sdl3.cmake decides (XCLOUD_DESKTOP_APP); xcloud-cli, xcloud-tests
 # and psbox-headless stay SDL-free either way.
-if(NOT XCLOUD_PS5)
+if(NOT XCLOUD_PS5 AND NOT XC_TARGET_PS4)
     include(cmake/deps/sdl3.cmake)
 endif()
 if(XC_DESKTOP_APP)

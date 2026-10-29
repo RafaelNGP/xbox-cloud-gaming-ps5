@@ -16,6 +16,7 @@
 #include "util/log.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -125,6 +126,14 @@ struct StreamPlayer::Impl {
     std::atomic<float> micGain{1.0f};
     std::atomic<uint32_t> audioSendTimestamp{0};
     bool encoderInitialized = false;
+    platform::Thread inputThread;
+    std::mutex inputMutex;
+    std::condition_variable inputCv;
+    std::array<stream::GamepadFrame, input::kMaxPads> pendingPads{};
+    std::array<bool, input::kMaxPads> pendingPadDirty{};
+    std::vector<stream::KeyFrame> pendingKeys;
+    std::vector<stream::MouseFrame> pendingMouse;
+
     // Opening and closing the microphone happen on several threads (start,
     // reconnect, the end of the stream): one at a time.
     std::mutex micMutex;
@@ -186,6 +195,45 @@ struct StreamPlayer::Impl {
             std::lock_guard<std::mutex> lock(audioMutex_);
         }
         audioCv.notify_all();
+        {
+            std::lock_guard<std::mutex> lock(inputMutex);
+        }
+        inputCv.notify_all();
+    }
+
+    void inputLoop() {
+        platform::setThreadAffinity(platform::ThreadRole::Network, "xcloud_in");
+        while (running) {
+            std::array<stream::GamepadFrame, input::kMaxPads> pads;
+            std::array<bool, input::kMaxPads> dirty{};
+            std::vector<stream::KeyFrame> keys;
+            std::vector<stream::MouseFrame> mouse;
+            {
+                std::unique_lock<std::mutex> lock(inputMutex);
+                inputCv.wait(lock, [&] {
+                    if (!running) return true;
+                    if (!pendingKeys.empty() || !pendingMouse.empty()) return true;
+                    for (bool d : pendingPadDirty) if (d) return true;
+                    return false;
+                });
+                if (!running) break;
+                pads = pendingPads;
+                dirty = pendingPadDirty;
+                pendingPadDirty.fill(false);
+                keys = std::move(pendingKeys);
+                pendingKeys.clear();
+                mouse = std::move(pendingMouse);
+                pendingMouse.clear();
+            }
+            auto s = current();
+            if (s && running) {
+                for (int i = 0; i < input::kMaxPads; ++i) {
+                    if (dirty[i]) s->sendGamepad(pads[i]);
+                }
+                if (!keys.empty()) s->sendKeys(keys);
+                for (const auto& m : mouse) s->sendMouse(m);
+            }
+        }
     }
 
     void audioLoop() {
@@ -578,7 +626,8 @@ struct StreamPlayer::Impl {
         }
         running = true;
         if (!platform::startThread(videoThread, [this] { videoLoop(); }) ||
-            !platform::startThread(audioThread, [this] { audioLoop(); }, 1u << 20)) {
+            !platform::startThread(audioThread, [this] { audioLoop(); }, 1u << 20) ||
+            !platform::startThread(inputThread, [this] { inputLoop(); }, 256u << 10)) {
             err = "could not start the media threads";
             running = false;
             return false;
@@ -738,6 +787,7 @@ struct StreamPlayer::Impl {
     void stop() {
         end("stopped");
         if (auto s = current()) s->close();
+        if (inputThread.joinable()) inputThread.join();
         if (videoThread.joinable()) videoThread.join();
         if (audioThread.joinable()) audioThread.join();
         std::shared_ptr<stream::StreamSession> last;
@@ -767,8 +817,7 @@ std::string StreamPlayer::endReason() const {
 }
 
 void StreamPlayer::sendInput(const input::ControllerState& p, int index) {
-    auto s = impl_->current();
-    if (!s || !impl_->running) return;
+    if (!impl_->running || index < 0 || index >= input::kMaxPads) return;
     stream::GamepadFrame f;
     f.index = static_cast<uint8_t>(index);
     auto set = [&](bool on, uint16_t bit) {
@@ -795,25 +844,34 @@ void StreamPlayer::sendInput(const input::ControllerState& p, int index) {
     f.rightY = -p.rightStickY;
     f.leftTrigger = p.triggerL2;
     f.rightTrigger = p.triggerR2;
-    s->sendGamepad(f);
+
+    {
+        std::lock_guard<std::mutex> lock(impl_->inputMutex);
+        impl_->pendingPads[index] = f;
+        impl_->pendingPadDirty[index] = true;
+    }
+    impl_->inputCv.notify_one();
 }
 
 void StreamPlayer::sendKbm(const input::KbmInput& in) {
-    auto s = impl_->current();
-    if (!s || !impl_->running) return;
-    if (!in.keys.empty()) {
-        std::vector<stream::KeyFrame> keys;
-        for (const auto& k : in.keys) keys.push_back({k.vk, k.pressed});
-        s->sendKeys(keys);
+    if (!impl_->running) return;
+    {
+        std::lock_guard<std::mutex> lock(impl_->inputMutex);
+        if (!in.keys.empty()) {
+            for (const auto& k : in.keys) {
+                if (impl_->pendingKeys.size() < 128) impl_->pendingKeys.push_back({k.vk, k.pressed});
+            }
+        }
+        if (in.moved) {
+            stream::MouseFrame m;
+            m.dx = in.dx * 2;  // as the web client: twice the pointer's movement
+            m.dy = in.dy * 2;
+            m.wheelY = in.wheel * 120;  // one notch = WHEEL_DELTA (120), as Windows (and the game) count it
+            m.buttons = in.buttons;
+            if (impl_->pendingMouse.size() < 128) impl_->pendingMouse.push_back(m);
+        }
     }
-    if (in.moved) {
-        stream::MouseFrame m;
-        m.dx = in.dx * 2;  // as the web client: twice the pointer's movement
-        m.dy = in.dy * 2;
-        m.wheelY = in.wheel * 120;  // one notch = WHEEL_DELTA (120), as Windows (and the game) count it
-        m.buttons = in.buttons;
-        s->sendMouse(m);
-    }
+    impl_->inputCv.notify_one();
 }
 
 bool StreamPlayer::titleFocused() const { return impl_->titleFocused; }

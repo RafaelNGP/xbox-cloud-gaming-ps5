@@ -12,3 +12,6 @@ __pycache__/
 
 # Local notes (user feedback collected from Reddit): never in the repository.
 reddit/
+/ps4-toolchain/
+docs/archive/
+assets/media_showcase/

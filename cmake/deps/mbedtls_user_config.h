@@ -10,3 +10,8 @@
  * with "This is a bug in the library" (-0x006E, CORRUPTION_DETECTED). */
 #define MBEDTLS_THREADING_C
 #define MBEDTLS_THREADING_PTHREAD
+
+#if defined(__ORBIS__)
+#define MBEDTLS_NO_PLATFORM_ENTROPY
+#define MBEDTLS_ENTROPY_HARDWARE_ALT
+#endif

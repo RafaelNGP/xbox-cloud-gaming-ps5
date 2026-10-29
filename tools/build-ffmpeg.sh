@@ -6,9 +6,10 @@
 #
 #   tools/build-ffmpeg.sh host <build-dir>   -> <build-dir>/ffmpeg/{include,lib}
 #   tools/build-ffmpeg.sh ps5  <build-dir>
+#   tools/build-ffmpeg.sh ps4  <build-dir>
 set -euo pipefail
 
-target=${1:?usage: build-ffmpeg.sh host|ps5 <build-dir>}
+target=${1:?usage: build-ffmpeg.sh host|ps5|ps4 <build-dir>}
 build=$(mkdir -p "${2:?build dir}" && cd "$2" && pwd)
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 prefix=$build/ffmpeg
@@ -55,6 +56,20 @@ if [[ $target == ps5 ]]; then
     cp "$root/ps5/compat/ps5_lfs.h" "$cache/ps5_lfs.h"
     ln -sfn "$root/tools/ps5/configure-ld.sh" "$cache/configure-ld.sh"
     flags="-target x86_64-sie-ps5 -fPIC -march=znver2 -fvisibility-nodllstorageclass=default -fno-stack-protector -fno-plt -femulated-tls -fdenormal-fp-math=ieee -isysroot $PS5_SDK -isystem $PS5_SDK/target/include -D_GNU_SOURCE -include $cache/ps5_lfs.h -ffile-prefix-map=$cache=ffmpeg -ffile-prefix-map=$HOME=~"
+    "$src/configure" "${common[@]}" \
+        --enable-cross-compile --target-os=freebsd --arch=x86_64 \
+        --cc=clang --ar=llvm-ar --ranlib=llvm-ranlib --nm=llvm-nm \
+        --ld="$cache/configure-ld.sh" \
+        --extra-cflags="$flags" --extra-ldflags="" \
+        --disable-pthreads --enable-pthreads
+elif [[ $target == ps4 ]]; then
+    toolchain=${OO_PS4_TOOLCHAIN:-$(cd "$root/ps4-toolchain" && pwd)}
+    export OO_PS4_TOOLCHAIN=$toolchain
+    ln -sfn "$toolchain" "$cache/ps4-toolchain"
+    ln -sfn "$root/tools/ps4/configure-ld.sh" "$cache/configure-ld.sh"
+    mkdir -p "$cache/compat/sys"
+    cp "$root/ps4/compat/sys/sysctl.h" "$cache/compat/sys/sysctl.h"
+    flags="-target x86_64-pc-freebsd12-elf -fPIC -msse4.2 -mpopcnt -mtune=btver2 -D_GNU_SOURCE -D__ORBIS__ -D__PS4__ -DXC_TARGET_PS4=1 -isystem $cache/compat -isystem $cache/ps4-toolchain/include"
     "$src/configure" "${common[@]}" \
         --enable-cross-compile --target-os=freebsd --arch=x86_64 \
         --cc=clang --ar=llvm-ar --ranlib=llvm-ranlib --nm=llvm-nm \

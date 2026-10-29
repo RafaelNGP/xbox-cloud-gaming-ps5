@@ -420,9 +420,11 @@ struct StreamSession::Impl {
 
     void createPeer() {
         initRtcLogging();
+        XC_LOGI("webrtc: createPeer starting");
         rtc::Configuration config;
         config.disableAutoNegotiation = true;
         pc = std::make_shared<rtc::PeerConnection>(config);
+        XC_LOGI("webrtc: PeerConnection created");
 
         pc->onLocalCandidate([this](rtc::Candidate c) {
             std::lock_guard<std::mutex> lock(mutex);
@@ -542,6 +544,7 @@ struct StreamSession::Impl {
             }
             if (cb.video) cb.video(reinterpret_cast<const uint8_t*>(data.data()), data.size(), info.timestamp);
         });
+        XC_LOGI("webrtc: createPeer completed");
     }
 
     bool waitFor(const std::function<bool()>& pred, int timeoutMs) {
@@ -561,8 +564,11 @@ struct StreamSession::Impl {
     }
 
     bool start(std::string& err) {
+        XC_LOGI("webrtc: start() calling createPeer");
         createPeer();
+        XC_LOGI("webrtc: calling pc->setLocalDescription");
         pc->setLocalDescription(rtc::Description::Type::Offer);
+        XC_LOGI("webrtc: setLocalDescription returned; waiting for ICE gathering");
         if (!waitFor([this] { return gatheringDone; }, 10000))
             XC_LOGW("ICE gathering did not complete; continuing with %zu candidates", localCandidates.size());
 

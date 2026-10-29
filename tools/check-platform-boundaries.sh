@@ -23,6 +23,9 @@ allowed=(
     'src/platform/ps5/*'   # the PS5's platform layer
     'src/*_ps5.cpp'        # PS5 backends: display, controller, kbm, hw_decoder, shell...
     'ps5/*'                # link stubs and compat headers for the PS5 SDK
+    'src/platform/ps4/*'   # the PS4's platform layer
+    'src/*_ps4.cpp'        # PS4 backends: display, controller, hw_decoder, shell...
+    'ps4/*'                # link stubs and metadata for PS4
     # Legacy: these still pick their PS5 code with #if. Each comes off the
     # list once it is split into a PS5 backend and a portable part.
     'src/app/crash_guard.cpp'  # TODO(M2): crash_guard_ps5.cpp / POSIX / Windows (SEH)

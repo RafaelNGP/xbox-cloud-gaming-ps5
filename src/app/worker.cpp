@@ -361,12 +361,22 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
             !g_autoplay.gridTest && !g_autoplay.gameSettingsTest && !g_autoplay.publisherTest && !g_autoplay.friendsTest &&
             !g_autoplay.regionTest && !g_autoplay.mw4Test && !g_autoplay.v150Test && !g_autoplay.claimTest) {
             platform::sleepMs(6000);
+            auto matchTile = [](const ui::GameTile& t, const std::string& target) {
+                auto eq = [](std::string_view a, std::string_view b) {
+                    if (a.size() != b.size()) return false;
+                    for (size_t i = 0; i < a.size(); ++i)
+                        if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
+                            return false;
+                    return true;
+                };
+                return eq(t.titleId, target) || eq(t.productId, target) || eq(t.name, target);
+            };
             ui::GameTile tile;
             tile.titleId = g_autoplay.title;
             tile.name = g_autoplay.title;
             for (const auto& row : rows)
                 for (const auto& t : row.tiles)
-                    if ((t.titleId == g_autoplay.title || t.productId == g_autoplay.title || t.name == g_autoplay.title) && tile.productId.empty()) tile = t;
+                    if (matchTile(t, g_autoplay.title) && tile.productId.empty()) tile = t;
             std::lock_guard<std::mutex> lock(g_argMutex);
             g_playTile = tile;
             g_command = kPlay;
@@ -492,9 +502,19 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
         ui::GameTile tile;
         tile.titleId = g_autoplay.title;
         tile.name = g_autoplay.title;
+        auto matchTile = [](const ui::GameTile& t, const std::string& target) {
+            auto eq = [](std::string_view a, std::string_view b) {
+                if (a.size() != b.size()) return false;
+                for (size_t i = 0; i < a.size(); ++i)
+                    if (std::tolower(static_cast<unsigned char>(a[i])) != std::tolower(static_cast<unsigned char>(b[i])))
+                        return false;
+                return true;
+            };
+            return eq(t.titleId, target) || eq(t.productId, target) || eq(t.name, target);
+        };
         for (const auto& row : rows)
             for (const auto& t : row.tiles)
-                if (t.titleId == g_autoplay.title && tile.productId.empty()) tile = t;
+                if (matchTile(t, g_autoplay.title) && tile.productId.empty()) tile = t;
         std::lock_guard<std::mutex> lock(g_argMutex);
         g_playTile = tile;
         g_command = kPlay;

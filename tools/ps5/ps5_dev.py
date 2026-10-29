@@ -98,6 +98,8 @@ def cmd_verify(args):
         ("Desktop (No-SDL) Unit Tests", "build-desktop-nosdl/xcloud-tests"),
         ("PS5 Build", "ninja -C build-ps5 xcloud_app"),
         ("PS5 Link Staged eboot.bin", "bash tools/ps5/link.sh build-ps5"),
+        ("PS4 Build (OpenOrbis)", "ninja -C build-ps4"),
+        ("PS4 Package (FSELF/PKG)", "bash tools/ps4/package.sh build-ps4"),
         ("Platform Boundaries Check", "bash tools/check-platform-boundaries.sh"),
     ]
     results = []
