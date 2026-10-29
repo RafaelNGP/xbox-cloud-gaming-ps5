@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Reddit Feedback Timeline Extractor (PSBox / AI)",
+  "version": "1.0.0",
+  "description": "Extracts Reddit post comments into a structured chronological timeline with timestamps and tags for AI analysis.",
+  "permissions": [
+    "activeTab",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "*://*.reddit.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.reddit.com/*/comments/*",
+        "*://reddit.com/*/comments/*"
+      ],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
