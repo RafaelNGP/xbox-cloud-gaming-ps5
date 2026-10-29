@@ -21,6 +21,7 @@ int sceAudioInInput(int handle, void* dest);
 int sceAudioInClose(int handle);
 int sceAudioInGetSilentState(int handle);
 int sceAudioInSetGain(int handle, int gain);
+int sceSysmoduleLoadModuleInternal(uint32_t id);
 }
 
 namespace xc::media {
@@ -40,6 +41,8 @@ AudioIn::~AudioIn() {
 bool AudioIn::open(AudioCallback cb) {
     if (running_) return true;
     callback_ = std::move(cb);
+
+    sceSysmoduleLoadModuleInternal(0x80000002); // AUDIOIN
 
     static bool initialised = false;
     if (!initialised) {

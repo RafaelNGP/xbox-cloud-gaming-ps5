@@ -189,6 +189,7 @@ elseif(XC_TARGET_PS4)
         xcloud_core
         xc_ffmpeg
         datachannel-static
+        -lSceVideodec2
         -lSceVideoOut
         -lScePad
         -lSceAudioOut
@@ -196,6 +197,8 @@ elseif(XC_TARGET_PS4)
         -lSceKeyboard
         -lSceMouse
         -lSceNet
+        -lSceNetCtl
+        -lSceRandom
         -lSceImeDialog
         -lSceCommonDialog
         -lSceUserService

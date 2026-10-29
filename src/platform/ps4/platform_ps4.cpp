@@ -47,6 +47,9 @@ int sceNetSocketClose(int s);
 int* sceNetErrnoLoc(void);
 int _ioctl(int fd, unsigned long request, void* arg);
 int _close(int fd);
+int sceSysmoduleLoadModule(uint32_t id);
+int sceSysmoduleLoadModuleInternal(uint32_t id);
+int sceRandomGetRandomNumber(void* buf, size_t size);
 
 int ioctl(int fd, unsigned long request, ...) {
     void* arg = nullptr;
@@ -289,23 +292,8 @@ int close(int fd) {
 }
 
 extern "C" void arc4random_buf(void* buf, size_t n) {
-    static int s_urandomFd = -1;
-    if (s_urandomFd < 0) {
-        s_urandomFd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
-    }
-    size_t done = 0;
-    if (s_urandomFd >= 0) {
-        while (done < n) {
-            ssize_t r = read(s_urandomFd, static_cast<char*>(buf) + done, n - done);
-            if (r <= 0) break;
-            done += static_cast<size_t>(r);
-        }
-    }
-    if (done < n) {
-        uint8_t* p = static_cast<uint8_t*>(buf) + done;
-        for (size_t i = done; i < n; ++i) {
-            *p++ = static_cast<uint8_t>(std::rand() ^ (std::rand() >> 8));
-        }
+    if (buf && n > 0) {
+        sceRandomGetRandomNumber(buf, n);
     }
 }
 
@@ -609,6 +597,10 @@ void migrateLegacy() {
 }  // namespace
 
 bool init() {
+    sceSysmoduleLoadModuleInternal(0x8000001C); // NET
+    sceSysmoduleLoadModuleInternal(0x80000009); // NETCTL
+    sceSysmoduleLoadModule(0x00BA);             // RANDOM
+
     int errPsbox = 0;
     int errLegacy = 0;
     if (writable(kDataDir, errPsbox)) {

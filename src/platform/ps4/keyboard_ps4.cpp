@@ -9,6 +9,8 @@
 #include <vector>
 
 extern "C" {
+int sceSysmoduleLoadModule(uint32_t id);
+int sceSysmoduleLoadModuleInternal(uint32_t id);
 int sceCommonDialogInitialize(void);
 int sceImeDialogInit(const void* param, void* extended);
 int sceImeDialogGetStatus(void);
@@ -109,6 +111,8 @@ void utf16ToUtf8(const char16_t* in, std::string& out) {
 
 bool systemKeyboardAvailable() {
     if (g_available >= 0) return g_available == 1;
+    sceSysmoduleLoadModuleInternal(0x80000018); // COMMON_DIALOG
+    sceSysmoduleLoadModule(0x0096);             // IME_DIALOG
     int rc = sceCommonDialogInitialize();
     g_available = (rc >= 0 || rc == static_cast<int>(0x80610005)) ? 1 : 0;
     return g_available == 1;

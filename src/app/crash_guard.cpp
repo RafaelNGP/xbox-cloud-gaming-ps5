@@ -31,6 +31,11 @@ struct SceModuleInfoForUnwind {
 };
 int sceKernelGetModuleInfoForUnwind(uintptr_t addr, int flags, SceModuleInfoForUnwind* info);
 }
+#elif defined(XC_TARGET_PS4) || defined(__ORBIS__)
+// PS4 kernel does not supply auxv to musl libc; dl_iterate_phdr is not supported.
+extern "C" {
+extern const char __text_start[] __attribute__((weak));
+}
 #else
 #include <link.h>
 #endif
@@ -49,6 +54,9 @@ void initBase() {
 #if defined(XCLOUD_PS5)
     g_ebootBase = reinterpret_cast<uintptr_t>(__text_start);
     g_ebootEnd = reinterpret_cast<uintptr_t>(__text_end);
+#elif defined(XC_TARGET_PS4) || defined(__ORBIS__)
+    g_ebootBase = reinterpret_cast<uintptr_t>(__text_start);
+    g_ebootEnd = g_ebootBase + 0x20000000;
 #else
     dl_iterate_phdr(
         [](struct dl_phdr_info* info, size_t, void*) -> int {
@@ -133,6 +141,12 @@ void appendCodeAddr(char* buf, size_t cap, size_t& len, uintptr_t addr) {
             appendStr(buf, cap, len, name);
             appendStr(buf, cap, len, "+");
             appendHex(buf, cap, len, addr - mod.seg0_addr);
+            return;
+        }
+#elif defined(XC_TARGET_PS4) || defined(__ORBIS__)
+        if (g_ebootBase != 0 && addr >= g_ebootBase && addr < g_ebootEnd) {
+            appendStr(buf, cap, len, "eboot+");
+            appendHex(buf, cap, len, addr - g_ebootBase);
             return;
         }
 #else

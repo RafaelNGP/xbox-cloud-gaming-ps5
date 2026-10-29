@@ -19,6 +19,7 @@ int sceAudioOutOutput(int handle, const void* ptr);
 int sceAudioOutClose(int handle);
 int sceAudioOutSetMixLevelPadSpk(int handle, int mixLevel);
 int sceAudioOutSetPadSpkVolume(int handle, int volume);
+int sceSysmoduleLoadModuleInternal(uint32_t id);
 }
 
 namespace xc::media {
@@ -74,6 +75,7 @@ bool audioStart() {
     if (g_running) return true;
     static bool initialised = false;
     if (!initialised) {
+        sceSysmoduleLoadModuleInternal(0x80000001); // AUDIOOUT
         int rc = sceAudioOutInit();
         if (rc < 0 && rc != static_cast<int>(0x8026000C) && rc != static_cast<int>(0x8026000E)) {
             XC_LOGE("sceAudioOutInit: 0x%08x", static_cast<unsigned>(rc));
