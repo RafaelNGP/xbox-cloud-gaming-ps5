@@ -454,11 +454,17 @@ struct StreamSession::Impl {
         // Same channels, in the same order, as the web client.
         // Input channel is configured unordered and unreliable (0 retransmissions)
         // to eliminate Head-of-Line Blocking input latency under network jitter/loss.
-        chat = makeChannel("chat", "chatV1");
-        chat->onMessage([](rtc::message_variant m) { XC_LOGI("chat channel: %s", asText(m).c_str()); });
-        control = makeChannel("control", "controlV1");
-        input = makeChannel("input", "1.0", /*unordered=*/true, /*maxRetransmits=*/0);
-        message = makeChannel("message", "messageV1");
+        try {
+            chat = makeChannel("chat", "chatV1");
+            chat->onMessage([](rtc::message_variant m) { XC_LOGI("chat channel: %s", asText(m).c_str()); });
+            control = makeChannel("control", "controlV1");
+            input = makeChannel("input", "1.0", /*unordered=*/true, /*maxRetransmits=*/0);
+            message = makeChannel("message", "messageV1");
+        } catch (const std::exception& e) {
+            XC_LOGE("webrtc: createDataChannel failed: %s", e.what());
+            fail(std::string("WebRTC channel creation failed: ") + e.what());
+            return;
+        }
 
         message->onOpen([this] {
             XC_LOGI("data channel message open: sending handshake");
@@ -578,7 +584,12 @@ struct StreamSession::Impl {
             return false;
         }
         XC_LOGI("webrtc: calling pc->setLocalDescription");
-        pc->setLocalDescription(rtc::Description::Type::Offer);
+        try {
+            pc->setLocalDescription(rtc::Description::Type::Offer);
+        } catch (const std::exception& e) {
+            err = std::string("setLocalDescription failed: ") + e.what();
+            return false;
+        }
         XC_LOGI("webrtc: setLocalDescription returned; waiting for ICE gathering");
         if (!waitFor([this] { return gatheringDone; }, 10000))
             XC_LOGW("ICE gathering did not complete; continuing with %zu candidates", localCandidates.size());

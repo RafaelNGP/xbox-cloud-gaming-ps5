@@ -736,16 +736,25 @@ struct StreamPlayer::Impl {
 
     // The scan-out buffer just presented, at full resolution.
     void saveScreen() {
-        std::vector<uint8_t> rgb;
-        int w = 0, h = 0;
-        if (!display::readBackRgb(rgb, w, h)) return;
-        std::string path = screenPath;
-        std::thread([path, rgb = std::move(rgb), w, h]() mutable {
-            std::string data = "P6\n" + std::to_string(w) + " " + std::to_string(h) + "\n255\n";
-            data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
-            bool ok = platform::writeFileAtomic(path, data);
-            XC_LOGI("screen -> %s: %s", path.c_str(), ok ? "ok" : "failed");
-        }).detach();
+        try {
+            std::vector<uint8_t> rgb;
+            int w = 0, h = 0;
+            if (!display::readBackRgb(rgb, w, h)) return;
+            std::string path = screenPath;
+            std::thread([path, rgb = std::move(rgb), w, h]() mutable {
+                try {
+                    std::string data = "P6\n" + std::to_string(w) + " " + std::to_string(h) + "\n255\n";
+                    data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
+                    std::vector<uint8_t>().swap(rgb); // release the 6.2 MB vector immediately
+                    bool ok = platform::writeFileAtomic(path, data);
+                    XC_LOGI("screen -> %s: %s", path.c_str(), ok ? "ok" : "failed");
+                } catch (const std::exception& e) {
+                    XC_LOGW("screen thread error: %s", e.what());
+                }
+            }).detach();
+        } catch (const std::exception& e) {
+            XC_LOGW("saveScreen failed: %s", e.what());
+        }
     }
 
     // Video thread only (data channel sends are thread-safe).

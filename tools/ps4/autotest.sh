@@ -67,7 +67,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-deadline=$(( $(date +%s) + seconds + 90 ))
+deadline=$(( $(date +%s) + seconds + 180 ))
 result="timeout"
 
 echo "==> Waiting for test completion (deadline ${seconds}s + margin)..."

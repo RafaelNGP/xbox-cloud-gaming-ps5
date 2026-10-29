@@ -545,19 +545,24 @@ bool lastShown(uint64_t& id, uint64_t& atUs) {
     return true;
 }
 bool readBackRgb(std::vector<uint8_t>& rgb, int& width, int& height) {
-    std::lock_guard<std::recursive_mutex> lock(g_frameMutex);
-    if (!g_buffers[g_currentBuffer]) return false;
-    width = kWidth;
-    height = kHeight;
-    const uint32_t* base = reinterpret_cast<const uint32_t*>(g_buffers[g_currentBuffer]);
-    rgb.resize(static_cast<size_t>(kWidth) * kHeight * 3);
-    for (size_t i = 0; i < static_cast<size_t>(kWidth) * kHeight; ++i) {
-        uint32_t p = base[i];
-        rgb[i * 3 + 0] = static_cast<uint8_t>(p);
-        rgb[i * 3 + 1] = static_cast<uint8_t>(p >> 8);
-        rgb[i * 3 + 2] = static_cast<uint8_t>(p >> 16);
+    try {
+        std::lock_guard<std::recursive_mutex> lock(g_frameMutex);
+        if (!g_buffers[g_currentBuffer]) return false;
+        width = kWidth;
+        height = kHeight;
+        const uint32_t* base = reinterpret_cast<const uint32_t*>(g_buffers[g_currentBuffer]);
+        rgb.resize(static_cast<size_t>(kWidth) * kHeight * 3);
+        for (size_t i = 0; i < static_cast<size_t>(kWidth) * kHeight; ++i) {
+            uint32_t p = base[i];
+            rgb[i * 3 + 0] = static_cast<uint8_t>(p);
+            rgb[i * 3 + 1] = static_cast<uint8_t>(p >> 8);
+            rgb[i * 3 + 2] = static_cast<uint8_t>(p >> 16);
+        }
+        return true;
+    } catch (const std::exception& e) {
+        XC_LOGW("display: readBackRgb failed: %s", e.what());
+        return false;
     }
-    return true;
 }
 
 } // namespace xc::display
