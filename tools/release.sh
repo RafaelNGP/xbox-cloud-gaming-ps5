@@ -62,7 +62,7 @@ tokens='eyJ[A-Za-z0-9_-]{20,}|refresh_token"? *[:=] *"[A-Za-z0-9]|XBL3\.0 x=[0-9
 private='(^|/)account\.json$|\.log$|\.ppm$|\.aus$|\.h264$|(^|/)autoplay\.txt$|(^|/)settings\.json$|(^|/)library\.json$|(^|/)prices\.json$'
 
 echo "== checks before building $tag"
-[[ -z $(git status --porcelain) ]] || fail "uncommitted changes (commit or stash them first)"
+[[ -z $(git status --porcelain --ignore-submodules=dirty) ]] || fail "uncommitted changes (commit or stash them first)"
 ok "clean tree on $(git rev-parse --abbrev-ref HEAD) at $(git rev-parse --short HEAD)"
 grep -q "project(xcloud_ps5 VERSION $version " CMakeLists.txt || fail "CMakeLists.txt is not at VERSION $version"
 grep -q "\"contentVersion\": \"$content\"" ps5/sce_sys/param.json || fail "param.json contentVersion is not $content"
