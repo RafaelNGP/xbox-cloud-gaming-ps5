@@ -312,18 +312,26 @@ inline void drawFaceButton(Canvas& c, const Font& letters, int icon, float cx, f
 // about `target` px of code; the card's rect (empty when it can't be encoded).
 inline Rect drawQr(Canvas& c, const std::string& url, int right, int top, int target,
             qrcodegen_Ecc ecc = qrcodegen_Ecc_MEDIUM) {
-    uint8_t qr[qrcodegen_BUFFER_LEN_MAX], tmp[qrcodegen_BUFFER_LEN_MAX];
-    if (!qrcodegen_encodeText(url.c_str(), tmp, qr, ecc, qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
-                              qrcodegen_Mask_AUTO, true))
-        return {};
-    int n = qrcodegen_getSize(qr);
+    static std::string s_cachedUrl;
+    static qrcodegen_Ecc s_cachedEcc = qrcodegen_Ecc_MEDIUM;
+    static uint8_t s_qr[qrcodegen_BUFFER_LEN_MAX]{};
+    static bool s_valid = false;
+    if (url != s_cachedUrl || ecc != s_cachedEcc) {
+        uint8_t tmp[qrcodegen_BUFFER_LEN_MAX];
+        s_valid = qrcodegen_encodeText(url.c_str(), tmp, s_qr, ecc, qrcodegen_VERSION_MIN, qrcodegen_VERSION_MAX,
+                                       qrcodegen_Mask_AUTO, true);
+        s_cachedUrl = url;
+        s_cachedEcc = ecc;
+    }
+    if (!s_valid) return {};
+    int n = qrcodegen_getSize(s_qr);
     int module = target / (n + 2), size = module * (n + 2);
     Rect box{right - size - 40, top, size + 40, size + 40};
     c.fillRect(box, kWhite, 20);
     int ox = box.x + 20 + module, oy = box.y + 20 + module;
     for (int yy = 0; yy < n; ++yy)
         for (int xx = 0; xx < n; ++xx)
-            if (qrcodegen_getModule(qr, xx, yy)) c.fillRect({ox + xx * module, oy + yy * module, module, module}, kBg);
+            if (qrcodegen_getModule(s_qr, xx, yy)) c.fillRect({ox + xx * module, oy + yy * module, module, module}, kBg);
     return box;
 }
 

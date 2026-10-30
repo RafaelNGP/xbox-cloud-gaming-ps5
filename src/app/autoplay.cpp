@@ -34,6 +34,7 @@ bool uiSaved = false;
 bool settingsShot = false;  // "settingstest": save the screen now
 bool bitrateShot = false;   // "bitratetest": save the screen now
 bool donationShot = false;  // "donationtest": save the screen now
+bool reportShot = false;    // "reporttest": save report.ppm now
 bool signInCheckShot = false; // "checksignintest": save the screen now
 bool freeUiShot = false, freeDetailsShot = false; // "freetest": save free account screenshots
 const char* keysShot = nullptr;  // "keystest": the screen to save now
@@ -171,6 +172,7 @@ void loadAutoplay() {
         if (opt == "regiontest") g_autoplay.regionTest = true;
         if (opt == "tlscheck") g_autoplay.tlsCheck = true;
         if (opt == "donationtest") g_autoplay.donationTest = true;
+        if (opt == "reporttest") g_autoplay.reportTest = true;
         if (opt == "norestart") g_autoplay.noRestart = true;
         if (opt.rfind("threads=", 0) == 0) g_autoplay.decodeThreads = std::atoi(opt.c_str() + 8);
     }
@@ -994,9 +996,29 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
             if (next) ++step;
         }
     }
+
+    if (g_autoplay.reportTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        const uint64_t at[] = {500, 1500, 3500, 4500};
+        if (step < 4 && now - since >= at[step]) {
+            if (step == 0) nav.options = true;
+            if (step == 1) nav.triangle = true;
+            if (step == 2) reportShot = true;
+            if (step == 3) {
+                nav.back = true;
+                g_ui->showHome();
+                g_autoplay.reportTest = false;
+                XC_LOGI("AUTOPLAY END: report test");
+            }
+            ++step;
+        }
+    }
 }
 
 void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
+    if (g_autoplay.title.empty()) return;
     // Autoplay: save the rendered home and loading screens.
     auto saveCanvas = [&](const char* name) {
         std::string ppm = "P6\n1920 1080\n255\n";
@@ -1100,7 +1122,7 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             errorSince = 1;
         }
     }
-    if (g_ui->reportOpen() && !g_autoplay.crashTest) {
+    if (g_ui->reportOpen() && !g_autoplay.crashTest && !g_autoplay.reportTest) {
         ui::NavInput in{};
         in.back = true;
         g_ui->handle(in);
@@ -1179,6 +1201,11 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         donationShot = false;
         saveCanvas("donation.ppm");
         XC_LOGI("AUTOPLAY END: donation screenshot saved");
+    }
+    if (reportShot) {
+        reportShot = false;
+        saveCanvas("report.ppm");
+        XC_LOGI("AUTOPLAY: report.ppm saved");
     }
     if (signInCheckShot) {
         signInCheckShot = false;
