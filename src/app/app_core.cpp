@@ -8,6 +8,7 @@
 // and autoplay.cpp (the unattended tests). What only some platforms do is
 // behind app/shell.h.
 #include "app/app_core.h"
+#include "build_id.h"  // generated: XC_BUILD_ID (cmake/build_id.cmake)
 
 #include "app/app_state.h"
 #include "app/autoplay.h"
@@ -254,7 +255,9 @@ bool coreStartup() {
     if (!logOk)
         XC_LOGW("could not open xcloud.log in %s: log kept in memory", platform::dataDir().c_str());
     XC_LOGI("=== PSBox Cloud Gaming starting ===");
-    XC_LOGI("firmware %s, PSBox %s", platform::firmwareVersion().c_str(), XC_APP_VERSION);
+    XC_LOGI("firmware %s, PSBox %s (build %s, %s)", platform::firmwareVersion().c_str(), XC_APP_VERSION, XC_BUILD_ID,
+            platform::platformName().c_str());
+    if (std::string res = platform::diagnostics(); !res.empty()) XC_LOGI("resources at start: %s", res.c_str());
     // Did the last session go down? (A crash leaves a marker; being closed
     // from the system's menu doesn't.) Offered as a report once signed in.
     g_lastCrash = crash::takePrevious(crashMarkerPath());

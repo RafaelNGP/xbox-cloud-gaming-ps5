@@ -578,6 +578,8 @@ struct StreamPlayer::Impl {
             platform::notify(ui::trf(ui::Str::IdleWarning, std::to_string(seconds)));
         };
         cb.closed = [this](const std::string& reason, bool recoverable) {
+            if (std::string res = platform::diagnostics(); !res.empty())
+                XC_LOGI("resources at stream close: %s", res.c_str());
             // A lost connection: the worker's tick() reconnects. The server
             // ending the session (or no game left) ends the stream.
             if (recoverable && running) {

@@ -222,6 +222,8 @@ bool restartApp() {
     return false;
 }
 
+std::string diagnostics() { return {}; }
+
 std::string firmwareVersion() {
     // The kernel's: 0x13600007 is 13.60 (the version the console's settings
     // show). sceKernelGetSystemSwVersion said "13.590.001" on a 13.60 console.

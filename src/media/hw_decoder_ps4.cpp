@@ -315,6 +315,9 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
         rollback();
         return false;
     }
+    XC_LOGI("hwdec: decoder memory query: cpu=%llu gpu=%llu cpuGpu=%llu maxFrame=%llu bytes",
+            static_cast<unsigned long long>(decMem.cpuSize), static_cast<unsigned long long>(decMem.gpuSize),
+            static_cast<unsigned long long>(decMem.cpuGpuSize), static_cast<unsigned long long>(decMem.maxFrameSize));
 
     if (decMem.cpuSize > 0) {
         size_t cpuBytes = align16k(decMem.cpuSize);
@@ -322,6 +325,7 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
         if (allocs.decCpuDirect.addr) {
             decMem.cpu = allocs.decCpuDirect.addr;
             decMem.cpuSize = allocs.decCpuDirect.size;
+            XC_LOGI("hwdec: decoder cpu %zu bytes allocated in direct Onion memory", cpuBytes);
         } else {
             XC_LOGW("hwdec: direct onion memory for cpu failed, falling back to flexible memory");
             void* cpuMem = nullptr;
@@ -334,6 +338,7 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
             decMem.cpu = cpuMem;
             decMem.cpuSize = cpuBytes;
             allocs.decCpuFlex = {cpuMem, cpuBytes};
+            XC_LOGI("hwdec: decoder cpu %zu bytes allocated in flexible memory", cpuBytes);
         }
     }
 

@@ -95,6 +95,10 @@ bool restartApp();
 // The console's system software ("13.00"); empty where unknown.
 std::string firmwareVersion();
 
+// One line for the log about the resources left (free memory, threads...), to
+// tell what ran out when something fails; empty where there is nothing to report.
+std::string diagnostics();
+
 // Platform description ("PlayStation 4", "PlayStation 5", "Linux", etc.).
 std::string platformName();
 

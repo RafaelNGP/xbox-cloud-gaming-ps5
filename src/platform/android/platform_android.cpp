@@ -116,6 +116,7 @@ KeyboardStatus pollSystemKeyboard(std::string&) { return KeyboardStatus::Closed;
 bool restartApp() { return false; }
 
 std::string firmwareVersion() { return {}; }
+std::string diagnostics() { return {}; }
 std::string platformName() { return "Android"; }
 
 void setThreadAffinity(ThreadRole, const char*) {}

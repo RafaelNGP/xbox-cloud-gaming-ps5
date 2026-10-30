@@ -159,13 +159,40 @@ long sysconf(int name) {
 }
 
 static std::atomic<int> s_threadsCreated{0};
-static std::atomic<bool> s_threadFailLogged{false};
+static std::atomic<int> s_threadsLive{0};
+static std::atomic<int> s_threadFailures{0};
+
+// Counts the threads still running: the key's destructor runs when a thread ends,
+// whether it returns or calls pthread_exit.
+static pthread_key_t s_liveKey;
+static std::once_flag s_liveKeyOnce;
+static bool s_liveKeyOk = false;
+
+struct ThreadStart {
+    void* (*fn)(void*);
+    void* arg;
+};
+
+static void* threadTrampoline(void* p) {
+    ThreadStart start = *static_cast<ThreadStart*>(p);
+    delete static_cast<ThreadStart*>(p);
+    if (s_liveKeyOk) {
+        s_threadsLive.fetch_add(1, std::memory_order_relaxed);
+        pthread_setspecific(s_liveKey, reinterpret_cast<void*>(1));
+    }
+    return start.fn(start.arg);
+}
 
 int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
                    void* (*start_routine)(void*), void* arg) {
     if (!thread || !start_routine) {
         return EINVAL;
     }
+    std::call_once(s_liveKeyOnce, [] {
+        s_liveKeyOk = pthread_key_create(&s_liveKey, [](void*) {
+            s_threadsLive.fetch_sub(1, std::memory_order_relaxed);
+        }) == 0;
+    });
 
     pthread_attr_t customAttr;
     bool createdAttr = false;
@@ -187,15 +214,23 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
         if (sym && sym != reinterpret_cast<void*>(&pthread_create)) {
             real_pthread_create = reinterpret_cast<RealPthreadCreateFn>(sym);
         }
+        XC_LOGI("threads: created with %s, %ld cores reported, default stack 1 MB",
+                real_pthread_create ? "libkernel pthread_create (dlsym)" : "scePthreadCreate",
+                sysconf(84 /*musl _SC_NPROCESSORS_ONLN*/));
     }
 
+    size_t stackBytes = 0;
+    if (attr) pthread_attr_getstacksize(attr, &stackBytes);
+
+    auto* start = new ThreadStart{start_routine, arg};
     int rc = -1;
     if (real_pthread_create) {
-        rc = real_pthread_create(thread, attr, start_routine, arg);
+        rc = real_pthread_create(thread, attr, threadTrampoline, start);
     }
+    int realRc = rc;
     int sceRc = 0;
     if (rc != 0) {
-        rc = scePthreadCreate(thread, attr, start_routine, arg, "xcloud_worker");
+        rc = scePthreadCreate(thread, attr, threadTrampoline, start, "xcloud_worker");
         sceRc = rc;
         if (rc < 0) {
             uint32_t uret = static_cast<uint32_t>(rc);
@@ -208,11 +243,15 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
     }
     if (rc == 0) {
         s_threadsCreated.fetch_add(1, std::memory_order_relaxed);
-    } else if (!s_threadFailLogged.exchange(true)) {
-        size_t freeFlex = 0;
-        sceKernelAvailableFlexibleMemorySize(&freeFlex);
-        XC_LOGE("pthread_create failed: rc=%d (sce 0x%08x) after %d threads, %zu MB flexible memory free",
-                rc, static_cast<unsigned>(sceRc), s_threadsCreated.load(), freeFlex >> 20);
+    } else {
+        delete start;
+        // The first few, then every 100th: a runaway loop must not flood the log.
+        int n = s_threadFailures.fetch_add(1) + 1;
+        if (n <= 3 || n % 100 == 0) {
+            XC_LOGE("pthread_create failed #%d: rc=%d %s (sce 0x%08x, pthread_create %d), stack %zu KB; %s", n, rc,
+                    std::strerror(rc), static_cast<unsigned>(sceRc), realRc, stackBytes >> 10,
+                    xc::platform::diagnostics().c_str());
+        }
     }
     return rc;
 }
@@ -228,6 +267,8 @@ int socket(int domain, int type, int protocol) {
     int s = sceNetSocket("", domain, baseType, protocol);
     if (s < 0) {
         errno = getNetErrno(s);
+        XC_LOGW("net: sceNetSocket(domain=%d, type=0x%x, proto=%d) failed: 0x%08x (errno=%d)",
+                domain, type, protocol, static_cast<unsigned>(s), errno);
         return -1;
     }
 #ifndef SOCK_NONBLOCK
@@ -266,6 +307,8 @@ int bind(int fd, const struct sockaddr* addr, socklen_t len) {
     int rc = sceNetBind(fd, &boundAddr, sizeof(boundAddr));
     if (rc < 0) {
         errno = getNetErrno(rc);
+        XC_LOGW("net: sceNetBind(fd=%d, port=%u) failed: 0x%08x (errno=%d)",
+                fd, static_cast<unsigned>(port), static_cast<unsigned>(rc), errno);
         return -1;
     }
     if (port != 0) {
@@ -658,6 +701,7 @@ extern "C" int getifaddrs(struct ifaddrs** ifap) {
     mask.sin_len = sizeof(struct sockaddr_in);
     mask.sin_addr.s_addr = htonl(0xFFFFFF00);
 
+    const char* src = "none";
     // 1. Query sceNetCtlGetInfo from libSceNetCtl
     OrbisNetCtlInfo info{};
     int ctlRc = sceNetCtlGetInfo(14 /*ORBIS_NET_CTL_INFO_IP_ADDRESS*/, &info);
@@ -671,6 +715,7 @@ extern "C" int getifaddrs(struct ifaddrs** ifap) {
     if (ctlRc == 0 && info.ip_address[0] != '\0') {
         info.ip_address[sizeof(info.ip_address) - 1] = '\0';
         inet_pton(AF_INET, info.ip_address, &local.sin_addr);
+        src = "sceNetCtlGetInfo";
 
         OrbisNetCtlInfo maskInfo{};
         if (sceNetCtlGetInfo(15 /*ORBIS_NET_CTL_INFO_NETMASK*/, &maskInfo) == 0 && maskInfo.netmask[0] != '\0') {
@@ -691,6 +736,7 @@ extern "C" int getifaddrs(struct ifaddrs** ifap) {
             if (connect(s, reinterpret_cast<struct sockaddr*>(&probe), sizeof(probe)) == 0) {
                 socklen_t localLen = sizeof(local);
                 getsockname(s, reinterpret_cast<struct sockaddr*>(&local), &localLen);
+                if (local.sin_addr.s_addr != 0) src = "udp-route-probe";
             }
             close(s);
         }
@@ -705,6 +751,7 @@ extern "C" int getifaddrs(struct ifaddrs** ifap) {
                 char* nl = std::strpbrk(buf, "\r\n ");
                 if (nl) *nl = '\0';
                 inet_pton(AF_INET, buf, &local.sin_addr);
+                if (local.sin_addr.s_addr != 0) src = "local_ip.txt";
             }
             std::fclose(fp);
         }
@@ -713,6 +760,12 @@ extern "C" int getifaddrs(struct ifaddrs** ifap) {
     // 4. Default fallback: ensure libjuice never receives an empty interface list
     if (local.sin_addr.s_addr == 0) {
         inet_pton(AF_INET, "192.168.15.30", &local.sin_addr);
+        src = "fallback-default";
+    }
+    static const char* s_lastIfSrc = nullptr;
+    if (s_lastIfSrc != src) {
+        s_lastIfSrc = src;
+        XC_LOGI("net: getifaddrs resolved eth0 via %s (ctlRc=0x%08x)", src, static_cast<unsigned>(ctlRc));
     }
     local.sin_family = AF_INET;
     local.sin_len = sizeof(struct sockaddr_in);
@@ -763,6 +816,9 @@ int sceNetPoolCreate(const char* name, int size, int flags);
 int sceNetResolverCreate(const char* name, int memid, int flags);
 int sceNetResolverStartNtoa(int rid, const char* hostname, uint32_t* addr, int timeout, int retry, int flags);
 int sceNetResolverDestroy(int rid);
+int sceKernelAvailableDirectMemorySize(off_t start, off_t end, size_t align, off_t* startOut, size_t* sizeOut);
+size_t sceKernelGetDirectMemorySize(void);
+int sceKernelIsNeoMode(void);
 }
 
 namespace xc::platform {
@@ -937,6 +993,19 @@ std::string firmwareVersion() {
 
 std::string platformName() {
     return "PlayStation 4";
+}
+
+std::string diagnostics() {
+    size_t flex = 0;
+    sceKernelAvailableFlexibleMemorySize(&flex);
+    off_t start = 0;
+    size_t direct = 0;
+    sceKernelAvailableDirectMemorySize(0, static_cast<off_t>(sceKernelGetDirectMemorySize()), 16384, &start, &direct);
+    char text[192];
+    std::snprintf(text, sizeof text, "%s, flexible %zu MB free, direct %zu MB free (largest block), threads %d live / %d created",
+                  sceKernelIsNeoMode() ? "PS4 Pro" : "PS4", flex >> 20, direct >> 20,
+                  s_threadsLive.load(), s_threadsCreated.load());
+    return text;
 }
 
 void makePrivate(const std::string&) {}

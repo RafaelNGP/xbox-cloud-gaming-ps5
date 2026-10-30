@@ -141,6 +141,16 @@ if(NOT MSVC)
     target_compile_options(xcloud_appcore PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()
 
+# The commit each build came from, written to the log at start-up: a tester's log
+# then says which package produced it.
+set(XC_BUILD_ID_HEADER "${CMAKE_BINARY_DIR}/generated/build_id.h")
+set(XC_BUILD_ID_ARGS -DSRC=${CMAKE_SOURCE_DIR} -DOUT=${XC_BUILD_ID_HEADER} -P ${CMAKE_SOURCE_DIR}/cmake/build_id.cmake)
+execute_process(COMMAND ${CMAKE_COMMAND} ${XC_BUILD_ID_ARGS})
+add_custom_target(xcloud_build_id COMMAND ${CMAKE_COMMAND} ${XC_BUILD_ID_ARGS}
+                  BYPRODUCTS ${XC_BUILD_ID_HEADER} VERBATIM)
+add_dependencies(xcloud_appcore xcloud_build_id)
+target_include_directories(xcloud_appcore PRIVATE ${CMAKE_BINARY_DIR}/generated)
+
 if(XCLOUD_PS5)
     target_sources(xcloud_core PRIVATE src/platform/ps5/platform_ps5.cpp src/platform/ps5/libc_compat.c src/platform/ps5/net_probe.cpp src/platform/ps5/keyboard_ps5.cpp)
 

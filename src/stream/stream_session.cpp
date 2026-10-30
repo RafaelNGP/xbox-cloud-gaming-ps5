@@ -20,6 +20,7 @@
 #include <condition_variable>
 #include <cstdio>
 #include <mutex>
+#include <sstream>
 #include <thread>
 #include <vector>
 
@@ -33,6 +34,14 @@ constexpr const char* kHandshakeId = "be0bfc6d-1e83-4c8a-90ed-fa8601c5a179";
 constexpr const char* kClientAppInstallId = "c97d7ee0-73b2-4239-bf1d-9d805a338429";
 // SystemUiType of the system UIs this client draws itself.
 constexpr int kShowVirtualKeyboard = 10;
+
+// libdatachannel's name for one of its states ("checking", "srflx"...), for the log.
+template <class T>
+std::string named(const T& value) {
+    std::ostringstream out;
+    out << value;
+    return out.str();
+}
 
 std::string uuid4() {
     uint8_t b[16];
@@ -421,22 +430,29 @@ struct StreamSession::Impl {
     void createPeer() {
         initRtcLogging();
         XC_LOGI("webrtc: createPeer starting");
+        if (std::string res = platform::diagnostics(); !res.empty()) XC_LOGI("webrtc: resources before the peer: %s", res.c_str());
         rtc::Configuration config;
         config.disableAutoNegotiation = true;
         try {
             pc = std::make_shared<rtc::PeerConnection>(config);
         } catch (const std::exception& e) {
             XC_LOGE("webrtc: PeerConnection failed to create: %s", e.what());
+            if (std::string res = platform::diagnostics(); !res.empty()) XC_LOGE("webrtc: resources at the failure: %s", res.c_str());
             fail(std::string("WebRTC peer creation failed: ") + e.what());
             return;
         }
         XC_LOGI("webrtc: PeerConnection created");
+        if (std::string res = platform::diagnostics(); !res.empty()) XC_LOGI("webrtc: resources after the peer: %s", res.c_str());
 
         pc->onLocalCandidate([this](rtc::Candidate c) {
+            // Its type and transport only: the address stays out of the log.
+            XC_LOGI("webrtc: local ICE candidate: %s %s", named(c.type()).c_str(),
+                    c.transportType() == rtc::Candidate::TransportType::Udp ? "udp" : "tcp");
             std::lock_guard<std::mutex> lock(mutex);
             localCandidates.push_back(std::move(c));
         });
         pc->onGatheringStateChange([this](rtc::PeerConnection::GatheringState s) {
+            XC_LOGI("webrtc: ICE gathering %s", named(s).c_str());
             if (s == rtc::PeerConnection::GatheringState::Complete) {
                 {
                     std::lock_guard<std::mutex> lock(mutex);
@@ -445,8 +461,9 @@ struct StreamSession::Impl {
                 cv.notify_all();
             }
         });
+        pc->onIceStateChange([](rtc::PeerConnection::IceState s) { XC_LOGI("webrtc: ICE state %s", named(s).c_str()); });
         pc->onStateChange([this](rtc::PeerConnection::State s) {
-            XC_LOGI("peer connection state: %d", static_cast<int>(s));
+            XC_LOGI("peer connection state: %d (%s)", static_cast<int>(s), named(s).c_str());
             if (s == rtc::PeerConnection::State::Failed) fail("WebRTC connection failed");
             if (s == rtc::PeerConnection::State::Disconnected) fail("WebRTC connection lost");
         });

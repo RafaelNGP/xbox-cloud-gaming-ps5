@@ -436,6 +436,7 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     g_stageTitle = game.titleId;
     g_stageProduct = game.productId;
     crash::setStage(gssv.isHome() ? "starting own Xbox" : ("starting " + game.titleId).c_str());
+    if (std::string res = platform::diagnostics(); !res.empty()) XC_LOGI("resources before the stream: %s", res.c_str());
     int status = 0;
     bool started = gssv.startSession(game.titleId, streamLocale, err, &status);
     if (!started && status == 401 && !g_cancel) {
