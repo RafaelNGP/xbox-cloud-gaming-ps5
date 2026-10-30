@@ -1139,7 +1139,8 @@ input:checked + .slider-sw:before { transform: translateX(20px); }
       <h2>📋 Download de Logs Cru</h2>
       <p>Baixe o arquivo <code>xcloud.log</code> sanitizado (sem tokens ou dados privados) para inspeção local ou envio manual.</p>
       <div class="btn-row" style="margin-top: 0; margin-bottom: 14px; gap: 8px; display: flex; flex-wrap: wrap;">
-        <a href="/api/log" download="xcloud.log" class="btn btn-primary">⬇️ Baixar xcloud.log</a>
+        <a href="/api/log" download="xcloud.log" class="btn btn-primary">⬇️ Baixar xcloud.log (Atual)</a>
+        <a href="/api/log/prev" download="xcloud.prev.log" class="btn btn-secondary">⬇️ Baixar xcloud.prev.log (Anterior)</a>
         <button type="button" class="btn" onclick="loadLogPreview()">Visualizar Últimas Linhas</button>
       </div>
       <pre id="logPreview">Clique em "Visualizar Últimas Linhas" ou "Pré-visualizar" para inspecionar os dados...</pre>

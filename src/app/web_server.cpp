@@ -454,11 +454,16 @@ WebServer::HttpResponse WebServer::handleRequest(const std::string& method, cons
             }
             return {200, "application/json", "", root.dump()};
         }
-        if (path == "/api/log") {
+        if (path == "/api/log" || path == "/api/log/prev") {
+            bool prev = (path == "/api/log/prev");
+            std::string filename = prev ? "xcloud.prev.log" : "xcloud.log";
             std::string rawLog;
-            platform::readFile(platform::dataDir() + "/xcloud.log", rawLog);
+            platform::readFile(platform::dataDir() + "/" + filename, rawLog);
+            if (rawLog.empty() && prev) {
+                platform::readFile(platform::dataDir() + "/xcloud.log", rawLog);
+            }
             std::string clean = report::sanitize(rawLog, {});
-            return {200, "text/plain; charset=utf-8", "Content-Disposition: attachment; filename=\"xcloud.log\"\r\n", clean};
+            return {200, "text/plain; charset=utf-8", "Content-Disposition: attachment; filename=\"" + filename + "\"\r\n", clean};
         }
         if (path == "/api/report-issue" || path.rfind("/api/report-issue?", 0) == 0) {
             std::string rawLog;

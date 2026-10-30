@@ -10,6 +10,7 @@
 #include "ui/strings.h"
 #include "util/log.h"
 #include "xcloud/regions.h"
+#include "build_id.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -36,7 +37,8 @@ Release g_release;
 // Asks for the latest release; a newer one with a signed package is offered
 // (the pop-up, unless the user said "Not now" to it) and shown in Settings.
 void checkForUpdate() {
-    g_ui->setUpdateState(XC_APP_VERSION, {}, true);
+    std::string displayVer = std::string(XC_APP_VERSION) + " (" + XC_BUILD_ID + ")";
+    g_ui->setUpdateState(displayVer, {}, true);
     Release r;
     std::string err;
     bool found = findLatestRelease(r, err, g_autoplay.updateFeed);
@@ -55,7 +57,7 @@ void checkForUpdate() {
         std::lock_guard<std::mutex> lock(g_releaseMutex);
         g_release = offer ? r : Release{};
     }
-    g_ui->setUpdateState(XC_APP_VERSION, offer || (newer && !selfUpdate) ? r.tag : std::string(), false, r.notes);
+    g_ui->setUpdateState(displayVer, offer || (newer && !selfUpdate) ? r.tag : std::string(), false, r.notes);
     bool skipped;
     {
         std::lock_guard<std::mutex> lock(g_settingsMutex);

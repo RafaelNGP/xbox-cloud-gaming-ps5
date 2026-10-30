@@ -63,7 +63,13 @@ std::string crashMarkerPath() { return platform::dataDir() + "/crash.marker"; }
 // of the session that went down instead of this one.
 void openReport(const std::string& what, bool previousSession, const std::string& heading, const std::string& crash = {}) {
     std::string logText;
-    platform::readFile(platform::dataDir() + "/xcloud.log", logText);
+    bool loadedPrev = false;
+    if (previousSession) {
+        loadedPrev = platform::readFile(platform::dataDir() + "/xcloud.prev.log", logText);
+    }
+    if (logText.empty()) {
+        platform::readFile(platform::dataDir() + "/xcloud.log", logText);
+    }
     if (logText.empty()) {
         logText = log::recentLogs();
     }
@@ -83,7 +89,7 @@ void openReport(const std::string& what, bool previousSession, const std::string
     info.firmware = platform::firmwareVersion();
     info.platform = platform::platformName();
     std::string platHeader = "[Platform: " + info.platform + "]\n";
-    info.log = platHeader + report::sanitize(report::logExcerpt(logText, previousSession), privateWords);
+    info.log = platHeader + report::sanitize(report::logExcerpt(logText, previousSession && !loadedPrev), privateWords);
     info.crash = report::sanitize(crash, privateWords);
     std::string url = report::issueUrl(info);
     std::string detail = info.crash;
@@ -249,11 +255,19 @@ ui::UiCaps uiCaps() {
 bool coreStartup() {
     platform::init();
     platform::setThreadAffinity(platform::ThreadRole::Main, "xcloud_main");
-    bool logOk = log::setFile((platform::dataDir() + "/xcloud.log").c_str());
+    const std::string dataDir = platform::dataDir();
+    const std::string logPath = dataDir + "/xcloud.log";
+    const std::string prevLogPath = dataDir + "/xcloud.prev.log";
+    struct stat logSt{};
+    if (::stat(logPath.c_str(), &logSt) == 0 && logSt.st_size > 0) {
+        std::remove(prevLogPath.c_str());
+        std::rename(logPath.c_str(), prevLogPath.c_str());
+    }
+    bool logOk = log::setFile(logPath.c_str());
     if (!platform::dataDirNote().empty())
-        XC_LOGI("data folder %s: %s", platform::dataDir().c_str(), platform::dataDirNote().c_str());
+        XC_LOGI("data folder %s: %s", dataDir.c_str(), platform::dataDirNote().c_str());
     if (!logOk)
-        XC_LOGW("could not open xcloud.log in %s: log kept in memory", platform::dataDir().c_str());
+        XC_LOGW("could not open xcloud.log in %s: log kept in memory", dataDir.c_str());
     XC_LOGI("=== PSBox Cloud Gaming starting ===");
     XC_LOGI("firmware %s, PSBox %s (build %s, %s)", platform::firmwareVersion().c_str(), XC_APP_VERSION, XC_BUILD_ID,
             platform::platformName().c_str());
@@ -650,7 +664,8 @@ bool coreStartup() {
     g_ui->setWebUrl(webServerUrl());
     {
         g_ui->setAllow1440(allow1440Locked());
-        g_ui->setUpdateState(XC_APP_VERSION, {}, false);  // Settings shows this version before any check
+        std::string displayVer = std::string(XC_APP_VERSION) + " (" + XC_BUILD_ID + ")";
+        g_ui->setUpdateState(displayVer, {}, false);  // Settings shows this version before any check
         g_ui->setSettings(ui::choiceFromSettings(g_settings));
         g_ui->setPerGameSettings(g_settings.perGame);
         g_ui->setGyroDefaults(g_settings.gyroMode, g_settings.gyroLevel);

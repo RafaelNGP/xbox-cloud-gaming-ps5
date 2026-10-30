@@ -187,7 +187,7 @@ bool updatablePath(const std::string& path) {
         start = slash + 1;
     }
     static const std::set<std::string> kUsers = {"account.json", "settings.json",  "library.json",
-                                                 "library_cache.json", "prices.json",  "xcloud.log",     "autoplay.txt",
+                                                 "library_cache.json", "prices.json",  "xcloud.log", "xcloud.prev.log", "autoplay.txt",
                                                  "update.journal", "store_import.done", "settings.json.bad"};
     std::string top = path.substr(0, path.find('/'));
     return !kUsers.count(path) && top != "imgcache" && top.rfind("update.", 0) != 0 && path.find(".ppm") == std::string::npos;
