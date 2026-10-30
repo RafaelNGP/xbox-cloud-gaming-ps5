@@ -4,6 +4,7 @@
 #include "app/app_core.h"
 #include "util/log.h"
 
+#include <cstdio>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -27,5 +28,6 @@ int main(int argc, char** argv) {
         XC_LOGE("main: runApp returned %d", rc);
     }
     xc::log::setFile(nullptr);
-    return rc;
+    std::fflush(nullptr);
+    _exit(rc);
 }

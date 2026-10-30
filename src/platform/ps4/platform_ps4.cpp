@@ -27,6 +27,7 @@
 #include <cstdarg>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include <sys/socket.h>
@@ -58,14 +59,24 @@ int scePthreadSetaffinity(pthread_t thread, uint64_t mask);
 int scePthreadSetprio(pthread_t thread, int prio);
 int sceKernelAvailableFlexibleMemorySize(size_t* sizeOut);
 
+static std::mutex s_sockMutex;
+static std::unordered_map<int, uint16_t> s_boundPorts;
+static std::unordered_set<int> s_openSockets;
+
+static bool isSocket(int fd) {
+    if (fd < 0) return false;
+    std::lock_guard<std::mutex> lock(s_sockMutex);
+    return s_openSockets.find(fd) != s_openSockets.end();
+}
+
 static inline int getNetErrno(int ret) {
-    int* err = sceNetErrnoLoc();
-    if (err && *err > 0) {
-        return *err;
-    }
     uint32_t uret = static_cast<uint32_t>(ret);
     if ((uret & 0xFFFFFE00) == 0x80410000) {
         return static_cast<int>(uret & 0xFF);
+    }
+    int* err = sceNetErrnoLoc();
+    if (err && *err > 0) {
+        return *err;
     }
     if (ret < 0 && ret > -256) {
         return -ret;
@@ -78,13 +89,18 @@ static inline int sanitizeNetFlags(int flags) {
 }
 
 static int setSocketNonBlock(int fd, int on) {
+    if (int* err = sceNetErrnoLoc()) *err = 0;
     int rcNbio = sceNetSetsockopt(fd, 0xffff /*SOL_SOCKET*/, 0x1200 /*SO_NBIO*/, &on, sizeof(on));
+    int errNbio = (rcNbio < 0) ? getNetErrno(rcNbio) : 0;
+
+    if (int* err = sceNetErrnoLoc()) *err = 0;
     int rcIoctl = sceNetIoctl(fd, 0x8004667eUL /*FIONBIO*/, &on);
+    int errIoctl = (rcIoctl < 0) ? getNetErrno(rcIoctl) : 0;
+
     if (rcNbio < 0 && rcIoctl < 0) {
-        int errNbio = getNetErrno(rcNbio);
-        int errIoctl = getNetErrno(rcIoctl);
-        if ((errNbio == EBADF || errNbio == ENOTSOCK) &&
-            (errIoctl == EBADF || errIoctl == ENOTSOCK)) {
+        if (errNbio == EBADF || errNbio == ENOTSOCK ||
+            errIoctl == EBADF || errIoctl == ENOTSOCK) {
+            if (int* err = sceNetErrnoLoc()) *err = 0;
             return -1;
         }
     }
@@ -95,6 +111,7 @@ static int setSocketNonBlock(int fd, int on) {
                 fd, on, static_cast<unsigned>(rcNbio), static_cast<unsigned>(rcIoctl));
     }
     if (rcNbio >= 0 || rcIoctl >= 0) {
+        if (int* err = sceNetErrnoLoc()) *err = 0;
         return 0;
     }
     if (on != 0) {
@@ -104,6 +121,7 @@ static int setSocketNonBlock(int fd, int on) {
             sceNetSetsockopt(fd, 0xffff /*SOL_SOCKET*/, 0x1006 /*SO_RCVTIMEO*/, &tv, sizeof(tv));
         }
     }
+    if (int* err = sceNetErrnoLoc()) *err = 0;
     return 0;
 }
 
@@ -125,6 +143,7 @@ int ioctl(int fd, unsigned long request, ...) {
     if (rc >= 0) {
         return rc;
     }
+    if (int* err = sceNetErrnoLoc()) *err = 0;
     return _ioctl(fd, request, arg);
 }
 
@@ -138,8 +157,8 @@ int fcntl(int fd, int cmd, ...) {
     if (cmd == F_SETFL) {
         long flags = reinterpret_cast<intptr_t>(arg);
         int on = (flags & O_NONBLOCK) ? 1 : 0;
-        if (on != 0 && setSocketNonBlock(fd, on) == 0) {
-            return 0;
+        if (isSocket(fd)) {
+            return setSocketNonBlock(fd, on);
         }
     } else if (cmd == F_GETFL) {
         typedef int (*RealFcntlFn)(int, int, ...);
@@ -288,9 +307,6 @@ int pthread_create(pthread_t* thread, const pthread_attr_t* attr,
     return rc;
 }
 
-static std::mutex s_sockMutex;
-static std::unordered_map<int, uint16_t> s_boundPorts;
-
 int socket(int domain, int type, int protocol) {
     if (protocol == 17) {
         protocol = 0;
@@ -302,6 +318,10 @@ int socket(int domain, int type, int protocol) {
         XC_LOGW("net: sceNetSocket(domain=%d, type=0x%x, proto=%d) failed: 0x%08x (errno=%d)",
                 domain, type, protocol, static_cast<unsigned>(s), errno);
         return -1;
+    }
+    {
+        std::lock_guard<std::mutex> lock(s_sockMutex);
+        s_openSockets.insert(s);
     }
 #ifndef SOCK_NONBLOCK
 #define SOCK_NONBLOCK 04000
@@ -514,6 +534,10 @@ int accept(int fd, struct sockaddr* addr, socklen_t* addrlen) {
         errno = getNetErrno(ret);
         return -1;
     }
+    {
+        std::lock_guard<std::mutex> lock(s_sockMutex);
+        s_openSockets.insert(ret);
+    }
     if (addrlen) *addrlen = slen;
     return ret;
 }
@@ -542,11 +566,13 @@ int close(int fd) {
     {
         std::lock_guard<std::mutex> lock(s_sockMutex);
         s_boundPorts.erase(fd);
+        s_openSockets.erase(fd);
     }
     int netRet = sceNetSocketClose(fd);
     if (netRet >= 0) {
         return 0;
     }
+    if (int* err = sceNetErrnoLoc()) *err = 0;
     return _close(fd);
 }
 }
