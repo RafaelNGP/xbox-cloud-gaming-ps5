@@ -58,6 +58,7 @@ bool afterDisplay(bool haveDisplay) {
         return false;
     }
     input::sdlInputInit(display::sdlWindow());
+    SDL_HideCursor();
     return true;
 }
 

@@ -4,9 +4,16 @@
 // PS5 backends and shell_ps5.cpp. Never returns: the app is closed from the
 // home screen.
 #include "app/app_core.h"
+#include "util/log.h"
+
+#include <cstdio>
+#include <unistd.h>
 
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
-    return xc::app::runApp();
+    int rc = xc::app::runApp();
+    xc::log::setFile(nullptr);
+    std::fflush(nullptr);
+    _exit(rc);
 }

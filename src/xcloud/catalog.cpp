@@ -62,18 +62,26 @@ bool fetchList(const std::string& siglId, const std::string& market, const std::
                    {"calling-app-version", "0.1"}};
     auto r = net::perform(req);
     auto j = json::parse(r.body);
-    if (!r.ok() || !j || !j->isArray()) {
+    if (!r.ok() || !j || (!j->isArray() && !(j->isObject() && j->has("productIds")))) {
         err = "catalog list " + siglId + ": " + describe(r);
         return false;
     }
     out = {};
-    // Element 0 describes the list; the rest are {"id": "<product id>"}.
-    for (size_t i = 0; i < j->size(); ++i) {
-        const auto& item = (*j)[i];
-        if (item.has("siglId")) {
-            out.title = item["title"].str();
-        } else if (auto id = item["id"].str(); !id.empty()) {
-            out.productIds.push_back(id);
+    if (j->isArray()) {
+        // Element 0 describes the list; the rest are {"id": "<product id>"}.
+        for (size_t i = 0; i < j->size(); ++i) {
+            const auto& item = (*j)[i];
+            if (item.has("siglId")) {
+                out.title = item["title"].str();
+            } else if (auto id = item["id"].str(); !id.empty()) {
+                out.productIds.push_back(id);
+            }
+        }
+    } else {
+        out.title = (*j)["title"].str();
+        for (const auto& item : (*j)["productIds"].items()) {
+            std::string id = item.isString() ? item.str() : item["id"].str();
+            if (!id.empty()) out.productIds.push_back(id);
         }
     }
     return true;

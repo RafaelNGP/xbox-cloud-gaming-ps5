@@ -12,14 +12,35 @@
 
 #include <cstdlib>
 #include <sys/stat.h>
+#include <csignal>
 #include <unistd.h>
 
 extern "C" int sceSystemServiceHideSplashScreen(void);
 extern "C" const char* sceKernelGetFsSandboxRandomWord(void);
 
+namespace {
+volatile std::sig_atomic_t g_shutdownSignal = 0;
+
+void onSignal(int sig) {
+    g_shutdownSignal = sig;
+}
+
+void installSignalHandlers() {
+    struct sigaction sa {};
+    sa.sa_handler = onSignal;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGTERM, &sa, nullptr);
+    sigaction(SIGINT, &sa, nullptr);
+    sigaction(SIGHUP, &sa, nullptr);
+    std::signal(SIGPIPE, SIG_IGN);
+}
+}  // namespace
+
 namespace xc::app::shell {
 
 void beforeSettings() {
+    installSignalHandlers();
     // An update cut short: the old files went back, and the old eboot.bin
     // is the one to run.
     if (recoverUpdate(platform::appDir())) platform::restartApp();
@@ -53,12 +74,17 @@ std::vector<std::string> iconFontPaths() {
             sandbox + "_ex/common_ex/font2/PS4Icon.ttf"};
 }
 
-// The system closes the app (from the home screen): nothing to read here.
-bool pumpEvents() { return true; }
+// The system closes the app (from the home screen): handle SIGTERM/SIGINT for clean shutdown.
+bool pumpEvents() {
+    if (g_shutdownSignal != 0) {
+        XC_LOGI("shell: received signal %d, initiating graceful shutdown", static_cast<int>(g_shutdownSignal));
+        return false;
+    }
+    return true;
+}
 bool hasFocus() { return true; }
 
 bool canSelfUpdate() { return true; }
-// Never called: the PS5's loop doesn't end.
 void beforeShutdown() {}
 Caps caps() { return {true, false, true}; }
 void setFullscreen(bool) {}

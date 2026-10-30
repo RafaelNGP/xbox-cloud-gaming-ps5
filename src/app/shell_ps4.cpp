@@ -13,13 +13,35 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <csignal>
+
 extern "C" int sceSystemServiceHideSplashScreen(void);
+
+namespace {
+volatile std::sig_atomic_t g_shutdownSignal = 0;
+
+void onSignal(int sig) {
+    g_shutdownSignal = sig;
+}
+
+void installSignalHandlers() {
+    struct sigaction sa {};
+    sa.sa_handler = onSignal;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGTERM, &sa, nullptr);
+    sigaction(SIGINT, &sa, nullptr);
+    sigaction(SIGHUP, &sa, nullptr);
+    std::signal(SIGPIPE, SIG_IGN);
+}
+}  // namespace
 
 namespace xc::app::shell {
 
 void beforeSettings() {
+    installSignalHandlers();
     if (recoverUpdate(platform::appDir())) platform::restartApp();
-    importStoreLeftovers(platform::dataDir(), "/data/pkg/previous/PSBOX00001");
+    importStoreLeftovers(platform::dataDir(), "/data/pkg/previous/PSBX00001");
 }
 
 void beforeDisplay(const Settings&) {
@@ -34,11 +56,24 @@ std::vector<std::string> iconFontPaths() {
             "/system_ex/common_ex/font2/PS4Icon.ttf"};
 }
 
-bool pumpEvents() { return true; }
+bool pumpEvents() {
+    if (g_shutdownSignal != 0) {
+        XC_LOGI("shell: received signal %d, initiating graceful shutdown", static_cast<int>(g_shutdownSignal));
+        return false;
+    }
+    return true;
+}
 bool hasFocus() { return true; }
 bool canSelfUpdate() { return false; }
 void beforeShutdown() {}
-Caps caps() { return {true, false, true}; }
+Caps caps() {
+    Caps c;
+    c.console = true;
+    c.openUrl = false;
+    c.selfUpdate = false;
+    c.window = false;
+    return c;
+}
 void setFullscreen(bool) {}
 bool fullscreenSwitched(bool&) { return false; }
 bool openUrl(const std::string&) { return false; }

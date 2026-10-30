@@ -1122,7 +1122,9 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
             errorSince = 1;
         }
     }
-    if (g_ui->reportOpen() && !g_autoplay.crashTest && !g_autoplay.reportTest) {
+    static bool dismissedBootCrash = false;
+    if (g_ui->reportOpen() && !g_autoplay.crashTest && !g_autoplay.reportTest && !dismissedBootCrash && !uiSaved) {
+        dismissedBootCrash = true;
         ui::NavInput in{};
         in.back = true;
         g_ui->handle(in);

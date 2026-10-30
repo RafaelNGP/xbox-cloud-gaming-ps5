@@ -72,7 +72,7 @@ SHIM_S
 fi
 
 TITLE="${XC_PS4_TITLE:-PSBox Cloud Gaming - PS4}"
-VERSION="${XC_PS4_VERSION:-01.54}"
+VERSION="${XC_PS4_VERSION:-01.55}"
 # PS5 backward-compatibility checks every PS4 PKG against Sony's Category1 whitelist.
 # Using a whitelisted Title ID (like CUSA00100) allows the PS4 PKG to run on PS5 backward compatibility.
 TITLE_ID="${XC_PS4_TITLE_ID:-PSBX00001}"

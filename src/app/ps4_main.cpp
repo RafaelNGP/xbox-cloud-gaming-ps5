@@ -14,7 +14,7 @@ int main(int argc, char** argv) {
     (void)argv;
     ::mkdir("/data/psbox", 0777);
     // Early diagnostic marker: verifies main() was entered before complex subsystems
-    for (const char* path : {"/data/psbox/boot.log", "/data/homebrew/PSBOX00001/boot.log"}) {
+    for (const char* path : {"/data/psbox/boot.log", "/data/homebrew/PSBX00001/boot.log"}) {
         int fd = ::open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
         if (fd >= 0) {
             const char msg[] = "PSBox Cloud Gaming - PS4 main() entered successfully\n";

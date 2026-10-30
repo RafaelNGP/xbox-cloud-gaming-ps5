@@ -356,9 +356,13 @@ std::string stream(xcloud::GssvClient& gssv) {
                 details, static_cast<unsigned long long>(session.badSeconds),
                 static_cast<unsigned long long>(st.rtpDroppedFrames), static_cast<unsigned long long>(st.rtpRecovered));
     }
-    // Ended before a single frame: the game never started (e.g. it closed on
-    // the server); say so on the error screen instead of going back quietly.
-    if (st.decodedFrames == 0 && !g_cancel && !autoplayDone) {
+    // An abnormal stream end (connection lost, WebRTC failure, decoder failure):
+    // report it as an error so the user sees the error screen and can report or retry.
+    bool normalEnd = g_cancel || autoplayDone || reason == "stopped" ||
+                     reason.find("KickForStopCommand") != std::string::npos ||
+                     reason.find("KickByNewSession") != std::string::npos ||
+                     reason.find("KickForServerShutdown") != std::string::npos;
+    if (!normalEnd) {
         g_gameClosedOnServer = reason.rfind("the game closed on the server", 0) == 0;
         return "ERROR: " + ui::trf(ui::Str::StreamFailed, reason);
     }

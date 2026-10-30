@@ -641,7 +641,9 @@ bool GssvClient::pollIceCandidates(std::vector<IceCandidate>& out, std::string& 
 }
 
 bool GssvClient::keepalive(std::string& err) {
-    auto r = net::perform(authed(resolution_, previewFeatures_, login_, "POST", sessionUrl("/keepalive")));
+    auto req = authed(resolution_, previewFeatures_, login_, "POST", sessionUrl("/keepalive"));
+    req.timeoutMs = 5000;
+    auto r = net::perform(req);
     if (!r.ok()) {
         err = "keepalive failed: " + describe(r);
         return false;
@@ -651,7 +653,9 @@ bool GssvClient::keepalive(std::string& err) {
 
 void GssvClient::stopSession() {
     if (sessionPath_.empty()) return;
-    auto r = net::perform(authed(resolution_, previewFeatures_, login_, "DELETE", sessionUrl("")));
+    auto req = authed(resolution_, previewFeatures_, login_, "DELETE", sessionUrl(""));
+    req.timeoutMs = 3000;
+    auto r = net::perform(req);
     XC_LOGI("session stopped (%s)", r.ok() ? "ok" : describe(r).c_str());
     sessionPath_.clear();
 }

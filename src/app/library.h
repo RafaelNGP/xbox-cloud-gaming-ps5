@@ -125,6 +125,7 @@ private:
         bool isGrid = false;
         std::vector<Item> items;
         bool recent = false;  // "Jump back in"
+        std::string siglId;
     };
     std::vector<ui::GameTile> tiles(const std::vector<Item>& items) const;
     bool isPcOnly(const std::string& productId) const;
@@ -151,6 +152,7 @@ private:
     bool gamePassMember_ = false;
     bool ownershipFresh_ = false;            // the account's list of this start (not the cache's) is in
     std::set<std::string> knownGamePass_;    // the Game Pass catalog at the last start (cache)
+    std::set<std::string> knownProducts_;    // all products known at the last start (cache)
     std::set<std::string> ownedTitles_, ownedProducts_;
     std::set<std::string> acquiredTitles_, acquiredProducts_;
     std::map<std::string, uint64_t> playtime_;

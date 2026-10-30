@@ -56,7 +56,7 @@ use warnings;
 my @rules = (
     qr/\bsce[A-Z][A-Za-z0-9_]*/,
     qr/^\s*#\s*include\s*[<"](?:ps5platform|orbis)\//,
-    qr/\b(?:XCLOUD_PS5|XC_PLATFORM_PS5|__PROSPERO__|__ORBIS__)\b/,
+    qr/\b(?:XCLOUD_PS5|XC_PLATFORM_PS5|XC_PLATFORM_PS4|XC_TARGET_PS4|__PROSPERO__|__ORBIS__|__PS4__)\b/,
     qr/^\s*#\s*(?:if|ifdef|ifndef|elif|elifdef|elifndef)\b.*\b__FreeBSD__\b/,
     qr/^\s*#\s*(?:ifndef|elifndef)\s+XC_PLATFORM_DESKTOP\b/,
     qr/^\s*#\s*(?:if|elif)\b.*!\s*(?:defined\s*\(?\s*)?XC_PLATFORM_DESKTOP\b/,

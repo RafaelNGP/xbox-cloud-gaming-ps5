@@ -818,8 +818,8 @@ extern "C" int getifaddrs(struct ifaddrs** ifap) {
 
     // 4. Default fallback: ensure libjuice never receives an empty interface list
     if (local.sin_addr.s_addr == 0) {
-        inet_pton(AF_INET, "192.168.15.30", &local.sin_addr);
-        src = "fallback-default";
+        inet_pton(AF_INET, "127.0.0.1", &local.sin_addr);
+        src = "loopback-default";
     }
     static const char* s_lastIfSrc = nullptr;
     if (s_lastIfSrc != src) {
@@ -884,7 +884,7 @@ namespace xc::platform {
 
 namespace {
 constexpr const char* kDataDir = "/data/psbox";
-constexpr const char* kLegacyDir = "/data/homebrew/PSBOX00001";
+constexpr const char* kLegacyDir = "/data/homebrew/PSBX00001";
 std::string g_dataDir = kDataDir;
 std::string g_dataNote;
 bool g_dataDirWritable = false;
@@ -1052,6 +1052,10 @@ std::string firmwareVersion() {
 
 std::string platformName() {
     return "PlayStation 4";
+}
+
+size_t imageCacheBudget() {
+    return 48u << 20;
 }
 
 std::string diagnostics() {

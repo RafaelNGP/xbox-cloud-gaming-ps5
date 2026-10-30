@@ -677,7 +677,9 @@ bool Library::loadCache(bool withLayout) {
     // still shown, so the lists stay whole, and fetched again in this one.
     bool sameLanguage = (*j)["language"].str() == language_;
     for (const auto& [pid, title] : (*j)["cloudTitles"].members()) cloudTitleOf_[pid] = title.str();
-    for (const auto& [id, v] : (*j)["products"].members())
+    knownProducts_.clear();
+    for (const auto& [id, v] : (*j)["products"].members()) {
+        if (!id.empty()) knownProducts_.insert(id);
         if (!products_.count(id)) {
             products_[id] = productFromJson(id, v);
             if (products_[id].xcloudTitleId.empty() || products_[id].xcloudTitleId == "None") {
@@ -686,6 +688,10 @@ bool Library::loadCache(bool withLayout) {
             }
             if (!sameLanguage) otherLanguage_.insert(id);
         }
+    }
+    for (const auto& p : (*j)["knownProducts"].items()) {
+        if (!p.str().empty()) knownProducts_.insert(p.str());
+    }
     for (const auto& [id, code] : (*j)["platforms"].members()) platform_[id] = code.str();
     for (const auto& [pid, xbox] : (*j)["xboxTitles"].members()) xboxTitleOf_[pid] = xbox.str();
     for (const auto& id : (*j)["freeInStore"].items()) freeInStore_.insert(id.str());
@@ -740,6 +746,21 @@ bool Library::loadCache(bool withLayout) {
             r.badges = rowObj["badges"].asBool(true);
             r.isGrid = rowObj["isGrid"].asBool(false);
             r.recent = rowObj["recent"].asBool(false);
+            r.siglId = rowObj["siglId"].str();
+            if (r.siglId.empty()) {
+                if (r.isGrid) {
+                    r.siglId = xcloud::sigl::kAllGames;
+                } else if (!r.recent) {
+                    size_t shelfIdx = 0;
+                    for (const auto& existing : layout_) {
+                        if (!existing.recent && !existing.isGrid) ++shelfIdx;
+                    }
+                    if (shelfIdx == 0) r.siglId = xcloud::sigl::kRecentlyAdded;
+                    else if (shelfIdx == 1) r.siglId = xcloud::sigl::kMostPopular;
+                    else if (shelfIdx == 2) r.siglId = xcloud::sigl::kFreeToPlay;
+                    else if (shelfIdx == 3) r.siglId = xcloud::sigl::kLeavingSoon;
+                }
+            }
             for (const auto& it : rowObj["items"].items()) {
                 r.items.emplace_back(it["p"].str(), it["t"].str());
             }
@@ -878,25 +899,28 @@ void Library::saveCache() const {
         rowObj.set("badges", r.badges);
         rowObj.set("isGrid", r.isGrid);
         rowObj.set("recent", r.recent);
+        if (!r.siglId.empty()) rowObj.set("siglId", r.siglId);
         rowObj.set("items", itemsToJson(r.items));
         layoutArr.push(std::move(rowObj));
     }
     root.set("layout", layoutArr);
-    // Details of everything on the home screen, in "Your games" and in the
-    // Game Pass search: the next launch shows them, hero art and all, before
-    // the network answers, and the search's filters (play modes, languages)
-    // work without asking again.
+    // Details of everything on the home screen, in "Your games", in the
+    // Game Pass catalog, and all catalog products resolved: the next launch
+    // shows them without re-fetching, and prevents false-positive new title alerts.
     json::Value details = json::Value::object();
-    auto keep = [&](const std::string& pid) {
-        auto it = products_.find(pid);
-        if (it != products_.end()) details.set(pid, productToJson(it->second));
-    };
-    for (const auto& r : layout_)
-        for (const auto& item : r.items) keep(item.first);
-    for (const auto* list : {&owned_, &purchasable_})
-        for (const auto& [pid, tid] : *list) keep(pid);
-    for (const auto& pid : allGames_) keep(pid);
+    for (const auto& [pid, prod] : products_) {
+        details.set(pid, productToJson(prod));
+    }
     root.set("products", details);
+    std::set<std::string> allKnown = knownProducts_;
+    for (const auto& [pid, _] : products_) {
+        if (!pid.empty()) allKnown.insert(pid);
+    }
+    json::Value kp = json::Value::array();
+    for (const auto& p : allKnown) {
+        if (!p.empty()) kp.push(p);
+    }
+    root.set("knownProducts", kp);
     json::Value platforms = json::Value::object(), xboxTitles = json::Value::object(), cloudTitles = json::Value::object();
     for (const auto& [id, code] : platform_) platforms.set(id, code);
     for (const auto& [pid, xbox] : xboxTitleOf_) xboxTitles.set(pid, xbox);

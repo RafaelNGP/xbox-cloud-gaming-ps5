@@ -247,6 +247,10 @@ std::string platformName() {
     return "PlayStation 5";
 }
 
+size_t imageCacheBudget() {
+    return 160u << 20;
+}
+
 // One user per app sandbox: nothing to hide the sign-in from.
 void makePrivate(const std::string&) {}
 

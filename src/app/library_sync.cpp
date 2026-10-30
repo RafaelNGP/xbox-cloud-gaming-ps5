@@ -57,6 +57,8 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
             }
         }
     }
+
+    // 1. Fetch All Games catalog feed
     xcloud::ProductList allSigl;
     std::string siglErr;
     if (xcloud::fetchList(xcloud::sigl::kAllGames, market_, language_, allSigl, siglErr)) {
@@ -70,6 +72,92 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
             }
         }
     }
+
+    // 2. Fetch updated shelf feeds (Recently Added, Most Popular, Free to Play, Leaving Soon)
+    const struct ShelfSpec {
+        const char* sigl;
+        size_t limit;
+    } shelfSpecs[] = {
+        {xcloud::sigl::kRecentlyAdded, 40},
+        {xcloud::sigl::kMostPopular, 40},
+        {xcloud::sigl::kFreeToPlay, 40},
+        {xcloud::sigl::kLeavingSoon, 40}
+    };
+
+    struct FetchedShelf {
+        std::string siglId;
+        xcloud::ProductList list;
+        bool ok = false;
+    };
+    std::vector<FetchedShelf> fetchedShelves;
+
+    uint8_t myPlan = xcloud::planTier(subscription_);
+
+    for (const auto& spec : shelfSpecs) {
+        FetchedShelf fs;
+        fs.siglId = spec.sigl;
+        std::string e;
+        if (xcloud::fetchList(spec.sigl, market_, language_, fs.list, e)) {
+            fs.ok = true;
+            if (spec.sigl == xcloud::sigl::kRecentlyAdded) {
+                const char* const kNewCod[] = {"9NCPSQQD1Z66", "9N201KQXS5BM"};
+                for (const char* pid : kNewCod) {
+                    auto it = std::find(fs.list.productIds.begin(), fs.list.productIds.end(), pid);
+                    if (it != fs.list.productIds.end()) {
+                        fs.list.productIds.erase(it);
+                        size_t insertAt = std::min<size_t>(1, fs.list.productIds.size());
+                        fs.list.productIds.insert(fs.list.productIds.begin() + static_cast<long>(insertAt), pid);
+                    }
+                }
+            } else if (spec.sigl == xcloud::sigl::kMostPopular) {
+                popular_ = fs.list.productIds;
+                const char* const kTopCod[] = {"9NCPSQQD1Z66", "9N201KQXS5BM", "9NNFG8BQRCXL"};
+                for (const char* pid : kTopCod) {
+                    auto it = std::find(fs.list.productIds.begin(), fs.list.productIds.end(), pid);
+                    if (it != fs.list.productIds.end()) {
+                        fs.list.productIds.erase(it);
+                        size_t insertAt = std::min<size_t>(2, fs.list.productIds.size());
+                        fs.list.productIds.insert(fs.list.productIds.begin() + static_cast<long>(insertAt), pid);
+                    }
+                }
+            }
+            bool freeToPlay = spec.sigl == xcloud::sigl::kFreeToPlay;
+            if (freeToPlay) {
+                freeInStore_.insert(fs.list.productIds.begin(), fs.list.productIds.end());
+            }
+            bool isMostPopular = spec.sigl == xcloud::sigl::kMostPopular;
+            if (!gamePass_.empty() && !freeToPlay && !isMostPopular) {
+                fs.list.productIds.erase(std::remove_if(fs.list.productIds.begin(), fs.list.productIds.end(),
+                                                        [&](const std::string& id) {
+                                                            if (!gamePass_.count(id)) return true;
+                                                            if (myPlan > 0 && myPlan < xcloud::kPlanUltimate &&
+                                                                !ownedProducts_.count(id) && !freeInStore_.count(id)) {
+                                                                auto it = products_.find(id);
+                                                                if (it != products_.end() &&
+                                                                    !xcloud::planIncludes(myPlan, it->second.plan, false))
+                                                                    return true;
+                                                            }
+                                                            return false;
+                                                        }),
+                                         fs.list.productIds.end());
+            }
+            fs.list.productIds.erase(std::remove_if(fs.list.productIds.begin(), fs.list.productIds.end(),
+                                                    [&](const std::string& id) {
+                                                        return isPcOnly(id);
+                                                    }),
+                                     fs.list.productIds.end());
+            if (spec.limit > 0 && fs.list.productIds.size() > spec.limit) {
+                fs.list.productIds.resize(spec.limit);
+            }
+            for (const auto& pid : fs.list.productIds) {
+                if (!pid.empty() && !products_.count(pid)) {
+                    newProducts.push_back(pid);
+                }
+            }
+        }
+        fetchedShelves.push_back(std::move(fs));
+    }
+
     std::sort(newProducts.begin(), newProducts.end());
     newProducts.erase(std::unique(newProducts.begin(), newProducts.end()), newProducts.end());
 
@@ -82,7 +170,10 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
         for (const auto& pid : newProducts) {
             auto it = products_.find(pid);
             if (it != products_.end() && !it->second.title.empty()) {
-                actuallyAdded.push_back(pid);
+                bool isCatalogAddition = !gamePass_.empty() && gamePass_.count(pid);
+                if (isCatalogAddition && !knownGamePass_.count(pid) && !knownProducts_.count(pid)) {
+                    actuallyAdded.push_back(pid);
+                }
             } else {
                 products_[pid].productId = pid;
                 products_[pid].detailedAt = platform::nowMs();
@@ -90,6 +181,7 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
         }
         newCount = actuallyAdded.size();
     }
+
     allGames_.erase(std::remove_if(allGames_.begin(), allGames_.end(),
                                    [&](const std::string& id) {
                                        return isPcOnly(id);
@@ -99,8 +191,55 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
         if (isPcOnly(*it)) it = gamePass_.erase(it);
         else ++it;
     }
+
+    // Refresh shelf rows in layout_
+    for (const auto& fs : fetchedShelves) {
+        if (!fs.ok) continue;
+        bool found = false;
+        for (auto& row : layout_) {
+            if (row.isGrid || row.recent) continue;
+            if ((!row.siglId.empty() && row.siglId == fs.siglId) ||
+                (row.siglId.empty() && row.title == fs.list.title)) {
+                row.siglId = fs.siglId;
+                if (row.title.empty() && !fs.list.title.empty()) row.title = fs.list.title;
+                row.items.clear();
+                for (const auto& pid : fs.list.productIds) {
+                    std::string tid = cloudTitleOf_.count(pid) ? cloudTitleOf_[pid] : "";
+                    row.items.emplace_back(pid, tid);
+                }
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            size_t shelfIdx = 0;
+            if (fs.siglId == xcloud::sigl::kRecentlyAdded) shelfIdx = 0;
+            else if (fs.siglId == xcloud::sigl::kMostPopular) shelfIdx = 1;
+            else if (fs.siglId == xcloud::sigl::kFreeToPlay) shelfIdx = 2;
+            else if (fs.siglId == xcloud::sigl::kLeavingSoon) shelfIdx = 3;
+
+            size_t curShelf = 0;
+            for (auto& row : layout_) {
+                if (row.isGrid || row.recent) continue;
+                if (curShelf == shelfIdx) {
+                    row.siglId = fs.siglId;
+                    if (row.title.empty() && !fs.list.title.empty()) row.title = fs.list.title;
+                    row.items.clear();
+                    for (const auto& pid : fs.list.productIds) {
+                        std::string tid = cloudTitleOf_.count(pid) ? cloudTitleOf_[pid] : "";
+                        row.items.emplace_back(pid, tid);
+                    }
+                    found = true;
+                    break;
+                }
+                ++curShelf;
+            }
+        }
+    }
+
     for (auto& row : layout_) {
         if (row.isGrid) {
+            row.siglId = xcloud::sigl::kAllGames;
             row.items.clear();
             for (const auto& pid : allGames_) {
                 std::string tid = cloudTitleOf_.count(pid) ? cloudTitleOf_[pid] : "";
@@ -114,6 +253,10 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
                             row.items.end());
         }
     }
+
+    for (const auto& pid : allGames_) knownGamePass_.insert(pid);
+    for (const auto& [pid, _] : products_) knownProducts_.insert(pid);
+
     loadOwned(gssv, changed, nullptr, &titles);
     loadCatalogNames(changed, nullptr);
     saveCache();
@@ -134,6 +277,7 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
     ownershipKnown_ = false;
     ownershipFresh_ = false;
     knownGamePass_.clear();
+    knownProducts_.clear();
     ownedTitles_.clear();
     ownedProducts_.clear();
     owned_.clear();
@@ -297,6 +441,7 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
             lastErr = e;
         }
         RowIds r{list.title, !freeToPlay, isAllGames, {}};
+        r.siglId = spec.sigl;
         for (const auto& id : list.productIds) r.items.emplace_back(id, std::string());
         layout_.push_back(std::move(r));
         changed();
@@ -305,6 +450,9 @@ bool Library::load(xcloud::GssvClient& gssv, const std::string& language, const 
         err = lastErr.empty() ? "no games found" : lastErr;
         return false;
     }
+    for (const auto& pid : allGames_) knownGamePass_.insert(pid);
+    for (const auto& [pid, _] : products_) knownProducts_.insert(pid);
+    saveCache();
     return true;
 }
 

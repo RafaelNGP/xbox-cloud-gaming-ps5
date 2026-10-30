@@ -299,7 +299,7 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
         existingLib = s_library;
     }
 
-    if (!forceRefresh && existingLib && existingLib->ownedKnown()) {
+    if (!forceRefresh && existingLib && (existingLib->ownedKnown() || !existingLib->rows().empty())) {
         stopHydration();
         existingLib->setSubscription(g_subscription);
         {
@@ -310,10 +310,9 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
         setQueueClient(&gssv);
         XC_LOGI("library: delta-sync against active library (forceRefresh=%d)", forceRefresh);
         if (g_ui->screen() == ui::Screen::Splash || g_ui->screen() == ui::Screen::SignIn) {
-            g_ui->showSplash(ui::tr(ui::Str::LoadingGames));
-        } else {
-            g_ui->setLoading(true, 0, 0);
+            g_ui->showHome();
         }
+        g_ui->setLoading(true, 0, 0);
         auto publish = [](const app::Library& lib) {
             auto p = lib.progress();
             g_ui->setCatalogState(lib.rows(), lib.owned(), lib.purchasable(), lib.ownedKnown(),
@@ -332,9 +331,6 @@ void loadLibrary(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceRefr
             std::string msg = ui::tr(ui::Str::LibraryUpToDate);
             if (!shell::caps().console) g_ui->showToast(msg);
             platform::notify(msg);
-        }
-        if (g_ui->screen() == ui::Screen::Splash || g_ui->screen() == ui::Screen::SignIn) {
-            g_ui->showHome();
         }
 
         std::vector<ui::GameRow> rows = existingLib->rows();
@@ -743,7 +739,7 @@ void worker() {
                     } else if (isDnsOrSinkholeError(result)) {
                         g_ui->showError(ui::tr(ui::Str::DnsBlockedNanoDns));
                     } else {
-                        g_ui->showError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result);
+                        g_ui->showPlayError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result, tile);
                     }
                 }
                 else

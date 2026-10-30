@@ -226,11 +226,11 @@ int32_t padUserId(int index) {
 
 PadCaps padCaps(int index) {
     if (!padConnected(index)) return {};
-    return {PadKind::DualShock4, true, false, true, true, true, false};
+    return {PadKind::DualShock4, true, false, false, true, true, true};
 }
 
 PadCaps anyPadCaps() {
-    return {PadKind::DualShock4, true, false, true, true, true, false};
+    return {PadKind::DualShock4, true, false, false, true, true, true};
 }
 
 bool init() {

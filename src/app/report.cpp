@@ -158,6 +158,15 @@ std::string issueUrl(const Info& info, size_t maxLength) {
     } else if (!info.platform.empty()) {
         platHeader = "[Platform: " + info.platform + "]\n";
     }
+    if (log.size() > maxLength) {
+        size_t start = log.size() - maxLength;
+        size_t nl = log.find('\n', start);
+        if (nl != std::string::npos) {
+            log = "...\n" + log.substr(nl + 1);
+        } else {
+            log = "...\n" + log.substr(start);
+        }
+    }
     for (;;) {
         std::string fullLog = platHeader + log;
         std::string url = head + encode(fullLog);

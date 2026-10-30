@@ -102,6 +102,9 @@ std::string diagnostics();
 // Platform description ("PlayStation 4", "PlayStation 5", "Linux", etc.).
 std::string platformName();
 
+// Suggested image cache budget in bytes for this platform's RAM constraints.
+size_t imageCacheBudget();
+
 bool readFile(const std::string& path, std::string& out);
 bool writeFileAtomic(const std::string& path, const std::string& data);
 // A file holding the sign-in, once written: readable by this user only on a

@@ -48,7 +48,7 @@ struct Overlay {
     uint8_t alpha = 255;
 };
 std::mutex g_overlayMutex;
-std::unique_ptr<Overlay> g_overlay;
+std::shared_ptr<const Overlay> g_overlay;
 
 struct RowScratch {
     int lastWidth = 0;
@@ -377,12 +377,10 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v,
 
     g_scratch.update(width, height);
 
-    std::unique_ptr<Overlay> activeOverlay;
+    std::shared_ptr<const Overlay> activeOverlay;
     {
         std::lock_guard<std::mutex> lock(g_overlayMutex);
-        if (g_overlay) {
-            activeOverlay = std::make_unique<Overlay>(*g_overlay);
-        }
+        activeOverlay = g_overlay;
     }
 
     auto renderSlice = [y, u, v, strideY, strideU, strideV, dst, &activeOverlay](int yStart, int yEnd) {
@@ -445,12 +443,10 @@ bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
 
     g_scratch.update(width, height);
 
-    std::unique_ptr<Overlay> activeOverlay;
+    std::shared_ptr<const Overlay> activeOverlay;
     {
         std::lock_guard<std::mutex> lock(g_overlayMutex);
-        if (g_overlay) {
-            activeOverlay = std::make_unique<Overlay>(*g_overlay);
-        }
+        activeOverlay = g_overlay;
     }
 
     auto renderSlice = [y, uv, strideY, strideUV, dst, &activeOverlay](int yStart, int yEnd) {
@@ -512,13 +508,14 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
         g_overlay.reset();
         return;
     }
-    g_overlay = std::make_unique<Overlay>();
-    g_overlay->x = x;
-    g_overlay->y = y;
-    g_overlay->w = w;
-    g_overlay->h = h;
-    g_overlay->alpha = opacity;
-    g_overlay->px.assign(pixels, pixels + static_cast<size_t>(w) * h);
+    auto overlay = std::make_shared<Overlay>();
+    overlay->x = x;
+    overlay->y = y;
+    overlay->w = w;
+    overlay->h = h;
+    overlay->alpha = opacity;
+    overlay->px.assign(pixels, pixels + static_cast<size_t>(w) * h);
+    g_overlay = std::move(overlay);
 }
 
 void setSharpness(int amount) { g_sharpness = std::clamp(amount, 0, 256); }

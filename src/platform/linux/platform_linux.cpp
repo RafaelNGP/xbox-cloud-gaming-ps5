@@ -170,6 +170,7 @@ bool restartApp() { return false; }
 std::string firmwareVersion() { return {}; }
 std::string diagnostics() { return {}; }
 std::string platformName() { return "Linux"; }
+size_t imageCacheBudget() { return 160u << 20; }
 
 void setThreadAffinity(ThreadRole role, const char* name) {
     if (name && *name) {

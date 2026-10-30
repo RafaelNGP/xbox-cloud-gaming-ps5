@@ -241,10 +241,10 @@ ui::UiCaps uiCaps() {
     c.adaptiveTriggers = pc.adaptiveTriggers;
     c.gyro = pc.gyro;
     c.touchpad = pc.touchpad;
-    c.upscalers = sc.console || dc.upscalers;
-    c.sharpen = sc.console || dc.sharpen;
-    c.deband = sc.console || dc.deband;
-    c.highRefresh = sc.console || dc.highRefreshSwitch;
+    c.upscalers = dc.upscalers;
+    c.sharpen = dc.sharpen;
+    c.deband = dc.deband;
+    c.highRefresh = dc.highRefreshSwitch;
     c.console = sc.console;
     c.openUrl = sc.openUrl;
     c.selfUpdate = sc.selfUpdate;
@@ -315,9 +315,7 @@ bool coreStartup() {
         bool ok = fonts.loadIcons(shell::iconFontPaths());
         XC_LOGI("system icon font: %s", ok ? "loaded" : "not found (drawn icons)");
     }
-    const size_t imageBudget = (platform::platformName().find("PlayStation 4") != std::string::npos)
-                                   ? (48u << 20)
-                                   : (160u << 20);
+    const size_t imageBudget = platform::imageCacheBudget();
     g_images = std::make_unique<ui::ImageCache>(
         [] {
             if (g_ui) g_ui->invalidate();

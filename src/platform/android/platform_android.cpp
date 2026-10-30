@@ -118,6 +118,7 @@ bool restartApp() { return false; }
 std::string firmwareVersion() { return {}; }
 std::string diagnostics() { return {}; }
 std::string platformName() { return "Android"; }
+size_t imageCacheBudget() { return 96u << 20; }
 
 void setThreadAffinity(ThreadRole, const char*) {}
 void setThreadRealtimePriority() {}

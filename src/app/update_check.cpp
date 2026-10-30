@@ -64,11 +64,16 @@ bool findLatestRelease(Release& out, std::string& err, const std::string& feedUr
     const auto& assets = (*j)["assets"];
     for (size_t i = 0; i < assets.size(); ++i) {
         const auto& a = assets[i];
-        if (a["name"].str() == "PPSA99810.zip") {
-            out.zipUrl = a["browser_download_url"].str();
-            out.zipSize = static_cast<long>(a["size"].asInt(-1));
-        } else if (a["name"].str() == "PPSA99810.zip.sig") {
-            out.sigUrl = a["browser_download_url"].str();
+        std::string name = a["name"].str();
+        if (name == "PPSA99810.zip" || (name.find("PS5") != std::string::npos && name.size() >= 4 && name.rfind(".zip") == name.size() - 4)) {
+            if (out.zipUrl.empty() || name == "PPSA99810.zip") {
+                out.zipUrl = a["browser_download_url"].str();
+                out.zipSize = static_cast<long>(a["size"].asInt(-1));
+            }
+        } else if (name == "PPSA99810.zip.sig" || (name.find("PS5") != std::string::npos && name.size() >= 8 && name.rfind(".zip.sig") == name.size() - 8)) {
+            if (out.sigUrl.empty() || name == "PPSA99810.zip.sig") {
+                out.sigUrl = a["browser_download_url"].str();
+            }
         }
     }
     return true;

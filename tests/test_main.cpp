@@ -32,6 +32,7 @@
 #include "ui/input_mode.h"
 #include "ui/stream_menu.h"
 #include "ui/strings.h"
+#include "ui/app_ui_internal.h"
 #include "util/json.h"
 #include "util/log.h"
 #include "auth/auth_manager.h"
@@ -937,6 +938,16 @@ static void testReport() {
     CHECK(url.find("number+199") != std::string::npos && url.find("number+0%0A") == std::string::npos);
     CHECK(url.find("release=0.9.6") != std::string::npos && url.find("title=Error:+certificates") != std::string::npos);
     CHECK(url.find("pc%3Deboot%2B0x1a2b3c") != std::string::npos && url.find("(v0.9.6)") != std::string::npos);
+    CHECK(xc::platform::imageCacheBudget() >= (48u << 20));
+
+    // QR code generation and 4-slot LRU caching
+    ui::Canvas canvas(300, 300);
+    auto qr1 = ui::drawQr(canvas, url, 280, 20, 200, qrcodegen_Ecc_LOW);
+    CHECK(qr1.w > 0 && qr1.h > 0);
+    auto qr1_cached = ui::drawQr(canvas, url, 280, 20, 200, qrcodegen_Ecc_LOW);
+    CHECK(qr1_cached.w == qr1.w && qr1_cached.h == qr1.h);
+    auto qr_empty = ui::drawQr(canvas, "", 280, 20, 200);
+    CHECK(qr_empty.w == 0 && qr_empty.h == 0);
 }
 
 [[gnu::noinline]] static void triggerNullWriteCrash() {
@@ -2193,6 +2204,34 @@ static void testVisibleSettingsRows() {
     xbox.triggerRumble = true;
     auto x = ids(ui::visibleSettingsRows(xbox));
     CHECK(std::find(x.begin(), x.end(), 4) != x.end() && std::find(x.begin(), x.end(), 6) == x.end());
+    // PS4 console UI caps: DualShock 4 (touchpad/gyro/lightbar, no adaptive triggers) and no PS5 display features (120Hz, FSR1, deband).
+    ui::UiCaps ps4;
+    ps4.console = true;
+    ps4.openUrl = false;
+    ps4.selfUpdate = false;
+    ps4.desktopWindow = false;
+    ps4.lightBar = true;
+    ps4.gyro = true;
+    ps4.touchpad = true;
+    ps4.triggerRumble = false;
+    ps4.adaptiveTriggers = false;
+    ps4.upscalers = false;
+    ps4.sharpen = false;
+    ps4.deband = false;
+    ps4.highRefresh = false;
+    auto ps4Rows = ids(ui::visibleSettingsRows(ps4));
+    CHECK(std::find(ps4Rows.begin(), ps4Rows.end(), 9) == ps4Rows.end());
+    CHECK(std::find(ps4Rows.begin(), ps4Rows.end(), 4) == ps4Rows.end());
+    CHECK(std::find(ps4Rows.begin(), ps4Rows.end(), 21) == ps4Rows.end());
+    CHECK(std::find(ps4Rows.begin(), ps4Rows.end(), 6) != ps4Rows.end());
+    CHECK(std::find(ps4Rows.begin(), ps4Rows.end(), 15) != ps4Rows.end());
+    auto ps4Game = ids(ui::visibleGameSettingsRows(ps4, true, true));
+    CHECK(std::find(ps4Game.begin(), ps4Game.end(), 1) == ps4Game.end());
+    CHECK(std::find(ps4Game.begin(), ps4Game.end(), 2) == ps4Game.end());
+    CHECK(std::find(ps4Game.begin(), ps4Game.end(), 3) == ps4Game.end());
+    CHECK(std::find(ps4Game.begin(), ps4Game.end(), 6) == ps4Game.end());
+    CHECK(std::find(ps4Game.begin(), ps4Game.end(), 8) == ps4Game.end());
+    CHECK(std::find(ps4Game.begin(), ps4Game.end(), 13) != ps4Game.end());
     // A game's settings.
     CHECK((ids(ui::visibleGameSettingsRows(ps5, true, false)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 16, 7, 12, 11, 9, 10}));
     CHECK((ids(ui::visibleGameSettingsRows(ps5, true, true)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 16, 7, 12, 11, 13, 9, 10}));
@@ -6579,7 +6618,153 @@ static void testSizedUrl() {
           "https://images-eds-ssl.xboxlive.com/image.png");
 }
 
+static void testReleaseV155Features() {
+    std::string testDir = "/tmp/test-v155-features";
+    std::system(("rm -rf " + testDir + " && mkdir -p " + testDir).c_str());
+    std::string cacheFile = testDir + "/library_cache.json";
+
+    // 1. Verify shelf auto-refresh & knownProducts persistence in library_cache.json
+    {
+        std::map<std::string, std::string> siglFeeds;
+        siglFeeds[xcloud::sigl::kAllGames] = R"([{"siglId":"all","title":"All Games"},{"id":"GP_GAME_1"},{"id":"GP_GAME_2"}])";
+        siglFeeds[xcloud::sigl::kRecentlyAdded] = R"([{"siglId":"recent","title":"Recently Added"},{"id":"GP_GAME_1"}])";
+        siglFeeds[xcloud::sigl::kMostPopular] = R"([{"siglId":"pop","title":"Most Popular"},{"id":"GP_GAME_2"}])";
+        siglFeeds[xcloud::sigl::kFreeToPlay] = R"([{"siglId":"f2p","title":"Free to Play"},{"id":"F2P_GAME_1"}])";
+        siglFeeds[xcloud::sigl::kLeavingSoon] = R"([{"siglId":"leaving","title":"Leaving Soon"}])";
+
+        std::string titlesBody = R"({
+            "results": [
+                {
+                    "titleId": "TITLE_CLOUD_SPECIAL",
+                    "details": {
+                        "productId": "PROD_CLOUD_SPECIAL",
+                        "hasEntitlement": false,
+                        "isFreeInStore": false,
+                        "userPrograms": []
+                    }
+                }
+            ]
+        })";
+
+        std::map<std::string, std::string> productTitles;
+        productTitles["GP_GAME_1"] = "Game One";
+        productTitles["GP_GAME_2"] = "Game Two";
+        productTitles["F2P_GAME_1"] = "Free Shooter";
+        productTitles["PROD_CLOUD_SPECIAL"] = "Special Cloud Offering";
+
+        net::setTestTransport([&](const net::Request& req) {
+            net::Response r;
+            r.status = 200;
+            if (req.url.find("sigls") != std::string::npos) {
+                for (const auto& [siglId, body] : siglFeeds) {
+                    if (req.url.find("id=" + siglId) != std::string::npos) {
+                        r.body = body;
+                        return r;
+                    }
+                }
+                r.body = "[]";
+                return r;
+            } else if (req.url.find("titles") != std::string::npos) {
+                r.body = titlesBody;
+                return r;
+            } else if (req.url.find("products") != std::string::npos) {
+                json::Value root = json::Value::object();
+                json::Value prods = json::Value::object();
+                for (const auto& [id, name] : productTitles) {
+                    json::Value item = json::Value::object();
+                    item.set("ProductTitle", name);
+                    item.set("XCloudTitleId", "T_" + id);
+                    prods.set(id, std::move(item));
+                }
+                root.set("Products", std::move(prods));
+                r.body = root.dump();
+                return r;
+            }
+            r.status = 404;
+            return r;
+        });
+
+        app::Library lib;
+        lib.setCachePath(cacheFile);
+        lib.setSubscription("Ultimate");
+        xcloud::GssvClient gssv;
+        std::string err;
+
+        // Load initial catalog
+        CHECK(lib.load(gssv, "en-US", [] {}, err));
+        CHECK(lib.rows().size() >= 4);
+
+        // First syncDelta on this fresh instance
+        size_t newAdded = lib.syncDelta(gssv, [] {}, err);
+        // Special cloud title outside Game Pass must NOT be reported as new Game Pass game
+        CHECK(newAdded == 0);
+
+        // Verify cache was saved and contains PROD_CLOUD_SPECIAL in products and knownProducts
+        std::string cacheContent;
+        CHECK(platform::readFile(cacheFile, cacheContent));
+        auto j = json::parse(cacheContent);
+        CHECK(j.has_value());
+        CHECK((*j)["products"].has("PROD_CLOUD_SPECIAL"));
+        size_t countInKp = 0;
+        for (const auto& p : (*j)["knownProducts"].items()) {
+            if (p.str() == "PROD_CLOUD_SPECIAL") countInKp++;
+        }
+        CHECK(countInKp == 1);  // Verified deduplicated: serialized exactly once!
+
+        // 2. Simulate subsequent boot with pre-existing cache
+        app::Library libBoot2;
+        libBoot2.setCachePath(cacheFile);
+        CHECK(libBoot2.loadCache(true));
+
+        // syncDelta on boot 2: must NOT have false positive of new games!
+        size_t countBoot2 = libBoot2.syncDelta(gssv, [] {}, err);
+        CHECK(countBoot2 == 0);
+
+        // 3. Now simulate Microsoft adding a new Game Pass game to Recently Added feed
+        siglFeeds[xcloud::sigl::kRecentlyAdded] = R"([{"siglId":"recent","title":"Recently Added"},{"id":"GP_GAME_3"},{"id":"GP_GAME_1"}])";
+        siglFeeds[xcloud::sigl::kAllGames] = R"([{"siglId":"all","title":"All Games"},{"id":"GP_GAME_1"},{"id":"GP_GAME_2"},{"id":"GP_GAME_3"}])";
+        productTitles["GP_GAME_3"] = "Game Three";
+
+        size_t countBoot3 = libBoot2.syncDelta(gssv, [] {}, err);
+        // Genuine new Game Pass game should be counted
+        CHECK(countBoot3 == 1);
+
+        // Check that "Recently Added" shelf in layout_ now automatically has GP_GAME_3 without manual L3 refresh!
+        bool foundInShelf = false;
+        for (const auto& row : libBoot2.rows()) {
+            if (row.title == "Recently Added") {
+                for (const auto& tile : row.tiles) {
+                    if (tile.productId == "GP_GAME_3") foundInShelf = true;
+                }
+            }
+        }
+        CHECK(foundInShelf);
+
+        // 4. Test SIGL object-format parsing (both string IDs and object IDs {"id": "..."})
+        xcloud::ProductList objList;
+        std::string objErr;
+        siglFeeds["test_obj_format"] = R"({"title":"Object Shelves","productIds":["GP_GAME_1",{"id":"GP_GAME_2"}]})";
+        CHECK(xcloud::fetchList("test_obj_format", "US", "en-US", objList, objErr));
+        CHECK(objList.title == "Object Shelves");
+        CHECK(objList.productIds.size() == 2);
+        CHECK(objList.productIds[0] == "GP_GAME_1");
+        CHECK(objList.productIds[1] == "GP_GAME_2");
+
+        // 5. Test resilience against corrupted or truncated cache
+        std::string corruptCache = testDir + "/corrupt.json";
+        platform::writeFileAtomic(corruptCache, "{ \"version\": 2, \"knownProducts\": [\"\", 123, null], \"products\": {");
+        app::Library corruptLib;
+        corruptLib.setCachePath(corruptCache);
+        CHECK(!corruptLib.loadCache(true));
+
+        net::setTestTransport({});
+    }
+
+    std::system(("rm -rf " + testDir).c_str());
+}
+
 int main() {
+    testReleaseV155Features();
     testSizedUrl();
     testPhase1BugFixesAndPhase2Optimizations();
     testBlock4OwnershipAndRecents();
