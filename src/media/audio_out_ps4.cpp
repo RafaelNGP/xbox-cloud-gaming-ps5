@@ -59,6 +59,10 @@ void loop() {
             if (!g_running) break;
         }
     }
+    int h = g_handle;
+    if (h >= 0) {
+        sceAudioOutOutput(h, nullptr);
+    }
 }
 
 }  // namespace

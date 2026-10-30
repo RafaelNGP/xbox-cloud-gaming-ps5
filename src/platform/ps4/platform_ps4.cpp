@@ -77,6 +77,36 @@ static inline int sanitizeNetFlags(int flags) {
     return flags & 0xC3;
 }
 
+static int setSocketNonBlock(int fd, int on) {
+    int rcNbio = sceNetSetsockopt(fd, 0xffff /*SOL_SOCKET*/, 0x1200 /*SO_NBIO*/, &on, sizeof(on));
+    int rcIoctl = sceNetIoctl(fd, 0x8004667eUL /*FIONBIO*/, &on);
+    if (rcNbio < 0 && rcIoctl < 0) {
+        int errNbio = getNetErrno(rcNbio);
+        int errIoctl = getNetErrno(rcIoctl);
+        if ((errNbio == EBADF || errNbio == ENOTSOCK) &&
+            (errIoctl == EBADF || errIoctl == ENOTSOCK)) {
+            return -1;
+        }
+    }
+    static bool s_logged = false;
+    if (!s_logged) {
+        s_logged = true;
+        XC_LOGI("net: setSocketNonBlock(fd=%d, on=%d): SO_NBIO=0x%08x, sceNetIoctl=0x%08x",
+                fd, on, static_cast<unsigned>(rcNbio), static_cast<unsigned>(rcIoctl));
+    }
+    if (rcNbio >= 0 || rcIoctl >= 0) {
+        return 0;
+    }
+    if (on != 0) {
+        int us = 50000;
+        if (sceNetSetsockopt(fd, 0xffff /*SOL_SOCKET*/, 0x1006 /*SO_RCVTIMEO*/, &us, sizeof(us)) < 0) {
+            struct timeval tv{0, 50000};
+            sceNetSetsockopt(fd, 0xffff /*SOL_SOCKET*/, 0x1006 /*SO_RCVTIMEO*/, &tv, sizeof(tv));
+        }
+    }
+    return 0;
+}
+
 int ioctl(int fd, unsigned long request, ...) {
     void* arg = nullptr;
     va_list ap;
@@ -84,11 +114,13 @@ int ioctl(int fd, unsigned long request, ...) {
     arg = va_arg(ap, void*);
     va_end(ap);
 
-    if (request == 0x5421) {
-        request = 0x8004667eUL; // Translate Linux FIONBIO to FreeBSD/Orbis FIONBIO
+    if (request == 0x5421 || request == 0x8004667eUL || request == FIONBIO) {
+        int on = arg ? (*reinterpret_cast<const int*>(arg) ? 1 : 0) : 1;
+        setSocketNonBlock(fd, on);
+        return 0;
     }
 
-    // On PS4/shadPS4, socket ioctls like FIONBIO/FIONREAD must be routed to sceNetIoctl.
+    // On PS4/shadPS4, socket ioctls like FIONREAD must be routed to sceNetIoctl.
     int rc = sceNetIoctl(fd, request, arg);
     if (rc >= 0) {
         return rc;
@@ -106,7 +138,7 @@ int fcntl(int fd, int cmd, ...) {
     if (cmd == F_SETFL) {
         long flags = reinterpret_cast<intptr_t>(arg);
         int on = (flags & O_NONBLOCK) ? 1 : 0;
-        if (sceNetIoctl(fd, 0x8004667eUL /*FIONBIO*/, &on) >= 0) {
+        if (on != 0 && setSocketNonBlock(fd, on) == 0) {
             return 0;
         }
     } else if (cmd == F_GETFL) {
@@ -275,8 +307,7 @@ int socket(int domain, int type, int protocol) {
 #define SOCK_NONBLOCK 04000
 #endif
     if ((type & SOCK_NONBLOCK) || (type & 04000) || (type & 0x800) || (type & 0x4000) || (type & 0x20000000)) {
-        int nbio = 1;
-        sceNetIoctl(s, 0x8004667eUL /*FIONBIO*/, &nbio);
+        setSocketNonBlock(s, 1);
     }
     return s;
 }
@@ -417,7 +448,8 @@ ssize_t recvfrom(int fd, void* buf, size_t len, int flags,
     unsigned int slen = addrlen ? static_cast<unsigned int>(*addrlen) : 0;
     int ret = sceNetRecvfrom(fd, buf, len, flags, src_addr, addrlen ? &slen : nullptr);
     if (ret < 0) {
-        errno = getNetErrno(ret);
+        int err = getNetErrno(ret);
+        errno = (err == ETIMEDOUT) ? EAGAIN : err;
         return -1;
     }
     if (addrlen) *addrlen = slen;
@@ -441,7 +473,8 @@ ssize_t send(int fd, const void* buf, size_t len, int flags) {
 ssize_t recv(int fd, void* buf, size_t len, int flags) {
     int ret = sceNetRecv(fd, buf, len, sanitizeNetFlags(flags));
     if (ret < 0) {
-        errno = getNetErrno(ret);
+        int err = getNetErrno(ret);
+        errno = (err == ETIMEDOUT) ? EAGAIN : err;
         return -1;
     }
     return ret;
