@@ -1130,25 +1130,51 @@ void setThreadAffinity(ThreadRole role, const char* name) {
         }
     };
 
+    int targetPrio = 0;
+
     switch (role) {
     case ThreadRole::Main:
         setSlot(0);
+        targetPrio = 650;
         break;
     case ThreadRole::Network:
         setSlot(1);
         break;
     case ThreadRole::VideoDecode:
-        setSlot(2);
-        if (s_numAllowedCpus >= 4) setSlot(3);
+        setSlot(s_numAllowedCpus >= 6 ? 5 : (s_numAllowedCpus >= 3 ? 2 : 0));
+        targetPrio = 650;
         break;
     case ThreadRole::Audio:
-        setSlot(s_numAllowedCpus >= 5 ? 4 : 1);
+        setSlot(1);
         break;
     case ThreadRole::Worker:
-        if (s_numAllowedCpus >= 6) {
-            setSlot(5);
+        if (name && (std::strcmp(name, "ps4_present") == 0 || std::strcmp(name, "ps4_disp_0") == 0)) {
+            setSlot(s_numAllowedCpus >= 3 ? 2 : 0);
+            targetPrio = 650;
+        } else if (name && std::strcmp(name, "ps4_disp_1") == 0) {
+            setSlot(s_numAllowedCpus >= 4 ? 3 : 1);
+            targetPrio = 650;
+        } else if (name && std::strcmp(name, "ps4_disp_2") == 0) {
+            setSlot(s_numAllowedCpus >= 5 ? 4 : 2);
+            targetPrio = 650;
         } else {
-            setSlot(s_numAllowedCpus - 1);
+            const bool isBgTask = name && (std::strcmp(name, "xcloud_img") == 0 ||
+                                           std::strcmp(name, "xcloud_hydr") == 0 ||
+                                           std::strcmp(name, "xcloud_price") == 0 ||
+                                           std::strcmp(name, "xcloud_upd") == 0 ||
+                                           std::strcmp(name, "xcloud_web") == 0);
+            if (!isBgTask) {
+                setSlot(0);
+            }
+            for (int s = 2; s < s_numAllowedCpus; ++s) {
+                setSlot(s);
+            }
+            if (orbisMask == 0) {
+                setSlot(s_numAllowedCpus - 1);
+            }
+            if (isBgTask) {
+                targetPrio = 740;
+            }
         }
         break;
     }
@@ -1159,6 +1185,9 @@ void setThreadAffinity(ThreadRole role, const char* name) {
     } else {
         XC_LOGI("thread %s pinned to role %d (mask 0x%llx)", name ? name : "unknown",
                 static_cast<int>(role), static_cast<unsigned long long>(orbisMask));
+    }
+    if (targetPrio > 0) {
+        scePthreadSetprio(scePthreadSelf(), targetPrio);
     }
 }
 

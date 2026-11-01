@@ -68,6 +68,7 @@ struct DisplayCaps {
     bool sharpen = false;            // setSharpness
     bool highRefreshSwitch = false;  // setHighRefresh
     bool presentTiming = false;      // lastPresentId / lastShown
+    bool asyncPresent = false;       // decouple YUV->RGBA conversion & flip wait onto a present thread
 };
 DisplayCaps caps();
 

@@ -201,6 +201,7 @@ elseif(XC_TARGET_PS4)
         datachannel-static
         -lSceVideodec2
         -lSceVideoOut
+        -lSceGnmDriver
         -lScePad
         -lSceAudioOut
         -lSceAudioIn

@@ -84,6 +84,7 @@ void setQueueClient(const xcloud::GssvClient* gssv) {
 namespace {
 
 void priceLoop() {
+    platform::setThreadAffinity(platform::ThreadRole::Worker, "xcloud_price");
     json::Value cache = json::Value::object();
     {
         std::string text;

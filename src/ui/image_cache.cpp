@@ -98,17 +98,24 @@ ImageCache::ImageCache(std::function<void()> onReady, size_t budgetBytes, std::s
         ::chmod(diskDir_.c_str(), 0777);  // one made 0755 by an older version
         trimDisk();
     }
-    threads_.resize(3);
+    threads_.resize(budget_ <= (64u << 20) ? 1 : 3);
     for (auto& t : threads_) platform::startThread(t, [this] { loop(); }, 2u << 20);
 }
 
 ImageCache::~ImageCache() {
+    stop();
+}
+
+void ImageCache::stop() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         stop_ = true;
+        jobs_.clear();
     }
     cv_.notify_all();
-    for (auto& t : threads_) t.join();
+    for (auto& t : threads_) {
+        if (t.joinable()) t.join();
+    }
 }
 
 std::shared_ptr<const Image> ImageCache::get(const std::string& url, int w, int h) {

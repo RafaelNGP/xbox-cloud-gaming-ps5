@@ -271,9 +271,13 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     setPriceAuth(g_xblAuth, g_xuid);
     platform::notify(ui::trf(ui::Str::SignedInAs, am.profile().gamertag), "signed in (notification)");
     static bool updateChecked = false;
+    static platform::Thread s_updateThread;
     if (!updateChecked && (g_autoplay.title.empty() || !g_autoplay.updateFeed.empty())) {
         updateChecked = true;
-        std::thread(checkForUpdate).detach();
+        platform::startThread(s_updateThread, [] {
+            platform::setThreadAffinity(platform::ThreadRole::Worker, "xcloud_upd");
+            checkForUpdate();
+        }, 512u << 10);
     }
     std::vector<std::string> regions;
     for (const auto& r : gssv.session().regions) regions.push_back(r.name);
@@ -523,6 +527,7 @@ namespace {
 std::mutex g_workerStateMutex;
 std::condition_variable g_workerStateCv;
 int g_workerState = 0;
+platform::Thread g_workerThread;
 
 void setWorkerState(int state) {
     {
@@ -536,10 +541,10 @@ void setWorkerState(int state) {
 
 void startWorker() {
     setWorkerState(1);
-    std::thread([] {
+    platform::startThread(g_workerThread, [] {
         worker();
         setWorkerState(2);
-    }).detach();
+    }, 2u << 20);
 }
 
 void requestQuit() {
@@ -548,11 +553,19 @@ void requestQuit() {
 }
 
 bool waitForWorker(uint32_t ms) {
-    std::unique_lock<std::mutex> lock(g_workerStateMutex);
-    return g_workerStateCv.wait_for(lock, std::chrono::milliseconds(ms), [] { return g_workerState != 1; });
+    bool done = false;
+    {
+        std::unique_lock<std::mutex> lock(g_workerStateMutex);
+        done = g_workerStateCv.wait_for(lock, std::chrono::milliseconds(ms), [] { return g_workerState != 1; });
+    }
+    if (done && g_workerThread.joinable()) {
+        g_workerThread.join();
+    }
+    return done;
 }
 
 void worker() {
+    platform::setThreadAffinity(platform::ThreadRole::Worker, "xcloud_worker");
     if (g_autoplay.title == "BENCH") {
         platform::Thread t;  // same big stack as the stream's video thread
         platform::startThread(t, runDecodeBench);

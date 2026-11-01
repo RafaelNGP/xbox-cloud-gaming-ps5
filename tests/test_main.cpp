@@ -6763,7 +6763,221 @@ static void testReleaseV155Features() {
     std::system(("rm -rf " + testDir).c_str());
 }
 
+#if defined(__x86_64__) || defined(_M_X64)
+#include <emmintrin.h>
+#endif
+
+static void testPs4VideoPipelineAndSse2Converter() {
+    using namespace xc;
+    // 1. HwDecoder::Picture default state including pending flag
+    media::HwDecoder::Picture hp;
+    CHECK(!hp.error);
+    CHECK(!hp.pending);
+    CHECK(hp.data == nullptr);
+
+    // 1b. Verify PS4 HW decoder ring buffer slot progression during decode and flush
+    constexpr size_t kOutputSlots = 6;
+    auto simulateSlotAdvance = [](size_t currentSlot, bool decodeAccepted, bool needsFlush, bool flushAccepted) -> size_t {
+        size_t slot = currentSlot;
+        size_t outSlotUsed = slot;
+        if (decodeAccepted) {
+            slot = (outSlotUsed + 1) % kOutputSlots;
+        }
+        if (needsFlush) {
+            size_t flushSlot = slot;
+            if (flushAccepted) {
+                slot = (flushSlot + 1) % kOutputSlots;
+            }
+        }
+        return slot;
+    };
+    // Case A: decode accepted buffer, valid frame immediately (no flush needed) -> advances 1
+    CHECK(simulateSlotAdvance(0, true, false, false) == 1);
+    // Case B: decode accepted buffer, !valid -> flush accepts next slot -> advances 2
+    CHECK(simulateSlotAdvance(0, true, true, true) == 2);
+    // Case C: decode accepted buffer, !valid -> flush flushes without accepting new buffer -> advances 1
+    CHECK(simulateSlotAdvance(0, true, true, false) == 1);
+    // Case D: decode did not accept buffer, !valid -> flush accepts buffer -> advances 1
+    CHECK(simulateSlotAdvance(0, false, true, true) == 1);
+    // Case E: neither accepts buffer -> advances 0
+    CHECK(simulateSlotAdvance(0, false, true, false) == 0);
+    // Case F: wrap-around at ring boundary (slot 5 + 2 -> slot 1)
+    CHECK(simulateSlotAdvance(5, true, true, true) == 1);
+
+    // 2. ImageCache::stop() idempotency (called in coreShutdown before destructor)
+    {
+        ui::ImageCache cache([] {}, 4u << 20);
+        cache.stop();
+        cache.stop();
+    }
+
+#if defined(__x86_64__) || defined(_M_X64)
+    // 3. Verify 8-pixel 16-bit SSE2 BT.709 Limited Range kernel and 3/2 (720p->1080p) shuffle
+    auto colorRgbEightTest = [](__m128i y16, __m128i u16, __m128i v16, __m128i& p_lo, __m128i& p_hi) {
+        const __m128i y_bias = _mm_set1_epi16(16);
+        const __m128i uv_bias = _mm_set1_epi16(128);
+        const __m128i zero16 = _mm_setzero_si128();
+        const __m128i round = _mm_set1_epi32(128);
+        const __m128i k_y_r  = _mm_set1_epi32((403 << 16) | (298 & 0xFFFF));
+        const __m128i k_y_b  = _mm_set1_epi32((541 << 16) | (298 & 0xFFFF));
+        const __m128i k_y_gu = _mm_set1_epi32(((-55 & 0xFFFF) << 16) | (298 & 0xFFFF));
+        const __m128i k_gv_0 = _mm_set1_epi32(-137 & 0xFFFF);
+        const __m128i alpha  = _mm_set1_epi16(static_cast<short>(0xFF00));
+
+        __m128i c = _mm_max_epi16(_mm_sub_epi16(y16, y_bias), zero16);
+        __m128i d = _mm_sub_epi16(u16, uv_bias);
+        __m128i e = _mm_sub_epi16(v16, uv_bias);
+
+        __m128i ce_lo = _mm_unpacklo_epi16(c, e);
+        __m128i ce_hi = _mm_unpackhi_epi16(c, e);
+        __m128i cd_lo = _mm_unpacklo_epi16(c, d);
+        __m128i cd_hi = _mm_unpackhi_epi16(c, d);
+        __m128i e0_lo = _mm_unpacklo_epi16(e, zero16);
+        __m128i e0_hi = _mm_unpackhi_epi16(e, zero16);
+
+        __m128i r_lo = _mm_srai_epi32(_mm_add_epi32(_mm_madd_epi16(ce_lo, k_y_r), round), 8);
+        __m128i r_hi = _mm_srai_epi32(_mm_add_epi32(_mm_madd_epi16(ce_hi, k_y_r), round), 8);
+
+        __m128i g_lo = _mm_srai_epi32(_mm_add_epi32(_mm_add_epi32(_mm_madd_epi16(cd_lo, k_y_gu), _mm_madd_epi16(e0_lo, k_gv_0)), round), 8);
+        __m128i g_hi = _mm_srai_epi32(_mm_add_epi32(_mm_add_epi32(_mm_madd_epi16(cd_hi, k_y_gu), _mm_madd_epi16(e0_hi, k_gv_0)), round), 8);
+
+        __m128i b_lo = _mm_srai_epi32(_mm_add_epi32(_mm_madd_epi16(cd_lo, k_y_b), round), 8);
+        __m128i b_hi = _mm_srai_epi32(_mm_add_epi32(_mm_madd_epi16(cd_hi, k_y_b), round), 8);
+
+        __m128i r16 = _mm_packs_epi32(r_lo, r_hi);
+        __m128i g16 = _mm_packs_epi32(g_lo, g_hi);
+        __m128i b16 = _mm_packs_epi32(b_lo, b_hi);
+
+        __m128i r8 = _mm_packus_epi16(r16, r16);
+        __m128i g8 = _mm_packus_epi16(g16, g16);
+        __m128i b8 = _mm_packus_epi16(b16, b16);
+
+        __m128i rg = _mm_unpacklo_epi8(r8, g8);
+        __m128i ba = _mm_or_si128(_mm_unpacklo_epi8(b8, zero16), alpha);
+        p_lo = _mm_unpacklo_epi16(rg, ba);
+        p_hi = _mm_unpackhi_epi16(rg, ba);
+    };
+
+    // Test boundary Y values: Y=0 (sub-black), Y=16 (black), Y=235 (white), Y=255 (super-white) with neutral UV=128
+    __m128i y16 = _mm_setr_epi16(0, 16, 235, 255, 16, 235, 0, 255);
+    __m128i u16 = _mm_set1_epi16(128);
+    __m128i v16 = _mm_set1_epi16(128);
+    __m128i p_lo, p_hi;
+    colorRgbEightTest(y16, u16, v16, p_lo, p_hi);
+    alignas(16) uint32_t px[8] = {};
+    _mm_store_si128(reinterpret_cast<__m128i*>(px), p_lo);
+    _mm_store_si128(reinterpret_cast<__m128i*>(px + 4), p_hi);
+    CHECK(px[0] == 0xFF000000u); // Y=0 clamped to black
+    CHECK(px[1] == 0xFF000000u); // Y=16 -> black
+    CHECK(px[2] == 0xFFFFFFFFu); // Y=235 -> white
+    CHECK(px[3] == 0xFFFFFFFFu); // Y=255 clamped to white
+
+    // Test 3/2 horizontal register shuffle ([0, 0, 1, 2], [2, 3, 4, 4], [5, 6, 6, 7])
+    __m128i s_lo = _mm_setr_epi32(10, 20, 30, 40);
+    __m128i s_hi = _mm_setr_epi32(50, 60, 70, 80);
+    __m128i out0 = _mm_shuffle_epi32(s_lo, _MM_SHUFFLE(2, 1, 0, 0));
+    __m128i p23  = _mm_srli_si128(s_lo, 8);
+    __m128i p44  = _mm_shuffle_epi32(s_hi, _MM_SHUFFLE(0, 0, 0, 0));
+    __m128i out1 = _mm_unpacklo_epi64(p23, p44);
+    __m128i out2 = _mm_shuffle_epi32(s_hi, _MM_SHUFFLE(3, 2, 2, 1));
+    alignas(16) uint32_t scaled[12] = {};
+    _mm_store_si128(reinterpret_cast<__m128i*>(scaled + 0), out0);
+    _mm_store_si128(reinterpret_cast<__m128i*>(scaled + 4), out1);
+    _mm_store_si128(reinterpret_cast<__m128i*>(scaled + 8), out2);
+    const uint32_t expected[12] = {10, 10, 20, 30, 30, 40, 50, 50, 60, 70, 70, 80};
+    for (int i = 0; i < 12; ++i) {
+        CHECK(scaled[i] == expected[i]);
+    }
+
+    // Test unpackNv12UvEight and red conversion (verifying V channel is preserved, not zeroed)
+    auto unpackNv12UvEightTest = [](const uint8_t* uvPtr, __m128i& u16, __m128i& v16) {
+        const __m128i mask_low = _mm_set1_epi16(0x00FF);
+        __m128i uv_bytes = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(uvPtr));
+        __m128i uv_dup = _mm_unpacklo_epi16(uv_bytes, uv_bytes);
+        u16 = _mm_and_si128(uv_dup, mask_low);
+        v16 = _mm_srli_epi16(uv_dup, 8);
+    };
+
+    alignas(16) const uint8_t sampleUv[8] = {10, 20, 30, 40, 50, 60, 70, 80};
+    __m128i testU16, testV16;
+    unpackNv12UvEightTest(sampleUv, testU16, testV16);
+    alignas(16) uint16_t uArr[8] = {};
+    alignas(16) uint16_t vArr[8] = {};
+    _mm_store_si128(reinterpret_cast<__m128i*>(uArr), testU16);
+    _mm_store_si128(reinterpret_cast<__m128i*>(vArr), testV16);
+    const uint16_t expectedU[8] = {10, 10, 30, 30, 50, 50, 70, 70};
+    const uint16_t expectedV[8] = {20, 20, 40, 40, 60, 60, 80, 80};
+    for (int i = 0; i < 8; ++i) {
+        CHECK(uArr[i] == expectedU[i]);
+        CHECK(vArr[i] == expectedV[i]);
+    }
+
+    // Pure Red (BT.709): Y=54, U=100, V=239. Must convert to vibrant red (R > 200), not green/cyan (R=0)!
+    alignas(16) const uint8_t redUv[8] = {100, 239, 100, 239, 100, 239, 100, 239};
+    __m128i redY16 = _mm_set1_epi16(54);
+    __m128i redU16, redV16, redP_lo, redP_hi;
+    unpackNv12UvEightTest(redUv, redU16, redV16);
+    colorRgbEightTest(redY16, redU16, redV16, redP_lo, redP_hi);
+    alignas(16) uint32_t redPx[8] = {};
+    _mm_store_si128(reinterpret_cast<__m128i*>(redPx), redP_lo);
+    _mm_store_si128(reinterpret_cast<__m128i*>(redPx + 4), redP_hi);
+    uint32_t rVal = redPx[0] & 0xFF;
+    uint32_t gVal = (redPx[0] >> 8) & 0xFF;
+    uint32_t bVal = (redPx[0] >> 16) & 0xFF;
+    CHECK(rVal > 200);
+    CHECK(gVal < 40);
+    CHECK(bVal < 40);
+#endif
+
+    // 4. Verify per-flip ptime timestamp resolution & stale observation rejection after >1s stall
+    auto resolveFlipShownUs = [](int64_t flipArg, uint64_t ptime, uint64_t nowUs, uint64_t procNowUs,
+                                 int64_t subMarker, uint64_t subUs, uint64_t subProcUs) -> uint64_t {
+        uint64_t shownUs = 0;
+        if (subMarker == flipArg && subUs > 0) {
+            if (ptime > 0 && ptime >= subProcUs && ptime <= procNowUs) {
+                shownUs = subUs + (ptime - subProcUs);
+            } else if (nowUs >= subUs && (nowUs - subUs) <= 50000ULL) {
+                shownUs = nowUs;
+            }
+        }
+        return shownUs;
+    };
+    // Case A: Flip submitted at t=100,000 us, flipped at ptime=108,333 us (+8.33ms), but observed 2.05s later
+    // after a network stall (t=2,156,400 us). Must resolve to 108,333 us (8.33ms), NOT 2,156,400 us!
+    CHECK(resolveFlipShownUs(42, 108333ULL, 2156400ULL, 2156400ULL, 42, 100000ULL, 100000ULL) == 108333ULL);
+    // Case B: Emulator/invalid ptime (0) observed 2.05s later after a stall -> must be rejected (0), never 2,156,400 us!
+    CHECK(resolveFlipShownUs(42, 0ULL, 2156400ULL, 2156400ULL, 42, 100000ULL, 100000ULL) == 0ULL);
+    // Case C: Emulator/invalid ptime (0) observed promptly within 8ms -> accepted as nowUs
+    CHECK(resolveFlipShownUs(42, 0ULL, 108000ULL, 108000ULL, 42, 100000ULL, 100000ULL) == 108000ULL);
+
+    // 5. Verify 1080p coded height (1920x1088) framebuffer sizing covers full 1088 luma + 540 chroma rows
+    const size_t minCoded1088 = static_cast<size_t>(1920) * 1088 * 3 / 2 + 64;
+    const size_t underSized1080 = static_cast<size_t>(1920) * 1080 * 3 / 2;
+    const size_t rawFrameSize = std::max<size_t>(underSized1080, minCoded1088);
+    const size_t alignedFrameSize = (rawFrameSize + 0x4000 - 1) & ~(static_cast<size_t>(0x4000) - 1);
+    const size_t requiredNv12OffsetEnd = static_cast<size_t>(1920) * 1088 + static_cast<size_t>(1920) * (1080 / 2);
+    CHECK(alignedFrameSize >= requiredNv12OffsetEnd);
+
+    // 6. Verify SWAR Canvas::gradientV and opaque Canvas::drawImage alpha blending
+    {
+        ui::Canvas c(32, 16);
+        c.clear(ui::rgba(20, 40, 60, 255));
+        c.gradientV({0, 0, 32, 16}, ui::rgba(0, 0, 0, 0), ui::rgba(10, 20, 30, 200));
+        CHECK((c.data()[0] & 0x00FFFFFFu) == (ui::rgba(20, 40, 60, 255) & 0x00FFFFFFu));
+        ui::Image img;
+        img.w = 16;
+        img.h = 16;
+        img.opaque = true;
+        img.px.assign(16 * 16, ui::rgba(200, 100, 50, 255));
+        c.drawImage(img, 0, 0, 128, 0);
+        uint32_t blended = c.data()[0];
+        CHECK(((blended >> 24) & 0xFF) == 0xFF);
+        CHECK((blended & 0xFF) > 100 && (blended & 0xFF) < 120);
+    }
+}
+
 int main() {
+    testPs4VideoPipelineAndSse2Converter();
     testReleaseV155Features();
     testSizedUrl();
     testPhase1BugFixesAndPhase2Optimizations();

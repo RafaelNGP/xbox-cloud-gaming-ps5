@@ -30,7 +30,7 @@ constexpr int kRate = AudioQueue::kRate;
 constexpr unsigned kGrain = 256;
 
 std::atomic<bool> g_running{false};
-std::thread g_thread;
+platform::Thread g_thread;
 int g_handle = -1;
 std::atomic<int> g_padSpeakerVolume{100};
 
@@ -96,7 +96,7 @@ bool audioStart() {
     }
     g_running = true;
     audioQueue().open();
-    g_thread = std::thread(loop);
+    platform::startThread(g_thread, loop, 512u << 10);
     XC_LOGI("audio output open (PS4 48 kHz float stereo, handle %d)", g_handle);
     return true;
 }

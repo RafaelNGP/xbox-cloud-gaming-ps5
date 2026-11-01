@@ -20,6 +20,7 @@ public:
         uint32_t width = 0, height = 0, pitch = 0, pitchBytes = 0, format = 0;
         uint64_t pts = 0;
         bool error = false;
+        bool pending = false;
     };
 
     ~HwDecoder();

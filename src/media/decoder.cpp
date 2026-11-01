@@ -120,6 +120,7 @@ bool VideoDecoder::init(int threads, bool preferHw) {
     preferHw_ = preferHw;
     isHw_ = false;
     consecutiveHwErrors_ = 0;
+    consecutivePending_ = 0;
 
     // 1. Hardware video decoder (PS5 libSceVideodec2 via HwDecoder)
     if (preferHw_) {
@@ -218,6 +219,7 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out, uint32_
         bool ok = hw_.decode(data, len, tag, hp);
         if (ok && !hp.error) {
             consecutiveHwErrors_ = 0;
+            consecutivePending_ = 0;
             needsKeyframe_ = false;
             out.format = Picture::Format::Nv12;
             out.width = hp.width;
@@ -234,6 +236,16 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out, uint32_
                 XC_LOGI("hwdec stream active: %ux%u (pitch %u, nv12)", out.width, out.height, out.strideY);
             }
             return true;
+        }
+        if (hp.pending) {
+            ++consecutivePending_;
+            if (consecutivePending_ <= 10) {
+                pending_ = true;
+                return false;
+            }
+            XC_LOGW("hwdec: priming ceiling exceeded (%d consecutive pending frames)", consecutivePending_);
+        } else {
+            consecutivePending_ = 0;
         }
 
         needsKeyframe_ = true;

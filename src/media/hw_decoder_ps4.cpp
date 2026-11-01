@@ -25,61 +25,96 @@ int sceKernelMapDirectMemory(void** address, size_t length, int protection, int 
 int sceKernelMapNamedFlexibleMemory(void** address, size_t length, int protection, int flags, const char* name);
 int sceKernelMunmap(void* address, size_t length);
 
-// PS4 libSceVideodec2 structures
+// PS4 libSceVideodec2 ABI structures (verified against Orbis/Videodec2.h & XCloud4)
 struct Vdec2DecoderConfig {
-    uint64_t size;
-    uint32_t resourceType, codecType, profile, maxLevel;
-    int32_t maxWidth, maxHeight, maxDpbFrames;
-    uint32_t pipelineDepth;
-    uint64_t computeQueue, cpuAffinity;
-    int32_t cpuPriority;
-    uint32_t optimizeProgressive, checkMemoryType, reserved;
+    uint64_t thisSize;
+    uint32_t resourceType;
+    uint32_t codecType;
+    uint32_t profile;
+    uint32_t maxLevel;
+    int32_t maxFrameWidth;
+    int32_t maxFrameHeight;
+    int32_t maxDpbFrameCount;
+    uint32_t decodePipelineDepth;
+    void* computeQueue;
+    uint64_t cpuAffinityMask;
+    int32_t cpuThreadPriority;
+    bool optimizeProgressiveVideo;
+    bool checkMemoryType;
+    uint8_t reserved0;
+    uint8_t reserved1;
+    void* extraConfigInfo;
 };
 
 struct Vdec2DecoderMemory {
-    uint64_t size, cpuSize;
-    void* cpu;
-    uint64_t gpuSize;
-    void* gpu;
-    uint64_t cpuGpuSize;
-    void* cpuGpu;
-    uint64_t maxFrameSize;
-    uint32_t frameAlignment, reserved;
+    uint64_t thisSize;
+    uint64_t cpuMemorySize;
+    void* cpuMemory;
+    uint64_t gpuMemorySize;
+    void* gpuMemory;
+    uint64_t cpuGpuMemorySize;
+    void* cpuGpuMemory;
+    uint64_t maxFrameBufferSize;
+    uint32_t frameBufferAlignment;
+    uint32_t reserved0;
 };
 
 struct Vdec2ComputeConfig {
-    uint64_t size;
-    uint16_t pipeId, queueId;
-    uint8_t checkMemoryType, reserved0;
+    uint64_t thisSize;
+    uint16_t computePipeId;
+    uint16_t computeQueueId;
+    bool checkMemoryType;
+    uint8_t reserved0;
     uint16_t reserved1;
 };
 
 struct Vdec2ComputeMemory {
-    uint64_t size, cpuGpuSize;
-    void* cpuGpu;
+    uint64_t thisSize;
+    uint64_t cpuGpuMemorySize;
+    void* cpuGpuMemory;
 };
 
 struct Vdec2Input {
-    uint64_t size;
-    void* au;
-    uint64_t auSize, pts, dts, attached;
+    uint64_t thisSize;
+    const void* auData;
+    uint64_t auSize;
+    uint64_t ptsData;
+    uint64_t dtsData;
+    uint64_t attachedData;
 };
 
 struct Vdec2Frame {
-    uint64_t size;
-    void* buffer;
-    uint64_t bufferSize;
-    uint32_t accepted, reserved;
+    uint64_t thisSize;
+    void* frameBuffer;
+    uint64_t frameBufferSize;
+    bool isAccepted;
+    uint8_t reserved0[7];
 };
 
 struct Vdec2Output {
-    uint64_t size;
-    uint8_t valid, error, pictureCount, padding;
-    uint32_t codec, width, pitch, height, reserved;
-    void* buffer;
-    uint64_t bufferSize;
-    uint32_t frameFormat, pitchBytes;
+    uint64_t thisSize;
+    bool isValid;
+    bool isErrorFrame;
+    uint8_t pictureCount;
+    uint8_t reserved0;
+    uint32_t codecType;
+    uint32_t frameWidth;
+    uint32_t framePitch;
+    uint32_t frameHeight;
+    uint32_t reserved1;
+    void* frameBuffer;
+    uint64_t frameBufferSize;
+    uint32_t frameFormat;
+    uint32_t pitchBytes;
 };
+
+static_assert(sizeof(Vdec2DecoderConfig) == 72, "PS4 OrbisVideodec2DecoderConfigInfo must be 72 bytes");
+static_assert(sizeof(Vdec2DecoderMemory) == 72, "PS4 OrbisVideodec2DecoderMemoryInfo must be 72 bytes");
+static_assert(sizeof(Vdec2ComputeConfig) == 16, "PS4 OrbisVideodec2ComputeConfigInfo must be 16 bytes");
+static_assert(sizeof(Vdec2ComputeMemory) == 24, "PS4 OrbisVideodec2ComputeMemoryInfo must be 24 bytes");
+static_assert(sizeof(Vdec2Input) == 48, "PS4 OrbisVideodec2InputData must be 48 bytes");
+static_assert(sizeof(Vdec2Frame) == 32, "PS4 OrbisVideodec2FrameBuffer must be 32 bytes");
+static_assert(sizeof(Vdec2Output) == 56, "PS4 OrbisVideodec2OutputInfo must be 56 bytes");
 
 // PS4 libSceVideodec2 native functions linked via -lSceVideodec2
 int sceVideodec2QueryComputeMemoryInfo(Vdec2ComputeMemory* mem);
@@ -88,8 +123,9 @@ int sceVideodec2ReleaseComputeQueue(void* queue);
 int sceVideodec2QueryDecoderMemoryInfo(const Vdec2DecoderConfig* cfg, Vdec2DecoderMemory* mem);
 int sceVideodec2CreateDecoder(const Vdec2DecoderConfig* cfg, const Vdec2DecoderMemory* mem, void** decoder);
 int sceVideodec2DeleteDecoder(void* decoder);
-int sceVideodec2Decode(void* decoder, Vdec2Input* input, Vdec2Frame* frame, Vdec2Output* output);
+int sceVideodec2Decode(void* decoder, const Vdec2Input* input, Vdec2Frame* frame, Vdec2Output* output);
 int sceVideodec2Flush(void* decoder, Vdec2Frame* frame, Vdec2Output* output);
+int sceVideodec2Reset(void* decoder);
 }
 
 namespace xc::media {
@@ -97,12 +133,20 @@ namespace xc::media {
 namespace {
 
 constexpr uint32_t kVideodecModule = 0x00CF; // SCE_SYSMODULE_VIDEODEC2
-constexpr int kMemoryTypeOnion = 0;          // Coherent CPU+GPU
-constexpr int kMemoryTypeGarlic = 3;         // GPU Direct Memory
-constexpr int kProtectionRw = 0x33;
+constexpr int kMemoryTypeOnion = 0;          // Coherent CPU+GPU (WB_ONION)
+constexpr int kMemoryTypeGarlic = 3;         // GPU Direct Memory (WC_GARLIC)
+constexpr int kProtectionRw = 0x33;          // CPU RW | GPU RW
+constexpr size_t kInputRingSlots = 8;
+constexpr size_t kInputSlotBytes = 2u << 20; // 2 MB per input slot
+constexpr size_t kOutputRingSlots = 6;
+
+inline size_t alignUp(size_t n, size_t align) {
+    if (align < 0x4000) align = 0x4000;
+    return (n + align - 1) & ~(align - 1);
+}
 
 inline size_t align16k(size_t n) {
-    return (n + 0x3FFF) & ~static_cast<size_t>(0x3FFF);
+    return alignUp(n, 0x4000);
 }
 
 struct DirectMem {
@@ -116,18 +160,19 @@ struct FlexibleMem {
     size_t size = 0;
 };
 
-DirectMem allocDirect(size_t size, int memoryType, const char* label) {
+DirectMem allocDirect(size_t size, int memoryType, const char* label, size_t alignment = 0x4000) {
     DirectMem mem{};
     if (size == 0) return mem;
-    mem.size = align16k(size);
+    if (alignment < 0x4000) alignment = 0x4000;
+    mem.size = alignUp(size, alignment);
     int rc = sceKernelAllocateDirectMemory(0, static_cast<int64_t>(sceKernelGetDirectMemorySize()),
-                                           mem.size, 0x4000, memoryType, &mem.phys);
+                                           mem.size, alignment, memoryType, &mem.phys);
     if (rc != 0) {
         XC_LOGW("hwdec: %s: allocate %zu bytes failed: 0x%08x", label, mem.size, static_cast<unsigned>(rc));
         mem.size = 0;
         return mem;
     }
-    rc = sceKernelMapDirectMemory(&mem.addr, mem.size, kProtectionRw, 0, mem.phys, 0x4000);
+    rc = sceKernelMapDirectMemory(&mem.addr, mem.size, kProtectionRw, 0, mem.phys, alignment);
     if (rc != 0 || !mem.addr) {
         XC_LOGW("hwdec: %s: map %zu bytes failed: 0x%08x", label, mem.size, static_cast<unsigned>(rc));
         sceKernelReleaseDirectMemory(mem.phys, mem.size);
@@ -136,6 +181,7 @@ DirectMem allocDirect(size_t size, int memoryType, const char* label) {
         mem.size = 0;
         return mem;
     }
+    std::memset(mem.addr, 0, mem.size);
     return mem;
 }
 
@@ -165,21 +211,29 @@ struct DecoderAllocations {
     FlexibleMem decCpuFlex;
     DirectMem decGpu;
     DirectMem decCpuGpu;
-    DirectMem frameBuf;
+    DirectMem inputBufs[kInputRingSlots];
+    DirectMem frameBufs[kOutputRingSlots];
+    size_t inputSlot = 0;
+    size_t outputSlot = 0;
 };
 
 static std::mutex s_allocMutex;
 static std::unordered_map<const HwDecoder*, DecoderAllocations> s_allocations;
 
+void freeAllAllocations(DecoderAllocations& a) {
+    for (auto& fb : a.frameBufs) freeDirect(fb);
+    for (auto& ib : a.inputBufs) freeDirect(ib);
+    freeDirect(a.decCpuGpu);
+    freeDirect(a.decGpu);
+    freeFlexible(a.decCpuFlex);
+    freeDirect(a.decCpuDirect);
+    freeDirect(a.computeBuf);
+}
+
 } // namespace
 
 HwDecoder::~HwDecoder() {
     if (decoder_) {
-        Vdec2Frame frm{};
-        frm.size = sizeof(frm);
-        Vdec2Output out{};
-        out.size = sizeof(out);
-        sceVideodec2Flush(decoder_, &frm, &out);
         sceVideodec2DeleteDecoder(decoder_);
         decoder_ = nullptr;
     }
@@ -191,12 +245,7 @@ HwDecoder::~HwDecoder() {
         std::lock_guard<std::mutex> lock(s_allocMutex);
         auto it = s_allocations.find(this);
         if (it != s_allocations.end()) {
-            freeDirect(it->second.frameBuf);
-            freeDirect(it->second.decCpuGpu);
-            freeDirect(it->second.decGpu);
-            freeFlexible(it->second.decCpuFlex);
-            freeDirect(it->second.decCpuDirect);
-            freeDirect(it->second.computeBuf);
+            freeAllAllocations(it->second);
             s_allocations.erase(it);
         }
     }
@@ -214,7 +263,6 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
     }
 
     if (rc != 0) {
-        // Fallback: try loading firmware helper modules manually
         for (const char* sprx : {
             "/system/common/lib/libSceVdecCore.sprx",
             "/system/common/lib/libSceVdecSavc.sprx",
@@ -232,11 +280,6 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
     DecoderAllocations allocs{};
     auto rollback = [&]() {
         if (decoder_) {
-            Vdec2Frame frm{};
-            frm.size = sizeof(frm);
-            Vdec2Output out{};
-            out.size = sizeof(out);
-            sceVideodec2Flush(decoder_, &frm, &out);
             sceVideodec2DeleteDecoder(decoder_);
             decoder_ = nullptr;
         }
@@ -244,41 +287,36 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
             sceVideodec2ReleaseComputeQueue(computeQueue_);
             computeQueue_ = nullptr;
         }
-        freeDirect(allocs.frameBuf);
+        freeAllAllocations(allocs);
         frameBuffer_ = nullptr;
         frameBufferSize_ = 0;
-        freeDirect(allocs.decCpuGpu);
-        freeDirect(allocs.decGpu);
-        freeFlexible(allocs.decCpuFlex);
-        freeDirect(allocs.decCpuDirect);
-        freeDirect(allocs.computeBuf);
     };
 
     // Query and allocate compute queue memory
     Vdec2ComputeMemory computeMem{};
-    computeMem.size = sizeof(computeMem);
+    computeMem.thisSize = sizeof(computeMem);
     rc = sceVideodec2QueryComputeMemoryInfo(&computeMem);
     XC_LOGI("hwdec: compute memory query: rc=0x%08x, %llu bytes", static_cast<unsigned>(rc),
-            static_cast<unsigned long long>(computeMem.cpuGpuSize));
-    if (rc != 0 || computeMem.cpuGpuSize == 0) {
+            static_cast<unsigned long long>(computeMem.cpuGpuMemorySize));
+    if (rc != 0 || computeMem.cpuGpuMemorySize == 0) {
         return false;
     }
 
-    size_t computeBytes = align16k(computeMem.cpuGpuSize);
+    size_t computeBytes = align16k(computeMem.cpuGpuMemorySize);
     allocs.computeBuf = allocDirect(computeBytes, kMemoryTypeOnion, "compute queue");
     if (!allocs.computeBuf.addr) {
         return false;
     }
-    computeMem.cpuGpu = allocs.computeBuf.addr;
+    computeMem.cpuGpuMemory = allocs.computeBuf.addr;
 
-    // Allocate compute queue across pipes 0..4
+    // Allocate compute queue across pipes 0..4 (checkMemoryType = false per XCloud4)
     void* queue = nullptr;
     for (uint16_t pipe = 0; pipe < 5; ++pipe) {
         Vdec2ComputeConfig compCfg{};
-        compCfg.size = sizeof(compCfg);
-        compCfg.pipeId = pipe;
-        compCfg.queueId = 0;
-        compCfg.checkMemoryType = 1;
+        compCfg.thisSize = sizeof(compCfg);
+        compCfg.computePipeId = pipe;
+        compCfg.computeQueueId = 0;
+        compCfg.checkMemoryType = false;
 
         rc = sceVideodec2AllocateComputeQueue(&compCfg, &computeMem, &queue);
         XC_LOGI("hwdec: compute queue pipe %u queue 0: rc=0x%08x, queue=%p", pipe, static_cast<unsigned>(rc), queue);
@@ -291,82 +329,125 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
     }
     computeQueue_ = queue;
 
-    // Query decoder memory requirements
-    Vdec2DecoderConfig decCfg{};
-    decCfg.size = sizeof(decCfg);
-    decCfg.resourceType = 1; // standard
-    decCfg.codecType = 1;    // H.264 (AVC)
-    decCfg.profile = 100;    // High profile
-    decCfg.maxLevel = 51;    // Level 5.1
-    decCfg.maxWidth = maxWidth;
-    decCfg.maxHeight = maxHeight;
-    decCfg.maxDpbFrames = 4;
-    decCfg.pipelineDepth = 1;
-    decCfg.computeQueue = reinterpret_cast<uint64_t>(computeQueue_);
-    decCfg.cpuAffinity = 0x3F; // 6 user cores on PS4 Jaguar APU (cores 0..5)
-    decCfg.cpuPriority = 700;
-    decCfg.optimizeProgressive = 1;
+    // Query decoder memory requirements with fallback profile/level presets
+    struct Preset {
+        uint32_t profile;
+        uint32_t maxLevel;
+        int32_t dpbFrames;
+        uint32_t height;
+    };
+    const uint32_t codedHeight = static_cast<uint32_t>(maxHeight);
+    const uint32_t altHeight = (maxHeight == 1088) ? 1080u : codedHeight;
+    const Preset presets[] = {
+        {100, 42, 4, codedHeight}, // High Profile, Level 4.2 (1920x1088 coded height)
+        {100, 51, 4, codedHeight}, // High Profile, Level 5.1 (1920x1088 coded height)
+        {100, 42, 4, altHeight},   // Fallback if firmware rejects 1088 at Level 4.2
+        {66,  31, 4, altHeight},   // Baseline Profile, Level 3.1
+    };
 
+    Vdec2DecoderConfig decCfg{};
     Vdec2DecoderMemory decMem{};
-    decMem.size = sizeof(decMem);
-    rc = sceVideodec2QueryDecoderMemoryInfo(&decCfg, &decMem);
-    if (rc != 0) {
-        XC_LOGW("hwdec: sceVideodec2QueryDecoderMemoryInfo failed: 0x%08x", static_cast<unsigned>(rc));
+    bool queryOk = false;
+    for (const auto& p : presets) {
+        std::memset(&decCfg, 0, sizeof(decCfg));
+        decCfg.thisSize = sizeof(decCfg);
+        decCfg.resourceType = 1; // standard
+        decCfg.codecType = 1;    // H.264 (AVC)
+        decCfg.profile = p.profile;
+        decCfg.maxLevel = p.maxLevel;
+        decCfg.maxFrameWidth = maxWidth;
+        decCfg.maxFrameHeight = p.height;
+        decCfg.maxDpbFrameCount = p.dpbFrames;
+        decCfg.decodePipelineDepth = 1;
+        decCfg.computeQueue = computeQueue_;
+        decCfg.cpuAffinityMask = 0x20;
+        decCfg.cpuThreadPriority = 700;
+        decCfg.optimizeProgressiveVideo = true;
+        decCfg.checkMemoryType = false;
+
+        std::memset(&decMem, 0, sizeof(decMem));
+        decMem.thisSize = sizeof(decMem);
+        rc = sceVideodec2QueryDecoderMemoryInfo(&decCfg, &decMem);
+        if (rc == 0) {
+            queryOk = true;
+            break;
+        }
+        XC_LOGW("hwdec: QueryDecoderMemoryInfo(profile=%u, level=%u, h=%u) failed: 0x%08x",
+                p.profile, p.maxLevel, p.height, static_cast<unsigned>(rc));
+    }
+    if (!queryOk) {
         rollback();
         return false;
     }
-    XC_LOGI("hwdec: decoder memory query: cpu=%llu gpu=%llu cpuGpu=%llu maxFrame=%llu bytes",
-            static_cast<unsigned long long>(decMem.cpuSize), static_cast<unsigned long long>(decMem.gpuSize),
-            static_cast<unsigned long long>(decMem.cpuGpuSize), static_cast<unsigned long long>(decMem.maxFrameSize));
+    XC_LOGI("hwdec: decoder memory query: cpu=%llu gpu=%llu cpuGpu=%llu maxFrame=%llu align=%u",
+            static_cast<unsigned long long>(decMem.cpuMemorySize),
+            static_cast<unsigned long long>(decMem.gpuMemorySize),
+            static_cast<unsigned long long>(decMem.cpuGpuMemorySize),
+            static_cast<unsigned long long>(decMem.maxFrameBufferSize),
+            decMem.frameBufferAlignment);
 
-    if (decMem.cpuSize > 0) {
-        size_t cpuBytes = align16k(decMem.cpuSize);
-        allocs.decCpuDirect = allocDirect(cpuBytes, kMemoryTypeOnion, "decoder cpu");
-        if (allocs.decCpuDirect.addr) {
-            decMem.cpu = allocs.decCpuDirect.addr;
-            decMem.cpuSize = allocs.decCpuDirect.size;
-            XC_LOGI("hwdec: decoder cpu %zu bytes allocated in direct Onion memory", cpuBytes);
+    if (decMem.cpuMemorySize > 0) {
+        size_t cpuBytes = align16k(decMem.cpuMemorySize);
+        void* cpuMem = nullptr;
+        rc = sceKernelMapNamedFlexibleMemory(&cpuMem, cpuBytes, kProtectionRw, 0, "PSBoxVdecCpu");
+        if (rc == 0 && cpuMem) {
+            std::memset(cpuMem, 0, cpuBytes);
+            decMem.cpuMemory = cpuMem;
+            decMem.cpuMemorySize = cpuBytes;
+            allocs.decCpuFlex = {cpuMem, cpuBytes};
+            XC_LOGI("hwdec: decoder cpu %zu bytes allocated in flexible memory", cpuBytes);
         } else {
-            XC_LOGW("hwdec: direct onion memory for cpu failed, falling back to flexible memory");
-            void* cpuMem = nullptr;
-            rc = sceKernelMapNamedFlexibleMemory(&cpuMem, cpuBytes, kProtectionRw, 0, "PSBoxVdecCpu");
-            if (rc != 0 || !cpuMem) {
-                XC_LOGW("hwdec: allocate flexible memory %zu failed: 0x%08x", cpuBytes, static_cast<unsigned>(rc));
+            allocs.decCpuDirect = allocDirect(cpuBytes, kMemoryTypeOnion, "decoder cpu");
+            if (!allocs.decCpuDirect.addr) {
                 rollback();
                 return false;
             }
-            decMem.cpu = cpuMem;
-            decMem.cpuSize = cpuBytes;
-            allocs.decCpuFlex = {cpuMem, cpuBytes};
-            XC_LOGI("hwdec: decoder cpu %zu bytes allocated in flexible memory", cpuBytes);
+            decMem.cpuMemory = allocs.decCpuDirect.addr;
+            decMem.cpuMemorySize = allocs.decCpuDirect.size;
+            XC_LOGI("hwdec: decoder cpu %zu bytes allocated in direct Onion memory", cpuBytes);
         }
     }
 
-    if (decMem.gpuSize > 0) {
-        allocs.decGpu = allocDirect(decMem.gpuSize, kMemoryTypeGarlic, "decoder gpu");
+    if (decMem.gpuMemorySize > 0) {
+        allocs.decGpu = allocDirect(decMem.gpuMemorySize, kMemoryTypeGarlic, "decoder gpu");
         if (!allocs.decGpu.addr) {
             rollback();
             return false;
         }
-        decMem.gpu = allocs.decGpu.addr;
+        decMem.gpuMemory = allocs.decGpu.addr;
+        decMem.gpuMemorySize = allocs.decGpu.size;
     }
 
-    if (decMem.cpuGpuSize > 0) {
-        allocs.decCpuGpu = allocDirect(decMem.cpuGpuSize, kMemoryTypeOnion, "decoder cpu+gpu");
+    if (decMem.cpuGpuMemorySize > 0) {
+        allocs.decCpuGpu = allocDirect(decMem.cpuGpuMemorySize, kMemoryTypeOnion, "decoder cpu+gpu");
         if (!allocs.decCpuGpu.addr) {
             rollback();
             return false;
         }
-        decMem.cpuGpu = allocs.decCpuGpu.addr;
+        decMem.cpuGpuMemory = allocs.decCpuGpu.addr;
+        decMem.cpuGpuMemorySize = allocs.decCpuGpu.size;
     }
 
-    frameBufferSize_ = align16k(decMem.maxFrameSize > 0 ? decMem.maxFrameSize : (static_cast<size_t>(maxWidth) * maxHeight * 3 / 2 + 64));
-    allocs.frameBuf = allocDirect(frameBufferSize_, kMemoryTypeOnion, "frame buffer");
-    if (!allocs.frameBuf.addr) {
-        rollback();
-        return false;
+    for (size_t i = 0; i < kInputRingSlots; ++i) {
+        allocs.inputBufs[i] = allocDirect(kInputSlotBytes, kMemoryTypeOnion, "input au ring");
+        if (!allocs.inputBufs[i].addr) {
+            rollback();
+            return false;
+        }
     }
-    frameBuffer_ = static_cast<uint8_t*>(allocs.frameBuf.addr);
+
+    const size_t minCodedFrameBytes = static_cast<size_t>(maxWidth) * maxHeight * 3 / 2 + 64;
+    size_t rawFrameSize = std::max<size_t>(static_cast<size_t>(decMem.maxFrameBufferSize), minCodedFrameBytes);
+    size_t fbAlign = std::max<size_t>(decMem.frameBufferAlignment, 0x4000);
+    frameBufferSize_ = alignUp(rawFrameSize, fbAlign);
+    for (size_t i = 0; i < kOutputRingSlots; ++i) {
+        allocs.frameBufs[i] = allocDirect(frameBufferSize_, kMemoryTypeOnion, "frame buffer ring", fbAlign);
+        if (!allocs.frameBufs[i].addr) {
+            rollback();
+            return false;
+        }
+    }
+    frameBuffer_ = static_cast<uint8_t*>(allocs.frameBufs[0].addr);
 
     rc = sceVideodec2CreateDecoder(&decCfg, &decMem, &decoder_);
     XC_LOGI("hwdec: sceVideodec2CreateDecoder -> 0x%08x", static_cast<unsigned>(rc));
@@ -381,45 +462,130 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
         s_allocations[this] = allocs;
     }
 
-    XC_LOGI("hwdec: PS4 decoder running, frame buffer %zu bytes", frameBufferSize_);
+    XC_LOGI("hwdec: PS4 decoder running (%zu input slots, %zu output slots of %zu bytes)",
+            kInputRingSlots, kOutputRingSlots, frameBufferSize_);
     return true;
 }
 
 bool HwDecoder::decode(const uint8_t* data, size_t len, uint64_t pts, Picture& out) {
+    out = Picture{};
     if (!decoder_ || !data || len == 0 || !frameBuffer_) return false;
 
+    void* inBuf = nullptr;
+    void* outBuf = nullptr;
+    size_t outBufSize = frameBufferSize_;
+    size_t outSlotUsed = 0;
+    {
+        std::lock_guard<std::mutex> lock(s_allocMutex);
+        auto it = s_allocations.find(this);
+        if (it == s_allocations.end() || len > it->second.inputBufs[0].size) {
+            return false;
+        }
+        size_t inSlot = it->second.inputSlot;
+        it->second.inputSlot = (inSlot + 1) % kInputRingSlots;
+        inBuf = it->second.inputBufs[inSlot].addr;
+        std::memcpy(inBuf, data, len);
+
+        outSlotUsed = it->second.outputSlot;
+        outBuf = it->second.frameBufs[outSlotUsed].addr;
+        outBufSize = it->second.frameBufs[outSlotUsed].size;
+    }
+
     Vdec2Input input{};
-    input.size = sizeof(input);
-    input.au = const_cast<uint8_t*>(data);
+    input.thisSize = sizeof(input);
+    input.auData = inBuf;
     input.auSize = len;
-    input.pts = pts;
+    input.ptsData = pts;
+    input.dtsData = pts;
 
     Vdec2Frame frame{};
-    frame.size = sizeof(frame);
-    frame.buffer = frameBuffer_;
-    frame.bufferSize = frameBufferSize_;
+    frame.thisSize = sizeof(frame);
+    frame.frameBuffer = outBuf;
+    frame.frameBufferSize = outBufSize;
 
     Vdec2Output output{};
-    output.size = sizeof(output);
+    output.thisSize = sizeof(output);
 
-    int rc = sceVideodec2Decode(decoder_, &input, &frame, &output);
-    if (rc != 0) {
+    int decodeRc = sceVideodec2Decode(decoder_, &input, &frame, &output);
+    if (decodeRc == 0 && frame.isAccepted) {
+        std::lock_guard<std::mutex> lock(s_allocMutex);
+        auto it = s_allocations.find(this);
+        if (it != s_allocations.end() && it->second.outputSlot == outSlotUsed) {
+            it->second.outputSlot = (outSlotUsed + 1) % kOutputRingSlots;
+        }
+    }
+    if (decodeRc != 0 || output.isErrorFrame) {
+        out.error = true;
         return false;
     }
 
-    if (output.valid && output.pictureCount > 0) {
-        out.data = static_cast<const uint8_t*>(output.buffer ? output.buffer : frameBuffer_);
-        out.size = output.bufferSize ? output.bufferSize : frameBufferSize_;
-        out.width = output.width;
-        out.height = output.height;
-        out.pitch = output.pitch;
-        out.pitchBytes = output.pitchBytes ? output.pitchBytes : (output.width);
+    bool flushed = false;
+    void* flushBuf = nullptr;
+    size_t flushBufSize = 0;
+    int flushRc = 0;
+    if (decodeRc == 0 && (!output.isValid || output.pictureCount == 0)) {
+        flushed = true;
+        output = Vdec2Output{};
+        output.thisSize = sizeof(output);
+
+        Vdec2Frame flushFrame{};
+        flushFrame.thisSize = sizeof(flushFrame);
+        size_t flushSlot = 0;
+        {
+            std::lock_guard<std::mutex> lock(s_allocMutex);
+            auto it = s_allocations.find(this);
+            if (it != s_allocations.end()) {
+                flushSlot = it->second.outputSlot;
+                flushBuf = it->second.frameBufs[flushSlot].addr;
+                flushBufSize = it->second.frameBufs[flushSlot].size;
+                flushFrame.frameBuffer = flushBuf;
+                flushFrame.frameBufferSize = flushBufSize;
+            }
+        }
+
+        flushRc = sceVideodec2Flush(decoder_, &flushFrame, &output);
+        if (flushRc == 0 && flushFrame.isAccepted) {
+            std::lock_guard<std::mutex> lock(s_allocMutex);
+            auto it = s_allocations.find(this);
+            if (it != s_allocations.end() && it->second.outputSlot == flushSlot) {
+                it->second.outputSlot = (flushSlot + 1) % kOutputRingSlots;
+            }
+        }
+    }
+
+    static int logged = 0;
+    if ((decodeRc != 0 || flushRc != 0 || output.isValid) && logged < 12) {
+        ++logged;
+        XC_LOGI("hwdec: PS4 decode 0x%08x flush 0x%08x (flushed=%d): valid %d errFrame %d pictures %u, %ux%u pitch %u (%u bytes), format %u, buf %p",
+                static_cast<unsigned>(decodeRc), static_cast<unsigned>(flushRc), flushed ? 1 : 0,
+                static_cast<int>(output.isValid), static_cast<int>(output.isErrorFrame),
+                static_cast<unsigned>(output.pictureCount),
+                output.frameWidth, output.frameHeight, output.framePitch, output.pitchBytes,
+                output.frameFormat, output.frameBuffer);
+    }
+
+    if (output.isErrorFrame) {
+        out.error = true;
+        return false;
+    }
+
+    if (output.isValid && output.pictureCount > 0) {
+        const void* chosenBuf = output.frameBuffer ? output.frameBuffer : (flushed && flushBuf ? flushBuf : outBuf);
+        size_t chosenSize = output.frameBufferSize ? output.frameBufferSize : (flushed && flushBufSize ? flushBufSize : outBufSize);
+        out.data = static_cast<const uint8_t*>(chosenBuf);
+        out.size = chosenSize;
+        out.width = output.frameWidth;
+        out.height = output.frameHeight;
+        out.pitch = output.framePitch ? output.framePitch : output.frameWidth;
+        out.pitchBytes = output.pitchBytes ? output.pitchBytes : out.pitch;
         out.format = output.frameFormat;
         out.pts = pts;
-        out.error = (output.error != 0);
+        out.error = false;
         return true;
     }
 
+    // Pipeline priming frame (rc == 0, !isValid, !isErrorFrame): not an error
+    out.pending = true;
     return false;
 }
 

@@ -127,6 +127,24 @@ struct StreamPlayer::Impl {
     std::atomic<uint32_t> audioSendTimestamp{0};
     bool encoderInitialized = false;
     platform::Thread inputThread;
+    platform::Thread snapshotThread;
+    platform::Thread screenThread;
+    struct LatestPicture {
+        media::Picture pic;
+        std::vector<uint8_t> yPlane;
+        std::vector<uint8_t> uPlane;
+        std::vector<uint8_t> vPlane;
+        stream::FrameMetadata meta;
+        bool known = false;
+        bool isHw = false;
+        uint64_t arrivalUs = 0;
+        uint64_t seq = 0;
+    };
+    std::mutex presentMutex;
+    std::condition_variable presentCv;
+    LatestPicture latestPic;
+    uint64_t consumedPicSeq = 0;
+    bool presentStop = false;
     std::mutex inputMutex;
     std::condition_variable inputCv;
     std::array<stream::GamepadFrame, input::kMaxPads> pendingPads{};
@@ -191,6 +209,11 @@ struct StreamPlayer::Impl {
         }
         running = false;
         cv.notify_all();
+        {
+            std::lock_guard<std::mutex> lock(presentMutex);
+            presentStop = true;
+        }
+        presentCv.notify_all();
         {
             std::lock_guard<std::mutex> lock(audioMutex_);
         }
@@ -328,6 +351,104 @@ struct StreamPlayer::Impl {
         }
     }
 
+    void asyncPresentLoop() {
+        platform::setThreadAffinity(platform::ThreadRole::Worker, "ps4_present");
+        constexpr uint64_t kShownRing = 8;
+        std::pair<uint64_t, uint64_t> inScreenQueue[kShownRing] = {};  // present id, arrival us
+        uint64_t lastShownId = 0;
+        uint64_t lastFramePresentUs = 0;
+        bool loggedFirstPresent = false;
+        LatestPicture cur;
+
+        while (running) {
+            {
+                std::unique_lock<std::mutex> lock(presentMutex);
+                presentCv.wait(lock, [&] { return !running || presentStop || latestPic.seq > consumedPicSeq; });
+                if (!running || presentStop) break;
+                consumedPicSeq = latestPic.seq;
+                cur.pic = latestPic.pic;
+                cur.meta = latestPic.meta;
+                cur.known = latestPic.known;
+                cur.isHw = latestPic.isHw;
+                cur.arrivalUs = latestPic.arrivalUs;
+                cur.seq = latestPic.seq;
+                if (!cur.isHw) {
+                    cur.yPlane.swap(latestPic.yPlane);
+                    cur.uPlane.swap(latestPic.uPlane);
+                    cur.vPlane.swap(latestPic.vPlane);
+                    cur.pic.y = cur.yPlane.data();
+                    cur.pic.u = cur.uPlane.data();
+                    cur.pic.v = cur.pic.format == media::Picture::Format::Nv12 ? nullptr : cur.vPlane.data();
+                }
+            }
+
+            bool screenshot = saveSnapshotIfAsked(cur.pic);
+            std::lock_guard<std::recursive_mutex> lock(display::frameMutex());
+            if (!loggedFirstPresent) {
+                XC_LOGI("first draw %dx%d (%s, %s)", cur.pic.width, cur.pic.height,
+                        cur.pic.format == media::Picture::Format::Nv12 ? "NV12" : "YUV420P",
+                        cur.isHw ? "hardware" : "software");
+            }
+            uint64_t t2 = platform::nowUs();
+            auto drawPic = [](const media::Picture& p, bool wait) {
+                if (p.format == media::Picture::Format::Nv12) {
+                    return display::drawNv12(p.y, p.u, p.strideY, p.strideU, p.width, p.height, wait);
+                }
+                return display::drawYuv420(p.y, p.u, p.v, p.strideY, p.strideU, p.strideV, p.width, p.height, wait);
+            };
+            bool drawn = drawPic(cur.pic, false);
+            if (!drawn) {
+                drawn = drawPic(cur.pic, true);
+            }
+            if (!drawn) {
+                ++lateFrames;
+                continue;
+            }
+            uint64_t tDrawDone = platform::nowUs();
+            display::present();
+            uint64_t t3 = platform::nowUs();
+            if (lastFramePresentUs > 0) {
+                float dt = static_cast<float>(t3 - lastFramePresentUs) / 1000.0f;
+                if (dt > 0.0f && dt < 250.0f) {
+                    std::lock_guard<std::mutex> lk(frametimesMutex);
+                    frametimesRing[frametimesHead % kFrametimeRing] = dt;
+                    ++frametimesHead;
+                    if (frametimesCount < kFrametimeRing) ++frametimesCount;
+                }
+            }
+            lastFramePresentUs = t3;
+            if (uint64_t id = display::lastPresentId()) {
+                inScreenQueue[id % kShownRing] = {id, cur.arrivalUs};
+                uint64_t shownId = 0, shownAt = 0;
+                if (display::lastShown(shownId, shownAt) && shownId != lastShownId) {
+                    lastShownId = shownId;
+                    const auto& q = inScreenQueue[shownId % kShownRing];
+                    if (q.first == shownId && shownAt > q.second) {
+                        uint64_t lat = shownAt - q.second;
+                        displayUs += lat;
+                        ++displayCount;
+                        atomicMax(displayMaxUs, lat);
+                    }
+                }
+            }
+            cur.meta.renderedMs = stream::clockMs();
+            if (auto s = current(); s && cur.known) s->reportFrame(cur.meta);
+            if (!loggedFirstPresent || (drawCalls % 600 == 0))
+                XC_LOGI("frame %u: queued %.1f, decoded %.1f, shown %.1f ms after arrival", cur.meta.serverDataKey,
+                        cur.meta.submittedMs - cur.meta.firstPacketArrivalMs,
+                        cur.meta.decodedMs - cur.meta.firstPacketArrivalMs,
+                        cur.meta.renderedMs - cur.meta.firstPacketArrivalMs);
+            if (screenshot) saveScreen();
+            drawUs += tDrawDone - t2;
+            ++drawCalls;
+            atomicMax(drawMaxUs, tDrawDone - t2);
+            if (!loggedFirstPresent) {
+                loggedFirstPresent = true;
+                XC_LOGI("first frame presented");
+            }
+        }
+    }
+
     void videoLoop() {
         platform::setThreadAffinity(platform::ThreadRole::VideoDecode, "xcloud_vdec");
         media::VideoDecoder decoder;
@@ -336,6 +457,31 @@ struct StreamPlayer::Impl {
             return;
         }
         isHwDecode = decoder.isHardware();
+        const bool useAsyncPresent = display::caps().asyncPresent;
+        platform::Thread presentThread;
+        if (useAsyncPresent) {
+            {
+                std::lock_guard<std::mutex> lock(presentMutex);
+                latestPic.seq = 0;
+                consumedPicSeq = 0;
+                presentStop = false;
+            }
+            platform::startThread(presentThread, [this] { asyncPresentLoop(); }, 512u << 10);
+        }
+        struct PresentJoinGuard {
+            Impl* self;
+            platform::Thread& t;
+            bool active;
+            ~PresentJoinGuard() {
+                if (!active) return;
+                {
+                    std::lock_guard<std::mutex> lock(self->presentMutex);
+                    self->presentStop = true;
+                }
+                self->presentCv.notify_all();
+                if (t.joinable()) t.join();
+            }
+        } presentGuard{this, presentThread, useAsyncPresent};
         VideoFrame frame;
         std::vector<uint8_t>& au = frame.data;
         // Timings of the frames handed to the decoder, by RTP timestamp:
@@ -427,6 +573,33 @@ struct StreamPlayer::Impl {
                 ++qpCount;
             }
             pictureSize = (static_cast<uint32_t>(pic.width) << 16) | static_cast<uint32_t>(pic.height);
+            if (useAsyncPresent) {
+                {
+                    std::lock_guard<std::mutex> lock(presentMutex);
+                    if (latestPic.seq > consumedPicSeq) {
+                        ++droppedFrames;
+                    }
+                    latestPic.pic = pic;
+                    latestPic.meta = meta;
+                    latestPic.known = known;
+                    latestPic.isHw = decoder.isHardware();
+                    latestPic.arrivalUs = frame.arrivalUs;
+                    ++latestPic.seq;
+                    if (!latestPic.isHw) {
+                        size_t yBytes = static_cast<size_t>(pic.strideY) * pic.height;
+                        size_t uvH = (pic.height + 1) / 2;
+                        size_t uBytes = static_cast<size_t>(pic.strideU) * uvH;
+                        latestPic.yPlane.assign(pic.y, pic.y + yBytes);
+                        latestPic.uPlane.assign(pic.u, pic.u + uBytes);
+                        if (pic.format != media::Picture::Format::Nv12 && pic.v) {
+                            size_t vBytes = static_cast<size_t>(pic.strideV) * uvH;
+                            latestPic.vPlane.assign(pic.v, pic.v + vBytes);
+                        }
+                    }
+                }
+                presentCv.notify_one();
+                continue;
+            }
             // When a burst of frames arrives after network wait/jitter, fast-forward decode
             // stale frames in FFmpeg without waiting for vblank present, keeping reference
             // picture state intact while draining backlog in ~3.4ms per frame.
@@ -727,12 +900,13 @@ struct StreamPlayer::Impl {
                 o[1] = clamp((c - 218 * d - 546 * e + 512) >> 10);
                 o[2] = clamp((c + 2163 * d + 512) >> 10);
             }
-        std::thread([path, rgb = std::move(rgb), w, h]() mutable {
+        if (snapshotThread.joinable()) snapshotThread.join();
+        platform::startThread(snapshotThread, [path, rgb = std::move(rgb), w, h]() mutable {
             std::string data = "P6\n" + std::to_string(w) + " " + std::to_string(h) + "\n255\n";
             data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
             bool ok = platform::writeFileAtomic(path, data);
             XC_LOGI("snapshot %dx%d -> %s: %s", w, h, path.c_str(), ok ? "ok" : "failed");
-        }).detach();
+        }, 512u << 10);
         return true;
     }
 
@@ -743,7 +917,8 @@ struct StreamPlayer::Impl {
             int w = 0, h = 0;
             if (!display::readBackRgb(rgb, w, h)) return;
             std::string path = screenPath;
-            std::thread([path, rgb = std::move(rgb), w, h]() mutable {
+            if (screenThread.joinable()) screenThread.join();
+            platform::startThread(screenThread, [path, rgb = std::move(rgb), w, h]() mutable {
                 try {
                     std::string data = "P6\n" + std::to_string(w) + " " + std::to_string(h) + "\n255\n";
                     data.append(reinterpret_cast<const char*>(rgb.data()), rgb.size());
@@ -753,7 +928,7 @@ struct StreamPlayer::Impl {
                 } catch (const std::exception& e) {
                     XC_LOGW("screen thread error: %s", e.what());
                 }
-            }).detach();
+            }, 512u << 10);
         } catch (const std::exception& e) {
             XC_LOGW("saveScreen failed: %s", e.what());
         }
@@ -801,6 +976,8 @@ struct StreamPlayer::Impl {
         if (inputThread.joinable()) inputThread.join();
         if (videoThread.joinable()) videoThread.join();
         if (audioThread.joinable()) audioThread.join();
+        if (snapshotThread.joinable()) snapshotThread.join();
+        if (screenThread.joinable()) screenThread.join();
         std::shared_ptr<stream::StreamSession> last;
         {
             std::lock_guard<std::mutex> lock(sessionMutex);

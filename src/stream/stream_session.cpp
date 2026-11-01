@@ -115,7 +115,7 @@ struct StreamSession::Impl {
     std::atomic<uint32_t> inputSequence{1};
     uint64_t lastKeepaliveMs = 0;
     std::atomic<bool> keepaliveInFlight{false};
-    std::thread keepaliveThread;
+    platform::Thread keepaliveThread;
     uint64_t lastKeyframeMs = 0;
     VideoReceiveStats videoStats;
     std::shared_ptr<RtcpReporter> videoReporter;
@@ -722,11 +722,11 @@ struct StreamSession::Impl {
             if (!keepaliveInFlight.load()) {
                 if (keepaliveThread.joinable()) keepaliveThread.join();
                 keepaliveInFlight = true;
-                keepaliveThread = std::thread([this] {
+                platform::startThread(keepaliveThread, [this] {
                     std::string err;
                     if (!gssv.keepalive(err)) XC_LOGW("%s", err.c_str());
                     keepaliveInFlight = false;
-                });
+                }, 512u << 10);
             }
         }
         if (opt.keyframeIntervalSec > 0 && now - lastKeyframeMs >= static_cast<uint64_t>(opt.keyframeIntervalSec) * 1000u) {

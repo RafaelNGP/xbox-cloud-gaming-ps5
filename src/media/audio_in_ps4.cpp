@@ -27,7 +27,7 @@ int sceSysmoduleLoadModuleInternal(uint32_t id);
 namespace xc::media {
 
 struct AudioIn::Impl {
-    std::thread thread;
+    platform::Thread thread;
     int handle = -1;
     MicPipeline mic;
 };
@@ -91,7 +91,7 @@ bool AudioIn::open(AudioCallback cb) {
     running_ = true;
     impl_->mic.reset();
 
-    impl_->thread = std::thread([this]() {
+    platform::startThread(impl_->thread, [this]() {
         platform::setThreadAffinity(platform::ThreadRole::Audio, "ps4_audio_in");
         platform::setThreadRealtimePriority();
         std::vector<int16_t> grain(kGrain);
@@ -122,7 +122,7 @@ bool AudioIn::open(AudioCallback cb) {
             bool isMuted = muted_.load(std::memory_order_relaxed) || hardwareMuted_.load(std::memory_order_relaxed);
             impl_->mic.process(grain.data(), grain.size(), isMuted, gain_.load(std::memory_order_relaxed), level_, callback_);
         }
-    });
+    }, 512u << 10);
 
     XC_LOGI("audio in: PS4 microphone open (handle %d, 48 kHz mono S16)", impl_->handle);
     return true;

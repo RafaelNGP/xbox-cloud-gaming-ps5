@@ -254,7 +254,6 @@ ui::UiCaps uiCaps() {
 
 bool coreStartup() {
     platform::init();
-    platform::setThreadAffinity(platform::ThreadRole::Main, "xcloud_main");
     const std::string dataDir = platform::dataDir();
     const std::string logPath = dataDir + "/xcloud.log";
     const std::string prevLogPath = dataDir + "/xcloud.prev.log";
@@ -725,6 +724,7 @@ bool coreStartup() {
     g_core->streamScreen.emplace(fonts);
     g_core->streamScreen->setCaps(uiCaps());
     crash::startWatchdog(15000);  // a main loop stuck for 15 s leaves a marker
+    platform::setThreadAffinity(platform::ThreadRole::Main, "xcloud_main");
     return true;
 }
 
@@ -1303,6 +1303,10 @@ void coreShutdown() {
     if (!workerDone || !pricesDone)
         XC_LOGW("closing: %s%s%s still busy, left to the exit", workerDone ? "" : "the worker",
                 !workerDone && !pricesDone ? " and " : "", pricesDone ? "" : "the price loop");
+    if (g_images) {
+        g_images->stop();
+        g_images.reset();
+    }
     shell::beforeShutdown();
     input::shutdown();
     display::shutdown();
