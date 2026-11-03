@@ -12,7 +12,9 @@
 #include <mutex>
 #include <vector>
 
-#if defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__posix)
+// XC_NO_UHID_PADS (PS4): pads come through the system there, and /dev/uhid* does not
+// exist (the scan only cost an open() per node every 2 s).
+#if (defined(__unix__) || defined(__linux__) || defined(__APPLE__) || defined(__posix)) && !defined(XC_NO_UHID_PADS)
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
