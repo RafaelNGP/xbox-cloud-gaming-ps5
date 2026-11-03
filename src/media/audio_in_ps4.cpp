@@ -69,32 +69,46 @@ bool AudioIn::open(AudioCallback cb) {
     XC_LOGI("audio in: opening port for user 0x%08x (%d)...", static_cast<unsigned>(userId), userId);
 
     constexpr unsigned kGrain = MicPipeline::kGrain; // 256
-    // type 0 = VoiceChat; freq = 48000; param = 0 (mono S16)
-    impl_->handle = sceAudioInOpen(userId, 0, 0, kGrain, kSampleRate, 0);
-    if (impl_->handle < 0) {
-        XC_LOGW("sceAudioInOpen(user 0x%x, voice): 0x%08x, trying the personal port",
-                static_cast<unsigned>(userId), static_cast<unsigned>(impl_->handle));
-        // type 1 = Personal port
-        impl_->handle = sceAudioInOpen(userId, 1, 0, kGrain, kSampleRate, 0);
-    }
-    if (impl_->handle < 0 && userId != 0xFF) {
-        XC_LOGW("trying sceAudioInOpen with system user 0xFF...");
-        impl_->handle = sceAudioInOpen(0xFF, 0, 0, kGrain, kSampleRate, 0);
-        if (impl_->handle < 0) {
-            impl_->handle = sceAudioInOpen(0xFF, 1, 0, kGrain, kSampleRate, 0);
+    // The PS4 refuses 48 kHz on its voice and personal ports (0x80260103 in #301 and #309):
+    // its microphone runs at 16 kHz. 48 kHz is still tried first (it is what the stream
+    // sends), then 16 kHz, whose grains are upsampled 3x below.
+    unsigned openedRate = 0;
+    const int users[] = {userId, 0xFF};
+    for (unsigned rate : {static_cast<unsigned>(kSampleRate), 16000u}) {
+        for (int u = 0; u < 2; ++u) {
+            const int user = users[u];
+            if (u == 1 && userId == 0xFF) continue;  // already tried as the first user
+            for (int type : {0, 1}) {  // 0 = voice chat port, 1 = personal port
+                int h = sceAudioInOpen(user, type, 0, kGrain, rate, 0);  // mono S16
+                if (h >= 0) {
+                    impl_->handle = h;
+                    openedRate = rate;
+                    XC_LOGI("audio in: port type %d opened for user 0x%08x at %u Hz", type,
+                            static_cast<unsigned>(user), rate);
+                    break;
+                }
+                XC_LOGW("sceAudioInOpen(user 0x%x, type %d, %u Hz): 0x%08x", static_cast<unsigned>(user), type,
+                        rate, static_cast<unsigned>(h));
+            }
+            if (openedRate) break;
         }
+        if (openedRate) break;
     }
-    if (impl_->handle < 0) {
-        XC_LOGE("sceAudioInOpen failed: 0x%08x", static_cast<unsigned>(impl_->handle));
+    if (!openedRate) {
+        impl_->handle = -1;
+        XC_LOGE("sceAudioInOpen failed on every port and rate");
         return false;
     }
     running_ = true;
     impl_->mic.reset();
 
-    platform::startThread(impl_->thread, [this]() {
+    platform::startThread(impl_->thread, [this, openedRate]() {
         platform::setThreadAffinity(platform::ThreadRole::Audio, "ps4_audio_in");
         platform::setThreadRealtimePriority();
         std::vector<int16_t> grain(kGrain);
+        const unsigned factor = kSampleRate / openedRate;  // 1, or 3 at 16 kHz
+        std::vector<int16_t> upsampled(kGrain * factor);
+        int16_t lastSample = 0;
         unsigned lastStatus = 0xFFFFFFFF;
         uint64_t loopCount = 0;
 
@@ -120,11 +134,24 @@ bool AudioIn::open(AudioCallback cb) {
             }
 
             bool isMuted = muted_.load(std::memory_order_relaxed) || hardwareMuted_.load(std::memory_order_relaxed);
-            impl_->mic.process(grain.data(), grain.size(), isMuted, gain_.load(std::memory_order_relaxed), level_, callback_);
+            if (factor == 1) {
+                impl_->mic.process(grain.data(), grain.size(), isMuted, gain_.load(std::memory_order_relaxed), level_, callback_);
+            } else {
+                // Linear interpolation from the previous sample to each new one.
+                for (unsigned i = 0; i < kGrain; ++i) {
+                    int a = lastSample, b = grain[i];
+                    for (unsigned k = 0; k < factor; ++k) {
+                        upsampled[i * factor + k] = static_cast<int16_t>(a + (b - a) * static_cast<int>(k + 1) / static_cast<int>(factor));
+                    }
+                    lastSample = grain[i];
+                }
+                impl_->mic.process(upsampled.data(), upsampled.size(), isMuted, gain_.load(std::memory_order_relaxed), level_, callback_);
+            }
         }
     }, 512u << 10);
 
-    XC_LOGI("audio in: PS4 microphone open (handle %d, 48 kHz mono S16)", impl_->handle);
+    XC_LOGI("audio in: PS4 microphone open (handle %d, %u Hz mono S16%s)", impl_->handle, openedRate,
+            openedRate == static_cast<unsigned>(kSampleRate) ? "" : ", upsampled to 48 kHz");
     return true;
 }
 
