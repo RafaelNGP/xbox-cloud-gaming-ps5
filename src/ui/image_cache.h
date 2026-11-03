@@ -36,6 +36,7 @@ public:
     explicit ImageCache(std::function<void()> onReady, size_t budgetBytes = 160u << 20, std::string diskDir = {},
                         size_t diskBudgetBytes = 256u << 20);
     ~ImageCache();
+    void stop();
 
     // The image scaled to w x h, or nullptr while it loads (or if it failed).
     std::shared_ptr<const Image> get(const std::string& url, int w, int h);

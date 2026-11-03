@@ -13,6 +13,12 @@ option(XCLOUD_PS5 "Build for the PS5 (payload SDK)" OFF)
 option(XC_TARGET_PS4 "Build for the PS4 (OpenOrbis)" OFF)
 include(cmake/platform.cmake)
 
+# Without a build type clang compiles at -O0, and the PS4's CPU cannot keep up: v1.5.5
+# for PS4 shipped that way and drew 2-7 fps. The PS4 build is optimised by default.
+if(XC_TARGET_PS4 AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+
 # --- Portable core: auth, HTTPS, xCloud protocol -----------------------------
 # The CA bundle inside the binary too: used when assets/cacert.pem can't be read.
 set(XC_BUILTIN_CA "${CMAKE_CURRENT_BINARY_DIR}/generated/builtin_ca.cpp")
@@ -191,6 +197,11 @@ elseif(XC_TARGET_PS4)
         src/input/kbm_ps4.cpp
         src/media/audio_out_ps4.cpp
         src/media/audio_in_ps4.cpp
+        # In the executable itself, so its definitions always replace libkernel's.
+        src/platform/ps4/pthread_abi_ps4.c
+        # H.264 SPS parser and colour policy from XCloud4 (GPL-3.0-only).
+        src/platform/ps4/xcloud4/stream_sps.c
+        src/platform/ps4/xcloud4/stream_color_policy.c
     )
     target_link_libraries(xcloud_ps4.elf PRIVATE
         xcloud_stream
@@ -201,6 +212,7 @@ elseif(XC_TARGET_PS4)
         datachannel-static
         -lSceVideodec2
         -lSceVideoOut
+        -lSceGnmDriver
         -lScePad
         -lSceAudioOut
         -lSceAudioIn

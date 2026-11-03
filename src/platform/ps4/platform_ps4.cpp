@@ -5,6 +5,7 @@
 #include "util/log.h"
 
 #include <cerrno>
+#include <ctime>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -207,6 +208,47 @@ long sysconf(int name) {
         errno = EINVAL;
         return -1;
     }
+}
+
+// The same mismatch breaks clock_gettime(): musl's CLOCK_MONOTONIC is 1, which libkernel
+// (FreeBSD numbering, MONOTONIC = 4) reads as CLOCK_VIRTUAL, the process's CPU time.
+// Every timer then ran 1-3x too fast with the CPU load: platform::nowMs(), libc++'s
+// steady_clock (libdatachannel's ThreadPool, DTLS and RTCP timers, condition-variable
+// timeouts), the stream watchdogs and the crash guard. The musl ids are translated here;
+// this definition replaces libkernel's for the whole binary.
+int sceKernelClockGettime(int clockId, struct timespec* tp);
+
+int clock_gettime(clockid_t id, struct timespec* ts) {
+    int sceId;
+    switch (id) {
+    case 0:  // musl CLOCK_REALTIME
+    case 5:  // musl CLOCK_REALTIME_COARSE
+        sceId = 0;  // FreeBSD CLOCK_REALTIME
+        break;
+    case 1:  // musl CLOCK_MONOTONIC
+    case 4:  // musl CLOCK_MONOTONIC_RAW
+    case 6:  // musl CLOCK_MONOTONIC_COARSE
+        sceId = 4;  // FreeBSD CLOCK_MONOTONIC
+        break;
+    case 7:  // musl CLOCK_BOOTTIME
+        sceId = 5;  // FreeBSD CLOCK_UPTIME
+        break;
+    case 2:  // musl CLOCK_PROCESS_CPUTIME_ID
+        sceId = 15;
+        break;
+    case 3:  // musl CLOCK_THREAD_CPUTIME_ID
+        sceId = 14;
+        break;
+    default:
+        errno = EINVAL;
+        return -1;
+    }
+    int rc = sceKernelClockGettime(sceId, ts);
+    if (rc != 0) {
+        errno = (rc & 0xFF) ? (rc & 0xFF) : EINVAL;
+        return -1;
+    }
+    return 0;
 }
 
 static std::atomic<int> s_threadsCreated{0};
@@ -1122,36 +1164,26 @@ void setThreadAffinity(ThreadRole role, const char* name) {
         return;
     }
 
+    // Every thread may run on every core of the title, at the default priority (700); only
+    // the background catalogue tasks go lower. Pinning roles to single cores and raising the
+    // display threads to 650 (and audio to 256) starved the network and worker threads at
+    // 1080p: the stream froze about a second after the first frame (#301, #317). XCloud4,
+    // which streams 1080p on PS4, pins nothing either. Threads inherit their creator's mask,
+    // so every role gets the full mask explicitly.
     uint64_t orbisMask = 0;
-    auto setSlot = [&](int slotIndex) {
-        int idx = s_allowedCpus[slotIndex % s_numAllowedCpus];
+    for (int s = 0; s < s_numAllowedCpus; ++s) {
+        int idx = s_allowedCpus[s];
         if (idx >= 0 && idx < 64) {
             orbisMask |= (UINT64_C(1) << idx);
         }
-    };
-
-    switch (role) {
-    case ThreadRole::Main:
-        setSlot(0);
-        break;
-    case ThreadRole::Network:
-        setSlot(1);
-        break;
-    case ThreadRole::VideoDecode:
-        setSlot(2);
-        if (s_numAllowedCpus >= 4) setSlot(3);
-        break;
-    case ThreadRole::Audio:
-        setSlot(s_numAllowedCpus >= 5 ? 4 : 1);
-        break;
-    case ThreadRole::Worker:
-        if (s_numAllowedCpus >= 6) {
-            setSlot(5);
-        } else {
-            setSlot(s_numAllowedCpus - 1);
-        }
-        break;
     }
+
+    const bool isBgTask = role == ThreadRole::Worker && name &&
+                          (std::strcmp(name, "xcloud_img") == 0 || std::strcmp(name, "xcloud_hydr") == 0 ||
+                           std::strcmp(name, "xcloud_price") == 0 || std::strcmp(name, "xcloud_upd") == 0 ||
+                           std::strcmp(name, "xcloud_web") == 0);
+    const int targetPrio = isBgTask ? 740 : 700;
+
     int rc = scePthreadSetaffinity(scePthreadSelf(), orbisMask);
     if (rc != 0) {
         XC_LOGW("scePthreadSetaffinity(%s, 0x%llx): 0x%08x", name ? name : "thread",
@@ -1160,16 +1192,13 @@ void setThreadAffinity(ThreadRole role, const char* name) {
         XC_LOGI("thread %s pinned to role %d (mask 0x%llx)", name ? name : "unknown",
                 static_cast<int>(role), static_cast<unsigned long long>(orbisMask));
     }
+    scePthreadSetprio(scePthreadSelf(), targetPrio);
 }
 
-void setThreadRealtimePriority() {
-    int rc = scePthreadSetprio(scePthreadSelf(), 256);
-    if (rc != 0) {
-        XC_LOGW("scePthreadSetprio(256): 0x%08x (the audio thread keeps the default)", static_cast<unsigned>(rc));
-    } else {
-        XC_LOGI("thread elevated to realtime priority (scePthreadSetprio 256)");
-    }
-}
+// No realtime priority on PS4: the three audio threads at 256 shared a core with the
+// network and input threads and starved them. They stay at the default priority, as in
+// XCloud4; the audio queue absorbs the scheduling jitter.
+void setThreadRealtimePriority() {}
 
 }  // namespace xc::platform
 

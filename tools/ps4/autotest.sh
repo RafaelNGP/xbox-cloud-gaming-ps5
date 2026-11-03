@@ -44,9 +44,9 @@ if [ -f "$root/build-ps4/pkg_stage/account.json" ]; then
 fi
 
 # Clean old dumps
-for f in ui.ppm library.ppm splash.ppm detail.ppm settings.ppm screen.ppm error.ppm frame.ppm frame2.ppm xcloud.log; do
-    rm -f "$PSBOX_DATA/$f"
-done
+# Every capture, not a fixed list: names left out (launch.ppm, grid*.ppm...) were copied
+# back as if this run had made them.
+rm -f "$PSBOX_DATA"/*.ppm "$PSBOX_DATA/xcloud.log" "$PSBOX_DATA/xcloud.prev.log"
 rm -f "$PSBOX_DATA/autoplay.txt"
 
 # Write test directive

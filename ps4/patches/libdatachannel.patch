@@ -1,0 +1,161 @@
+diff --git a/src/impl/dtlstransport.cpp b/src/impl/dtlstransport.cpp
+index 6a289ef..b44dfcf 100644
+--- a/src/impl/dtlstransport.cpp
++++ b/src/impl/dtlstransport.cpp
+@@ -479,7 +479,7 @@ bool DtlsTransport::send(message_ptr message) {
+ 	PLOG_VERBOSE << "Send size=" << message->size();
+ 
+ 	int ret;
+-	do {
++	{
+ 		std::lock_guard lock(mSslMutex);
+ 		if (message->size() > size_t(mbedtls_ssl_get_max_out_record_payload(&mSsl)))
+ 			return false;
+@@ -487,7 +487,10 @@ bool DtlsTransport::send(message_ptr message) {
+ 		mCurrentDscp = message->dscp;
+ 		ret = mbedtls_ssl_write(&mSsl, reinterpret_cast<const unsigned char *>(message->data()),
+ 		                        message->size());
+-	} while (!mbedtls::check(ret));
++	}
++
++	if (!mbedtls::check(ret))
++		return false;
+ 
+ 	return mOutgoingResult;
+ }
+diff --git a/src/impl/init.cpp b/src/impl/init.cpp
+index aad72dd..f016bc4 100644
+--- a/src/impl/init.cpp
++++ b/src/impl/init.cpp
+@@ -122,6 +122,7 @@ void Init::doInit() {
+ 	int count = std::max(concurrency, MIN_THREADPOOL_SIZE);
+ 	PLOG_DEBUG << "Spawning " << count << " threads";
+ 	ThreadPool::Instance().spawn(count);
++	PLOG_DEBUG << "Spawned threads done";
+ 
+ #if RTC_ENABLE_WEBSOCKET
+ 	PollService::Instance().start();
+@@ -135,9 +136,13 @@ void Init::doInit() {
+ 	openssl::init();
+ #endif
+ 
++	PLOG_DEBUG << "Calling SctpTransport::Init()";
+ 	SctpTransport::Init();
++	PLOG_DEBUG << "SctpTransport::Init() returned";
+ 	SctpTransport::SetSettings(mCurrentSctpSettings);
++	PLOG_DEBUG << "SctpTransport::SetSettings() returned";
+ 	DtlsTransport::Init();
++	PLOG_DEBUG << "DtlsTransport::Init() returned";
+ #if RTC_ENABLE_WEBSOCKET
+ 	TlsTransport::Init();
+ #endif
+@@ -145,6 +150,7 @@ void Init::doInit() {
+ 	DtlsSrtpTransport::Init();
+ #endif
+ 	IceTransport::Init();
++	PLOG_DEBUG << "Init::doInit() completed";
+ }
+ 
+ void Init::doCleanup() {
+diff --git a/src/impl/peerconnection.cpp b/src/impl/peerconnection.cpp
+index c9eefca..8ec2294 100644
+--- a/src/impl/peerconnection.cpp
++++ b/src/impl/peerconnection.cpp
+@@ -47,7 +47,7 @@ static LogCounter
+ const string PemBeginCertificateTag = "-----BEGIN CERTIFICATE-----";
+ 
+ PeerConnection::PeerConnection(Configuration config_) : config(std::move(config_)) {
+-	PLOG_VERBOSE << "Creating PeerConnection";
++	PLOG_DEBUG << "Creating PeerConnection (impl)";
+ 
+ 	if (config.certificatePemFile && config.keyPemFile) {
+ 		std::promise<certificate_ptr> cert;
+@@ -58,7 +58,9 @@ PeerConnection::PeerConnection(Configuration config_) : config(std::move(config_
+ 		                                config.keyPemPass.value_or(""))));
+ 		mCertificate = cert.get_future();
+ 	} else if (!config.certificatePemFile && !config.keyPemFile) {
++		PLOG_DEBUG << "calling make_certificate";
+ 		mCertificate = make_certificate(config.certificateType);
++		PLOG_DEBUG << "make_certificate returned";
+ 	} else {
+ 		throw std::invalid_argument(
+ 		    "Either none or both certificate and key PEM files must be specified");
+@@ -77,6 +79,7 @@ PeerConnection::PeerConnection(Configuration config_) : config(std::move(config_
+ 			PLOG_VERBOSE << "MTU set to " << *config.mtu;
+ 		}
+ 	}
++	PLOG_DEBUG << "Creating PeerConnection (impl) completed";
+ }
+ 
+ PeerConnection::~PeerConnection() {
+diff --git a/src/impl/sctptransport.cpp b/src/impl/sctptransport.cpp
+index 6afe772..b803f33 100644
+--- a/src/impl/sctptransport.cpp
++++ b/src/impl/sctptransport.cpp
+@@ -339,12 +339,12 @@ void SctpTransport::stop() { close(); }
+ 
+ struct sockaddr_conn SctpTransport::getSockAddrConn(uint16_t port) {
+ 	struct sockaddr_conn sconn = {};
++#if defined(HAVE_SCONN_LEN) || defined(__FreeBSD__) || defined(__APPLE__) || defined(__DragonFly__) || defined(__OpenBSD__) || defined(__NetBSD__) || defined(__ORBIS__)
++	sconn.sconn_len = sizeof(sconn);
++#endif
+ 	sconn.sconn_family = AF_CONN;
+ 	sconn.sconn_port = htons(port);
+ 	sconn.sconn_addr = this;
+-#ifdef HAVE_SCONN_LEN
+-	sconn.sconn_len = sizeof(sconn);
+-#endif
+ 	return sconn;
+ }
+ 
+@@ -473,15 +473,15 @@ void SctpTransport::doRecv() {
+ 	std::lock_guard lock(mRecvMutex);
+ 	--mPendingRecvCount;
+ 	try {
++		const size_t bufferSize = 65536;
++		auto buffer = std::make_unique<byte[]>(bufferSize);
+ 		while (state() != State::Disconnected && state() != State::Failed) {
+-			const size_t bufferSize = 65536;
+-			byte buffer[bufferSize];
+ 			socklen_t fromlen = 0;
+ 			struct sctp_rcvinfo info = {};
+ 			socklen_t infolen = sizeof(info);
+ 			unsigned int infotype = 0;
+ 			int flags = 0;
+-			ssize_t len = usrsctp_recvv(mSock, buffer, bufferSize, nullptr, &fromlen, &info,
++			ssize_t len = usrsctp_recvv(mSock, buffer.get(), bufferSize, nullptr, &fromlen, &info,
+ 			                            &infolen, &infotype, &flags);
+ 			if (len < 0) {
+ 				if (errno == EWOULDBLOCK || errno == EAGAIN || errno == ECONNRESET)
+@@ -498,7 +498,7 @@ void SctpTransport::doRecv() {
+ 			// therefore partial notifications and messages need to be handled separately.
+ 			if (flags & MSG_NOTIFICATION) {
+ 				// SCTP event notification
+-				mPartialNotification.insert(mPartialNotification.end(), buffer, buffer + len);
++				mPartialNotification.insert(mPartialNotification.end(), buffer.get(), buffer.get() + len);
+ 
+ 				if (flags & MSG_EOR) {
+ 					// Notification is complete, process it
+@@ -510,7 +510,7 @@ void SctpTransport::doRecv() {
+ 
+ 			} else {
+ 				// SCTP message
+-				mPartialMessage.insert(mPartialMessage.end(), buffer, buffer + len);
++				mPartialMessage.insert(mPartialMessage.end(), buffer.get(), buffer.get() + len);
+ 				if (mPartialMessage.size() > mMaxMessageSize) {
+ 					PLOG_WARNING << "SCTP message is too large, truncating it";
+ 					mPartialMessage.resize(mMaxMessageSize);
+diff --git a/src/impl/sctptransport.hpp b/src/impl/sctptransport.hpp
+index 4e1a9a0..f4d3363 100644
+--- a/src/impl/sctptransport.hpp
++++ b/src/impl/sctptransport.hpp
+@@ -21,6 +21,9 @@
+ #include <map>
+ #include <mutex>
+ 
++#if defined(__ORBIS__) && !defined(__FreeBSD__)
++#define __FreeBSD__ 1
++#endif
+ #include "usrsctp.h"
+ 
+ namespace rtc::impl {

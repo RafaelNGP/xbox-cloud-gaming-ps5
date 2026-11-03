@@ -168,16 +168,14 @@ void Canvas::gradientV(Rect r, Color top, Color bottom) {
         if (a >= 255) {
             std::fill_n(&row[b.x], b.w, c | 0xFF000000u);
         } else {
-            uint32_t sr = (c & 0xFF) * a;
-            uint32_t sg = ((c >> 8) & 0xFF) * a;
-            uint32_t sb = ((c >> 16) & 0xFF) * a;
-            uint32_t inv = 255 - a;
+            uint32_t s_rb = (c & 0x00FF00FFu) * a + 0x00800080u;
+            uint32_t s_g  = (c & 0x0000FF00u) * a + 0x00008000u;
+            uint32_t inv  = 255 - a;
             for (int x = b.x; x < b.x + b.w; ++x) {
                 uint32_t d = row[x];
-                uint32_t dr = (sr + (d & 0xFF) * inv + 127) / 255;
-                uint32_t dg = (sg + ((d >> 8) & 0xFF) * inv + 127) / 255;
-                uint32_t db = (sb + ((d >> 16) & 0xFF) * inv + 127) / 255;
-                row[x] = 0xFF000000u | (db << 16) | (dg << 8) | dr;
+                uint32_t rb = ((s_rb + (d & 0x00FF00FFu) * inv) >> 8) & 0x00FF00FFu;
+                uint32_t g  = ((s_g  + (d & 0x0000FF00u) * inv) >> 8) & 0x0000FF00u;
+                row[x] = 0xFF000000u | rb | g;
             }
         }
     }
@@ -286,8 +284,14 @@ void Canvas::drawImage(const Image& img, int x, int y, uint8_t opacity, int radi
         uint32_t* row = &px_[static_cast<size_t>(yy) * w_];
         const uint32_t* src = &img.px[static_cast<size_t>(yy - y) * img.w];
         bool cornerRow = radius > 0 && (circle || yy < y + radius || yy >= y + img.h - radius);
-        if (!cornerRow && opacity >= 255 && img.opaque) {
-            std::memcpy(&row[b.x], &src[b.x - x], static_cast<size_t>(b.w) * sizeof(uint32_t));
+        if (!cornerRow && img.opaque) {
+            if (opacity >= 255) {
+                std::memcpy(&row[b.x], &src[b.x - x], static_cast<size_t>(b.w) * sizeof(uint32_t));
+            } else {
+                for (int xx = b.x; xx < b.x + b.w; ++xx) {
+                    blend(row[xx], src[xx - x], opacity);
+                }
+            }
             continue;
         }
         for (int xx = b.x; xx < b.x + b.w; ++xx) {

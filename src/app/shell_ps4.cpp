@@ -6,6 +6,7 @@
 #include "app/updater.h"
 #include "display/display.h"
 #include "platform/platform.h"
+#include "platform/ps4/exit_ps4.h"
 #include "ui/strings.h"
 #include "util/log.h"
 
@@ -91,7 +92,7 @@ void restartOrExit() {
     if (!g_autoplay.noRestart) platform::restartApp();
     platform::notify(ui::tr(ui::Str::UpdateReopen), "update installed, restart failed: closing");
     platform::sleepMs(2000);
-    _exit(0);
+    platform::ps4::exitTitle(0);
 }
 
 }  // namespace xc::app::shell

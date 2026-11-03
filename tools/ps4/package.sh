@@ -82,6 +82,27 @@ FSELF_PAID="${XC_PS4_FSELF_PAID:-0x3800000000000011}"
 ELF="$BUILD_DIR/xcloud_ps4.elf"
 [ -f "$ELF" ] || { echo "error: $ELF not found (build with cmake/ps4.toolchain.cmake first)" >&2; exit 1; }
 
+# An unoptimised build runs at a few fps on a PS4 (v1.5.5 for PS4 shipped like that),
+# and a build without ps4/patches has no working WebRTC: refuse to package either.
+# XC_PS4_ALLOW_DEBUG=1 packages a debug build anyway, for local tests only.
+BUILD_TYPE="$(sed -n 's/^CMAKE_BUILD_TYPE:[A-Z]*=//p' "$BUILD_DIR/CMakeCache.txt" 2>/dev/null)"
+case "$BUILD_TYPE" in
+    Release|RelWithDebInfo|MinSizeRel) ;;
+    *)
+        if [ "${XC_PS4_ALLOW_DEBUG:-0}" != 1 ]; then
+            echo "error: $BUILD_DIR is a '${BUILD_TYPE:-no build type}' build (-O0)." >&2
+            echo "       Reconfigure with -DCMAKE_BUILD_TYPE=Release, or set XC_PS4_ALLOW_DEBUG=1 for a local test." >&2
+            exit 1
+        fi
+        echo "warning: packaging an unoptimised '${BUILD_TYPE:-no build type}' build" >&2 ;;
+esac
+for _p in "deps/libdatachannel/deps/libjuice:libjuice" "deps/libdatachannel:libdatachannel"; do
+    if ! git -C "$REPO_DIR/${_p%%:*}" apply --reverse --check "$REPO_DIR/ps4/patches/${_p##*:}.patch" 2>/dev/null; then
+        echo "error: ps4/patches/${_p##*:}.patch is not applied to ${_p%%:*} (configure the PS4 build again)" >&2
+        exit 1
+    fi
+done
+
 STAGE_DIR="$BUILD_DIR/pkg_stage"
 rm -rf -- "$STAGE_DIR" "$OUT_DIR"
 mkdir -p "$STAGE_DIR/sce_sys" "$STAGE_DIR/sce_module" "$STAGE_DIR/assets" "$OUT_DIR"

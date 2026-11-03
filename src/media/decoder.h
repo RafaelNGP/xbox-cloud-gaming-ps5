@@ -81,6 +81,7 @@ private:
     bool preferHw_ = true;
     bool isHw_ = false;
     int consecutiveHwErrors_ = 0;
+    int consecutivePending_ = 0;
     bool needsKeyframe_ = true;
     bool profileLogged_ = false;
     bool pending_ = false;

@@ -139,6 +139,7 @@ void WebServer::stop() {
 }
 
 void WebServer::threadLoop() {
+    platform::setThreadAffinity(platform::ThreadRole::Worker, "xcloud_web");
     while (running_.load()) {
         pollfd pfd{listenFd_, POLLIN, 0};
         int pr = ::poll(&pfd, 1, 250);
