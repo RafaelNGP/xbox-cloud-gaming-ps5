@@ -41,6 +41,18 @@ class Triage(unittest.TestCase):
         self.assertNotIn("Does it still happen there", comment)  # already asked to update
         self.assertTrue(comment.startswith(triage.MARKER))
 
+    def test_ps4_outdated_build_invites_redownload(self):
+        log = LOG + "10:00:01 [I] firmware 13.520.001, PSBox 1.5.5 (build dbf2078-dirty, PlayStation 4)\n"
+        labels, comment = self.run_triage(form("Low fps and the game freezes", "1.5.5", "13.52", log), latest="1.5.5")
+        self.assertIn("outdated-version", labels)
+        self.assertIn("re-download", comment)
+        self.assertNotIn("PlayStation 5", comment)
+
+    def test_ps5_current_build_not_flagged_outdated(self):
+        log = LOG + "10:00:01 [I] firmware 12.400.000, PSBox 1.5.5 (build dbf2078, PlayStation 5)\n"
+        labels, _ = self.run_triage(form("Something", "1.5.5", "12.40", log), latest="1.5.5")
+        self.assertNotIn("outdated-version", labels)
+
     def test_clock_error_and_missing_release(self):
         labels, comment = self.run_triage(form("error at start", "any version", "5.50",
                                                LOG + "10:00:01 [E] TLS handshake: Certificate verification failed (-9984)"))
