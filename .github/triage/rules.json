@@ -192,6 +192,19 @@
       "reply": "**The app closed unexpectedly**: thanks for the report. The log lines above show what it was doing; if you can, tell us what you did just before.",
       "reply_pt": "**O aplicativo fechou inesperadamente**: obrigado pelo relato. As linhas de log acima mostram o que ele estava fazendo; se puder, conte-nos o que você estava fazendo imediatamente antes.",
       "reply_es": "**La aplicación se cerró inesperadamente**: gracias por el reporte. Las líneas de registro de arriba muestran lo que estaba haciendo; si puedes, cuéntanos qué hiciste justo antes."
+    },
+    {
+      "id": "ps4-outdated-build",
+      "label": "outdated-version",
+      "patterns": [
+        "build dbf2078[^,]*, PlayStation 4"
+      ],
+      "where": [
+        "log"
+      ],
+      "reply": "**Outdated PlayStation 4 build**: the v1.5.5 PS4 package was updated in place with performance and stability fixes (optimised build, correct clock, hardware-decoder recovery). Your log shows the earlier build — the version number is the same but the file was replaced, so please re-download and reinstall the current PS4 .pkg from the v1.5.5 release: https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/releases/download/v1.5.5/PSBoxCloudGaming.PS4.-v1.5.5.pkg",
+      "reply_pt": "**Build de PlayStation 4 desatualizado**: o pacote de PS4 da v1.5.5 foi atualizado no mesmo lugar com correções de desempenho e estabilidade (build otimizado, relógio correto, recuperação do decoder de hardware). Seu log mostra o build anterior — o número da versão é o mesmo, mas o arquivo foi substituído, então re-baixe e reinstale o .pkg de PS4 atual da release v1.5.5: https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/releases/download/v1.5.5/PSBoxCloudGaming.PS4.-v1.5.5.pkg",
+      "reply_es": "**Build de PlayStation 4 desactualizada**: el paquete de PS4 de la v1.5.5 se actualizó en el mismo lugar con correcciones de rendimiento y estabilidad (build optimizada, reloj correcto, recuperación del decodificador por hardware). Tu registro muestra la build anterior — el número de versión es el mismo, pero el archivo fue reemplazado, así que vuelve a descargar e instalar el .pkg de PS4 actual de la release v1.5.5: https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/releases/download/v1.5.5/PSBoxCloudGaming.PS4.-v1.5.5.pkg"
     }
   ]
 }
