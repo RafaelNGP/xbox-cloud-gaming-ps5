@@ -185,14 +185,16 @@ private:
 
 static std::unique_ptr<RowPool> g_rowPool;
 
-// 8-pixel 16-bit SSE2 BT.709 Limited Range YUV -> A8B8G8R8 converter (adapted from XCloud4)
+// 8-pixel 16-bit SSE2 BT.709 limited-range YUV -> A8B8G8R8 converter (approach from XCloud4,
+// github.com/asp11edgr/XCloud4, GPL-3.0). R = 1.164 Y + 1.793 V, G = 1.164 Y - 0.213 U - 0.533 V,
+// B = 1.164 Y + 2.112 U, in 1/256 units.
 static inline void colorRgbEight(__m128i y16, __m128i u16, __m128i v16,
                                  __m128i& p_lo, __m128i& p_hi) {
     const __m128i y_bias = _mm_set1_epi16(16);
     const __m128i uv_bias = _mm_set1_epi16(128);
     const __m128i zero16 = _mm_setzero_si128();
     const __m128i round = _mm_set1_epi32(128);
-    const __m128i k_y_r  = _mm_set1_epi32((403 << 16) | (298 & 0xFFFF));
+    const __m128i k_y_r  = _mm_set1_epi32((459 << 16) | (298 & 0xFFFF));  // 1.793 * 256: BT.709 limited range
     const __m128i k_y_b  = _mm_set1_epi32((541 << 16) | (298 & 0xFFFF));
     const __m128i k_y_gu = _mm_set1_epi32(((-55 & 0xFFFF) << 16) | (298 & 0xFFFF));
     const __m128i k_gv_0 = _mm_set1_epi32(-137 & 0xFFFF);
@@ -335,36 +337,67 @@ static inline void colorRowYuv420Scale32DualSse2(const uint8_t* yRow, const uint
     colorRowYuv420Scale32SingleSse2(yRow, uRow, vRow, dstRow1);
 }
 
-inline void compositeOverlaySlice(uint32_t* dst, int yStart, int yEnd, const Overlay& ov) {
-    int dy0 = std::max(yStart, ov.y);
-    int dy1 = std::min(yEnd, ov.y + ov.h);
-    if (dy0 >= dy1) return;
+// The scanout buffers are write-combined GPU memory: reading them back costs dozens of
+// times a normal read, and the overlay blend used to read every blended pixel there
+// (any HUD, menu or toast on screen cost several ms per frame). Rows under the overlay are
+// now converted into cached memory, blended there and streamed out whole; the scanout is
+// only ever written (XCloud4's rule too).
+inline bool overlayCoversRow(const Overlay* ov, int dy) {
+    return ov && dy >= ov->y && dy < ov->y + ov->h && ov->x < static_cast<int>(kWidth) && ov->x + ov->w > 0;
+}
+
+inline void blendOverlayRow(uint32_t* row, int dy, const Overlay& ov) {
     int ox0 = std::max(0, -ov.x);
     int ox1 = std::min(ov.w, static_cast<int>(kWidth) - ov.x);
-    if (ox0 >= ox1) return;
-
-    _mm_sfence();
-    for (int dy = dy0; dy < dy1; ++dy) {
-        int oy = dy - ov.y;
-        const uint32_t* sRow = ov.px.data() + oy * ov.w;
-        uint32_t* dRow = dst + dy * kWidth;
-        for (int ox = ox0; ox < ox1; ++ox) {
-            uint32_t p = sRow[ox];
-            uint32_t alpha = ((p >> 24) * ov.alpha) / 255;
-            if (alpha == 0) continue;
-            int px = ov.x + ox;
-            if (alpha == 255) {
-                dRow[px] = p;
-                continue;
-            }
-            uint32_t inv = 255 - alpha;
-            uint32_t bg = dRow[px];
-            uint32_t r = (((p & 0xFF) * alpha) + ((bg & 0xFF) * inv)) / 255;
-            uint32_t g = ((((p >> 8) & 0xFF) * alpha) + (((bg >> 8) & 0xFF) * inv)) / 255;
-            uint32_t b = ((((p >> 16) & 0xFF) * alpha) + (((bg >> 16) & 0xFF) * inv)) / 255;
-            dRow[px] = 0xFF000000u | (b << 16) | (g << 8) | r;
+    const uint32_t* sRow = ov.px.data() + (dy - ov.y) * ov.w;
+    for (int ox = ox0; ox < ox1; ++ox) {
+        uint32_t p = sRow[ox];
+        uint32_t alpha = ((p >> 24) * ov.alpha) / 255;
+        if (alpha == 0) continue;
+        int px = ov.x + ox;
+        if (alpha == 255) {
+            row[px] = p;
+            continue;
         }
+        uint32_t inv = 255 - alpha;
+        uint32_t bg = row[px];
+        uint32_t r = (((p & 0xFF) * alpha) + ((bg & 0xFF) * inv)) / 255;
+        uint32_t g = ((((p >> 8) & 0xFF) * alpha) + (((bg >> 8) & 0xFF) * inv)) / 255;
+        uint32_t b = ((((p >> 16) & 0xFF) * alpha) + (((bg >> 16) & 0xFF) * inv)) / 255;
+        row[px] = 0xFF000000u | (b << 16) | (g << 8) | r;
     }
+}
+
+inline void streamRow(uint32_t* dstRow, const uint32_t* srcRow) {
+    const __m128i* src = reinterpret_cast<const __m128i*>(srcRow);
+    __m128i* d = reinterpret_cast<__m128i*>(dstRow);
+    for (size_t i = 0; i < (kWidth * sizeof(uint32_t)) / sizeof(__m128i); ++i) {
+        _mm_stream_si128(d + i, _mm_load_si128(src + i));
+    }
+}
+
+// Where a slice writes screen row dy: straight to the scanout, or into scratch row k when
+// the overlay covers it; commit() then blends and streams the scratch row out.
+struct RowTargets {
+    uint32_t* dst;
+    const Overlay* ov;
+    alignas(16) uint32_t scratch[3][kWidth];
+    uint32_t* at(int dy, int k) { return overlayCoversRow(ov, dy) ? scratch[k] : dst + dy * kWidth; }
+    void commit(int dy, int k) {
+        if (!overlayCoversRow(ov, dy)) return;
+        blendOverlayRow(scratch[k], dy, *ov);
+        streamRow(dst + dy * kWidth, scratch[k]);
+    }
+};
+
+// The system expects sceGnmSubmitDone() regularly, also while nothing is drawn: without it
+// a suspend (PS button, closing the app) can fault with CE-34878-0 (XCloud4 hit this too).
+// pump() used to skip it whenever a frame was being drawn; now every caller gets through,
+// serialised by a lock of its own that is never held across a draw.
+std::mutex g_submitDoneMutex;
+void submitDone() {
+    std::lock_guard<std::mutex> lock(g_submitDoneMutex);
+    sceGnmSubmitDone();
 }
 
 void pollFlipStatus() {
@@ -525,7 +558,7 @@ bool init(bool /*preferGpu*/) {
         g_pendingFlipMarker = initMarker;
         waitPendingFlip();
     }
-    sceGnmSubmitDone();
+    submitDone();
 
     XC_LOGI("display: PS4 VideoOut initialized (3 linear 1080p buffers, handle %d, 3-stripe SIMD pool)", handle);
     return true;
@@ -535,7 +568,7 @@ void shutdown() {
     g_rowPool.reset();
     if (g_videoHandle >= 0) {
         waitPendingFlip();
-        sceGnmSubmitDone();
+        submitDone();
         sceVideoOutClose(g_videoHandle);
         g_videoHandle = -1;
     }
@@ -567,7 +600,7 @@ void present() {
         g_pendingBuffer = g_currentBuffer;
         g_pendingFlipMarker = marker;
     }
-    sceGnmSubmitDone();
+    submitDone();
 }
 
 void drawRgba(const uint32_t* pixels) {
@@ -605,10 +638,11 @@ void drawRgba(const uint32_t* pixels) {
 }
 
 void pump() {
-    std::unique_lock<std::recursive_mutex> lock(g_frameMutex, std::try_to_lock);
-    if (!lock.owns_lock()) return;
-    pollFlipStatus();
-    sceGnmSubmitDone();
+    {
+        std::unique_lock<std::recursive_mutex> lock(g_frameMutex, std::try_to_lock);
+        if (lock.owns_lock()) pollFlipStatus();
+    }
+    submitDone();
 }
 
 void idleWait(uint32_t ms) {
@@ -637,12 +671,16 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v,
     }
 
     auto renderSlice = [y, u, v, strideY, strideU, strideV, is1080p, is720p, dst, &activeOverlay](int yStart, int yEnd) {
+        RowTargets rows;
+        rows.dst = dst;
+        rows.ov = activeOverlay.get();
         if (is1080p) {
             for (int dy = yStart; dy < yEnd; ++dy) {
                 const uint8_t* yRow = y + dy * strideY;
                 const uint8_t* uRow = u + (dy >> 1) * strideU;
                 const uint8_t* vRow = v + (dy >> 1) * strideV;
-                colorRowYuv420Scale1to1Sse2(yRow, uRow, vRow, dst + dy * kWidth);
+                colorRowYuv420Scale1to1Sse2(yRow, uRow, vRow, rows.at(dy, 0));
+                rows.commit(dy, 0);
             }
         } else if (is720p) {
             int dy = yStart;
@@ -653,19 +691,23 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v,
                     colorRowYuv420Scale32DualSse2(y + sy0 * strideY,
                                                   u + (sy0 >> 1) * strideU,
                                                   v + (sy0 >> 1) * strideV,
-                                                  dst + dy * kWidth,
-                                                  dst + (dy + 1) * kWidth);
+                                                  rows.at(dy, 0),
+                                                  rows.at(dy + 1, 1));
                     colorRowYuv420Scale32SingleSse2(y + sy1 * strideY,
                                                     u + (sy1 >> 1) * strideU,
                                                     v + (sy1 >> 1) * strideV,
-                                                    dst + (dy + 2) * kWidth);
+                                                    rows.at(dy + 2, 2));
+                    rows.commit(dy, 0);
+                    rows.commit(dy + 1, 1);
+                    rows.commit(dy + 2, 2);
                     dy += 3;
                 } else {
                     int sy = (dy * 720) / 1080;
                     colorRowYuv420Scale32SingleSse2(y + sy * strideY,
                                                     u + (sy >> 1) * strideU,
                                                     v + (sy >> 1) * strideV,
-                                                    dst + dy * kWidth);
+                                                    rows.at(dy, 0));
+                    rows.commit(dy, 0);
                     ++dy;
                 }
             }
@@ -677,7 +719,7 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v,
                 const uint8_t* yRow = y + sy * strideY;
                 const uint8_t* uRow = u + (sy >> 1) * strideU;
                 const uint8_t* vRow = v + (sy >> 1) * strideV;
-                uint32_t* dRow = dst + dy * kWidth;
+                uint32_t* dRow = rows.at(dy, 0);
                 for (int dx = 0; dx < static_cast<int>(kWidth); dx += 8) {
                     __m128i y16 = _mm_setr_epi16(
                         yRow[mapX[dx + 0]], yRow[mapX[dx + 1]], yRow[mapX[dx + 2]], yRow[mapX[dx + 3]],
@@ -693,11 +735,10 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v,
                     _mm_stream_si128(reinterpret_cast<__m128i*>(dRow + dx), p_lo);
                     _mm_stream_si128(reinterpret_cast<__m128i*>(dRow + dx + 4), p_hi);
                 }
+                rows.commit(dy, 0);
             }
         }
-        if (activeOverlay) {
-            compositeOverlaySlice(dst, yStart, yEnd, *activeOverlay);
-        }
+        _mm_sfence();
     };
 
     if (g_rowPool) {
@@ -729,11 +770,15 @@ bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
     }
 
     auto renderSlice = [y, uv, strideY, strideUV, is1080p, is720p, dst, &activeOverlay](int yStart, int yEnd) {
+        RowTargets rows;
+        rows.dst = dst;
+        rows.ov = activeOverlay.get();
         if (is1080p) {
             for (int dy = yStart; dy < yEnd; ++dy) {
                 const uint8_t* yRow = y + dy * strideY;
                 const uint8_t* uvRow = uv + (dy >> 1) * strideUV;
-                colorRowNv12Scale1to1Sse2(yRow, uvRow, dst + dy * kWidth);
+                colorRowNv12Scale1to1Sse2(yRow, uvRow, rows.at(dy, 0));
+                rows.commit(dy, 0);
             }
         } else if (is720p) {
             int dy = yStart;
@@ -744,17 +789,21 @@ bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
                     int sy1 = sy0 + 1;
                     colorRowNv12Scale32DualSse2(y + sy0 * strideY,
                                                 uv + (sy0 >> 1) * strideUV,
-                                                dst + dy * kWidth,
-                                                dst + (dy + 1) * kWidth);
+                                                rows.at(dy, 0),
+                                                rows.at(dy + 1, 1));
                     colorRowNv12Scale32SingleSse2(y + sy1 * strideY,
                                                   uv + (sy1 >> 1) * strideUV,
-                                                  dst + (dy + 2) * kWidth);
+                                                  rows.at(dy + 2, 2));
+                    rows.commit(dy, 0);
+                    rows.commit(dy + 1, 1);
+                    rows.commit(dy + 2, 2);
                     dy += 3;
                 } else {
                     int sy = (dy * 720) / 1080;
                     colorRowNv12Scale32SingleSse2(y + sy * strideY,
                                                   uv + (sy >> 1) * strideUV,
-                                                  dst + dy * kWidth);
+                                                  rows.at(dy, 0));
+                    rows.commit(dy, 0);
                     ++dy;
                 }
             }
@@ -765,7 +814,7 @@ bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
                 int sy = mapY[dy];
                 const uint8_t* yRow = y + sy * strideY;
                 const uint8_t* uvRow = uv + (sy >> 1) * strideUV;
-                uint32_t* dRow = dst + dy * kWidth;
+                uint32_t* dRow = rows.at(dy, 0);
                 for (int dx = 0; dx < static_cast<int>(kWidth); dx += 8) {
                     int c0 = (mapX[dx + 0] >> 1) * 2;
                     int c1 = (mapX[dx + 1] >> 1) * 2;
@@ -789,11 +838,10 @@ bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
                     _mm_stream_si128(reinterpret_cast<__m128i*>(dRow + dx), p_lo);
                     _mm_stream_si128(reinterpret_cast<__m128i*>(dRow + dx + 4), p_hi);
                 }
+                rows.commit(dy, 0);
             }
         }
-        if (activeOverlay) {
-            compositeOverlaySlice(dst, yStart, yEnd, *activeOverlay);
-        }
+        _mm_sfence();
     };
 
     if (g_rowPool) {
