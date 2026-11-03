@@ -16,6 +16,7 @@
 #include "xcloud/catalog.h"
 #include "xcloud/purchase.h"
 #include "xcloud/regions.h"
+#include "trophy/trophy_sync.h"
 
 #include <algorithm>
 #include <chrono>
@@ -552,6 +553,46 @@ bool waitForWorker(uint32_t ms) {
     return g_workerStateCv.wait_for(lock, std::chrono::milliseconds(ms), [] { return g_workerState != 1; });
 }
 
+void runTrophySync(auth::AuthManager& am, xcloud::GssvClient& gssv) {
+    std::string err;
+    if (!keepSignedIn(am, gssv, err)) {
+        XC_LOGW("trophy sync: keepSignedIn failed: %s", err.c_str());
+        std::string failMsg = err.empty() ? "Sign-in required" : err;
+        if (!shell::caps().console) g_ui->showToast(failMsg);
+        platform::notify(failMsg);
+        return;
+    }
+    std::string xblAuth, xuid;
+    {
+        std::lock_guard<std::mutex> lock(g_argMutex);
+        xblAuth = g_xblAuth;
+        xuid = g_xuid;
+    }
+    if (xblAuth.empty()) {
+        xblAuth = am.profile().xblAuthorization;
+        xuid = am.profile().xuid;
+    }
+    if (xblAuth.empty()) {
+        XC_LOGW("trophy sync: sign-in required");
+        return;
+    }
+
+    XC_LOGI("trophy sync: starting single-title test for Fortnite (267695549)...");
+    if (g_ui) g_ui->setLoading(true, 0, 1);
+
+    int newlyUnlocked = 0;
+    std::string syncErr;
+    bool ok = trophy::syncEngine().syncTitleAchievements(xblAuth, xuid, "267695549", "Fortnite",
+                                                         newlyUnlocked, syncErr);
+    if (g_ui) g_ui->setLoading(false, 1, 1);
+    if (!ok) {
+        XC_LOGW("trophy sync failed for Fortnite: %s", syncErr.c_str());
+        return;
+    }
+
+    XC_LOGI("trophy sync finished for Fortnite: %d trophies unlocked", newlyUnlocked);
+}
+
 void worker() {
     if (g_autoplay.title == "BENCH") {
         platform::Thread t;  // same big stack as the stream's video thread
@@ -589,6 +630,7 @@ void worker() {
             case kUpdate: runUpdate(); break;
             case kCheckSignIn: runSignInCheck(am, gssv); break;
             case kNetworkTest: runNetworkTest(gssv); break;
+            case kSyncTrophies: runTrophySync(am, gssv); break;
             case kReloadLibrary:
                 if (am.signedIn()) loadLibrary(am, gssv, true);
                 else signInAndLoad(am, gssv);

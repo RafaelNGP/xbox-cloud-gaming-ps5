@@ -65,9 +65,9 @@ constexpr int kResolutionOrder[3] = {1, 0, 2};
 // stream (resolution, a desktop's display mode, 120 Hz, bitrate, region, network test);
 // the controller, keyboard and queue-ready alert; support and updates last. A group starts at each
 // kSettingsGroupStart.
-constexpr int kSettingsCount = 23;
-constexpr int kSettingsOrder[kSettingsCount] = {0, 2, 8, 17, 18, 1, 20, 13, 9, 10, 14, 12, 3, 15, 4, 21, 5, 6, 16, 22, 19, 7, 23};
-constexpr bool kSettingsGroupStart[kSettingsCount] = {false, false, false, false, false, true, false, false, false, false,
+constexpr int kSettingsCount = 24;
+constexpr int kSettingsOrder[kSettingsCount] = {0, 2, 8, 17, 18, 24, 1, 20, 13, 9, 10, 14, 12, 3, 15, 4, 21, 5, 6, 16, 22, 19, 7, 23};
+constexpr bool kSettingsGroupStart[kSettingsCount] = {false, false, false, false, false, false, true, false, false, false, false,
                                                       true, false, false, false, false, false, false, false, false, false, true, false, true};
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
 // sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7

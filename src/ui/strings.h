@@ -424,6 +424,10 @@ enum class Str {
     InQueueEstimated,
     F2pPreviewRequiredDesc,
     F2pPreviewAccountNeededDesc,
+    SyncTrophies,
+    SettingDescSyncTrophies,
+    RunSyncTrophies,
+    TrophiesSyncedToast,
     Count
 };
 

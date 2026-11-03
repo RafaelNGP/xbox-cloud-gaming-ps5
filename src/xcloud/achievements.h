@@ -13,6 +13,7 @@ struct Achievement {
     std::string name;
     std::string description;
     std::string lockedDescription;
+    std::string iconUrl;
     int gamerscore = 0;
     bool unlocked = false;
     bool isSecret = false;

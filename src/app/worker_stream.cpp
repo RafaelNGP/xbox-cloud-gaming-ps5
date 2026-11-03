@@ -14,6 +14,8 @@
 #include "util/log.h"
 #include "xcloud/catalog.h"
 #include "xcloud/regions.h"
+#include "trophy/trophy_sync.h"
+#include "trophy/trophy_registry.h"
 
 #include <algorithm>
 #include <cmath>
@@ -81,7 +83,9 @@ namespace {
 // Streams until the player ends or the user leaves; returns a status line.
 // The cloud title being played, for crash markers (set by play()).
 std::string g_stageTitle;
+std::string g_stageGameName;
 std::string g_stageProduct;
+std::string g_stageXboxTitleId;
 
 std::string stream(xcloud::GssvClient& gssv) {
     crash::setStage(gssv.isHome() ? "streaming own Xbox" : ("streaming " + g_stageTitle).c_str());
@@ -138,6 +142,7 @@ std::string stream(xcloud::GssvClient& gssv) {
 
     const uint64_t started = platform::nowMs();
     uint64_t nextTick = started;
+    uint64_t lastTrophyPollAt = started;
     bool snapshot1 = false, snapshot2 = false, snapshot3 = false, snapshot4 = false;
     uint64_t nextPeriodicShot = 150000;
     int periodicShotIdx = 5;
@@ -236,6 +241,19 @@ std::string stream(xcloud::GssvClient& gssv) {
             if (!probeDone && platform::nowMs() - started >= 20000) {
                 recordProbe();
                 if (!g_afterProbeAlias.empty() && !g_tierPicked) player.requestResolution(g_afterProbeAlias);
+            }
+            if (tickNow - lastTrophyPollAt >= 20000 && !g_stageXboxTitleId.empty()) {
+                lastTrophyPollAt = tickNow;
+                std::string xblAuth, xuid;
+                {
+                    std::lock_guard<std::mutex> lock(g_argMutex);
+                    xblAuth = g_xblAuth;
+                    xuid = g_xuid;
+                }
+                if (!xblAuth.empty()) {
+                    trophy::syncEngine().pollActiveStream(xblAuth, xuid, g_stageXboxTitleId,
+                                                          g_stageGameName.empty() ? g_stageTitle : g_stageGameName);
+                }
             }
             {
                 ui::StreamInfo info;
@@ -438,7 +456,15 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     }
     // For a crash marker: what is being started (a console's id stays out).
     g_stageTitle = game.titleId;
+    g_stageGameName = game.name;
     g_stageProduct = game.productId;
+    g_stageXboxTitleId = game.xboxTitleId;
+    if (g_stageXboxTitleId.empty() && !game.productId.empty()) {
+        if (const auto* m = trophy::findKnownTitle("", game.productId)) {
+            g_stageXboxTitleId = m->xboxTitleId;
+            if (g_stageGameName.empty()) g_stageGameName = m->titleName;
+        }
+    }
     crash::setStage(gssv.isHome() ? "starting own Xbox" : ("starting " + game.titleId).c_str());
     if (std::string res = platform::diagnostics(); !res.empty()) XC_LOGI("resources before the stream: %s", res.c_str());
     int status = 0;

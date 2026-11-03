@@ -415,4 +415,8 @@ constexpr Column kEnglish = {
     "In queue (estimated wait: %s • waiting for %s)", // InQueueEstimated
     "To stream free-to-play games beyond Fortnite without Game Pass, enable 'Preview Features' in app Settings and on xbox.com/play.", // F2pPreviewRequiredDesc
     "This account needs to enable 'Preview Features' in its profile on xbox.com/play to unlock ad-supported free-to-play streaming.", // F2pPreviewAccountNeededDesc
+    "Sync Trophies",                                  // SyncTrophies
+    "Synchronizes all Xbox achievements from your account and awards matching trophies to your PlayStation profile.", // SettingDescSyncTrophies
+    "Sync",                                           // RunSyncTrophies
+    "Sync complete: %s trophy(ies) across %s title(s) awarded to your profile!", // TrophiesSyncedToast
 };

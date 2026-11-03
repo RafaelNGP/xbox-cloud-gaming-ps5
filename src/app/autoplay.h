@@ -40,6 +40,8 @@ struct Autoplay {
     bool checkSignInTest = false;// "checksignintest": open sign-in check, verify 6 stages, save signin_check.ppm
     bool freeTest = false;       // "freetest": simulate free account, verify FREE badge and game locks
     bool settingsTest = false;   // "settingstest": open the resolution list, save settings.ppm
+    bool trophyTest = false;     // "trophytest": open settings, focus row 24 (Sync Trophies), test sync, save trophy_settings.ppm
+    bool psboxSelfTest = false;  // "psboxself": native v1 trophy self-test bound to PSBox's own title (PPSA99810)
     bool keysTest = false;       // "keystest": Settings' groups, the keyboard keys' screen, a key chosen (keys*.ppm)
     bool padMapTest = false;     // "padmaptest": the controller buttons' screen, a press captured, an incomplete map (padmap*.ppm)
     bool badCa = false;          // "badca": a missing CA bundle: the built-in copy must be used

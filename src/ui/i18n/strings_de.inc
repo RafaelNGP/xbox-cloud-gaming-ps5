@@ -415,4 +415,8 @@ constexpr Column kGerman = {
     "In Warteschlange (geschätzte Wartezeit: %s • wartet seit %s)", // InQueueEstimated
     "Um kostenlose Spiele außer Fortnite ohne Game Pass zu streamen, aktivieren Sie 'Preview-Funktionen' in den App-Einstellungen und auf xbox.com/play.", // F2pPreviewRequiredDesc
     "Dieses Konto muss 'Preview-Funktionen' im Profil auf xbox.com/play aktivieren, um werbefinanziertes Free-to-Play-Streaming freizuschalten.", // F2pPreviewAccountNeededDesc
+    "Trophäen synchronisieren",                       // SyncTrophies
+    "Synchronisiert alle Xbox-Erfolge Ihres Kontos und weist entsprechende Trophäen Ihrem PlayStation-Profil zu.", // SettingDescSyncTrophies
+    "Sync",                                           // RunSyncTrophies
+    "Synchronisierung abgeschlossen: %s Trophäe(n) in %s Titel(n) deinem Profil hinzugefügt!", // TrophiesSyncedToast
 };

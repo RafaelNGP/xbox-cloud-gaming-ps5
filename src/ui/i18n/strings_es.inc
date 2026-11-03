@@ -415,4 +415,8 @@ constexpr Column kSpanish = {
     "En cola (tiempo estimado: %s • esperando desde hace %s)", // InQueueEstimated
     "Para transmitir juegos gratuitos además de Fortnite en cuentas sin Game Pass, activa 'Funciones Preview' en Ajustes y en xbox.com/play.", // F2pPreviewRequiredDesc
     "Esta cuenta necesita habilitar 'Funciones Preview' en su perfil en xbox.com/play para desbloquear el streaming con anuncios de juegos gratuitos.", // F2pPreviewAccountNeededDesc
+    "Sincronizar Trofeos",                            // SyncTrophies
+    "Sincroniza todos los logros de Xbox de tu cuenta y otorga los trofeos correspondientes en tu perfil de PlayStation.", // SettingDescSyncTrophies
+    "Sincronizar",                                    // RunSyncTrophies
+    "¡Sincronización completada: %s trofeo(s) en %s título(s) otorgados a tu perfil!", // TrophiesSyncedToast
 };

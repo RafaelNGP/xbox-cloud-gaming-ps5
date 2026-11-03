@@ -415,4 +415,8 @@ constexpr Column kFrench = {
     "En file d'attente (temps estimé : %s • attente depuis %s)", // InQueueEstimated
     "Pour jouer aux jeux gratuits autres que Fortnite sans Game Pass, activez les 'Fonctionnalités Preview' dans les Paramètres et sur xbox.com/play.", // F2pPreviewRequiredDesc
     "Ce compte doit activer les 'Fonctionnalités Preview' sur son profil sur xbox.com/play pour débloquer le streaming gratuit avec publicités.", // F2pPreviewAccountNeededDesc
+    "Synchroniser les trophées",                      // SyncTrophies
+    "Synchronise tous les succès Xbox de votre compte et attribue les trophées correspondants à votre profil PlayStation.", // SettingDescSyncTrophies
+    "Synchroniser",                                   // RunSyncTrophies
+    "Synchronisation terminée : %s trophée(s) sur %s titre(s) ajoutés à votre profil !", // TrophiesSyncedToast
 };

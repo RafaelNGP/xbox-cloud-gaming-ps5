@@ -46,6 +46,10 @@ add_library(xcloud_core STATIC
     src/input/sdl_mapping.cpp
     src/xcloud/social.cpp
     src/xcloud/achievements.cpp
+    src/trophy/trophy_rules.cpp
+    src/trophy/trophy_registry.cpp
+    src/trophy/trophy_builder.cpp
+    src/trophy/trophy_sync.cpp
     src/platform/toasts.cpp
     src/input/gyro.cpp
 )
@@ -167,6 +171,7 @@ if(XCLOUD_PS5)
         src/input/kbm_ps5.cpp
         src/media/audio_out_ps5.cpp
         src/media/audio_in_ps5.cpp
+        src/platform/ps5/trophy_backend_ps5.cpp
     )
     target_sources(xcloud_core PRIVATE src/platform/posix_common.cpp)
     target_include_directories(xcloud_app PRIVATE "${PS5_RADV}/include")
@@ -191,6 +196,7 @@ elseif(XC_TARGET_PS4)
         src/input/kbm_ps4.cpp
         src/media/audio_out_ps4.cpp
         src/media/audio_in_ps4.cpp
+        src/platform/ps4/trophy_backend_ps4.cpp
     )
     target_link_libraries(xcloud_ps4.elf PRIVATE
         xcloud_stream
@@ -214,6 +220,7 @@ elseif(XC_TARGET_PS4)
         -lSceUserService
         -lSceSystemService
         -lSceSysmodule
+        -lSceNpTrophy
         -lkernel
     )
 else()
@@ -234,6 +241,7 @@ else()
         src/media/hw_decoder_null.cpp
         src/media/audio_out_null.cpp
         src/media/audio_in_null.cpp
+        src/trophy/trophy_backend_null.cpp
     )
     target_link_libraries(xcloud_backends_null PUBLIC xcloud_core)
     if(NOT MSVC)
@@ -289,6 +297,7 @@ if(XC_DESKTOP_APP)
         src/app/shell_desktop.cpp
         src/app/desktop_selftest.cpp
         src/media/hw_decoder_null.cpp
+        src/trophy/trophy_backend_null.cpp
     )
     target_link_libraries(xcloud_backends_desktop PUBLIC xcloud_core xcloud_media xcloud_ui SDL3::SDL3)
     if(NOT MSVC)

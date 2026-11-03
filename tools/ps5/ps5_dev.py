@@ -187,7 +187,7 @@ def cmd_test(args):
         "tunetest", "confirmtest", "pickertest", "menutest", "regiontest",
         "friendstest", "publishertest", "scrolltest", "quicktest", "tlscheck",
         "padspktest", "queuetest", "queueuitest", "wishlisttest", "block1test",
-        "block2test", "block3test", "bitratetest", "touchpadtest", "mw4test", "v150test", "claimtest",
+        "block2test", "block3test", "bitratetest", "touchpadtest", "mw4test", "v150test", "claimtest", "trophytest",
     }
     bitrate_opt = f" bitrate={args.bitrate}" if getattr(args, "bitrate", 0) > 0 else ""
     if target.startswith("AUTOTEST") or target.startswith("BENCH") or " " in target:
@@ -235,14 +235,25 @@ def cmd_test(args):
                  "stream_menu_touchpad.ppm", "launch_screen_hint.ppm", "search_mw4.ppm", "details_mw4.ppm",
                  "v150_settings.ppm", "v150_search_free.ppm",
                  "claim1_details_before.ppm", "claim2_details_playable.ppm", "claim3_my_games_unrefreshed.ppm",
-                 "claim4_launching.ppm", "claim5_stream.ppm"):
+                 "claim4_launching.ppm", "claim5_stream.ppm", "trophy_settings.ppm", "trophy_synced.ppm"):
         try:
             ftp.sendcmd(f"DELE {name}")
         except (error_perm, error_reply):
             pass
 
-    # Write autoplay.txt
+    if "trophytest" in autoplay_cmd:
+        try:
+            ftp.sendcmd("DELE trophies/267695549.json")
+        except (error_perm, error_reply):
+            pass
+
+    # Write autoplay.txt to both data directories
     ftp.storbinary("STOR autoplay.txt", io.BytesIO(autoplay_cmd.encode() + b"\n"))
+    try:
+        ftp.cwd(f"/data/homebrew/{TITLE_ID}")
+        ftp.storbinary("STOR autoplay.txt", io.BytesIO(autoplay_cmd.encode() + b"\n"))
+    except Exception:
+        pass
     ftp.quit()
 
     print(f"  4. Launching test on console ({autoplay_cmd})...")
@@ -280,7 +291,7 @@ def cmd_test(args):
                  "stream_menu_touchpad.ppm", "launch_screen_hint.ppm", "search_mw4.ppm", "details_mw4.ppm",
                  "v150_settings.ppm", "v150_search_free.ppm",
                  "claim1_details_before.ppm", "claim2_details_playable.ppm", "claim3_my_games_unrefreshed.ppm",
-                 "claim4_launching.ppm", "claim5_stream.ppm"]
+                 "claim4_launching.ppm", "claim5_stream.ppm", "trophy_settings.ppm", "trophy_synced.ppm"]
     ftp = get_ftp(host, port)
     ftp.cwd("/data/psbox")
     for name in ppm_names + ["xcloud.log"]:
