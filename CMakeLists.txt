@@ -199,6 +199,9 @@ elseif(XC_TARGET_PS4)
         src/media/audio_in_ps4.cpp
         # In the executable itself, so its definitions always replace libkernel's.
         src/platform/ps4/pthread_abi_ps4.c
+        # H.264 SPS parser and colour policy from XCloud4 (GPL-3.0-only).
+        src/platform/ps4/xcloud4/stream_sps.c
+        src/platform/ps4/xcloud4/stream_color_policy.c
     )
     target_link_libraries(xcloud_ps4.elf PRIVATE
         xcloud_stream

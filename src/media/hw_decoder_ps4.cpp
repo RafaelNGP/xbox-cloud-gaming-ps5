@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 #include "media/hw_decoder.h"
+#include "platform/ps4/video_color_ps4.h"
 #include "util/log.h"
+
+extern "C" {
+#include "platform/ps4/xcloud4/stream_color_policy.h"
+#include "platform/ps4/xcloud4/stream_sps.h"
+}
 
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <cstdint>
 #include <deque>
 #include <mutex>
 #include <unistd.h>
@@ -223,6 +230,21 @@ struct DecoderAllocations {
     std::deque<InFlight> inFlight;
     // After a decode error: drop access units until the next IDR (XCloud4's recovery).
     bool awaitingIdr = false;
+    // The last two pictures handed out: the present thread may still be converting them
+    // straight from these buffers, so the decoder must not write into them yet (a burst
+    // of decodes after a NACK hole could otherwise recycle the slot being drawn).
+    size_t recent[2] = {SIZE_MAX, SIZE_MAX};
+    // The decoder as created, to re-create it once the stream's SPS is known.
+    Vdec2DecoderConfig cfg{};
+    Vdec2DecoderMemory mem{};
+    X4StreamSps sps{};
+    bool haveSps = false;
+    bool slotBusy(size_t slot) const {
+        if (slot == recent[0] || slot == recent[1]) return true;
+        for (const auto& f : inFlight)
+            if (f.slot == slot) return true;
+        return false;
+    }
 };
 
 static std::mutex s_allocMutex;
@@ -472,6 +494,8 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
         return false;
     }
 
+    allocs.cfg = decCfg;
+    allocs.mem = decMem;
     {
         std::lock_guard<std::mutex> lock(s_allocMutex);
         s_allocations[this] = allocs;
@@ -485,6 +509,28 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
 namespace {
 
 // True when an Annex B access unit holds an IDR slice (NAL type 5).
+// The SPS NAL of an Annex B access unit (from its header byte to the next start code),
+// as XCloud4's parser takes it; false when the access unit carries none.
+bool findSps(const uint8_t* p, size_t n, const uint8_t*& sps, size_t& spsLen) {
+    for (size_t i = 0; i + 3 < n; ++i) {
+        if (p[i] != 0 || p[i + 1] != 0 || p[i + 2] != 1) continue;
+        if ((p[i + 3] & 0x1F) != 7) {
+            i += 2;
+            continue;
+        }
+        size_t begin = i + 3, end = n;
+        for (size_t j = begin + 1; j + 2 < n; ++j)
+            if (p[j] == 0 && p[j + 1] == 0 && (p[j + 2] == 1 || (p[j + 2] == 0 && j + 3 < n && p[j + 3] == 1))) {
+                end = j;
+                break;
+            }
+        sps = p + begin;
+        spsLen = end - begin;
+        return true;
+    }
+    return false;
+}
+
 bool hasIdrSlice(const uint8_t* p, size_t n) {
     for (size_t i = 0; i + 3 < n; ++i) {
         if (p[i] == 0 && p[i + 1] == 0 && p[i + 2] == 1) {
@@ -497,6 +543,56 @@ bool hasIdrSlice(const uint8_t* p, size_t n) {
 }
 
 }  // namespace
+
+// The stream's SPS: pick the colour conversion, and re-create the decoder for the
+// stream's resolution and references (XCloud4's live_h264.c / stream_profile.c policy):
+// pipeline depth 1 up to 720p (one frame less of delay), 2 above (1080p60 needs it), and
+// enough reference frames for the SPS. Only when the new configuration fits the memory
+// already given to the decoder; if the new decoder fails, the old configuration returns.
+static void reconfigureForSps(void*& decoder, DecoderAllocations& a, size_t frameBufferSize,
+                              const X4StreamSps& sps) {
+    const unsigned w = sps.visible_width, h = sps.visible_height;
+    const unsigned matrix = x4_stream_color_resolve(sps.matrix_coefficients, w, h, 0);
+    xc::display::ps4::setVideoColor(matrix == 6, sps.full_range != 0);
+
+    const uint32_t depth = (w > 1280 || h > 720) ? 2u : 1u;
+    int32_t dpb = std::max<int32_t>({4, static_cast<int32_t>(sps.max_num_ref_frames) + 1,
+                                     static_cast<int32_t>(sps.max_dec_frame_buffering)});
+    dpb = std::min<int32_t>(dpb, 16);
+    XC_LOGI("hwdec: SPS profile %u level %u, %ux%u, %u refs, matrix %u (%s), %s range",
+            sps.profile_idc, sps.level_idc, w, h, sps.max_num_ref_frames, sps.matrix_coefficients,
+            matrix == 6 ? "BT.601" : "BT.709", sps.full_range ? "full" : "limited");
+    if (depth == a.cfg.decodePipelineDepth && dpb <= a.cfg.maxDpbFrameCount) return;
+
+    Vdec2DecoderConfig cfg = a.cfg;
+    cfg.decodePipelineDepth = depth;
+    cfg.maxDpbFrameCount = std::max(dpb, a.cfg.maxDpbFrameCount);
+    Vdec2DecoderMemory need{};
+    need.thisSize = sizeof(need);
+    int rc = sceVideodec2QueryDecoderMemoryInfo(&cfg, &need);
+    if (rc != 0 || need.cpuMemorySize > a.mem.cpuMemorySize || need.gpuMemorySize > a.mem.gpuMemorySize ||
+        need.cpuGpuMemorySize > a.mem.cpuGpuMemorySize || need.maxFrameBufferSize > frameBufferSize) {
+        XC_LOGW("hwdec: keeping depth %u / %d references: the SPS's configuration (depth %u, %d) %s",
+                a.cfg.decodePipelineDepth, a.cfg.maxDpbFrameCount, depth, cfg.maxDpbFrameCount,
+                rc != 0 ? "was refused" : "needs more memory than the decoder has");
+        return;
+    }
+    sceVideodec2DeleteDecoder(decoder);
+    void* fresh = nullptr;
+    rc = sceVideodec2CreateDecoder(&cfg, &a.mem, &fresh);
+    if (rc != 0 || !fresh) {
+        XC_LOGW("hwdec: decoder with depth %u / %d references: 0x%08x, back to the previous one", depth,
+                cfg.maxDpbFrameCount, static_cast<unsigned>(rc));
+        fresh = nullptr;
+        rc = sceVideodec2CreateDecoder(&a.cfg, &a.mem, &fresh);
+        if (rc != 0) fresh = nullptr;
+    } else {
+        XC_LOGI("hwdec: decoder re-created for the stream: depth %u, %d references", depth, cfg.maxDpbFrameCount);
+        a.cfg = cfg;
+    }
+    decoder = fresh;
+    a.inFlight.clear();  // the old decoder's frames never come out; `recent` may still be on screen
+}
 
 bool HwDecoder::decode(const uint8_t* data, size_t len, uint64_t pts, Picture& out) {
     out = Picture{};
@@ -512,6 +608,24 @@ bool HwDecoder::decode(const uint8_t* data, size_t len, uint64_t pts, Picture& o
         if (it == s_allocations.end() || len > it->second.inputBufs[0].size) {
             return false;
         }
+        const uint8_t* spsNal = nullptr;
+        size_t spsLen = 0;
+        if (findSps(data, len, spsNal, spsLen)) {
+            X4StreamSps sps{};
+            int spsRc = x4_stream_sps_parse(spsNal, spsLen, &sps);
+            if (spsRc == 0 && (!it->second.haveSps || !x4_stream_sps_compatible(&sps, &it->second.sps))) {
+                it->second.sps = sps;
+                it->second.haveSps = true;
+                reconfigureForSps(decoder_, it->second, frameBufferSize_, sps);
+                if (!decoder_) {
+                    XC_LOGE("hwdec: no decoder after re-creating it");
+                    return false;
+                }
+            } else if (spsRc != 0) {
+                static int spsLogged = 0;
+                if (spsLogged++ < 3) XC_LOGW("hwdec: SPS not parsed (%s)", x4_stream_sps_error_name(spsRc));
+            }
+        }
         if (it->second.awaitingIdr) {
             if (!hasIdrSlice(data, len)) {
                 out.error = true;  // keeps the keyframe request going
@@ -526,6 +640,9 @@ bool HwDecoder::decode(const uint8_t* data, size_t len, uint64_t pts, Picture& o
         std::memcpy(inBuf, data, len);
 
         outSlotUsed = it->second.outputSlot;
+        for (size_t tries = 0; tries < kOutputRingSlots && it->second.slotBusy(outSlotUsed); ++tries) {
+            outSlotUsed = (outSlotUsed + 1) % kOutputRingSlots;
+        }
         outBuf = it->second.frameBufs[outSlotUsed].addr;
         outBufSize = it->second.frameBufs[outSlotUsed].size;
     }
@@ -583,8 +700,8 @@ bool HwDecoder::decode(const uint8_t* data, size_t len, uint64_t pts, Picture& o
     if (frame.isAccepted) {
         a.inFlight.push_back({outSlotUsed, pts});
         a.outputSlot = (outSlotUsed + 1) % kOutputRingSlots;
-        // Never more frames in flight than buffers to hold them.
-        while (a.inFlight.size() > kOutputRingSlots - 1) a.inFlight.pop_front();
+        // Room for the two pictures being shown plus one free slot to decode into.
+        while (a.inFlight.size() > kOutputRingSlots - 3) a.inFlight.pop_front();
     }
 
     if (!output.isValid || output.pictureCount == 0) {
@@ -611,6 +728,12 @@ bool HwDecoder::decode(const uint8_t* data, size_t len, uint64_t pts, Picture& o
         picPts = a.inFlight.front().pts;
         a.inFlight.pop_front();
     }
+    if (!matched && output.frameBuffer) {
+        for (size_t i = 0; i < kOutputRingSlots; ++i)
+            if (a.frameBufs[i].addr == output.frameBuffer) slot = i;
+    }
+    a.recent[1] = a.recent[0];
+    a.recent[0] = slot;
 
     out.data = static_cast<const uint8_t*>(output.frameBuffer ? output.frameBuffer : a.frameBufs[slot].addr);
     out.size = output.frameBufferSize ? output.frameBufferSize : a.frameBufs[slot].size;
