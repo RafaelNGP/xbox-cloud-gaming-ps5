@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 #include "display/display.h"
+#include "platform/ps4/video_color_ps4.h"
 #include "platform/platform.h"
 #include "util/log.h"
 
@@ -47,6 +48,11 @@ int64_t g_physAddr = 0;
 bool g_isDirectMemory = false;
 uint8_t* g_buffers[kBuffers]{};
 int g_currentBuffer = 0;
+// Video frames flip at the next horizontal sync instead of waiting for the vertical blank:
+// XCloud4 measured 43 -> 27 ms (1080p) and 33 -> 17 ms (720p) of local presentation latency
+// on a PS4, with no noticeable tearing at ~58 fps; it is their default since 1.2.0. Menu
+// frames (drawRgba) keep V-Sync, where latency does not matter and tearing would show.
+bool g_videoFlip = false;
 int g_onScreenBuffer = 0;
 int g_pendingBuffer = -1;
 int64_t g_flipMarker = 0;
@@ -185,19 +191,48 @@ private:
 
 static std::unique_ptr<RowPool> g_rowPool;
 
-// 8-pixel 16-bit SSE2 BT.709 limited-range YUV -> A8B8G8R8 converter (approach from XCloud4,
-// github.com/asp11edgr/XCloud4, GPL-3.0). R = 1.164 Y + 1.793 V, G = 1.164 Y - 0.213 U - 0.533 V,
-// B = 1.164 Y + 2.112 U, in 1/256 units.
-static inline void colorRgbEight(__m128i y16, __m128i u16, __m128i v16,
+// The YUV -> RGB factors of one colour matrix and range, in 1/256 units, ready for
+// colorRgbEight's pairwise multiply-adds. Which set applies comes from the stream's SPS
+// (hw_decoder_ps4.cpp, with XCloud4's colour policy); BT.709 limited range until then.
+struct ColorK {
+    __m128i y_bias, k_y_r, k_y_b, k_y_gu, k_gv_0;
+};
+// Y factor, V->R, U->G, V->G, U->B, black level.
+struct ColorFactors {
+    int y, rv, gu, gv, bu, bias;
+};
+constexpr ColorFactors kColorSets[4] = {
+    {298, 459, -55, -137, 541, 16},  // BT.709 limited range (xCloud's)
+    {298, 409, -100, -208, 516, 16}, // BT.601 limited range
+    {256, 403, -48, -120, 475, 0},   // BT.709 full range
+    {256, 359, -88, -183, 454, 0},   // BT.601 full range
+};
+std::atomic<int> g_colorSet{0};
+
+inline ColorK makeColorK(int set) {
+    const ColorFactors& f = kColorSets[(set >= 0 && set < 4) ? set : 0];
+    ColorK k;
+    k.y_bias = _mm_set1_epi16(static_cast<short>(f.bias));
+    k.k_y_r = _mm_set1_epi32((f.rv << 16) | (f.y & 0xFFFF));
+    k.k_y_b = _mm_set1_epi32((f.bu << 16) | (f.y & 0xFFFF));
+    k.k_y_gu = _mm_set1_epi32(((f.gu & 0xFFFF) << 16) | (f.y & 0xFFFF));
+    k.k_gv_0 = _mm_set1_epi32(f.gv & 0xFFFF);
+    return k;
+}
+
+// 8-pixel 16-bit SSE2 YUV -> A8B8G8R8 converter (approach from XCloud4,
+// github.com/asp11edgr/XCloud4, GPL-3.0). BT.709 limited range: R = 1.164 Y + 1.793 V,
+// G = 1.164 Y - 0.213 U - 0.533 V, B = 1.164 Y + 2.112 U.
+static inline void colorRgbEight(const ColorK& k, __m128i y16, __m128i u16, __m128i v16,
                                  __m128i& p_lo, __m128i& p_hi) {
-    const __m128i y_bias = _mm_set1_epi16(16);
+    const __m128i y_bias = k.y_bias;
     const __m128i uv_bias = _mm_set1_epi16(128);
     const __m128i zero16 = _mm_setzero_si128();
     const __m128i round = _mm_set1_epi32(128);
-    const __m128i k_y_r  = _mm_set1_epi32((459 << 16) | (298 & 0xFFFF));  // 1.793 * 256: BT.709 limited range
-    const __m128i k_y_b  = _mm_set1_epi32((541 << 16) | (298 & 0xFFFF));
-    const __m128i k_y_gu = _mm_set1_epi32(((-55 & 0xFFFF) << 16) | (298 & 0xFFFF));
-    const __m128i k_gv_0 = _mm_set1_epi32(-137 & 0xFFFF);
+    const __m128i k_y_r = k.k_y_r;
+    const __m128i k_y_b = k.k_y_b;
+    const __m128i k_y_gu = k.k_y_gu;
+    const __m128i k_gv_0 = k.k_gv_0;
     const __m128i alpha  = _mm_set1_epi16(static_cast<short>(0xFF00));
 
     __m128i c = _mm_max_epi16(_mm_sub_epi16(y16, y_bias), zero16);
@@ -265,20 +300,20 @@ static inline void shuffleScale32(__m128i p_lo, __m128i p_hi,
     out2 = _mm_shuffle_epi32(p_hi, _MM_SHUFFLE(3, 2, 2, 1));
 }
 
-static inline void colorRowNv12Scale1to1Sse2(const uint8_t* yRow, const uint8_t* uvRow, uint32_t* dstRow) {
+static inline void colorRowNv12Scale1to1Sse2(const ColorK& k, const uint8_t* yRow, const uint8_t* uvRow, uint32_t* dstRow) {
     const __m128i zero = _mm_setzero_si128();
     for (int x = 0; x < 1920; x += 8) {
         __m128i y_bytes = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(yRow + x));
         __m128i y16 = _mm_unpacklo_epi8(y_bytes, zero);
         __m128i u16, v16, p_lo, p_hi;
         unpackNv12UvEight(uvRow + x, u16, v16);
-        colorRgbEight(y16, u16, v16, p_lo, p_hi);
+        colorRgbEight(k, y16, u16, v16, p_lo, p_hi);
         _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow + x), p_lo);
         _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow + x + 4), p_hi);
     }
 }
 
-static inline void colorRowNv12Scale32SingleSse2(const uint8_t* yRow, const uint8_t* uvRow, uint32_t* dstRow) {
+static inline void colorRowNv12Scale32SingleSse2(const ColorK& k, const uint8_t* yRow, const uint8_t* uvRow, uint32_t* dstRow) {
     const __m128i zero = _mm_setzero_si128();
     int dx = 0;
     for (int sx = 0; sx < 1280; sx += 8, dx += 12) {
@@ -286,7 +321,7 @@ static inline void colorRowNv12Scale32SingleSse2(const uint8_t* yRow, const uint
         __m128i y16 = _mm_unpacklo_epi8(y_bytes, zero);
         __m128i u16, v16, p_lo, p_hi, out0, out1, out2;
         unpackNv12UvEight(uvRow + sx, u16, v16);
-        colorRgbEight(y16, u16, v16, p_lo, p_hi);
+        colorRgbEight(k, y16, u16, v16, p_lo, p_hi);
         shuffleScale32(p_lo, p_hi, out0, out1, out2);
         _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow + dx), out0);
         _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow + dx + 4), out1);
@@ -294,13 +329,30 @@ static inline void colorRowNv12Scale32SingleSse2(const uint8_t* yRow, const uint
     }
 }
 
-static inline void colorRowNv12Scale32DualSse2(const uint8_t* yRow, const uint8_t* uvRow,
+// Two destination rows from one source row (720p -> 1080p: rows 3m and 3m+1 both sample
+// source row 2m): converted once, stored twice. It used to convert the row twice, 1080
+// row conversions per frame instead of 720.
+static inline void colorRowNv12Scale32DualSse2(const ColorK& k, const uint8_t* yRow, const uint8_t* uvRow,
                                                uint32_t* dstRow0, uint32_t* dstRow1) {
-    colorRowNv12Scale32SingleSse2(yRow, uvRow, dstRow0);
-    colorRowNv12Scale32SingleSse2(yRow, uvRow, dstRow1);
+    const __m128i zero = _mm_setzero_si128();
+    int dx = 0;
+    for (int sx = 0; sx < 1280; sx += 8, dx += 12) {
+        __m128i y_bytes = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(yRow + sx));
+        __m128i y16 = _mm_unpacklo_epi8(y_bytes, zero);
+        __m128i u16, v16, p_lo, p_hi, out0, out1, out2;
+        unpackNv12UvEight(uvRow + sx, u16, v16);
+        colorRgbEight(k, y16, u16, v16, p_lo, p_hi);
+        shuffleScale32(p_lo, p_hi, out0, out1, out2);
+        _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow0 + dx), out0);
+        _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow0 + dx + 4), out1);
+        _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow0 + dx + 8), out2);
+        _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow1 + dx), out0);
+        _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow1 + dx + 4), out1);
+        _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow1 + dx + 8), out2);
+    }
 }
 
-static inline void colorRowYuv420Scale1to1Sse2(const uint8_t* yRow, const uint8_t* uRow, const uint8_t* vRow,
+static inline void colorRowYuv420Scale1to1Sse2(const ColorK& k, const uint8_t* yRow, const uint8_t* uRow, const uint8_t* vRow,
                                                uint32_t* dstRow) {
     const __m128i zero = _mm_setzero_si128();
     for (int x = 0; x < 1920; x += 8) {
@@ -308,13 +360,13 @@ static inline void colorRowYuv420Scale1to1Sse2(const uint8_t* yRow, const uint8_
         __m128i y16 = _mm_unpacklo_epi8(y_bytes, zero);
         __m128i u16, v16, p_lo, p_hi;
         unpackYuv420UvEight(uRow + (x >> 1), vRow + (x >> 1), u16, v16);
-        colorRgbEight(y16, u16, v16, p_lo, p_hi);
+        colorRgbEight(k, y16, u16, v16, p_lo, p_hi);
         _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow + x), p_lo);
         _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow + x + 4), p_hi);
     }
 }
 
-static inline void colorRowYuv420Scale32SingleSse2(const uint8_t* yRow, const uint8_t* uRow, const uint8_t* vRow,
+static inline void colorRowYuv420Scale32SingleSse2(const ColorK& k, const uint8_t* yRow, const uint8_t* uRow, const uint8_t* vRow,
                                                    uint32_t* dstRow) {
     const __m128i zero = _mm_setzero_si128();
     int dx = 0;
@@ -323,7 +375,7 @@ static inline void colorRowYuv420Scale32SingleSse2(const uint8_t* yRow, const ui
         __m128i y16 = _mm_unpacklo_epi8(y_bytes, zero);
         __m128i u16, v16, p_lo, p_hi, out0, out1, out2;
         unpackYuv420UvEight(uRow + (sx >> 1), vRow + (sx >> 1), u16, v16);
-        colorRgbEight(y16, u16, v16, p_lo, p_hi);
+        colorRgbEight(k, y16, u16, v16, p_lo, p_hi);
         shuffleScale32(p_lo, p_hi, out0, out1, out2);
         _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow + dx), out0);
         _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow + dx + 4), out1);
@@ -331,10 +383,24 @@ static inline void colorRowYuv420Scale32SingleSse2(const uint8_t* yRow, const ui
     }
 }
 
-static inline void colorRowYuv420Scale32DualSse2(const uint8_t* yRow, const uint8_t* uRow, const uint8_t* vRow,
+static inline void colorRowYuv420Scale32DualSse2(const ColorK& k, const uint8_t* yRow, const uint8_t* uRow, const uint8_t* vRow,
                                                  uint32_t* dstRow0, uint32_t* dstRow1) {
-    colorRowYuv420Scale32SingleSse2(yRow, uRow, vRow, dstRow0);
-    colorRowYuv420Scale32SingleSse2(yRow, uRow, vRow, dstRow1);
+    const __m128i zero = _mm_setzero_si128();
+    int dx = 0;
+    for (int sx = 0; sx < 1280; sx += 8, dx += 12) {
+        __m128i y_bytes = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(yRow + sx));
+        __m128i y16 = _mm_unpacklo_epi8(y_bytes, zero);
+        __m128i u16, v16, p_lo, p_hi, out0, out1, out2;
+        unpackYuv420UvEight(uRow + (sx >> 1), vRow + (sx >> 1), u16, v16);
+        colorRgbEight(k, y16, u16, v16, p_lo, p_hi);
+        shuffleScale32(p_lo, p_hi, out0, out1, out2);
+        _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow0 + dx), out0);
+        _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow0 + dx + 4), out1);
+        _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow0 + dx + 8), out2);
+        _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow1 + dx), out0);
+        _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow1 + dx + 4), out1);
+        _mm_stream_si128(reinterpret_cast<__m128i*>(dstRow1 + dx + 8), out2);
+    }
 }
 
 // The scanout buffers are write-combined GPU memory: reading them back costs dozens of
@@ -592,7 +658,8 @@ void present() {
     int64_t marker = ++g_flipMarker;
     uint64_t subProcUs = sceKernelGetProcessTime();
     uint64_t subUs = platform::nowUs();
-    int rc = sceVideoOutSubmitFlip(g_videoHandle, g_currentBuffer, ORBIS_VIDEO_OUT_FLIP_VSYNC, marker);
+    const int flipMode = g_videoFlip ? ORBIS_VIDEO_OUT_FLIP_HSYNC : ORBIS_VIDEO_OUT_FLIP_VSYNC;
+    int rc = sceVideoOutSubmitFlip(g_videoHandle, g_currentBuffer, flipMode, marker);
     if (rc != 0) {
         XC_LOGW("display: submit flip: 0x%08x", static_cast<unsigned>(rc));
     } else {
@@ -605,6 +672,7 @@ void present() {
 
 void drawRgba(const uint32_t* pixels) {
     if (!pixels || g_videoHandle < 0) return;
+    g_videoFlip = false;
     if (!acquireBuffer(true)) return;
     uint32_t* dst = reinterpret_cast<uint32_t*>(g_buffers[g_currentBuffer]);
 
@@ -656,6 +724,7 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v,
     if (g_videoHandle < 0 || !y || !u || !v || width <= 0 || height <= 0 ||
         strideY < width || strideU < cw || strideV < cw) return false;
     if (!acquireBuffer(wait)) return false;
+    g_videoFlip = true;
     uint32_t* dst = reinterpret_cast<uint32_t*>(g_buffers[g_currentBuffer]);
 
     const bool is1080p = (width == 1920 && height == 1080);
@@ -670,7 +739,8 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v,
         activeOverlay = g_overlay;
     }
 
-    auto renderSlice = [y, u, v, strideY, strideU, strideV, is1080p, is720p, dst, &activeOverlay](int yStart, int yEnd) {
+    const ColorK k = makeColorK(g_colorSet.load(std::memory_order_relaxed));
+    auto renderSlice = [y, u, v, strideY, strideU, strideV, is1080p, is720p, dst, &activeOverlay, &k](int yStart, int yEnd) {
         RowTargets rows;
         rows.dst = dst;
         rows.ov = activeOverlay.get();
@@ -679,7 +749,7 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v,
                 const uint8_t* yRow = y + dy * strideY;
                 const uint8_t* uRow = u + (dy >> 1) * strideU;
                 const uint8_t* vRow = v + (dy >> 1) * strideV;
-                colorRowYuv420Scale1to1Sse2(yRow, uRow, vRow, rows.at(dy, 0));
+                colorRowYuv420Scale1to1Sse2(k, yRow, uRow, vRow, rows.at(dy, 0));
                 rows.commit(dy, 0);
             }
         } else if (is720p) {
@@ -688,12 +758,12 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v,
                 if ((dy % 3) == 0 && dy + 2 < yEnd) {
                     int sy0 = (dy / 3) * 2;
                     int sy1 = sy0 + 1;
-                    colorRowYuv420Scale32DualSse2(y + sy0 * strideY,
+                    colorRowYuv420Scale32DualSse2(k, y + sy0 * strideY,
                                                   u + (sy0 >> 1) * strideU,
                                                   v + (sy0 >> 1) * strideV,
                                                   rows.at(dy, 0),
                                                   rows.at(dy + 1, 1));
-                    colorRowYuv420Scale32SingleSse2(y + sy1 * strideY,
+                    colorRowYuv420Scale32SingleSse2(k, y + sy1 * strideY,
                                                     u + (sy1 >> 1) * strideU,
                                                     v + (sy1 >> 1) * strideV,
                                                     rows.at(dy + 2, 2));
@@ -703,7 +773,7 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v,
                     dy += 3;
                 } else {
                     int sy = (dy * 720) / 1080;
-                    colorRowYuv420Scale32SingleSse2(y + sy * strideY,
+                    colorRowYuv420Scale32SingleSse2(k, y + sy * strideY,
                                                     u + (sy >> 1) * strideU,
                                                     v + (sy >> 1) * strideV,
                                                     rows.at(dy, 0));
@@ -731,7 +801,7 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v,
                         vRow[mapX[dx + 0] >> 1], vRow[mapX[dx + 1] >> 1], vRow[mapX[dx + 2] >> 1], vRow[mapX[dx + 3] >> 1],
                         vRow[mapX[dx + 4] >> 1], vRow[mapX[dx + 5] >> 1], vRow[mapX[dx + 6] >> 1], vRow[mapX[dx + 7] >> 1]);
                     __m128i p_lo, p_hi;
-                    colorRgbEight(y16, u16, v16, p_lo, p_hi);
+                    colorRgbEight(k, y16, u16, v16, p_lo, p_hi);
                     _mm_stream_si128(reinterpret_cast<__m128i*>(dRow + dx), p_lo);
                     _mm_stream_si128(reinterpret_cast<__m128i*>(dRow + dx + 4), p_hi);
                 }
@@ -755,6 +825,7 @@ bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
     if (g_videoHandle < 0 || !y || !uv || width <= 0 || height <= 0 ||
         strideY < width || strideUV < width) return false;
     if (!acquireBuffer(wait)) return false;
+    g_videoFlip = true;
     uint32_t* dst = reinterpret_cast<uint32_t*>(g_buffers[g_currentBuffer]);
 
     const bool is1080p = (width == 1920 && height == 1080);
@@ -769,7 +840,8 @@ bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
         activeOverlay = g_overlay;
     }
 
-    auto renderSlice = [y, uv, strideY, strideUV, is1080p, is720p, dst, &activeOverlay](int yStart, int yEnd) {
+    const ColorK k = makeColorK(g_colorSet.load(std::memory_order_relaxed));
+    auto renderSlice = [y, uv, strideY, strideUV, is1080p, is720p, dst, &activeOverlay, &k](int yStart, int yEnd) {
         RowTargets rows;
         rows.dst = dst;
         rows.ov = activeOverlay.get();
@@ -777,7 +849,7 @@ bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
             for (int dy = yStart; dy < yEnd; ++dy) {
                 const uint8_t* yRow = y + dy * strideY;
                 const uint8_t* uvRow = uv + (dy >> 1) * strideUV;
-                colorRowNv12Scale1to1Sse2(yRow, uvRow, rows.at(dy, 0));
+                colorRowNv12Scale1to1Sse2(k, yRow, uvRow, rows.at(dy, 0));
                 rows.commit(dy, 0);
             }
         } else if (is720p) {
@@ -787,11 +859,11 @@ bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
                 if ((dy % 3) == 0 && dy + 2 < yEnd) {
                     int sy0 = (dy / 3) * 2;
                     int sy1 = sy0 + 1;
-                    colorRowNv12Scale32DualSse2(y + sy0 * strideY,
+                    colorRowNv12Scale32DualSse2(k, y + sy0 * strideY,
                                                 uv + (sy0 >> 1) * strideUV,
                                                 rows.at(dy, 0),
                                                 rows.at(dy + 1, 1));
-                    colorRowNv12Scale32SingleSse2(y + sy1 * strideY,
+                    colorRowNv12Scale32SingleSse2(k, y + sy1 * strideY,
                                                   uv + (sy1 >> 1) * strideUV,
                                                   rows.at(dy + 2, 2));
                     rows.commit(dy, 0);
@@ -800,7 +872,7 @@ bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
                     dy += 3;
                 } else {
                     int sy = (dy * 720) / 1080;
-                    colorRowNv12Scale32SingleSse2(y + sy * strideY,
+                    colorRowNv12Scale32SingleSse2(k, y + sy * strideY,
                                                   uv + (sy >> 1) * strideUV,
                                                   rows.at(dy, 0));
                     rows.commit(dy, 0);
@@ -834,7 +906,7 @@ bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
                         uvRow[c0 + 1], uvRow[c1 + 1], uvRow[c2 + 1], uvRow[c3 + 1],
                         uvRow[c4 + 1], uvRow[c5 + 1], uvRow[c6 + 1], uvRow[c7 + 1]);
                     __m128i p_lo, p_hi;
-                    colorRgbEight(y16, u16, v16, p_lo, p_hi);
+                    colorRgbEight(k, y16, u16, v16, p_lo, p_hi);
                     _mm_stream_si128(reinterpret_cast<__m128i*>(dRow + dx), p_lo);
                     _mm_stream_si128(reinterpret_cast<__m128i*>(dRow + dx + 4), p_hi);
                 }
@@ -870,12 +942,23 @@ void setOverlay(const uint32_t* pixels, int x, int y, int w, int h, uint8_t opac
 }
 
 void setSharpness(int amount) { g_sharpness = std::clamp(amount, 0, 256); }
+
+namespace ps4 {
+void setVideoColor(bool bt601, bool fullRange) {
+    g_colorSet.store((bt601 ? 1 : 0) + (fullRange ? 2 : 0), std::memory_order_relaxed);
+}
+}  // namespace ps4
 void setDeband(int) {}
 void setUpscaler(int) {}
 void setRestore(bool) {}
 DisplayCaps caps() {
     DisplayCaps c{};
     c.asyncPresent = true;
+    // XCloud4's measured 1080p60 on a base PS4 (about 58 fps) was at 7-13 Mbps; past that
+    // the hardware decoder falls behind. The user's own cap (Settings) still goes higher.
+    c.defaultMaxBitrate = 13000000;
+    // XCloud4's limit: past 250 ms of backlog, drop it and wait for an IDR.
+    c.maxVideoLagMs = 250;
     return c;
 }
 void setSwapImages(int) {}

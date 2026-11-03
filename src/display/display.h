@@ -69,6 +69,13 @@ struct DisplayCaps {
     bool highRefreshSwitch = false;  // setHighRefresh
     bool presentTiming = false;      // lastPresentId / lastShown
     bool asyncPresent = false;       // decouple YUV->RGBA conversion & flip wait onto a present thread
+    // The highest video bitrate (bits/s) this device decodes and shows smoothly, asked for
+    // by default when the user set no cap of their own; 0 = no limit (the plain tiers'
+    // own rates). Set where the decoder is the bottleneck (PS4).
+    uint32_t defaultMaxBitrate = 0;
+    // A frame that waited longer than this for the decoder: drop the backlog and resume at
+    // the next key frame, instead of letting the delay grow (0 = keep every frame).
+    uint32_t maxVideoLagMs = 0;
 };
 DisplayCaps caps();
 
