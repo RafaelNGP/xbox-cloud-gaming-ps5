@@ -1,0 +1,121 @@
+diff --git a/src/conn_poll.c b/src/conn_poll.c
+index a8462c0..8be0130 100644
+--- a/src/conn_poll.c
++++ b/src/conn_poll.c
+@@ -20,7 +20,7 @@
+ 
+ typedef struct registry_impl {
+ 	thread_t thread;
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(__ORBIS__)
+ 	socket_t interrupt_sock;
+ #else
+ 	int interrupt_pipe_out;
+@@ -64,9 +64,17 @@ int conn_poll_registry_init(conn_registry_t *registry, udp_socket_config_t *conf
+ 		return -1;
+ 	}
+ 
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(__ORBIS__)
+ 	udp_socket_config_t interrupt_config;
+ 	memset(&interrupt_config, 0, sizeof(interrupt_config));
++#ifdef __ORBIS__
++	// PS4: loopback bind may be rejected. The interrupt socket is optional
++	// here because conn_poll_run caps the poll timeout at 50ms.
++	interrupt_config.bind_address = NULL;
++	registry_impl->interrupt_sock = udp_create_socket(&interrupt_config);
++	if (registry_impl->interrupt_sock == INVALID_SOCKET)
++		JLOG_WARN("Interrupt socket unavailable, relying on poll timeout");
++#else
+ 	interrupt_config.bind_address = "localhost";
+ 	registry_impl->interrupt_sock = udp_create_socket(&interrupt_config);
+ 	if (registry_impl->interrupt_sock == INVALID_SOCKET) {
+@@ -74,6 +82,7 @@ int conn_poll_registry_init(conn_registry_t *registry, udp_socket_config_t *conf
+ 		free(registry_impl);
+ 		return -1;
+ 	}
++#endif
+ #else
+ 	int pipefds[2];
+ 	if (pipe(pipefds)) {
+@@ -100,7 +109,7 @@ int conn_poll_registry_init(conn_registry_t *registry, udp_socket_config_t *conf
+ 	return 0;
+ 
+ error:
+-#ifndef _WIN32
++#if !defined(_WIN32) && !defined(__ORBIS__)
+ 	close(registry_impl->interrupt_pipe_out);
+ 	close(registry_impl->interrupt_pipe_in);
+ #endif
+@@ -115,8 +124,9 @@ void conn_poll_registry_cleanup(conn_registry_t *registry) {
+ 	JLOG_VERBOSE("Waiting for connections thread");
+ 	thread_join(registry_impl->thread, NULL);
+ 
+-#ifdef _WIN32
+-	closesocket(registry_impl->interrupt_sock);
++#if defined(_WIN32) || defined(__ORBIS__)
++	if (registry_impl->interrupt_sock != INVALID_SOCKET)
++		closesocket(registry_impl->interrupt_sock);
+ #else
+ 	close(registry_impl->interrupt_pipe_out);
+ 	close(registry_impl->interrupt_pipe_in);
+@@ -144,12 +154,12 @@ int conn_poll_prepare(conn_registry_t *registry, pfds_record_t *pfds, timestamp_
+ 	registry_impl_t *registry_impl = registry->impl;
+ 	struct pollfd *interrupt_pfd = pfds->pfds;
+ 	assert(interrupt_pfd);
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(__ORBIS__)
+ 	interrupt_pfd->fd = registry_impl->interrupt_sock;
+ #else
+ 	interrupt_pfd->fd = registry_impl->interrupt_pipe_in;
+ #endif
+-	interrupt_pfd->events = POLLIN;
++	interrupt_pfd->events = interrupt_pfd->fd == INVALID_SOCKET ? 0 : POLLIN;
+ 
+ 	for (nfds_t i = 1; i < pfds->size; ++i) {
+ 		struct pollfd *pfd = pfds->pfds + i;
+@@ -210,7 +220,7 @@ int conn_poll_recv(socket_t sock, char *buffer, size_t size, addr_record_t *src)
+ int conn_poll_process(conn_registry_t *registry, pfds_record_t *pfds) {
+ 	struct pollfd *interrupt_pfd = pfds->pfds;
+ 	if (interrupt_pfd->revents & POLLIN) {
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(__ORBIS__)
+ 		char dummy;
+ 		addr_record_t src;
+ 		while (udp_recvfrom(interrupt_pfd->fd, &dummy, 1, &src) >= 0) {
+@@ -295,6 +305,10 @@ int conn_poll_run(conn_registry_t *registry) {
+ 		timediff_t timediff = next_timestamp - current_timestamp();
+ 		if (timediff < 0)
+ 			timediff = 0;
++#if defined(__ORBIS__)
++		if (timediff > 50)
++			timediff = 50;
++#endif
+ 
+ 		JLOG_VERBOSE("Entering poll on %d sockets for %d ms", count, (int)timediff);
+ 		int ret = poll(pfds.pfds, pfds.size, (int)timediff);
+@@ -378,7 +392,9 @@ int conn_poll_interrupt(juice_agent_t *agent) {
+ 	JLOG_VERBOSE("Interrupting connections thread");
+ 
+ 	char dummy = 0;
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(__ORBIS__)
++	if (registry_impl->interrupt_sock == INVALID_SOCKET)
++		return 0; // PS4 fallback: the poll loop wakes every 50ms
+ 	if (udp_sendto_self(registry_impl->interrupt_sock, &dummy, 0) < 0) {
+ 		if (sockerrno != SEAGAIN && sockerrno != SEWOULDBLOCK) {
+ 			JLOG_WARN("Failed to interrupt poll by triggering socket, errno=%d", sockerrno);
+diff --git a/src/timestamp.c b/src/timestamp.c
+index 2a7cc98..c50141a 100644
+--- a/src/timestamp.c
++++ b/src/timestamp.c
+@@ -36,6 +36,9 @@ int clock_gettime(int clk_id, struct timespec *t) {
+ timestamp_t current_timestamp() {
+ #ifdef _WIN32
+ 	return (timestamp_t)GetTickCount();
++#elif defined(__ORBIS__)
++	extern uint64_t sceKernelGetProcessTime(void);
++	return (timestamp_t)(sceKernelGetProcessTime() / 1000);
+ #else // POSIX
+ 	struct timespec ts;
+ 	if (clock_gettime(CLOCK_MONOTONIC, &ts))
