@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RafaelNGP
 // The PS4's entry point: runs the app with PS4 backends and shell_ps4.cpp.
 #include "app/app_core.h"
+#include "platform/ps4/exit_ps4.h"
 #include "util/log.h"
 
 #include <cstdio>
@@ -29,5 +30,5 @@ int main(int argc, char** argv) {
     }
     xc::log::setFile(nullptr);
     std::fflush(nullptr);
-    _exit(rc);
+    xc::platform::ps4::exitTitle(rc);
 }
