@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
+#include <deque>
 #include <mutex>
 #include <unistd.h>
 #include <unordered_map>
@@ -215,6 +216,13 @@ struct DecoderAllocations {
     DirectMem frameBufs[kOutputRingSlots];
     size_t inputSlot = 0;
     size_t outputSlot = 0;
+    // Frames the decoder accepted and has not handed back yet, oldest first: with a
+    // pipeline depth of 2 a picture comes out one access unit later, so its buffer and
+    // timestamp are the ones queued here, not the current call's.
+    struct InFlight { size_t slot; uint64_t pts; };
+    std::deque<InFlight> inFlight;
+    // After a decode error: drop access units until the next IDR (XCloud4's recovery).
+    bool awaitingIdr = false;
 };
 
 static std::mutex s_allocMutex;
@@ -358,9 +366,13 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
         decCfg.maxFrameWidth = maxWidth;
         decCfg.maxFrameHeight = p.height;
         decCfg.maxDpbFrameCount = p.dpbFrames;
-        decCfg.decodePipelineDepth = 1;
+        // Depth 2: the decoder works on the next access unit while the last picture is
+        // handed out. XCloud4 measured 1080p at about 58 fps with it; depth 1 was
+        // decode-bound at 1080p (17-31 ms per frame in #309).
+        decCfg.decodePipelineDepth = 2;
         decCfg.computeQueue = computeQueue_;
-        decCfg.cpuAffinityMask = 0x20;
+        // Any of the title's cores (0x20 put the decoder's own threads on xcloud_vdec's core).
+        decCfg.cpuAffinityMask = 0x3F;
         decCfg.cpuThreadPriority = 700;
         decCfg.optimizeProgressiveVideo = true;
         decCfg.checkMemoryType = false;
@@ -387,24 +399,27 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
             decMem.frameBufferAlignment);
 
     if (decMem.cpuMemorySize > 0) {
+        // Direct Onion memory first, as v1.5.5's main build and XCloud4 do: flexible memory
+        // is the app's scarce pool (about 265 MB left during a stream), only a fallback here.
         size_t cpuBytes = align16k(decMem.cpuMemorySize);
-        void* cpuMem = nullptr;
-        rc = sceKernelMapNamedFlexibleMemory(&cpuMem, cpuBytes, kProtectionRw, 0, "PSBoxVdecCpu");
-        if (rc == 0 && cpuMem) {
+        allocs.decCpuDirect = allocDirect(cpuBytes, kMemoryTypeOnion, "decoder cpu");
+        if (allocs.decCpuDirect.addr) {
+            decMem.cpuMemory = allocs.decCpuDirect.addr;
+            decMem.cpuMemorySize = allocs.decCpuDirect.size;
+            XC_LOGI("hwdec: decoder cpu %zu bytes allocated in direct Onion memory", cpuBytes);
+        } else {
+            void* cpuMem = nullptr;
+            rc = sceKernelMapNamedFlexibleMemory(&cpuMem, cpuBytes, kProtectionRw, 0, "PSBoxVdecCpu");
+            if (rc != 0 || !cpuMem) {
+                XC_LOGW("hwdec: decoder cpu: flexible memory failed too: 0x%08x", static_cast<unsigned>(rc));
+                rollback();
+                return false;
+            }
             std::memset(cpuMem, 0, cpuBytes);
             decMem.cpuMemory = cpuMem;
             decMem.cpuMemorySize = cpuBytes;
             allocs.decCpuFlex = {cpuMem, cpuBytes};
             XC_LOGI("hwdec: decoder cpu %zu bytes allocated in flexible memory", cpuBytes);
-        } else {
-            allocs.decCpuDirect = allocDirect(cpuBytes, kMemoryTypeOnion, "decoder cpu");
-            if (!allocs.decCpuDirect.addr) {
-                rollback();
-                return false;
-            }
-            decMem.cpuMemory = allocs.decCpuDirect.addr;
-            decMem.cpuMemorySize = allocs.decCpuDirect.size;
-            XC_LOGI("hwdec: decoder cpu %zu bytes allocated in direct Onion memory", cpuBytes);
         }
     }
 
@@ -467,6 +482,22 @@ bool HwDecoder::init(int maxWidth, int maxHeight) {
     return true;
 }
 
+namespace {
+
+// True when an Annex B access unit holds an IDR slice (NAL type 5).
+bool hasIdrSlice(const uint8_t* p, size_t n) {
+    for (size_t i = 0; i + 3 < n; ++i) {
+        if (p[i] == 0 && p[i + 1] == 0 && p[i + 2] == 1) {
+            uint8_t type = p[i + 3] & 0x1F;
+            if (type == 5) return true;
+            i += 2;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
 bool HwDecoder::decode(const uint8_t* data, size_t len, uint64_t pts, Picture& out) {
     out = Picture{};
     if (!decoder_ || !data || len == 0 || !frameBuffer_) return false;
@@ -480,6 +511,14 @@ bool HwDecoder::decode(const uint8_t* data, size_t len, uint64_t pts, Picture& o
         auto it = s_allocations.find(this);
         if (it == s_allocations.end() || len > it->second.inputBufs[0].size) {
             return false;
+        }
+        if (it->second.awaitingIdr) {
+            if (!hasIdrSlice(data, len)) {
+                out.error = true;  // keeps the keyframe request going
+                return false;
+            }
+            it->second.awaitingIdr = false;
+            XC_LOGI("hwdec: IDR received, decoding again");
         }
         size_t inSlot = it->second.inputSlot;
         it->second.inputSlot = (inSlot + 1) % kInputRingSlots;
@@ -507,86 +546,82 @@ bool HwDecoder::decode(const uint8_t* data, size_t len, uint64_t pts, Picture& o
     output.thisSize = sizeof(output);
 
     int decodeRc = sceVideodec2Decode(decoder_, &input, &frame, &output);
-    if (decodeRc == 0 && frame.isAccepted) {
-        std::lock_guard<std::mutex> lock(s_allocMutex);
-        auto it = s_allocations.find(this);
-        if (it != s_allocations.end() && it->second.outputSlot == outSlotUsed) {
-            it->second.outputSlot = (outSlotUsed + 1) % kOutputRingSlots;
-        }
-    }
-    if (decodeRc != 0 || output.isErrorFrame) {
-        out.error = true;
-        return false;
-    }
-
-    bool flushed = false;
-    void* flushBuf = nullptr;
-    size_t flushBufSize = 0;
-    int flushRc = 0;
-    if (decodeRc == 0 && (!output.isValid || output.pictureCount == 0)) {
-        flushed = true;
-        output = Vdec2Output{};
-        output.thisSize = sizeof(output);
-
-        Vdec2Frame flushFrame{};
-        flushFrame.thisSize = sizeof(flushFrame);
-        size_t flushSlot = 0;
-        {
-            std::lock_guard<std::mutex> lock(s_allocMutex);
-            auto it = s_allocations.find(this);
-            if (it != s_allocations.end()) {
-                flushSlot = it->second.outputSlot;
-                flushBuf = it->second.frameBufs[flushSlot].addr;
-                flushBufSize = it->second.frameBufs[flushSlot].size;
-                flushFrame.frameBuffer = flushBuf;
-                flushFrame.frameBufferSize = flushBufSize;
-            }
-        }
-
-        flushRc = sceVideodec2Flush(decoder_, &flushFrame, &output);
-        if (flushRc == 0 && flushFrame.isAccepted) {
-            std::lock_guard<std::mutex> lock(s_allocMutex);
-            auto it = s_allocations.find(this);
-            if (it != s_allocations.end() && it->second.outputSlot == flushSlot) {
-                it->second.outputSlot = (flushSlot + 1) % kOutputRingSlots;
-            }
-        }
-    }
 
     static int logged = 0;
-    if ((decodeRc != 0 || flushRc != 0 || output.isValid) && logged < 12) {
+    if ((decodeRc != 0 || output.isValid || output.isErrorFrame) && logged < 12) {
         ++logged;
-        XC_LOGI("hwdec: PS4 decode 0x%08x flush 0x%08x (flushed=%d): valid %d errFrame %d pictures %u, %ux%u pitch %u (%u bytes), format %u, buf %p",
-                static_cast<unsigned>(decodeRc), static_cast<unsigned>(flushRc), flushed ? 1 : 0,
+        XC_LOGI("hwdec: PS4 decode 0x%08x: accepted %d valid %d errFrame %d pictures %u, %ux%u pitch %u (%u bytes), format %u, buf %p",
+                static_cast<unsigned>(decodeRc), static_cast<int>(frame.isAccepted),
                 static_cast<int>(output.isValid), static_cast<int>(output.isErrorFrame),
                 static_cast<unsigned>(output.pictureCount),
                 output.frameWidth, output.frameHeight, output.framePitch, output.pitchBytes,
                 output.frameFormat, output.frameBuffer);
     }
 
-    if (output.isErrorFrame) {
+    std::lock_guard<std::mutex> lock(s_allocMutex);
+    auto it = s_allocations.find(this);
+    if (it == s_allocations.end()) return false;
+    DecoderAllocations& a = it->second;
+
+    if (decodeRc != 0 || output.isErrorFrame) {
+        // No Flush, no software decoder: reset the decoder and wait for the next IDR, as
+        // XCloud4 does. Flushing after every frame with no picture (5e18fd3) and the switch
+        // to FFmpeg (too slow for 1080p on this CPU) both ended in a frozen stream.
+        int resetRc = sceVideodec2Reset(decoder_);
+        static int resetsLogged = 0;
+        if (resetsLogged++ < 20) {
+            XC_LOGW("hwdec: decode 0x%08x%s; decoder reset 0x%08x, waiting for an IDR",
+                    static_cast<unsigned>(decodeRc), output.isErrorFrame ? " (error frame)" : "",
+                    static_cast<unsigned>(resetRc));
+        }
+        a.inFlight.clear();
+        a.awaitingIdr = true;
         out.error = true;
         return false;
     }
 
-    if (output.isValid && output.pictureCount > 0) {
-        const void* chosenBuf = output.frameBuffer ? output.frameBuffer : (flushed && flushBuf ? flushBuf : outBuf);
-        size_t chosenSize = output.frameBufferSize ? output.frameBufferSize : (flushed && flushBufSize ? flushBufSize : outBufSize);
-        out.data = static_cast<const uint8_t*>(chosenBuf);
-        out.size = chosenSize;
-        out.width = output.frameWidth;
-        out.height = output.frameHeight;
-        out.pitch = output.framePitch ? output.framePitch : output.frameWidth;
-        out.pitchBytes = output.pitchBytes ? output.pitchBytes : out.pitch;
-        out.format = output.frameFormat;
-        out.pts = pts;
-        out.error = false;
-        return true;
+    if (frame.isAccepted) {
+        a.inFlight.push_back({outSlotUsed, pts});
+        a.outputSlot = (outSlotUsed + 1) % kOutputRingSlots;
+        // Never more frames in flight than buffers to hold them.
+        while (a.inFlight.size() > kOutputRingSlots - 1) a.inFlight.pop_front();
     }
 
-    // Pipeline priming frame (rc == 0, !isValid, !isErrorFrame): not an error
-    out.pending = true;
-    return false;
+    if (!output.isValid || output.pictureCount == 0) {
+        // The pipeline is filling (or the picture comes with the next access unit).
+        out.pending = true;
+        return false;
+    }
+
+    // Match the picture to the frame it was decoded into: by buffer address when the
+    // decoder reports one, otherwise the oldest frame in flight.
+    size_t slot = outSlotUsed;
+    uint64_t picPts = pts;
+    bool matched = false;
+    for (auto f = a.inFlight.begin(); f != a.inFlight.end(); ++f) {
+        if (output.frameBuffer && output.frameBuffer != a.frameBufs[f->slot].addr) continue;
+        slot = f->slot;
+        picPts = f->pts;
+        a.inFlight.erase(a.inFlight.begin(), f + 1);
+        matched = true;
+        break;
+    }
+    if (!matched && !a.inFlight.empty() && !output.frameBuffer) {
+        slot = a.inFlight.front().slot;
+        picPts = a.inFlight.front().pts;
+        a.inFlight.pop_front();
+    }
+
+    out.data = static_cast<const uint8_t*>(output.frameBuffer ? output.frameBuffer : a.frameBufs[slot].addr);
+    out.size = output.frameBufferSize ? output.frameBufferSize : a.frameBufs[slot].size;
+    out.width = output.frameWidth;
+    out.height = output.frameHeight;
+    out.pitch = output.framePitch ? output.framePitch : output.frameWidth;
+    out.pitchBytes = output.pitchBytes ? output.pitchBytes : out.pitch;
+    out.format = output.frameFormat;
+    out.pts = picPts;
+    out.error = false;
+    return true;
 }
 
 } // namespace xc::media
