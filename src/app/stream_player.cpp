@@ -35,6 +35,16 @@ namespace {
 // hands over several frames at once after waiting for a retransmission, and
 // decoding without drawing catches up with those in a few milliseconds.
 constexpr size_t kMaxQueuedFrames = 90;
+
+// True when an Annex B access unit holds an IDR slice (NAL type 5).
+bool hasIdrSlice(const std::vector<uint8_t>& au) {
+    for (size_t i = 0; i + 3 < au.size(); ++i)
+        if (au[i] == 0 && au[i + 1] == 0 && au[i + 2] == 1) {
+            if ((au[i + 3] & 0x1F) == 5) return true;
+            i += 2;
+        }
+    return false;
+}
 }
 
 struct StreamPlayer::Impl {
@@ -383,7 +393,7 @@ struct StreamPlayer::Impl {
             }
 
             bool screenshot = saveSnapshotIfAsked(cur.pic);
-            std::lock_guard<std::recursive_mutex> lock(display::frameMutex());
+            std::unique_lock<std::recursive_mutex> lock(display::frameMutex());
             if (!loggedFirstPresent) {
                 XC_LOGI("first draw %dx%d (%s, %s)", cur.pic.width, cur.pic.height,
                         cur.pic.format == media::Picture::Format::Nv12 ? "NV12" : "YUV420P",
@@ -431,6 +441,9 @@ struct StreamPlayer::Impl {
                     }
                 }
             }
+            // The display is done with: the report to the server (a data-channel send) and
+            // the logging run without holding it (a screenshot still needs it).
+            if (!screenshot) lock.unlock();
             cur.meta.renderedMs = stream::clockMs();
             if (auto s = current(); s && cur.known) s->reportFrame(cur.meta);
             if (!loggedFirstPresent || (drawCalls % 600 == 0))
@@ -495,6 +508,8 @@ struct StreamPlayer::Impl {
         std::pair<uint64_t, uint64_t> inScreenQueue[kShownRing] = {};  // present id, arrival us
         uint64_t lastShownId = 0;
         uint64_t lastFramePresentUs = 0;
+        const uint64_t maxLagUs = uint64_t{display::caps().maxVideoLagMs} * 1000;
+        bool lagAwaitingIdr = false;
         while (running) {
             {
                 std::unique_lock<std::mutex> lock(mutex);
@@ -502,6 +517,21 @@ struct StreamPlayer::Impl {
                 if (!running) break;
                 frame = std::move(frames.front());
                 frames.pop_front();
+                if (maxLagUs && !lagAwaitingIdr && platform::nowUs() - frame.arrivalUs > maxLagUs) {
+                    // Too far behind for this device: the backlog would only add delay.
+                    ++queueResets;
+                    frames.clear();
+                    keyframeWanted = true;
+                    lagAwaitingIdr = true;
+                }
+            }
+            if (lagAwaitingIdr) {
+                // Frames before the next IDR reference pictures that were dropped.
+                if (!hasIdrSlice(au)) {
+                    requestKeyframeIfWanted();
+                    continue;
+                }
+                lagAwaitingIdr = false;
             }
             if (dumpFile) {
                 // 4-byte little-endian length, then the access unit as received.
@@ -789,8 +819,14 @@ struct StreamPlayer::Impl {
                           : gssv.resolution() == xcloud::Resolution::P1440 ? 40000000
                           : gssv.resolution() == xcloud::Resolution::P1080HQ ? 30000000
                                                                            : 25000000;
-        if (maxBitrateMbps > 0)  // the user's cap (Wi-Fi) or test override: REMB offers this rate
+        if (maxBitrateMbps > 0) {  // the user's cap (Wi-Fi) or test override: REMB offers this rate
             opts.maxBitrate = static_cast<uint32_t>(std::clamp(maxBitrateMbps, 5, 50)) * 1000000u;
+        } else if (uint32_t deviceCap = display::caps().defaultMaxBitrate; deviceCap > 0) {
+            // A device that can't keep up with the HQ tiers (PS4): the plain tier, at most
+            // its decoder's rate.
+            opts.maxBitrate = std::min(opts.maxBitrate, deviceCap);
+            if (opts.resolutionAlias == "1080HQ") opts.resolutionAlias = "1080";
+        }
         opts.simulatedVideoLoss = simulatedLoss;
         if (const char* loss = std::getenv("XC_SIM_LOSS")) opts.simulatedVideoLoss = std::atoi(loss);
         callbacks = cb;
