@@ -13,36 +13,31 @@ Microsoft or Sony.
 
 Running it
 ----------
-Unpack the archive anywhere and start PSBox/psbox:
+Make the AppImage executable and start it (on the Steam Deck too, in
+Desktop or Game mode):
 
-    tar xf PSBox-@XC_PACKAGE_VERSION@-linux-x86_64.tar.gz
-    PSBox/psbox                     # --windowed, --fullscreen, --data-dir <dir>
+    chmod +x PSBox-@XC_PACKAGE_VERSION@-linux-x86_64.AppImage
+    ./PSBox-@XC_PACKAGE_VERSION@-linux-x86_64.AppImage     # --windowed, --fullscreen, --data-dir <dir>
 
-It runs from its folder: SDL3 is bundled in lib/ (psbox finds it on its
-own) and the fonts and certificates are in assets/. Needs an x86-64
+SDL3, the fonts and the certificates are inside it. Needs an x86-64
 Linux with glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, Debian 13 or
 later), X11 or Wayland, and PulseAudio, PipeWire or ALSA.
 F11 or Alt+Enter switches fullscreen; Settings > Display mode keeps it.
-
-Menu entry: copy psbox.desktop to ~/.local/share/applications/ and
-psbox.png to ~/.local/share/icons/, then point Exec= at this folder's
-psbox, e.g.
-
-    sed "s|^Exec=.*|Exec=$PWD/PSBox/psbox|" PSBox/psbox.desktop \
-        > ~/.local/share/applications/psbox.desktop
-    cp PSBox/psbox.png ~/.local/share/icons/psbox.png
+Without FUSE, run it with APPIMAGE_EXTRACT_AND_RUN=1 set. A menu entry:
+an AppImage launcher (AppImageLauncher, Gear Lever) adds one, or add the
+AppImage to Steam as a non-Steam game.
 
 Check without signing in (window, sound, input; screenshots in the
 folder given):
 
-    PSBox/psbox --selftest /tmp/psbox-selftest
+    ./PSBox-@XC_PACKAGE_VERSION@-linux-x86_64.AppImage --selftest /tmp/psbox-selftest
 
 
 Your data
 ---------
 Sign-in, settings, caches and the log (xcloud.log) are kept in
 ~/.local/share/psbox ($XDG_DATA_HOME/psbox, or $XCLOUD_DATA_DIR / --data-dir).
-Nothing is written to the PSBox folder. Signing out removes the sign-in;
+Nothing is written inside the AppImage. Signing out removes the sign-in;
 deleting that folder resets the app.
 
 
@@ -68,8 +63,8 @@ are hidden.
 Updates
 -------
 The app tells you in Settings > Updates when a new version is out and opens
-its page; it doesn't update itself. Download the new archive and replace
-the PSBox folder (your data stays in ~/.local/share/psbox).
+its page; it doesn't update itself. Download the new AppImage and use it
+in place of the old one (your data stays in ~/.local/share/psbox).
 
 
 Licenses
@@ -77,6 +72,7 @@ Licenses
 PSBox is GPL-3.0-or-later (licenses/LICENSE). It links Mbed TLS,
 libdatachannel, usrsctp, libSRTP, plog, FFmpeg (LGPL-2.1, see
 licenses/FFmpeg-NOTE.txt), stb, FSR 1 and Anime4K shaders (MIT), and bundles
-SDL3 (zlib) and the Inter fonts (OFL): their texts are in licenses/, the
-list in licenses/THIRD_PARTY_NOTICES.md. Source code: the repository at this
+SDL3 (zlib) and the Inter fonts (OFL): their texts are in PSBox/licenses/
+inside the AppImage (--appimage-extract unpacks it), the list in
+licenses/THIRD_PARTY_NOTICES.md. Source code: the repository at this
 release's tag, https://github.com/RafaelNGP/xbox-cloud-gaming-ps5

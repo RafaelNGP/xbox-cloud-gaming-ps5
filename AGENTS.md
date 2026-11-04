@@ -112,12 +112,13 @@ Para evitar degradação de desempenho, latência alta e manter a interação á
   1. `PPSA99810.zip` (pacote limpo sem contas/tokens, empacotado sem `XC_INCLUDE_ACCOUNT`).
   2. `PPSA99810.zip.sig` (assinatura ECDSA gerada com `~/.config/psbox-release/signing-key.pem`).
   3. `PPSA99810.zip.sha256` (checksum para integridade).
+- **Linux: SEMPRE AppImage, NUNCA `.tar.gz`**: o pacote de Linux de toda release é `PSBox-vX.Y.Z-linux-x86_64.AppImage` + `.sha256`, gerado pelo workflow `.github/workflows/release-linux.yml` (ubuntu-24.04, glibc 2.39) com `tools/desktop/package-appimage.sh` ao publicar a release (ou à mão: `gh workflow run release-linux.yml -f tag=vX.Y.Z`). A assinatura `.sig` vem da máquina de release: `tools/desktop/sign-linux-release.sh vX.Y.Z`. Não gere o AppImage da release localmente (a glibc da máquina local é mais nova) e não publique tarball.
 - **Formato Bilíngue Obrigatório nas Release Notes**: O arquivo `notes.md` e o corpo da release no GitHub devem SEMPRE apresentar primeiro o conteúdo completo em Inglês (`<!-- LANG:EN -->`) e, em seguida, em Português (`<!-- LANG:PT -->`).
 - **Fluxo Mandatório de Publicação**:
   1. Delegar o empacotamento e assinatura para subagente (preservando o contexto).
   2. Gerar o pacote através de `tools/release.sh <X.Y.Z>` ou do pipeline de empacotamento oficial.
   3. Publicar ou anexar com `gh release create vX.Y.Z PPSA99810.zip PPSA99810.zip.sig PPSA99810.zip.sha256 ...` (ou `gh release upload --clobber`).
-  4. **Verificação Obrigatória**: Sempre executar `gh release view vX.Y.Z` e confirmar que todos os 3 assets estão listados e públicos antes de considerar o release finalizado.
+  4. **Verificação Obrigatória**: Sempre executar `gh release view vX.Y.Z` e confirmar que todos os 3 assets estão listados e públicos, e que o AppImage de Linux (com `.sha256` e `.sig`) está anexado, antes de considerar o release finalizado.
 
 ---
 

@@ -13,12 +13,14 @@
 # README.txt and param.json at this version, no token in eboot.bin, the
 # version compiled in, the licenses). With --console (PS5_HOST set), a cloud
 # and an own-Xbox stream on the console. With --linux, also the desktop
-# app's Linux tarball (tools/desktop/package-linux.sh in build-linux-release,
-# SDL3 from CMAKE_PREFIX_PATH or the system, bundled):
-# PSBox-vX.Y.Z-linux-x86_64.tar.gz + .sha256 + .sig, signed the same way,
+# app's Linux AppImage (tools/desktop/package-appimage.sh in
+# build-linux-release, SDL3 from CMAKE_PREFIX_PATH or the system, bundled;
+# Linux always ships as an AppImage, never a tarball):
+# PSBox-vX.Y.Z-linux-x86_64.AppImage + .sha256 + .sig, signed the same way,
 # psbox checked for tokens and the version, its symbols in
-# symbols/vX.Y.Z/psbox.debug. Its glibc baseline is this machine's: CI's
-# linux-app job builds on ubuntu-24.04. The PS5 assets are always made and
+# symbols/vX.Y.Z/psbox.debug. Its glibc baseline is this machine's: the one
+# attached to a release is built by .github/workflows/release-linux.yml on
+# ubuntu-24.04. The PS5 assets are always made and
 # always required; the Linux ones are optional (the desktop app only points
 # to the release page). Last, it prints the commands that publish the
 # release and the catalog record.
@@ -126,27 +128,30 @@ ok "certificates and licenses in place"
 linux_assets=""
 if [[ $linux == 1 ]]; then
     echo "== Linux package"
-    name=PSBox-$tag-linux-x86_64.tar.gz
-    tarball=$out/$name
+    name=PSBox-$tag-linux-x86_64.AppImage
+    appimage=$out/$name
     buildlog=$(mktemp)
-    XC_VERSION="$tag" tools/desktop/package-linux.sh "$root/build-linux-release" "$out" >"$buildlog" 2>&1 ||
+    XC_VERSION="$tag" tools/desktop/package-appimage.sh "$root/build-linux-release" "$out" >"$buildlog" 2>&1 ||
         { tail -30 "$buildlog"; fail "the Linux package failed"; }
     rm -f "$buildlog"
-    [[ -s $tarball ]] || fail "no $tarball"
+    [[ -s $appimage ]] || fail "no $appimage"
     [[ -s "$root/symbols/$tag/psbox.debug" ]] || fail "symbols/$tag/psbox.debug was not saved"
-    ok "$name ($(du -h "$tarball" | cut -f1)) built, checked and self-tested by package-linux.sh"
-    if tar tzf "$tarball" | grep -nE "$private|\.elf$|\.debug$"; then fail "a private or symbol file in the Linux package"; fi
-    exe=$(mktemp)
-    tar xzf "$tarball" -O PSBox/psbox >"$exe"
-    if grep -aqE "$tokens" "$exe"; then rm -f "$exe"; fail "psbox holds something like a token"; fi
-    grep -aq "$version" "$exe" || { rm -f "$exe"; fail "psbox doesn't carry version $version (stale build?)"; }
+    ok "$name ($(du -h "$appimage" | cut -f1)) built, checked and self-tested by package-appimage.sh"
+    unpack=$(mktemp -d)
+    (cd "$unpack" && "$appimage" --appimage-extract >/dev/null 2>&1) || { rm -rf "$unpack"; fail "$name doesn't unpack"; }
+    if (cd "$unpack/squashfs-root" && find . -type f) | grep -nE "$private|\.elf$|\.debug$"; then
+        rm -rf "$unpack"; fail "a private or symbol file in the Linux package"
+    fi
+    exe=$unpack/squashfs-root/PSBox/psbox
+    if grep -aqE "$tokens" "$exe"; then rm -rf "$unpack"; fail "psbox holds something like a token"; fi
+    grep -aq "$version" "$exe" || { rm -rf "$unpack"; fail "psbox doesn't carry version $version (stale build?)"; }
     glibc=$(objdump -T "$exe" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)
-    rm -f "$exe"
+    rm -rf "$unpack"
     ok "psbox: no token, version $version compiled in, needs ${glibc:-?} (this machine's baseline)"
     (cd "$out" && sha256sum "$name" > "$name.sha256")
-    sign "$tarball"
-    ok "signed: $tarball.sig"
-    linux_assets=" \"$tarball\" \"$tarball.sha256\" \"$tarball.sig\""
+    sign "$appimage"
+    ok "signed: $appimage.sig"
+    linux_assets=" \"$appimage\" \"$appimage.sha256\" \"$appimage.sig\""
 fi
 
 if [[ $console == 1 ]]; then

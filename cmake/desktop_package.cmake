@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 RafaelNGP
-# The Linux package of the desktop app (psbox): install() rules and a CPack
-# TGZ, PSBox-<XC_PACKAGE_VERSION>-linux-x86_64.tar.gz, holding one folder:
+# The Linux package of the desktop app (psbox): install() rules for one
+# folder, which tools/desktop/package-appimage.sh installs into an AppImage
+# (PSBox-<XC_PACKAGE_VERSION>-linux-x86_64.AppImage; never a tarball):
 #
 #   PSBox/psbox                  stripped, RUNPATH $ORIGIN/lib
 #   PSBox/lib/libSDL3.so.0       the SDL3 it was built with
@@ -12,7 +13,7 @@
 # Only files named here go in: never a data folder (account.json, logs).
 # The debug info stripped from psbox is kept in symbols/<XC_PACKAGE_VERSION>/
 # psbox.debug (git-ignored), like the PS5's eboot.elf. tools/desktop/
-# package-linux.sh configures, builds, packs and checks it.
+# package-appimage.sh configures, builds, installs, packs and checks it.
 set(XC_PACKAGE_VERSION "v${PROJECT_VERSION}-dev" CACHE STRING
     "Version in the desktop package's name (tools/release.sh sets vX.Y.Z)")
 
@@ -99,13 +100,5 @@ else()
     message(WARNING "SDL3's LICENSE.txt not found (XC_SDL3_LICENSE=<path>): the package will lack it")
 endif()
 
-set(CPACK_GENERATOR TGZ)
-set(CPACK_PACKAGE_NAME PSBox)
-set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
-set(CPACK_PACKAGE_FILE_NAME "PSBox-${XC_PACKAGE_VERSION}-linux-x86_64")
-set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY OFF)
-set(CPACK_ARCHIVE_COMPONENT_INSTALL OFF)
-set(CPACK_STRIP_FILES OFF)
-include(CPack)
 unset(_pkg)
 unset(_src)

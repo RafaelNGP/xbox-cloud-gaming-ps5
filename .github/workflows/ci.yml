@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Every push and pull request: the SDL-free desktop build (psbox-headless
 # included) with its unit tests, PS5 calls kept in the PS5 backends, the
-# SDL3 app with its self-test and Linux tarball (linux-app), and a scan of
+# SDL3 app with its self-test and Linux AppImage (linux-app), and a scan of
 # the changes for account data. The PS5 build needs the PS5_Vulkan toolchain,
 # which isn't here: tools/release.sh checks it before a release.
 name: CI
@@ -62,7 +62,7 @@ jobs:
       - name: Unit tests
         run: ctest --test-dir build-host --output-on-failure
 
-  # The SDL3 desktop app (psbox) and its Linux tarball. Built on the oldest
+  # The SDL3 desktop app (psbox) and its Linux AppImage. Built on the oldest
   # supported runner: its glibc is the package's baseline. SDL3 is built
   # from its release (every backend loaded at run time, so one libSDL3.so.0
   # serves X11 and Wayland, PulseAudio, PipeWire and ALSA) and bundled.
@@ -133,13 +133,13 @@ jobs:
           XCLOUD_DATA_DIR: ${{ runner.temp }}/psbox-data
         run: build-app/psbox --selftest "$RUNNER_TEMP/psbox-selftest"
 
-      - name: Package
-        run: bash tools/desktop/package-linux.sh build-app build-app/pkg
+      - name: Package (AppImage, self-tested)
+        run: bash tools/desktop/package-appimage.sh build-app build-app/pkg
 
       - uses: actions/upload-artifact@v7
         with:
           name: psbox-linux-x86_64
-          path: build-app/pkg/PSBox-*-linux-x86_64.tar.gz
+          path: build-app/pkg/PSBox-*-linux-x86_64.AppImage
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v7

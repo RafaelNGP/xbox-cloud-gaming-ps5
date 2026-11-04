@@ -324,7 +324,7 @@ if(XC_DESKTOP_APP)
         COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:psbox>/assets"
         COMMENT "Copying assets/ beside psbox")
 
-    # install() rules and CPack: the Linux tarball (tools/desktop/package-linux.sh).
+    # install() rules: the Linux AppImage (tools/desktop/package-appimage.sh).
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         include(cmake/desktop_package.cmake)
     endif()

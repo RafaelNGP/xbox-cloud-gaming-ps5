@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 RafaelNGP
-# Signs the Linux tarball that .github/workflows/release-linux.yml attached
+# Signs the Linux AppImage that .github/workflows/release-linux.yml attached
 # to a published release, on the release machine: the signing key never goes
-# to GitHub. Downloads the tarball and its checksum, checks the checksum,
+# to GitHub. Downloads the AppImage and its checksum, checks the checksum,
 # signs it as tools/release.sh signs the PS5 zip, checks the signature with
 # the key the app trusts, and uploads the .sig.
 #
@@ -25,7 +25,7 @@ while read -r line; do
         fail "$key is not the key src/app/updater.cpp trusts"
 done <<<"$pub"
 
-name=PSBox-$tag-linux-x86_64.tar.gz
+name=PSBox-$tag-linux-x86_64.AppImage
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 gh release download "$tag" -p "$name" -p "$name.sha256" -D "$work" ||

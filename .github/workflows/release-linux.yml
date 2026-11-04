@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# A published release gets the Linux app: built on ubuntu-24.04 (glibc 2.39,
-# so it runs on most current distributions; one built on a newer desktop
-# wouldn't), self-tested, packed and attached with its checksum. The
-# signature is added from the release machine afterwards with
-# tools/desktop/sign-linux-release.sh: the signing key never leaves it.
-# The same steps as ci.yml's linux-app job.
+# A published release gets the Linux app as an AppImage (never a tarball):
+# built on ubuntu-24.04 (glibc 2.39, so it runs on most current
+# distributions and the Steam Deck; one built on a newer desktop wouldn't),
+# self-tested, packed and attached with its checksum. The signature is added
+# from the release machine afterwards with tools/desktop/sign-linux-release.sh:
+# the signing key never leaves it. The same steps as ci.yml's linux-app job.
+# Run by hand for a tag (workflow_dispatch), it packs that tag's code with
+# this revision's packaging script.
 name: Release (Linux)
 
 on:
@@ -20,7 +22,7 @@ permissions:
   contents: write
 
 jobs:
-  linux-tarball:
+  linux-appimage:
     runs-on: ubuntu-24.04
     env:
       SDL3_VERSION: 3.4.18
@@ -32,6 +34,11 @@ jobs:
         with:
           ref: ${{ env.TAG }}
           submodules: recursive
+
+      - name: This revision's packaging (a run for an older tag)
+        run: |
+          git fetch -q --no-tags --depth=1 origin "$GITHUB_SHA"
+          git checkout FETCH_HEAD -- tools/desktop/package-appimage.sh linux/README-linux.txt
 
       - name: The tag matches the version in CMakeLists.txt
         run: |
@@ -94,15 +101,15 @@ jobs:
           XCLOUD_DATA_DIR: ${{ runner.temp }}/psbox-data
         run: build-app/psbox --selftest "$RUNNER_TEMP/psbox-selftest"
 
-      - name: Package
-        run: XC_VERSION="$TAG" bash tools/desktop/package-linux.sh build-app build-app/pkg
+      - name: Package (AppImage, self-tested)
+        run: XC_VERSION="$TAG" bash tools/desktop/package-appimage.sh build-app build-app/pkg
 
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd build-app/pkg
-          f="PSBox-$TAG-linux-x86_64.tar.gz"
+          f="PSBox-$TAG-linux-x86_64.AppImage"
           [ -s "$f" ] || { echo "::error::$f was not made"; exit 1; }
           sha256sum "$f" > "$f.sha256"
           gh release upload "$TAG" "$f" "$f.sha256" --clobber --repo "$GITHUB_REPOSITORY"

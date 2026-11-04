@@ -46,7 +46,7 @@ the end.
 | NASM (assembles FFmpeg's x86 SIMD code) | BSD-2-Clause |
 | PS5_Vulkan tooling (`link.sh` recipe, `ps5-native-tool` ELF/FSELF writer, FTP deploy script) | GPL-3.0-or-later |
 
-## The Linux package (`PSBox-*-linux-x86_64.tar.gz`)
+## The Linux package (`PSBox-*-linux-x86_64.AppImage`)
 
 `psbox` statically links the same Mbed TLS, libdatachannel (libjuice,
 usrsctp, libSRTP, plog), FFmpeg slice, stb, QR Code generator, FSR 1 and
