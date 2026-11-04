@@ -19,6 +19,8 @@ namespace xc::stream {
 
 // SSRC of our RTCP packets (receiver reports, NACK, PLI, REMB).
 constexpr uint32_t kReceiverSsrc = 0x50534278;  // "PSBx"
+// SSRC of the microphone's RTP stream (stream_session.cpp's audio packetizer).
+constexpr uint32_t kMicSsrc = 1;
 
 class RtcpReporter final : public rtc::MediaHandler {
 public:
@@ -50,6 +52,7 @@ private:
     uint32_t lastSr_ = 0;          // middle 32 bits of the last SR's NTP time
     uint64_t lastSrArrivalUs_ = 0;
     uint64_t lastReportUs_ = 0;
+    uint64_t lastSendReportLogUs_ = 0;  // the server's report on the microphone, last logged
     uint64_t bytesSinceReport_ = 0;
     std::atomic<uint32_t> estimate_{0}, receiveRate_{0};
 };

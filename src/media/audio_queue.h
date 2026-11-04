@@ -48,6 +48,19 @@ public:
     float volume() const { return volume_; }
     size_t queuedFrames() const;
     Stats stats() const;
+    // For a latency control: the least that was queued at a pull since the
+    // last call (frames; SIZE_MAX when there was no pull), and the pulls that
+    // found it run dry since the last call (not counting before the sound
+    // started).
+    size_t takeLowWater();
+    uint64_t takeUnderruns();
+    // `frames` taken out about 10 ms ahead of what plays next, the two sides
+    // of the cut crossfaded over 5 ms (no click): the queue that much shorter.
+    // False when too little is queued for it.
+    bool cutAhead(size_t frames);
+    // After it runs dry, how much is queued again before the sound resumes
+    // (frames; 0: at once, as before 2026-11-04). Any thread.
+    void setRefill(size_t frames) { refill_ = frames; }
 
 private:
     mutable std::mutex mutex_;
@@ -55,6 +68,11 @@ private:
     std::atomic<bool> open_{false};
     std::atomic<float> volume_{1.0f};
     Stats stats_;  // under mutex_
+    size_t lowWater_ = SIZE_MAX;  // under mutex_: takeLowWater()
+    uint64_t underruns_ = 0;      // ...takeUnderruns()
+    bool started_ = false;        // something was pushed since clear()
+    bool refilling_ = false;      // ran dry: silent until setRefill()'s level
+    std::atomic<size_t> refill_{0};
 };
 
 // The one audio_out.h's audioPush() fills; the backend pulls from it and

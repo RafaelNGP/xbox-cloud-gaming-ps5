@@ -2,6 +2,8 @@
 // Copyright (C) 2026 RafaelNGP
 #include "ui/stream_menu.h"
 
+#include "ui/cloud_time.h"
+
 #include "ui/strings.h"
 #include "ui/input_mode.h"
 #include "ui/pad_glyphs.h"
@@ -43,6 +45,7 @@ bool StreamMenu::itemShown(int item) const {
     case GyroLevelItem: return caps_.gyro;
     case PadSpeakerVolumeItem: return caps_.triggerRumble || caps_.adaptiveTriggers;
     case TouchpadShortcutsItem: return caps_.touchpad;
+    case PlayerItem: return usbOwnerPlayer_ >= 0;
     default: return true;
     }
 }
@@ -159,6 +162,10 @@ MenuAction StreamMenu::handle(const NavInput& in) {
     // Up / down over the items shown (the Xbox button always is).
     if (in.up) do selected_ = (selected_ + ItemCount - 1) % ItemCount; while (!itemShown(selected_));
     if (in.down) do selected_ = (selected_ + 1) % ItemCount; while (!itemShown(selected_));
+    if (selected_ == PlayerItem && (in.left || in.right || in.accept)) {
+        usbOwnerPlayer_ = (usbOwnerPlayer_ + (in.left ? 3 : 1)) % 4;
+        return MenuAction::Player;
+    }
     if (selected_ == Profile && (in.left || in.right || in.accept)) {
         hasCustomProfile_ = !hasCustomProfile_;
         return MenuAction::ProfileToggle;
@@ -376,7 +383,21 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         return c;
     }
 
-    fonts_.bold.draw(c, tr(Str::MenuTitle), kPad, 34, 30, kWhite);
+    const int titleEnd = fonts_.bold.draw(c, tr(Str::MenuTitle), kPad, 34, 30, kWhite);
+    // The account's cloud time left, right of the title (a limited account
+    // only): orange from 15 minutes shown, when the notices start; red at none.
+    if (info.cloudTimeSeconds >= 0) {
+        const std::string left = trf(Str::CloudTimeLeft, formatCloudTime(info.cloudTimeSeconds));
+        const int w = fonts_.semibold.measure(left, 17);
+        const int x = kMenuW - kPad - w;
+        if (x - 24 > titleEnd + 16) {
+            const Color col = info.cloudTimeSeconds <= 0        ? rgba(240, 100, 100)
+                              : info.cloudTimeSeconds < 16 * 60 ? rgba(255, 160, 40)
+                                                                 : kGray;
+            drawClockIcon(c, x - 14.0f, 34 + 15.0f, 8.0f, col);
+            fonts_.semibold.draw(c, left, x, fonts_.semibold.centeredY(34, 30, 17), 17, col);
+        }
+    }
 
     // The items: the selected one white, like the Xbox guide.
     constexpr int kRowH = 37, kTop = 78, kPx = 19;
@@ -389,6 +410,7 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         Color fg = sel ? kDark : kWhite;
         int ty = fonts_.semibold.centeredY(row.y, row.h, kPx);
         const char* label = i == XboxButton            ? tr(Str::MenuXboxButton)
+                            : i == PlayerItem          ? tr(Str::MenuPlayer)
                             : i == Profile             ? tr(Str::Profile)
                             : i == Stats               ? tr(Str::MenuStats)
                             : i == Sharpness           ? tr(Str::MenuSharpness)
@@ -406,6 +428,10 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
                                                        : tr(Str::MenuLeave);
         fonts_.semibold.draw(c, label, row.x + 16, ty, kPx, fg);
         std::string value;
+        if (i == PlayerItem) {
+            value = std::to_string(usbOwnerPlayer_ + 1);
+            if (sel) value = "< " + value + " >";
+        }
         if (i == Profile) {
             value = tr(hasCustomProfile_ ? Str::ProfileCustom : Str::ProfileDefault);
             if (sel) value = "< " + value + " >";

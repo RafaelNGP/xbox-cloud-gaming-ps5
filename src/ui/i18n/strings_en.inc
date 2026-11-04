@@ -415,4 +415,11 @@ constexpr Column kEnglish = {
     "In queue (estimated wait: %s • waiting for %s)", // InQueueEstimated
     "To stream free-to-play games beyond Fortnite without Game Pass, enable 'Preview Features' in app Settings and on xbox.com/play.", // F2pPreviewRequiredDesc
     "This account needs to enable 'Preview Features' in its profile on xbox.com/play to unlock ad-supported free-to-play streaming.", // F2pPreviewAccountNeededDesc
+    "Player",                                    // MenuPlayer
+    "Your Xbox cloud gaming time has run out, so the Xbox service ended the session. Since November 2026, Xbox limits cloud play each month: 15 h with Game Pass Ultimate, 10 h with Premium and 5 h with Essential. To get more time, see your options at xbox.com, or new hours come next month.", // CloudTimeUp
+    "The stream ended after a while without input", // EndedIdle
+    "%s left", // CloudTimeLeft
+    "of %s", // CloudTimeOf
+    "Unlimited cloud time", // CloudTimeUnlimited
+    "%s of your Xbox cloud gaming time left this month", // CloudTimeWarn
 };

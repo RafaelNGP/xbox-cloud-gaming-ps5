@@ -35,7 +35,9 @@ AudioEncoder::~AudioEncoder() {
     if (packet_) av_packet_free(&packet_);
 }
 
-bool AudioEncoder::init(int bitrate) {
+bool AudioEncoder::init(int bitrate, int frameMs) {
+    frameMs = frameMs == 10 ? 10 : 20;
+    frameSamples_ = static_cast<size_t>(kSampleRate / 1000 * frameMs);
     const AVCodec* codec = avcodec_find_encoder(AV_CODEC_ID_OPUS);
     if (!codec) {
         XC_LOGE("audio encoder: Opus encoder not found in FFmpeg build");
@@ -53,7 +55,8 @@ bool AudioEncoder::init(int bitrate) {
     ctx_->flags |= AV_CODEC_FLAG_LOW_DELAY;
 
     ctx_->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
-    av_opt_set_double(ctx_->priv_data, "opus_delay", 20.0, 0);
+    // The lookahead it may buffer: also the longest packet it makes.
+    av_opt_set_double(ctx_->priv_data, "opus_delay", static_cast<double>(frameMs), 0);
 
     int rc = avcodec_open2(ctx_, codec, nullptr);
     if (rc < 0) {
@@ -79,20 +82,20 @@ bool AudioEncoder::init(int bitrate) {
     packet_ = av_packet_alloc();
     if (!packet_) return false;
 
-    XC_LOGI("audio encoder: Opus encoder initialized (%d Hz, %d ch, %d bps, 20ms frames)",
-            kSampleRate, kChannels, bitrate);
+    XC_LOGI("audio encoder: Opus encoder initialized (%d Hz, %d ch, %d bps, %d ms frames)",
+            kSampleRate, kChannels, bitrate, frameMs);
     return true;
 }
 
 bool AudioEncoder::encode(const int16_t* pcm, size_t samples, std::vector<uint8_t>& out) {
-    if (!ctx_ || !frame_ || !packet_ || !pcm || samples < kFrameSize) return false;
+    if (!ctx_ || !frame_ || !packet_ || !pcm || samples < frameSamples_) return false;
 
     constexpr int kSubframeSize = 120;
     constexpr float kInv32768 = 1.0f / 32768.0f;
     bool gotPacket = false;
 
     // Feed 8 subframes of 120 samples (8 * 120 = 960 samples = 20 ms)
-    for (size_t offset = 0; offset < kFrameSize; offset += kSubframeSize) {
+    for (size_t offset = 0; offset < frameSamples_; offset += kSubframeSize) {
         int rc = av_frame_make_writable(frame_);
         if (rc < 0) return false;
 

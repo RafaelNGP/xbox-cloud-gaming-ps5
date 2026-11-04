@@ -29,7 +29,8 @@ struct TextInputRequest {
 };
 
 struct StreamCallbacks {
-    std::function<void(const uint8_t* data, size_t len, uint32_t rtpTimestamp)> video;
+    // `firstPacketUs`: when the frame's first packet came (platform::nowUs()), 0 if unknown.
+    std::function<void(const uint8_t* data, size_t len, uint32_t rtpTimestamp, uint64_t firstPacketUs)> video;
     std::function<void(const uint8_t* data, size_t len, uint32_t rtpTimestamp)> audio;
     std::function<void(const Vibration&)> vibration;
     // The server will end the session for inactivity in `seconds` unless
@@ -51,8 +52,10 @@ struct StreamCallbacks {
 struct StreamOptions {
     int connectTimeoutMs = 30000;
     // The web client asks for a key frame this often to recover from loss
-    // without NACK; 0 disables.
-    int keyframeIntervalSec = 5;
+    // without NACK; 0 disables. Off: this client NACKs and asks for a key
+    // frame when a frame is lost for good, and each periodic one cost a
+    // 20-25 ms decode and a dip in the picture every 5 s.
+    int keyframeIntervalSec = 0;
     // Stream tier requested on the control channel after connecting, as the
     // xbox.com client does ("userRequestedResolutionUpdate"): "720", "720HQ",
     // "1080", "1080HQ" or "1440" (the HQ tiers and 1440 need Game Pass

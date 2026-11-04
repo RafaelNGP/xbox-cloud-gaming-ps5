@@ -68,6 +68,10 @@ enum class ThreadRole {
     Worker,      // Core 4..7: Background tasks, library hydration, image decoding
 };
 void setThreadAffinity(ThreadRole role, const char* name = nullptr);
+// Whether setThreadAffinity() only names the thread (the console's default)
+// or pins it by role (measurements: autoplay "pin"). Before the first call;
+// the console only, a no-op elsewhere.
+void setNoThreadPinning(bool on);
 void setThreadRealtimePriority();
 
 // Short on-screen message: the PS5's system notification; in the desktop

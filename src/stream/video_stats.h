@@ -18,6 +18,11 @@ struct VideoReceiveStats {
     std::atomic<uint64_t> keyframeRequests{0};
     std::atomic<uint32_t> receiveRate{0};  // bits/s, last report interval
     std::atomic<uint32_t> estimate{0};     // bits/s offered to the server (REMB)
+    // Since the last read (StreamPlayer::stats() takes them): the longest
+    // wait between two video packets, the most frames handed on at once,
+    // and how much later a frame was ready than its RTP time says (a pause
+    // in delivery, or a frame held for a retransmission).
+    mutable std::atomic<uint64_t> maxGapMs{0}, maxBurst{0}, maxLateMs{0};
 };
 
 }  // namespace xc::stream

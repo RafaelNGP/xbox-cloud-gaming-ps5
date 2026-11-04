@@ -100,7 +100,7 @@ bool AudioIn::open(AudioCallback cb) {
         return false;
     }
     running_ = true;
-    impl_->mic.reset();
+    impl_->mic.setFrameSize(frameSize_);
 
     platform::startThread(impl_->thread, [this, openedRate]() {
         platform::setThreadAffinity(platform::ThreadRole::Audio, "ps4_audio_in");

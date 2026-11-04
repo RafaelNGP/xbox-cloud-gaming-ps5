@@ -60,6 +60,12 @@ struct Autoplay {
     bool v150Test = false;       // "v150test": verify new settings order and search gratis filter
     bool claimTest = false;      // "claimtest": test free game acquisition, library persistence, and game launch
     bool vkTest = false;         // the GPU presenting instead of the CPU display
+    bool hz60 = false;           // hz60: streams stay at 60 Hz output (no 120 Hz switch)
+    bool fnPlay = false;         // fnplay: Fortnite gameplay for measurements (Play once, then the camera turns and the player runs)
+    bool legacy = false;         // legacy: the stream as it was tuned before 2026-11-04 (the A/B baseline)
+    bool imgTest = false;        // imgtest: 25 s before the end, one picture drawn with each look (img_*.ppm)
+    int64_t cloudLeft = -1;      // cloudleft=N: a stream counts down from N seconds left (the menu, the notices)
+    bool cloudTimeTest = false;  // cloudtimetest: the cloud time line (4 h 10 of 15 h, 1 h 30, none, unlimited), the game menu with it, the time-up error
     bool cpuDisplay = false;     // the CPU display even where the GPU comes up
     int upscaler = -1;           // ai: Anime4K instead of the setting
     bool restore = false;        // restore: Anime4K Restore before the upscale
@@ -108,6 +114,7 @@ struct Autoplay {
 };
 extern Autoplay g_autoplay;
 extern std::atomic<bool> g_syntheticA;  // A held down for the game
+extern std::atomic<float> g_syntheticRightX, g_syntheticLeftY;  // sticks for the game (fnplay)
 
 void loadAutoplay();
 // After loadAutoplay(), before the settings are read. Starting in autoplay

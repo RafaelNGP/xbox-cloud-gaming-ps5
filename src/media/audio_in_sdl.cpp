@@ -39,7 +39,7 @@ bool AudioIn::open(AudioCallback cb) {
         }
         impl_->initedAudio = true;
     }
-    impl_->mic.reset();
+    impl_->mic.setFrameSize(frameSize_);
     impl_->grains = 0;
     // SDL's device thread, as samples come in: whole grains through the
     // pipeline, the rest left in the stream for next time.

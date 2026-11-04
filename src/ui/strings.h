@@ -424,6 +424,13 @@ enum class Str {
     InQueueEstimated,
     F2pPreviewRequiredDesc,
     F2pPreviewAccountNeededDesc,
+    MenuPlayer,       // game menu, a USB controller's: the player it plays as
+    CloudTimeUp,      // the server ended the stream: the account's (or game's) cloud time ran out
+    EndedIdle,        // toast: the server ended the stream after a while without input
+    CloudTimeLeft,      // top bar / game menu: "%s" = the cloud time left ("4 h 10 min")
+    CloudTimeOf,        // top bar, after CloudTimeLeft: "%s" = the month's hours
+    CloudTimeUnlimited, // top bar: the account has no cloud time limit
+    CloudTimeWarn,      // notification while streaming: "%s" = the cloud time left
     Count
 };
 

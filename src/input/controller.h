@@ -91,6 +91,10 @@ void setTriggerRumble(uint8_t left, uint8_t right, uint32_t durationMs, int pad 
 // Each stick's own dead zone (0..1 of the travel): a drifting stick can
 // have a bigger one.
 void setDeadzone(float left, float right);
+// A pad read some other way (USB, pad_usb.h) as the DualSense's are: the
+// dead zones above on its sticks (rawLeftX... kept) and the Circle / Cross
+// swap below.
+void applyPadSettings(ControllerState& s);
 // Circle reported as Cross (Xbox A) and Cross as Circle, everywhere.
 void setCircleConfirms(bool on);
 bool circleConfirms();

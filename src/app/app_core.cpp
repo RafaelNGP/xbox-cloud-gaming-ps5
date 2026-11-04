@@ -917,9 +917,25 @@ bool Core::frame() {
     if (virtualGamepadState(0, vpad0, vconn0) && vconn0) {
         input::mergePads(pad, vpad0);
     }
+    // USB pads (pad_usb.h): every one drives the menus; in a game, those
+    // playing as player 1 join pad 0 (the others: stream_screen.cpp), but
+    // the one whose in-game menu is up.
+    const bool streaming = g_ui->screen() == ui::Screen::Streaming;
+    const int usbMenuOwner = streaming ? streamScreen->menuUsbOwner() : -1;
+    input::ControllerState player1 = pad;
     input::ControllerState usbPad;
-    if (input::pollUsbPad(usbPad)) {
-        input::mergePads(pad, usbPad);
+    if (input::pollUsbPadsFor(0, usbPad, usbMenuOwner)) input::mergePads(player1, usbPad);
+    if (input::pollUsbPad(usbPad)) input::mergePads(pad, usbPad);
+    for (const input::UsbPadEvent& e : input::takeUsbPadEvents()) {
+        if (e.kind == input::UsbPadEvent::Kind::MenuButton) {
+            if (streaming) streamScreen->usbMenuButton(e.slot);
+            continue;
+        }
+        const std::string who = std::to_string(e.player + 1) + " (" + e.name + ")";
+        const bool gone = e.kind == input::UsbPadEvent::Kind::Disconnected;
+        platform::notify(ui::trf(gone ? ui::Str::PadDisconnected : ui::Str::PadConnected, who),
+                         "usb controller " + std::to_string(e.player + 1) + (gone ? " disconnected" : " connected"));
+        padsCheckedAt = 0;  // the players' row at once
     }
     // USB keyboard: the app's screens (and its menu in a game) as with the
     // controller; in a game otherwise, its keys and the mouse go to the game.
@@ -1106,13 +1122,19 @@ bool Core::frame() {
         for (int i = 0; i < input::kMaxPads; ++i) {
             bool padConn = input::padConnected(i);
             std::string padName = input::padUserName(i);
+            // A USB pad playing as this player: connected too, by its name
+            // when it is the only pad there.
+            const std::string usbName = input::usbPadNameFor(i);
+            if (!usbName.empty() && !padConn) padName = usbName;
+            const bool usbConn = !usbName.empty();
 
             bool vpadConn = false;
             input::ControllerState vpadSt{};
             virtualGamepadState(i, vpadSt, vpadConn);
 
             uint64_t now = platform::nowMs();
-            uint64_t padT = padConn ? input::padActiveAt(i) : 0;
+            uint64_t padT = std::max(padConn ? input::padActiveAt(i) : 0, input::usbPadActiveAt(i));
+            padConn = padConn || usbConn;
             uint64_t kbT = (kbmConnected && i == kbPlayer) ? keyboardActiveAt : 0;
             uint64_t vpadActive = virtualGamepadActiveAt(i);
             uint64_t phoneT = (vpadConn && (now >= vpadActive) && (now - vpadActive < 15000)) ? vpadActive : 0;
@@ -1149,6 +1171,8 @@ bool Core::frame() {
         streamScreen->setCaps(caps);
     }
 
+    // The in-game menu a USB controller opened: that controller alone moves in it.
+    if (usbMenuOwner >= 0) input::pollUsbPadSlot(usbMenuOwner, pad);
     ui::NavInput nav;
     nav.up = up.update(pad.dpadUp || pad.leftStickY < -0.6f, now);
     nav.down = down.update(pad.dpadDown || pad.leftStickY > 0.6f, now);
@@ -1222,7 +1246,7 @@ bool Core::frame() {
     prev = pad;
     autoplayNav(nav, menuCombo, now);
     if (g_ui->screen() == ui::Screen::Streaming) {
-        streamScreen->update(pad, nav, menuCombo);
+        streamScreen->update(player1, nav, menuCombo);
         display::idleWait(4);  // ~250 Hz input (the PS5 sleeps 4 ms; matching DualSense native 250 Hz rate)
         display::pump();       // the desktop shows the newest video frame here
         return true;

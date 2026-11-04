@@ -171,6 +171,7 @@ if(XCLOUD_PS5)
         src/media/hw_decoder_ps5.cpp
         src/input/controller_ps5.cpp
         src/input/kbm_ps5.cpp
+        src/input/pad_usb_ps5.cpp
         src/media/audio_out_ps5.cpp
         src/media/audio_in_ps5.cpp
     )

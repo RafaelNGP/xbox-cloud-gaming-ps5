@@ -13,6 +13,14 @@
 namespace xc::stream {
 
 namespace {
+void raiseMax(std::atomic<uint64_t>& a, uint64_t v) {
+    uint64_t cur = a.load(std::memory_order_relaxed);
+    while (v > cur && !a.compare_exchange_weak(cur, v, std::memory_order_relaxed)) {
+    }
+}
+}  // namespace
+
+namespace {
 
 // How long a hole may wait for its retransmission (a couple of RTTs), how
 // often a NACK is repeated, and how many times.
@@ -160,7 +168,7 @@ void H264Receiver::noteGap(int64_t from, int64_t to, uint64_t now, const rtc::me
 void H264Receiver::resendNacks(uint64_t now, const rtc::message_callback& send) {
     std::vector<int64_t> seqs;
     for (auto& [s, m] : missing_)
-        if (m.nacks < kMaxNacks && now - m.lastNackMs >= kRenackMs) {
+        if (m.nacks < kMaxNacks && now - m.lastNackMs >= renackMs()) {
             m.lastNackMs = now;
             ++m.nacks;
             seqs.push_back(s);
@@ -273,7 +281,7 @@ void H264Receiver::drain(uint64_t now, rtc::message_vector& out, const rtc::mess
             auto m = missing_.find(hole);
             uint64_t since = m != missing_.end() ? m->second.sinceMs : now;
             if (m == missing_.end()) missing_[hole] = Missing{now, now, 0};
-            if (now - since < waitMs_) return;  // give the retransmission time
+            if (now - since < lossWaitMs()) return;  // give the retransmission time
             // Lost for good: drop what we have of this frame and resync on
             // the next key frame.
             ++stats_.framesDropped;
@@ -298,6 +306,11 @@ void H264Receiver::drain(uint64_t now, rtc::message_vector& out, const rtc::mess
         }
         if (key) waitingKeyframe_ = false;
         ++stats_.framesOut;
+        if (lastFrameMs_) {
+            const int64_t late = static_cast<int64_t>(now - lastFrameMs_) - static_cast<int32_t>(ts - lastFrameTs_) / 90;
+            if (late > 0) raiseMax(stats_.maxLateMs, static_cast<uint64_t>(late));
+        }
+        lastFrameMs_ = now, lastFrameTs_ = ts;
         out.push_back(rtc::make_message(asBytes(frame), asBytes(frame) + frame.size(), std::make_shared<rtc::FrameInfo>(ts)));
     }
 }
@@ -330,6 +343,16 @@ void H264Receiver::accept(const uint8_t* d, size_t n, uint64_t now, const rtc::m
     int64_t seq = unwrap(rawSeq);
     if (nextSeq_ >= 0 && seq < nextSeq_) return;  // too late or duplicate
     if (hasPacket(seq)) return;
+    // A frame's first packet (the first with its timestamp): when it came.
+    const uint32_t ts = (uint32_t(d[4]) << 24) | (uint32_t(d[5]) << 16) | (uint32_t(d[6]) << 8) | d[7];
+    if (!anyTs_ || ts != lastNewTs_) {
+        bool known = false;
+        for (const auto& f : firstPacket_) known |= f.second && f.first == ts;
+        if (!known) {
+            firstPacket_[firstPacketNext_++ % kFirstPacketRing] = {ts, platform::nowUs()};
+            lastNewTs_ = ts, anyTs_ = true;
+        }
+    }
     if (end - off > kMaxPayload) {
         // Larger than a slot: cut short it would corrupt the NAL unit. Left
         // as a hole instead, NACKed when the next packet shows it (and
@@ -342,7 +365,6 @@ void H264Receiver::accept(const uint8_t* d, size_t n, uint64_t now, const rtc::m
     }
     if (missing_.erase(seq)) ++stats_.recovered;
 
-    uint32_t ts = (uint32_t(d[4]) << 24) | (uint32_t(d[5]) << 16) | (uint32_t(d[6]) << 8) | d[7];
     bool marker = (d[1] & 0x80) != 0;
     putPacket(seq, ts, marker, d + off, end - off);
 
@@ -364,10 +386,13 @@ void H264Receiver::incoming(rtc::message_vector& messages, const rtc::message_ca
     }
     for (auto& message : messages) {
         if (message->type == rtc::Message::Control) continue;  // RTCP: handled down the chain
+        if (lastPacketMs_) raiseMax(stats_.maxGapMs, now - lastPacketMs_);
+        lastPacketMs_ = now;
         accept(reinterpret_cast<const uint8_t*>(message->data()), message->size(), now, send);
     }
     resendNacks(now, send);
     drain(now, out, send);
+    raiseMax(stats_.maxBurst, out.size());
     // Still without a key frame: ask again (askKeyframe allows one every
     // 300 ms), as the request or the key frame itself may have been lost;
     // otherwise the picture stays frozen until the buffer overflows (seconds).
@@ -379,6 +404,24 @@ void H264Receiver::incoming(rtc::message_vector& messages, const rtc::message_ca
         askKeyframe(send);
     }
     messages.swap(out);
+}
+
+uint64_t H264Receiver::firstPacketUs(uint32_t rtpTimestamp) const {
+    for (const auto& f : firstPacket_)
+        if (f.second && f.first == rtpTimestamp) return f.second;
+    return 0;
+}
+
+uint64_t H264Receiver::lossWaitMs() const {
+    const int rtt = rttMs_;
+    if (rtt <= 0) return waitMs_;
+    return std::clamp<uint64_t>(static_cast<uint64_t>(rtt) * 2 + 30, waitMs_, 300);
+}
+
+uint64_t H264Receiver::renackMs() const {
+    const int rtt = rttMs_;
+    if (rtt <= 0) return kRenackMs;
+    return std::clamp<uint64_t>(static_cast<uint64_t>(rtt) + 10, kRenackMs, 250);
 }
 
 }  // namespace xc::stream

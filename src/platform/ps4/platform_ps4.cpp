@@ -1128,6 +1128,8 @@ void notify(const std::string& text, const std::string& forLog) {
     sceKernelSendNotificationRequest(0, &req, sizeof req, 0);
 }
 
+void setNoThreadPinning(bool) {}
+
 void setThreadAffinity(ThreadRole role, const char* name) {
     if (name && *name) {
         pthread_set_name_np(pthread_self(), name);

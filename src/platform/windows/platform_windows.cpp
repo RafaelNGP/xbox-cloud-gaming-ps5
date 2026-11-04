@@ -272,6 +272,8 @@ void Thread::join() {
 #endif
 }
 
+void setNoThreadPinning(bool) {}
+
 void setThreadAffinity(ThreadRole role, const char* name) {
 #if defined(_WIN32) || defined(__CYGWIN__)
     (void)name;

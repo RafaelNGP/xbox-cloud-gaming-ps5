@@ -31,6 +31,7 @@
 #include "ui/pad_glyphs.h"
 #include "ui/input_mode.h"
 #include "ui/stream_menu.h"
+#include "ui/cloud_time.h"
 #include "ui/strings.h"
 #include "ui/app_ui_internal.h"
 #include "util/json.h"
@@ -516,59 +517,142 @@ static void testPerGameSettings() {
     std::remove(path.c_str());
 }
 
+// Protobuf wire format for the Content Access tests.
+static std::string pbVarint(uint64_t v) {
+    std::string s;
+    do {
+        uint8_t b = v & 0x7F;
+        v >>= 7;
+        s += static_cast<char>(b | (v ? 0x80 : 0));
+    } while (v);
+    return s;
+}
+static std::string pbInt(int field, uint64_t v) { return pbVarint(static_cast<uint64_t>(field) << 3) + pbVarint(v); }
+static std::string pbMsg(int field, const std::string& body) {
+    return pbVarint((static_cast<uint64_t>(field) << 3) | 2) + pbVarint(body.size()) + body;
+}
+// A product as Content Access sends it: its ID, then for each user (PUID)
+// the access types and, when timed, the streaming gameplay time.
+static std::string pbProduct(const std::string& id, const std::string& puid, int64_t remaining, int64_t max) {
+    std::string streaming = pbInt(1, 2);
+    if (remaining >= 0) streaming += pbInt(2, static_cast<uint64_t>(remaining));
+    if (max >= 0) streaming += pbInt(4, static_cast<uint64_t>(max));
+    std::string access = pbInt(1, 1) + pbInt(2, 1788310800u) + pbMsg(11, streaming);  // aggregate types: a big bit mask
+    return pbMsg(2, pbMsg(1, id) + pbMsg(2, pbMsg(2, pbMsg(1, puid) + pbMsg(2, access))));
+}
+
+static void testCloudTimeClock() {
+    using xc::ui::CloudTimeClock;
+    using xc::ui::formatCloudTime;
+    // Whole minutes, rounded down.
+    CHECK(formatCloudTime(15000) == "4 h 10 min");
+    CHECK(formatCloudTime(54000) == "15 h");
+    CHECK(formatCloudTime(2879) == "47 min");
+    CHECK(formatCloudTime(59) == "< 1 min");
+    CHECK(formatCloudTime(0) == "0 min");
+    // After a session: an answer the service has not counted yet keeps the
+    // count; one over the earlier answer is new hours; none keeps the count.
+    CHECK((CloudTimeClock::reconcile(3000, 6600, 6600) == 3000));
+    CHECK((CloudTimeClock::reconcile(3000, 2000, 6600) == 2000));
+    CHECK((CloudTimeClock::reconcile(3000, 54000, 6600) == 54000));
+    CHECK((CloudTimeClock::reconcile(3000, -1, 6600) == 3000));
+    CHECK((CloudTimeClock::reconcile(-1, 900, -1) == 900));
+
+    CloudTimeClock c;
+    c.start(-1, 0);
+    CHECK(!c.limited());
+    CHECK(c.left(60000) == -1);
+    CHECK(c.noticeDue(60000) == -1);
+
+    c.start(16 * 60, 0);  // 16 min left
+    CHECK(c.left(0) == 16 * 60);
+    CHECK(c.noticeDue(0) == -1);
+    CHECK(c.left(30500) == 16 * 60 - 30);
+    CHECK(c.noticeDue(60000) == 15 * 60);  // 15 min: the first notice, once
+    CHECK(c.noticeDue(61000) == -1);
+    c.answer(16 * 60, 120000);  // stale: the service had not counted the stream
+    CHECK(c.left(120000) == 14 * 60);
+    c.answer(10 * 60, 120000);  // lower: taken
+    CHECK(c.left(120000) == 10 * 60);
+    CHECK(c.noticeDue(420000) == 5 * 60);  // 5 min
+    CHECK(c.noticeDue(500000) == -1);
+    CHECK(c.left(10000000) == 0);
+    c.answer(15 * 3600, 10000000);  // hours bought: over the start's answer
+    CHECK(c.left(10000000) == 15 * 3600);
+
+    c.start(10 * 60, 0);  // a stream that starts under 15 minutes: one notice now
+    CHECK(c.noticeDue(0) == 10 * 60);
+    CHECK(c.noticeDue(1000) == -1);
+    CHECK(c.noticeDue(300000) == 5 * 60);
+    c.start(4 * 60, 0);  // under 5: just the one
+    CHECK(c.noticeDue(0) == 4 * 60);
+    CHECK(c.noticeDue(60000) == -1);
+    c.start(5 * 60 + 10, 0);  // "5 min" already shown: not said twice
+    CHECK(c.noticeDue(0) == 5 * 60 + 10);
+    CHECK(c.noticeDue(10000) == -1);
+    c.start(16 * 60 + 30, 0);  // the notice when "15 min" first shows
+    CHECK(c.noticeDue(30000) == -1);
+    CHECK(c.noticeDue(31000) == 15 * 60 + 59);
+}
+
 static void testPlaytimeLimit() {
     int64_t rem = -1, max = -1;
+    const std::string passes = pbMsg(1, pbMsg(1, "puid-1") + pbMsg(2, pbMsg(1, pbMsg(1, "CFQ7TTC0KHS0") + pbMsg(2, pbInt(1, 0)))));
 
-    // 1. Valid JSON format
-    std::string jsonStr = R"({"remainingGameplayTimeInSeconds": 36000, "maxGameplayTimeInSeconds": 54000})";
-    CHECK(auth::parsePlaytimeLimit(jsonStr, rem, max));
-    CHECK(rem == 36000 && max == 54000);
+    // 1. The account's allowance: the same remaining / max on its limited
+    // products (15 h a month, 9 h 30 left), not the access bit masks.
+    std::string body = passes + pbProduct("9NBLGGH4R315", "puid-1", 34200, 54000) +
+                       pbProduct("BT5P2X999VH2", "puid-1", 34200, 54000) + pbProduct("9PNCL2R6G8D0", "puid-1", 34200, 54000) +
+                       pbProduct("9NZQPT0MWTD0", "puid-1", -1, -1);
+    auth::ContentAccessPlaytime t;
+    CHECK(auth::parseContentAccessPlaytime(body, t));
+    CHECK(t.products == 4 && t.limited == 3 && t.byProduct.size() == 3);
+    CHECK(t.accountRemaining == 34200 && t.accountMax == 54000);
+    CHECK(t.byProduct["BT5P2X999VH2"].first == 34200 && t.byProduct["BT5P2X999VH2"].second == 54000);
+    CHECK(auth::parsePlaytimeLimit(body, rem, max) && rem == 34200 && max == 54000);
 
-    // 2. Nested JSON format
-    std::string nestedJson = R"({"user": {"limits": {"remainingGameplayTimeInSeconds": 7200, "maxGameplayTimeInSeconds": 18000}}})";
-    CHECK(auth::parsePlaytimeLimit(nestedJson, rem, max));
-    CHECK(rem == 7200 && max == 18000);
+    // 2. One timed product (a game's own free time): no account allowance.
+    std::string one = passes + pbProduct("BT5P2X999VH2", "puid-1", 0, 3600) + pbProduct("9NZQPT0MWTD0", "puid-1", -1, -1);
+    CHECK(auth::parseContentAccessPlaytime(one, t));
+    CHECK(t.limited == 1 && t.accountRemaining == -1 && t.byProduct["BT5P2X999VH2"].first == 0);
+    CHECK(!auth::parsePlaytimeLimit(one, rem, max) && rem == -1 && max == -1);
 
-    // 3. String-encoded numbers in JSON
-    std::string strJson = R"({"remainingGameplayTimeInSeconds": "18000", "maxGameplayTimeInSeconds": "36000"})";
-    CHECK(auth::parsePlaytimeLimit(strJson, rem, max));
-    CHECK(rem == 18000 && max == 36000);
+    // 3. Another user's access (a family member) is not this account's.
+    std::string other = passes + pbProduct("A", "puid-2", 100, 200) + pbProduct("B", "puid-2", 100, 200) +
+                        pbProduct("C", "puid-2", 100, 200);
+    CHECK(auth::parseContentAccessPlaytime(other, t) && t.byProduct.empty() && t.accountRemaining == -1);
 
-    // 4. Protobuf wire format (tag 1 varint 18000, tag 2 varint 54000)
-    std::string proto = std::string("\x08\xD0\x8C\x01\x10\xF0\xA5\x03", 8);
-    CHECK(auth::parsePlaytimeLimit(proto, rem, max));
-    CHECK(rem == 18000 && max == 54000);
+    // 4. JSON: the same rule over its objects.
+    std::string json = R"({"products":[{"productId":"A","remainingGameplayTimeInSeconds":7200,"maxGameplayTimeInSeconds":18000},
+        {"productId":"B","remainingGameplayTimeInSeconds":"7200","maxGameplayTimeInSeconds":"18000"},
+        {"productId":"C","remainingGameplayTimeInSeconds":7200,"maxGameplayTimeInSeconds":18000}]})";
+    CHECK(auth::parsePlaytimeLimit(json, rem, max) && rem == 7200 && max == 18000);
 
-    // 5. Empty and invalid inputs
+    // 5. The account's own record (top-level field 3): its first bucket.
+    auto account = [&](uint64_t remaining, uint64_t max) {
+        std::string bucket = pbInt(2, remaining) + pbInt(3, 1791335750u) + pbInt(4, max) + pbInt(5, 1);
+        std::string other = pbInt(3, 1791335750u) + pbInt(5, 1);
+        return pbMsg(3, pbMsg(1, "puid-1") + pbMsg(2, pbMsg(2, bucket) + pbMsg(3, other) + pbMsg(4, other)));
+    };
+    // As this console's Ultimate account answered on 2026-11-04: no limit
+    // (all bits set), and no product with a time of its own.
+    std::string unlimited = passes + pbProduct("9NZQPT0MWTD0", "puid-1", -1, -1) + account(~0ull, ~0ull);
+    CHECK(auth::parseContentAccessPlaytime(unlimited, t));
+    CHECK(t.unlimited && t.accountRemaining == -1 && t.accountBuckets.size() == 3);
+    CHECK(t.accountBuckets[2].first == auth::ContentAccessPlaytime::kUnlimited && t.accountBuckets[3].first == -1);
+    CHECK(!auth::parsePlaytimeLimit(unlimited, rem, max));
+    // A limited account: 15 h a month, 4 h 10 min left; the record wins over
+    // the products' own times.
+    std::string limited = passes + pbProduct("A", "puid-1", 100, 200) + pbProduct("B", "puid-1", 100, 200) +
+                          pbProduct("C", "puid-1", 100, 200) + account(15000, 54000);
+    CHECK(auth::parseContentAccessPlaytime(limited, t) && !t.unlimited);
+    CHECK(t.accountRemaining == 15000 && t.accountMax == 54000);
+    CHECK(auth::parsePlaytimeLimit(limited, rem, max) && rem == 15000 && max == 54000);
+
+    // 6. Empty and invalid answers.
     CHECK(!auth::parsePlaytimeLimit("", rem, max));
     CHECK(!auth::parsePlaytimeLimit("not a valid payload", rem, max));
-
-    // 6. Zero playtime remains purely informational
-    std::string zeroJson = R"({"remainingGameplayTimeInSeconds": 0, "maxGameplayTimeInSeconds": 18000})";
-    CHECK(auth::parsePlaytimeLimit(zeroJson, rem, max));
-    CHECK(rem == 0 && max == 18000);
-
-    // 7. Client-side launch is never blocked by zero or low remaining playtime
-    ui::Fonts fonts;
-    ui::ImageCache images([] {});
-    ui::AppUi app(fonts, images);
-    app.setSubscription("GamePass");
-    ui::GameTile tile;
-    tile.titleId = "TEST_TITLE_1";
-    tile.productId = "TEST_PROD_1";
-    tile.playable = true;
-    ui::GameRow row;
-    row.title = "Popular";
-    row.tiles = {tile};
-    app.setRows({row});
-    app.setPlaytime(0, 18000);  // 0 seconds remaining
-    app.showHome();
-    ui::NavInput in;
-    in.accept = true;
-    app.handle(in);                   // Home -> Details
-    ui::UiEvent ev = app.handle(in);  // Details -> Play
-    CHECK(ev.action == ui::Action::Play);
-    CHECK(ev.game.titleId == "TEST_TITLE_1");
+    CHECK(!auth::parseContentAccessPlaytime(std::string("\x0a\x05\x01", 3), t));  // length past the end
 }
 
 static void testFreeAccountPlayability() {
@@ -1570,6 +1654,22 @@ static void testAudioEncoder() {
 // A burst of loss: a frame lost for good, then a frame with a hole of its
 // own, then a complete key frame. The receiver must resume at that key frame
 // (it used to stop at the frame with the hole: a freeze of seconds).
+// The wait for a retransmission follows the round trip: none known keeps
+// the default; a slow connection gets time for a NACK and a second try.
+static void testH264LossWaitFollowsRtt() {
+    xc::stream::VideoReceiveStats stats;
+    xc::stream::H264Receiver rx([] {}, stats);
+    CHECK(rx.lossWaitMs() == 90 && rx.renackMs() == 50);
+    rx.setRttMs(15);  // this console's connection: as before
+    CHECK(rx.lossWaitMs() == 90 && rx.renackMs() == 50);
+    rx.setRttMs(68);  // issue #317 (PS4): 166 ms, a second NACK after 78
+    CHECK(rx.lossWaitMs() == 166 && rx.renackMs() == 78);
+    rx.setRttMs(141);  // issue #342: 300 ms at most
+    CHECK(rx.lossWaitMs() == 300 && rx.renackMs() == 151);
+    rx.setRttMs(-1);  // not measured any more: the default again
+    CHECK(rx.lossWaitMs() == 90);
+}
+
 static void testH264Resync() {
     xc::stream::VideoReceiveStats stats;
     int keyframeAsks = 0;
@@ -2387,6 +2487,49 @@ static void testDrawNv12() {
 
 // The audio queue: bounded at ~250 ms (cut back to 140 ms, oldest first),
 // silence past its end, the volume, and what the periodic log counts.
+static void testAudioQueueLatency() {
+    media::AudioQueue q;
+    q.open();
+    CHECK(q.takeLowWater() == SIZE_MAX && q.takeUnderruns() == 0);
+    std::vector<float> out(512);
+    q.pull(out.data(), 256);  // before any sound: not a dry pull
+    CHECK(q.takeUnderruns() == 0);
+    std::vector<float> tone(4800 * 2, 0.5f);  // 100 ms, constant
+    q.push(tone.data(), 4800);
+    q.pull(out.data(), 256);
+    q.pull(out.data(), 256);
+    CHECK(q.takeLowWater() == 4800 - 256);  // the lowest seen at a pull
+    CHECK(q.takeLowWater() == SIZE_MAX);
+    const size_t before = q.queuedFrames();
+    CHECK(q.cutAhead(960));
+    CHECK(q.queuedFrames() == before - 960);
+    // Both sides of the cut were 0.5: the crossfade keeps it 0.5, no click.
+    std::vector<float> rest(before * 2);
+    q.pull(rest.data(), q.queuedFrames());
+    bool flat = true;
+    for (size_t i = 0; i < (before - 960) * 2; ++i) flat &= std::abs(rest[i] - 0.5f) < 1e-4f;
+    CHECK(flat);
+    CHECK(!q.cutAhead(960));  // nothing queued
+    q.pull(out.data(), 256);  // dry, after sound
+    CHECK(q.takeUnderruns() == 1);
+    q.clear();
+    q.pull(out.data(), 256);
+    CHECK(q.takeUnderruns() == 0);  // cleared: not started again
+
+    // A refill level: after running dry the sound waits for 40 ms queued.
+    q.setRefill(1920);
+    q.push(tone.data(), 300);  // 6 ms: plays out, then dry
+    q.pull(out.data(), 256);
+    q.pull(out.data(), 256);   // dry: refilling (one event, not one per grain)
+    CHECK(q.takeUnderruns() == 1);
+    q.push(tone.data(), 960);  // 20 ms: under the level, still silent
+    q.pull(out.data(), 256);
+    CHECK(out[100] == 0.0f && q.queuedFrames() == 960 && q.takeUnderruns() == 0);
+    q.push(tone.data(), 1200);  // 45 ms queued: resumes, ramping in
+    q.pull(out.data(), 256);
+    CHECK(out[0] == 0.0f && std::abs(out[400] - 0.5f) < 1e-4f && q.queuedFrames() == 2160 - 256);
+}
+
 static void testAudioQueue() {
     media::AudioQueue q;
     std::vector<float> in(48 * 2 * 10, 0.25f);  // 10 ms
@@ -4006,97 +4149,232 @@ static void testVoiceRouting() {
     CHECK(st.voiceRouting == 0);
 }
 
-static void testUsbPad8BitDo() {
-    input::ControllerState state{};
+static void testUsbPadReports() {
+    using input::ControllerState;
+    auto near = [](float a, float b) { return std::abs(a - b) < 0.01f; };
 
-    // Null and undersized buffers
-    CHECK(!input::parse8BitDoDInputReport(nullptr, 0, state));
-    uint8_t shortBuf[10] = {0};
-    CHECK(!input::parse8BitDoDInputReport(shortBuf, sizeof(shortBuf), state));
+    // XInput (Xbox 360 layout; 8BitDo Ultimate 2.4G in PC mode): A + LB +
+    // Up + Start, LT half, RT full, left stick right and up.
+    const uint8_t xin[20] = {0x00, 0x14, 0x11, 0x11, 128, 255, 0xff, 0x7f, 0xff, 0x7f, 0, 0, 0x00, 0x80};
+    ControllerState s;
+    CHECK(input::parseXInputReport(xin, sizeof xin, s));
+    CHECK(s.connected && s.btnA && s.btnL1 && s.dpadUp && s.btnOptions);
+    CHECK(!s.btnB && !s.btnX && !s.btnY && !s.btnR1 && !s.dpadDown && !s.btnTouchpad && !s.btnNexus);
+    CHECK(near(s.triggerL2, 0.5f) && near(s.triggerR2, 1.0f));
+    CHECK(near(s.rawLeftX, 1.0f) && near(s.rawLeftY, -1.0f));      // +y is down
+    CHECK(near(s.rawRightX, 0.0f) && near(s.rawRightY, 1.0f));     // RY -32768: all the way down
+    const uint8_t xinGuide[20] = {0x00, 0x14, 0x20, 0x04};  // Back + Guide
+    CHECK(input::parseXInputReport(xinGuide, sizeof xinGuide, s));
+    CHECK(s.btnTouchpad && s.btnNexus && !s.btnA && !s.btnOptions);
+    // Not input: the LED and rumble status reports.
+    const uint8_t xinLed[3] = {0x01, 0x03, 0x02}, xinRumble[3] = {0x03, 0x03, 0x00};
+    CHECK(!input::parseXInputReport(xinLed, sizeof xinLed, s));
+    CHECK(!input::parseXInputReport(xinRumble, sizeof xinRumble, s));
 
-    // Centered sticks, neutral hat, no buttons
-    uint8_t neutralReport[16] = {
-        128, 128, 128, 128,  // Left X, Y, Right X, Y (center)
-        0, 0,                // L2, R2 trigger
-        0x08,                // Hat neutral (0x08 > 7, no bitmask)
-        0x00,                // Action buttons
-        0x00,                // System buttons
-        0, 0, 0, 0, 0, 0, 0  // Reserved / telemetry
+    // GIP (Xbox One / Series): B + Y + View + Right + RB + RS, LT 1023,
+    // RT 0, right stick left.
+    const uint8_t gip[18] = {0x20, 0x00, 0x05, 0x0e, 0xa8, 0xa8, 0xff, 0x03, 0x00, 0x00,
+                             0, 0, 0, 0, 0x00, 0x80, 0, 0};
+    s = {};
+    CHECK(input::parseGipReport(gip, sizeof gip, s));
+    CHECK(s.btnB && s.btnY && s.btnTouchpad && s.dpadRight && s.btnR1 && s.btnR3);
+    CHECK(!s.btnA && !s.btnX && !s.btnOptions && !s.dpadLeft && !s.btnL1 && !s.btnL3 && !s.btnNexus);
+    CHECK(near(s.triggerL2, 1.0f) && near(s.triggerR2, 0.0f));
+    CHECK(near(s.rawRightX, -1.0f) && near(s.rawLeftX, 0.0f));
+    // The Xbox button comes by itself and keeps the other buttons.
+    const uint8_t guideDown[6] = {0x07, 0x30, 0x01, 0x02, 0x01, 0x5b}, guideUp[6] = {0x07, 0x30, 0x02, 0x02, 0x00, 0x5b};
+    CHECK(input::parseGipReport(guideDown, sizeof guideDown, s));
+    CHECK(s.btnNexus && s.btnB && s.btnY);
+    CHECK(input::parseGipReport(guideUp, sizeof guideUp, s));
+    CHECK(!s.btnNexus && s.btnB);
+    // Its announce and keep-alive messages are not input.
+    const uint8_t announce[8] = {0x02, 0x20, 0x01, 0x1c, 0x7e, 0xed, 0x8b, 0x11}, keepAlive[6] = {0x03, 0x20, 0x01, 0x04, 0x80, 0x00};
+    CHECK(!input::parseGipReport(announce, sizeof announce, s));
+    CHECK(!input::parseGipReport(keepAlive, sizeof keepAlive, s));
+    CHECK(input::parseUsbPadReport(input::UsbPadProtocol::Gip, gip, sizeof gip, s));
+    CHECK(!input::parseUsbPadReport(input::UsbPadProtocol::None, gip, sizeof gip, s));
+
+    // GIP acknowledgements: the Xbox button's message asks for one.
+    auto acks = input::gipAcksFor(guideDown, sizeof guideDown);
+    CHECK(acks.size() == 1);
+    const std::array<uint8_t, 13> ack = {0x01, 0x20, 0x01, 0x09, 0x00, 0x07, 0x20, 0x02, 0, 0, 0, 0, 0};
+    CHECK(!acks.empty() && acks[0] == ack);
+    CHECK(input::gipAcksFor(gip, sizeof gip).empty());  // input is not acknowledged
+}
+
+static void testUsbPadDescriptors() {
+    // An Xbox Series pad's configuration (045e:0b12): GIP interface 0
+    // (OUT 0x02, IN 0x82), then the audio interface with its alternates.
+    const uint8_t series[] = {
+        0x09, 0x02, 0x77, 0x00, 0x03, 0x01, 0x00, 0xa0, 0xfa,  // configuration
+        0x09, 0x04, 0x00, 0x00, 0x02, 0xff, 0x47, 0xd0, 0x00,  // interface 0: GIP
+        0x07, 0x05, 0x02, 0x03, 0x40, 0x00, 0x04,              // OUT 0x02 interrupt
+        0x07, 0x05, 0x82, 0x03, 0x40, 0x00, 0x04,              // IN 0x82 interrupt
+        0x09, 0x04, 0x01, 0x00, 0x00, 0xff, 0x47, 0xd0, 0x00,  // interface 1, no endpoints
+        0x09, 0x04, 0x01, 0x01, 0x02, 0xff, 0x47, 0xd0, 0x00,  // its alternate 1: isochronous
+        0x07, 0x05, 0x03, 0x01, 0xe4, 0x00, 0x01,
+        0x07, 0x05, 0x83, 0x01, 0x40, 0x00, 0x01,
     };
-    CHECK(input::parse8BitDoDInputReport(neutralReport, sizeof(neutralReport), state));
-    CHECK(state.connected == true);
-    CHECK(std::abs(state.leftStickX) < 0.001f);
-    CHECK(std::abs(state.leftStickY) < 0.001f);
-    CHECK(std::abs(state.rightStickX) < 0.001f);
-    CHECK(std::abs(state.rightStickY) < 0.001f);
-    CHECK(state.triggerL2 == 0.0f);
-    CHECK(state.triggerR2 == 0.0f);
-    CHECK(!state.btnA && !state.btnB && !state.btnX && !state.btnY);
-    CHECK(!state.dpadUp && !state.dpadDown && !state.dpadLeft && !state.dpadRight);
+    input::UsbPadInterface i = input::findUsbPadInterface(series, sizeof series);
+    CHECK(i.protocol == input::UsbPadProtocol::Gip && i.number == 0 && i.epIn == 0x82 && i.epOut == 0x02);
 
-    // Deflected sticks & triggers
-    uint8_t motionReport[16] = {
-        255, 0, 0, 255,      // Left stick right/up, Right stick left/down
-        255, 128,            // L2 fully pressed, R2 half
-        0x08,
-        0x00,
-        0x00,
-        0, 0, 0, 0, 0, 0, 0
+    // An XInput pad (8BitDo Ultimate, 2dc8:3106): interface 0 FF/5D/01
+    // (IN 0x81, OUT 0x01) after a vendor interface the code must skip.
+    const uint8_t xinput[] = {
+        0x09, 0x02, 0x40, 0x00, 0x02, 0x01, 0x00, 0xa0, 0xfa,
+        0x09, 0x04, 0x00, 0x00, 0x00, 0xff, 0xfd, 0x13, 0x00,  // security interface: not a pad
+        0x09, 0x04, 0x01, 0x00, 0x02, 0xff, 0x5d, 0x01, 0x00,  // interface 1: XInput
+        0x11, 0x21, 0x10, 0x01, 0x01, 0x25, 0x81, 0x14, 0x03, 0x03, 0x03, 0x04, 0x13, 0x02, 0x08, 0x03, 0x03,
+        0x07, 0x05, 0x81, 0x03, 0x20, 0x00, 0x01,
+        0x07, 0x05, 0x01, 0x03, 0x20, 0x00, 0x08,
     };
-    CHECK(input::parse8BitDoDInputReport(motionReport, sizeof(motionReport), state));
-    CHECK(state.leftStickX > 0.95f);
-    CHECK(state.leftStickY < -0.95f);
-    CHECK(state.rightStickX < -0.95f);
-    CHECK(state.rightStickY > 0.95f);
-    CHECK(state.triggerL2 == 1.0f);
-    CHECK(std::abs(state.triggerR2 - (128.0f / 255.0f)) < 0.02f);
+    i = input::findUsbPadInterface(xinput, sizeof xinput);
+    CHECK(i.protocol == input::UsbPadProtocol::XInput && i.number == 1 && i.epIn == 0x81 && i.epOut == 0x01);
 
-    // Action buttons (data[7])
-    uint8_t btnReport[16] = {
-        128, 128, 128, 128,
-        0, 0,
-        0x08,
-        0x01 | 0x02 | 0x04 | 0x08 | 0x10 | 0x20, // A, B, X, Y, L1, R1
-        0x00,
-        0, 0, 0, 0, 0, 0, 0
+    // A keyboard (HID, class 3): no pad. A truncated descriptor: none either.
+    const uint8_t keyboard[] = {
+        0x09, 0x02, 0x22, 0x00, 0x01, 0x01, 0x00, 0xa0, 0x32,
+        0x09, 0x04, 0x00, 0x00, 0x01, 0x03, 0x01, 0x01, 0x00,
+        0x07, 0x05, 0x81, 0x03, 0x08, 0x00, 0x0a,
     };
-    CHECK(input::parse8BitDoDInputReport(btnReport, sizeof(btnReport), state));
-    CHECK(state.btnA && state.btnB && state.btnX && state.btnY && state.btnL1 && state.btnR1);
+    CHECK(input::findUsbPadInterface(keyboard, sizeof keyboard).protocol == input::UsbPadProtocol::None);
+    CHECK(input::findUsbPadInterface(series, 20).protocol == input::UsbPadProtocol::None);
+    CHECK(input::findUsbPadInterface(nullptr, 0).protocol == input::UsbPadProtocol::None);
+    CHECK(input::usbPadProtocolFor(0x03, 0x00, 0x00) == input::UsbPadProtocol::None);
+}
 
-    // D-Pad Hat Switch (0 = Up, 2 = Right, 4 = Down, 6 = Left)
-    uint8_t dpadReports[4][16] = {
-        {128, 128, 128, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // Up
-        {128, 128, 128, 128, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // Right
-        {128, 128, 128, 128, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // Down
-        {128, 128, 128, 128, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0}  // Left
-    };
-    CHECK(input::parse8BitDoDInputReport(dpadReports[0], 16, state) && state.dpadUp && !state.dpadDown);
-    CHECK(input::parse8BitDoDInputReport(dpadReports[1], 16, state) && state.dpadRight && !state.dpadLeft);
-    CHECK(input::parse8BitDoDInputReport(dpadReports[2], 16, state) && state.dpadDown && !state.dpadUp);
-    CHECK(input::parse8BitDoDInputReport(dpadReports[3], 16, state) && state.dpadLeft && !state.dpadRight);
+static void testUsbPadSlots() {
+    using input::UsbPadEvent;
+    input::ControllerState out;
+    input::takeUsbPadEvents();
+    CHECK(!input::pollUsbPad(out) && !out.connected && input::usbPadCount() == 0);
+    // Each pad a player of its own, in the order they came (no DualSense here).
+    input::usbPadAttached(1, "Xbox Wireless Controller");
+    input::usbPadAttached(0, "8BitDo Ultimate");
+    CHECK(input::usbPadCount() == 2 && input::usbPadPlayer(1) == -1);
+    CHECK(!input::pollUsbPad(out));  // no input from either yet; the players given
+    CHECK(input::usbPadPlayer(1) == 0 && input::usbPadPlayer(0) == 1);
+    auto events = input::takeUsbPadEvents();
+    CHECK(events.size() == 2 && events[0].kind == UsbPadEvent::Kind::Connected && events[0].player == 0 &&
+          events[0].name == "Xbox Wireless Controller" && events[1].player == 1);
+    CHECK(input::usbPadNameFor(0) == "Xbox Wireless Controller" && input::usbPadNameFor(1) == "8BitDo Ultimate");
+    CHECK(input::usbPadNameFor(2).empty() && input::usbPadActiveAt(0) == 0);
 
-    // System buttons (data[8])
-    uint8_t sysReport[16] = {
-        128, 128, 128, 128,
-        0, 0,
-        0x08,
-        0x00,
-        0x01 | 0x02 | 0x04 | 0x08 | 0x10, // Touchpad/Select, Options/Start, Nexus/Home, L3, R3
-        0, 0, 0, 0, 0, 0, 0
-    };
-    CHECK(input::parse8BitDoDInputReport(sysReport, sizeof(sysReport), state));
-    CHECK(state.btnTouchpad && state.btnOptions && state.btnNexus && state.btnL3 && state.btnR3);
+    input::ControllerState xbox, bitdo;
+    xbox.btnA = true;
+    xbox.rawLeftX = 0.05f;  // the left stick inside the dead zone, the right one pushed
+    xbox.rawRightY = 0.9f;
+    bitdo.dpadRight = true;
+    bitdo.triggerR2 = 0.7f;
+    input::usbPadState(1, xbox);
+    input::usbPadState(0, bitdo);
+    CHECK(input::usbPadActiveAt(0) > 0 && input::usbPadActiveAt(1) > 0);
+    // The menus: both. The game: each its own player.
+    CHECK(input::pollUsbPad(out) && out.btnA && out.dpadRight && std::abs(out.triggerR2 - 0.7f) < 0.01f);
+    CHECK(input::pollUsbPadsFor(0, out) && out.btnA && !out.dpadRight);
+    CHECK(out.leftStickX == 0.0f && out.rawLeftX > 0.04f && out.rightStickY > 0.8f);
+    CHECK(input::pollUsbPadsFor(1, out) && out.dpadRight && !out.btnA);
+    CHECK(!input::pollUsbPadsFor(2, out) && !input::pollUsbPadsFor(-1, out) && !input::pollUsbPadsFor(9, out));
+    // Circle confirms: the Xbox B button becomes A as the DualSense's Circle does.
+    input::setCircleConfirms(true);
+    CHECK(input::pollUsbPadsFor(0, out) && !out.btnA && out.btnB);
+    input::setCircleConfirms(false);
 
-    // Test injection & polling API
-    input::padUsbInit();
-    input::padUsbInjectReportForTesting(sysReport, sizeof(sysReport));
-    input::ControllerState polled{};
-    CHECK(input::pollUsbPad(polled));
-    CHECK(polled.btnNexus == true);
-    CHECK(polled.btnL3 == true);
+    // Xbox / Home + RB: the 8BitDo to player 3; LB / RB and the Xbox
+    // button do not reach the game meanwhile.
+    bitdo = {};
+    bitdo.btnNexus = true;
+    input::usbPadState(0, bitdo);
+    CHECK(input::pollUsbPadsFor(1, out) && !out.btnNexus);
+    bitdo.btnR1 = true;
+    input::usbPadState(0, bitdo);
+    CHECK(input::usbPadPlayer(0) == 2 && !input::pollUsbPadsFor(1, out));
+    CHECK(input::pollUsbPadsFor(2, out) && !out.btnR1 && !out.btnNexus);
+    bitdo.btnR1 = false;
+    input::usbPadState(0, bitdo);
+    bitdo.btnR1 = true;  // again: player 4
+    input::usbPadState(0, bitdo);
+    CHECK(input::usbPadPlayer(0) == 3);
+    bitdo = {};
+    input::usbPadState(0, bitdo);  // let go after a move: no menu
+    bitdo.btnNexus = true, bitdo.btnL1 = true;  // Xbox + LB: back to player 3
+    input::usbPadState(0, bitdo);
+    CHECK(input::usbPadPlayer(0) == 2);
+    bitdo = {};
+    input::usbPadState(0, bitdo);
+    events = input::takeUsbPadEvents();
+    CHECK(events.size() == 3 && events[0].kind == UsbPadEvent::Kind::Moved && events[0].player == 2 &&
+          events[0].slot == 0 && events[1].player == 3 && events[2].player == 2);
+    // From player 1, LB goes round to player 4, and RB back.
+    xbox = {};
+    xbox.btnNexus = true;
+    input::usbPadState(1, xbox);
+    xbox.btnL1 = true;
+    input::usbPadState(1, xbox);
+    CHECK(input::usbPadPlayer(1) == 3);
+    xbox.btnL1 = false;
+    input::usbPadState(1, xbox);
+    xbox.btnR1 = true;
+    input::usbPadState(1, xbox);
+    CHECK(input::usbPadPlayer(1) == 0);
+    xbox = {};
+    input::usbPadState(1, xbox);
+    input::takeUsbPadEvents();
+    // The Xbox button alone: the in-game menu, for that pad, once let go.
+    xbox.btnNexus = true;
+    input::usbPadState(1, xbox);
+    CHECK(input::takeUsbPadEvents().empty());
+    xbox.btnNexus = false;
+    input::usbPadState(1, xbox);
+    events = input::takeUsbPadEvents();
+    CHECK(events.size() == 1 && events[0].kind == UsbPadEvent::Kind::MenuButton && events[0].slot == 1 &&
+          events[0].player == 0);
+    // Menu (Start) goes straight through, with View too.
+    xbox.btnOptions = true;
+    input::usbPadState(1, xbox);
+    CHECK(input::pollUsbPadsFor(0, out) && out.btnOptions);
+    xbox = {};
+    input::usbPadState(1, xbox);
 
-    input::padUsbInjectReportForTesting(nullptr, 0);
-    input::padUsbShutdown();
+    // The menu's owner: out of its player's input, read by itself.
+    xbox.btnA = true;
+    input::usbPadState(1, xbox);
+    CHECK(!input::pollUsbPadsFor(0, out, 1));
+    CHECK(input::pollUsbPadSlot(1, out) && out.btnA && !input::pollUsbPadSlot(3, out) && !input::pollUsbPadSlot(-1, out));
+    // The menu closed with A held: out of the game until let go (the menus still see it).
+    input::usbPadsWaitRelease();
+    CHECK(!input::pollUsbPadsFor(0, out) && input::pollUsbPad(out) && out.btnA);
+    xbox.btnA = false;
+    input::usbPadState(1, xbox);
+    CHECK(input::pollUsbPadsFor(0, out) && !out.btnA);
+    // The menu's Player item.
+    input::setUsbPadPlayer(1, 2);
+    CHECK(input::usbPadPlayer(1) == 2 && input::usbPadName(1) == "Xbox Wireless Controller");
+    input::setUsbPadPlayer(1, 7);  // out of range: kept
+    CHECK(input::usbPadPlayer(1) == 2);
+    input::setUsbPadPlayer(1, 0);
+    events = input::takeUsbPadEvents();
+    CHECK(events.size() == 2 && events[0].kind == UsbPadEvent::Kind::Moved && events[0].player == 2 &&
+          events[1].player == 0);
+
+    // A pad that reports only on change keeps its state.
+    bitdo.btnY = true;
+    input::usbPadState(0, bitdo);
+    CHECK(input::pollUsbPadsFor(2, out) && out.btnY);
+    CHECK(input::pollUsbPadsFor(2, out) && out.btnY);
+    input::usbPadDetached(1);
+    events = input::takeUsbPadEvents();
+    CHECK(events.size() == 1 && events[0].kind == UsbPadEvent::Kind::Disconnected && events[0].player == 0);
+    // Gone: its player is free for the next one.
+    input::usbPadAttached(1, "Xbox Wireless Controller");
+    CHECK(!input::pollUsbPadsFor(0, out) && input::usbPadPlayer(1) == 0);
+    input::usbPadDetached(0);
+    input::usbPadDetached(1);
+    input::takeUsbPadEvents();
+    CHECK(!input::pollUsbPad(out) && input::usbPadCount() == 0);
+    input::usbPadState(2, bitdo);  // a slot that was never attached
+    CHECK(!input::pollUsbPad(out) && input::usbPadPlayer(2) == -1);
+    input::usbPadState(9, bitdo);  // out of range: ignored
 }
 
 static void testDesktopMouseNav() {
@@ -4345,143 +4623,6 @@ static void testWebSocketRFC6455() {
     CHECK(std::abs(csW3c.rightStickY - 0.8f) < 0.01f);
 }
 
-static void testExpandedUsbControllers() {
-    // 1. Xbox 360 controller report decoding (14 bytes)
-    uint8_t x360[14] = {
-        0x00, 0x14,
-        0x11, // A (0x10) | DPAD_UP (0x01)
-        0x12, // Start (0x10) | RB (0x02)
-        128,  // LT (50%)
-        255,  // RT (100%)
-        0x00, 0x40, // LX = +16384 (~0.5)
-        0x00, 0xC0, // LY = -16384 (-0.5 raw -> +0.5 normalised)
-        0x00, 0x00, 0x00, 0x00
-    };
-    input::ControllerState cs360{};
-    CHECK(input::parseXbox360Report(x360, sizeof(x360), cs360));
-    CHECK(cs360.btnA == true);
-    CHECK(cs360.dpadUp == true);
-    CHECK(cs360.btnOptions == true);
-    CHECK(cs360.btnR1 == true);
-    CHECK(std::abs(cs360.triggerL2 - 0.5019f) < 0.01f);
-    CHECK(std::abs(cs360.triggerR2 - 1.0f) < 0.01f);
-    CHECK(std::abs(cs360.leftStickX - 0.5f) < 0.02f);
-    CHECK(std::abs(cs360.leftStickY - 0.5f) < 0.02f);
-
-    // 2. Xbox One / Series controller report decoding (18 bytes min, 0x20 header)
-    uint8_t xone[18] = {
-        0x20, 0x00, 0x01, 0x0c,
-        0x50, // A (0x10) | X (0x40)
-        0x01, // D-pad Up
-        0x00, 0x02, // LT = 512 (~0.5)
-        0xFF, 0x03, // RT = 1023 (1.0)
-        0x00, 0x40, // LX = +16384 (0.5)
-        0x00, 0x80, // LY = -32768 (1.0)
-        0x00, 0x00, 0x00, 0x00
-    };
-    input::ControllerState csOne{};
-    CHECK(input::parseXboxOneReport(xone, sizeof(xone), csOne));
-    CHECK(csOne.btnA == true);
-    CHECK(csOne.btnX == true);
-    CHECK(csOne.btnB == false);
-    CHECK(csOne.dpadUp == true);
-    CHECK(std::abs(csOne.triggerL2 - 0.5f) < 0.02f);
-    CHECK(std::abs(csOne.triggerR2 - 1.0f) < 0.01f);
-    CHECK(std::abs(csOne.leftStickX - 0.5f) < 0.02f);
-    CHECK(std::abs(csOne.leftStickY - 1.0f) < 0.02f);
-
-    // 3. DualShock 4 controller report decoding (10 bytes min)
-    uint8_t ds4[10] = {
-        0x01,
-        255, // LX full right (+1.0)
-        0,   // LY full up (-1.0 -> inverted is -1.0)
-        128, 128,
-        0x20 | 0x02, // Cross (Xbox A) | D-pad East (Right)
-        0x02 | 0x20, // R1 (RB) | Options (Menu)
-        0x00,
-        0, 255       // RT = 1.0
-    };
-    input::ControllerState csDs4{};
-    CHECK(input::parseDualShock4Report(ds4, sizeof(ds4), csDs4));
-    CHECK(csDs4.btnA == true);
-    CHECK(csDs4.dpadRight == true);
-    CHECK(csDs4.btnR1 == true);
-    CHECK(csDs4.btnOptions == true);
-    CHECK(std::abs(csDs4.triggerR2 - 1.0f) < 0.01f);
-    CHECK(std::abs(csDs4.leftStickX - 1.0f) < 0.02f);
-
-    // 4. Generic Arcade Stick (6 bytes min)
-    uint8_t arcade[6] = {
-        0,   // Left
-        128, // Center Y
-        128, 128,
-        0x01 | 0x04, // Button 1 (A) | Button 3 (X)
-        0x01         // Button 9 (Select/View)
-    };
-    input::ControllerState csArcade{};
-    CHECK(input::parseGenericArcadeReport(arcade, sizeof(arcade), csArcade));
-    CHECK(csArcade.btnA == true);
-    CHECK(csArcade.btnX == true);
-    CHECK(csArcade.btnTouchpad == true);
-    CHECK(csArcade.dpadLeft == true);
-
-    // 5. parseUsbPadReport auto-detection
-    input::ControllerState csAuto{};
-    CHECK(input::parseUsbPadReport(x360, sizeof(x360), csAuto));
-    CHECK(csAuto.btnA == true);
-    CHECK(csAuto.btnR1 == true);
-
-    CHECK(input::parseUsbPadReport(xone, sizeof(xone), csAuto));
-    CHECK(csAuto.btnA == true);
-    CHECK(csAuto.btnX == true);
-
-    CHECK(input::parseUsbPadReport(ds4, sizeof(ds4), csAuto));
-    // 6. Wireless receiver on non-zero slot (slot 1)
-    uint8_t x360WirelessSlot1[18] = {
-        0x00, 0x01, 0x00, 0x14,
-        0x01,       // b1: D-pad Up (0x01)
-        0x12,       // b2: A (0x10) | RB (0x02)
-        0, 255,     // LT=0, RT=255
-        0x00, 0x40, // LX = +16384 (0.5)
-        0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-    };
-    input::ControllerState csWireless{};
-    CHECK(input::parseXbox360Report(x360WirelessSlot1, sizeof(x360WirelessSlot1), csWireless));
-    CHECK(csWireless.dpadUp == true);
-    CHECK(csWireless.btnA == true);
-    CHECK(csWireless.btnR1 == true);
-    CHECK(std::abs(csWireless.triggerR2 - 1.0f) < 0.01f);
-    CHECK(input::parseUsbPadReport(x360WirelessSlot1, sizeof(x360WirelessSlot1), csWireless));
-    CHECK(csWireless.dpadUp == true);
-    CHECK(csWireless.btnA == true);
-
-    // 7. Multi-slot simultaneous UHID injection & merging (Xbox 360 on slot 0 + DS4 on slot 1)
-    input::padUsbInit();
-    input::padUsbInjectSlotReportForTesting(0, x360, sizeof(x360));
-    input::padUsbInjectSlotReportForTesting(1, ds4, sizeof(ds4));
-
-    input::ControllerState mergedSlots{};
-    CHECK(input::pollUsbPad(mergedSlots));
-    CHECK(mergedSlots.connected);
-    CHECK(mergedSlots.btnA == true);        // From slot 0 (x360) and slot 1 (ds4)
-    CHECK(mergedSlots.btnR1 == true);       // From slot 0 & slot 1
-    CHECK(mergedSlots.dpadUp == true);      // From slot 0
-    CHECK(mergedSlots.dpadRight == true);   // From slot 1
-    CHECK(std::abs(mergedSlots.leftStickX - 1.0f) < 0.02f); // Further(0.5, 1.0) -> 1.0
-    CHECK(std::abs(mergedSlots.triggerR2 - 1.0f) < 0.01f);
-
-    // Unplug slot 0 -> slot 1 remains active
-    input::padUsbInjectSlotReportForTesting(0, nullptr, 0);
-    input::ControllerState slot1Only{};
-    CHECK(input::pollUsbPad(slot1Only));
-    CHECK(slot1Only.connected);
-    CHECK(slot1Only.dpadUp == false);       // Slot 0 gone
-    CHECK(slot1Only.dpadRight == true);     // Slot 1 still present
-    CHECK(slot1Only.btnR1 == true);
-
-    input::padUsbShutdown();
-}
 
 static void testAudioToHaptics() {
     media::AudioToHaptics filter;
@@ -6997,6 +7138,7 @@ int main() {
     testVisibleSettingsRows();
     testMissingFont();
     testNullBackendsM1();
+    testAudioQueueLatency();
     testAudioQueue();
     testMicPipeline();
     testDs5TriggerEffects();
@@ -7018,6 +7160,7 @@ int main() {
     testSubscriptionPlan();
     testMicrosoftHost();
     testAudioEncoder();
+    testH264LossWaitFollowsRtt();
     testH264Resync();
     testH264PaddingPacket();
     testAudioDecoderEmptyPacket();
@@ -7035,6 +7178,7 @@ int main() {
     testMicGain();
     testPerGameSettings();
     testPlaytimeLimit();
+    testCloudTimeClock();
     testStrings();
     testRegions();
     testPrices();
@@ -7055,10 +7199,11 @@ int main() {
     testWebStreamingAndGamepad();
     testWebSettingsAndStreamMenu();
     testVoiceRouting();
-    testUsbPad8BitDo();
+    testUsbPadReports();
+    testUsbPadDescriptors();
+    testUsbPadSlots();
     testDesktopMouseNav();
     testWebSocketRFC6455();
-    testExpandedUsbControllers();
     testAudioToHaptics();
     testLibraryOfflineCache();
     testTouchpadShortcutsAndSlots();

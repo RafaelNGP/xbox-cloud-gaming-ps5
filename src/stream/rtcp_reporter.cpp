@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 #include "stream/rtcp_reporter.h"
+#include "util/log.h"
 
 #include <algorithm>
 #include <chrono>
@@ -87,6 +88,19 @@ void RtcpReporter::onRtcp(const uint8_t* d, size_t n, uint64_t now) {
         if (pt == 200 && len >= 28) {
             lastSr_ = (get32(d + off + 8) << 16) | (get32(d + off + 12) >> 16);
             lastSrArrivalUs_ = now;
+        }
+        // The server's report on what we send it (the microphone), every
+        // 10 s in the log (issue #187): its loss and jitter as it sees them.
+        if ((pt == 200 || pt == 201) && clockRate_ == 48000 && now - lastSendReportLogUs_ >= 10000000) {
+            const size_t blocks = d[off] & 0x1F, first = pt == 200 ? 28 : 8;
+            for (size_t b = 0; b < blocks && first + (b + 1) * 24 <= len; ++b) {
+                const uint8_t* r = d + off + first + b * 24;
+                if (get32(r) != kMicSsrc) continue;
+                const uint32_t cumulative = get32(r + 4) & 0xFFFFFF;
+                XC_LOGI("mic, as the server gets it: %.1f%% lost lately, %u in all, jitter %.1f ms",
+                        r[4] * 100.0 / 256.0, cumulative, get32(r + 12) / 48.0);
+                lastSendReportLogUs_ = now;
+            }
         }
         off += len;
     }

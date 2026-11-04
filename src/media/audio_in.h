@@ -15,7 +15,11 @@ class AudioIn {
 public:
     static constexpr int kSampleRate = 48000;
     static constexpr int kChannels = 1;
-    static constexpr size_t kFrameSize = 960;  // 20 ms @ 48 kHz
+    static constexpr size_t kFrameSize = 960;  // 20 ms @ 48 kHz (the default)
+    // The frames handed to the callback, in samples (before open()): 480 for
+    // 10 ms packets, a shorter wait before each one goes out.
+    void setFrameSize(size_t samples) { frameSize_ = samples; }
+    size_t frameSize() const { return frameSize_; }
 
     using AudioCallback = std::function<void(const int16_t* pcm, size_t frames)>;
 
@@ -44,6 +48,7 @@ private:
     std::atomic<bool> hardwareMuted_{false};
     std::atomic<float> gain_{1.0f};
     std::atomic<float> level_{0.0f};
+    std::atomic<size_t> frameSize_{kFrameSize};
     AudioCallback callback_;
 };
 

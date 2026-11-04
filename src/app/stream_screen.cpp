@@ -250,6 +250,8 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         // A new stream, or a new session after a reconnection: the
         // other controllers are announced again.
         for (bool& a : padAttached_) a = false;
+        for (bool& a : padUsbOnly_) a = false;
+        menuUsbOwner_ = pendingUsbMenu_ = -1;
         playerReconnects_ = g_player ? g_player->reconnects() : 0;
     }
     if (g_player != overlayPlayer_) {  // a new stream
@@ -301,12 +303,13 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         if (g_ui) g_ui->setCircleConfirms(prof.circleConfirms);
         // 120 Hz (VRR) for this game's stream: active when enabled in profile,
         // or defaulted on when the display supports switching refresh (menus stay at 60 Hz).
-        bool want120 = prof.highRefresh || (!hasCustom && display::canSwitchRefresh());
+        bool want120 = (prof.highRefresh || (!hasCustom && display::canSwitchRefresh())) && !g_autoplay.hz60;
         highRefresh_ = want120 && display::setHighRefresh(true);
 
         media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
         media::audioSetVoiceRouting(g_settings.voiceRouting);
         if (g_player) {
+            g_player->setHighRefreshOutput(highRefresh_);
             g_player->setMicGain(g_settings.micGainFactor());
         }
 
@@ -333,9 +336,20 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         }
         prevL3R3_ = l3r3;
 
-        // OPTIONS + TOUCHPAD opens the menu (and closes it again).
+        // OPTIONS + TOUCHPAD opens the menu (and closes it again); so does a
+        // USB controller's Xbox / Home button, for that controller.
+        const int usbMenu = pendingUsbMenu_;
+        pendingUsbMenu_ = -1;
+        if (menu_.isOpen() && menuUsbOwner_ >= 0 && input::usbPadPlayer(menuUsbOwner_) < 0) {
+            menu_.close();  // its controller went away
+            overlaySeq_ = 0;
+        }
         bool wasOpen = menu_.isOpen();
-        if (!wasOpen && (menuCombo || swipeMenu_) && g_keyboardFor.empty()) {
+        if (!wasOpen && (menuCombo || swipeMenu_ || usbMenu >= 0) && g_keyboardFor.empty()) {
+            menuUsbOwner_ = menuCombo || swipeMenu_ ? -1 : usbMenu;
+            menu_.setUsbOwner(menuUsbOwner_ >= 0 ? input::usbPadPlayer(menuUsbOwner_) : -1);
+            if (menuUsbOwner_ >= 0)
+                XC_LOGI("menu_: opened by usb pad %d (player %d)", menuUsbOwner_, menu_.usbOwnerPlayer() + 1);
             swipeMenu_ = false;
             menu_.setCircleConfirms(circleConfirms_);
             bool allow1440;
@@ -357,7 +371,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             menu_.open(streamResolution_, showStats_, sharpness_, deband_, upscaler_, g_playingHome, allow1440,
                        hasCustomProfile_, triggerStrength_, deadzone_, circleConfirms_, micLvl, micMuted, padVol);
             overlaySeq_ = 0;
-        } else if (wasOpen && (menuCombo || swipeMenu_)) {
+        } else if (wasOpen && (menuCombo || swipeMenu_ || (usbMenu >= 0 && usbMenu == menuUsbOwner_))) {
             // The same gesture or key closes it again.
             swipeMenu_ = false;
             menu_.close();
@@ -366,11 +380,18 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         } else if (wasOpen) {
             switch (menu_.handle(nav)) {
             case ui::MenuAction::Leave: g_cancel = true; break;
-            case ui::MenuAction::XboxButton:
-                // A short press, once the menu is gone: the Xbox guide opens.
-                g_xboxButtonUntil = platform::nowMs() + 250;
+            case ui::MenuAction::XboxButton: {
+                // A short press, once the menu is gone: the Xbox guide opens,
+                // for the player whose controller opened the menu.
+                const int player = menuUsbOwner_ >= 0 ? std::max(input::usbPadPlayer(menuUsbOwner_), 0) : 0;
+                if (player > 0) xboxUntil_[player] = platform::nowMs() + 250;
+                else g_xboxButtonUntil = platform::nowMs() + 250;
                 g_player->requestKeyframe();
-                XC_LOGI("menu_: Xbox button");
+                XC_LOGI("menu_: Xbox button (player %d)", player + 1);
+                break;
+            }
+            case ui::MenuAction::Player:
+                input::setUsbPadPlayer(menuUsbOwner_, menu_.usbOwnerPlayer());
                 break;
             case ui::MenuAction::PadSpeakerVolume: {
                 int vol = menu_.padSpeakerVolume();
@@ -570,6 +591,12 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             }
             overlaySeq_ = 0;
         }
+        // Closed: the USB controllers wait for their buttons to be let go
+        // (the one that closed it would press them in the game).
+        if (wasOpen && !menu_.isOpen()) {
+            input::usbPadsWaitRelease();
+            menuUsbOwner_ = -1;
+        }
         input::KbmInput touchKbm;
         bool touchDrag = false;
         if (mouseKeyboard_ && touchpadMouse_ && !menu_.isOpen() && g_keyboardFor.empty() && !menuCombo) {
@@ -602,6 +629,8 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         }
         input::ControllerState sent = input::applyPadMap(padIn, padMap_);
         if (g_syntheticA) sent.btnA = true;
+        if (float x = g_syntheticRightX; x != 0.0f) sent.rightStickX = x;
+        if (float y = g_syntheticLeftY; y != 0.0f) sent.leftStickY = y;
         // While another window has the focus on the cloud console (a
         // publisher's page such as NetEase's terms in Marvel Rivals,
         // which then shows its own pad-driven cursor), touch input is
@@ -615,7 +644,8 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         // and the buttons that closed them until they are let go.
         bool held = pad.dpadUp || pad.dpadDown || pad.dpadLeft || pad.dpadRight || pad.btnA || pad.btnB ||
                     pad.btnX || pad.btnY || pad.btnOptions || pad.btnTouchpad;
-        if (menu_.isOpen() || !g_keyboardFor.empty()) padReleased_ = false;
+        // A menu a USB controller opened is that controller's: player 1 plays on.
+        if ((menu_.isOpen() && menuUsbOwner_ < 0) || !g_keyboardFor.empty()) padReleased_ = false;
         else if (!held) padReleased_ = true;
         if (!padReleased_ || menuCombo) sent = input::ControllerState{};
         else if (!menu_.isOpen() && !touchDrag) {
@@ -665,14 +695,6 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
             if (virtualGamepadState(0, vpad0, vconn0) && vconn0) {
                 input::mergePads(sent, vpad0);
                 if (vpad0.btnNexus) {
-                    sent.btnNexus = true;
-                    g_xboxButtonUntil = platform::nowMs() + 250;
-                }
-            }
-            input::ControllerState usbPad;
-            if (input::pollUsbPad(usbPad)) {
-                input::mergePads(sent, usbPad);
-                if (usbPad.btnNexus) {
                     sent.btnNexus = true;
                     g_xboxButtonUntil = platform::nowMs() + 250;
                 }
@@ -730,6 +752,7 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         for (int i = 1; i < input::kMaxPads; ++i) {
             input::ControllerState other;
             bool on = input::pollPad(i, other);
+            const bool padOn = on;
             input::ControllerState vpad;
             bool vconn = false;
             if (virtualGamepadState(i, vpad, vconn) && vconn) {
@@ -740,9 +763,22 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     on = true;
                 }
             }
+            // USB pads playing as this player (pad_usb.h); theirs goes to the
+            // app's menu while it is open.
+            input::ControllerState usb;
+            const bool usbOn = input::pollUsbPadsFor(i, usb, menuUsbOwner());
+            if (usbOn && menu_.isOpen() && menuUsbOwner_ < 0) usb = input::ControllerState{};
+            if (usbOn) {
+                if (on) input::mergePads(other, usb);
+                else other = usb;
+                on = true;
+            }
+            // A USB pad alone: the app told of it as it came (app_core.cpp).
+            const bool usbOnly = usbOn && !padOn && !vconn;
             if (on) other = input::applyPadMap(other, padMap_);  // the same map as player 1's (the keys keep theirs)
             if (on && i == kbSlot) input::mergePads(other, kbPad_);  // the keyboard plays with this player's pad
             if (on != padAttached_[i]) {
+                const bool quiet = on ? usbOnly : padUsbOnly_[i];
                 padAttached_[i] = on;
                 g_player->setPadConnected(i, on);
                 std::string who = std::to_string(i + 1);
@@ -750,10 +786,13 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                 if (!name.empty()) who += " (" + name + ")";
                 else if (vconn && !input::padConnected(i)) who += " (Web Gamepad)";
                 // The PS5 user's name on the TV, not in the log.
-                platform::notify(ui::trf(on ? ui::Str::PadConnected : ui::Str::PadDisconnected, who),
-                                 std::string("controller ") + std::to_string(i + 1) +
-                                     (on ? " connected" : " disconnected"));
+                if (!quiet)
+                    platform::notify(ui::trf(on ? ui::Str::PadConnected : ui::Str::PadDisconnected, who),
+                                     std::string("controller ") + std::to_string(i + 1) +
+                                         (on ? " connected" : " disconnected"));
             }
+            padUsbOnly_[i] = on && usbOnly;
+            if (on && platform::nowMs() < xboxUntil_[i]) other.btnNexus = true;
             if (on) g_player->sendInput(other, i);
         }
         // The window holds the mouse while the keyboard and mouse go to the
@@ -851,6 +890,8 @@ void StreamScreen::idle() {
     if (wasStreaming_) {
         wasStreaming_ = false;
         for (bool& a : padAttached_) a = false;
+        for (bool& a : padUsbOnly_) a = false;
+        menuUsbOwner_ = pendingUsbMenu_ = -1;
         overlayPlayer_ = nullptr;
         std::lock_guard<std::mutex> lock(g_settingsMutex);
         input::setDeadzone(g_settings.deadzoneLeft / 100.0f, g_settings.deadzoneRight / 100.0f);

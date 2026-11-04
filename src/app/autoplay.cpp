@@ -27,6 +27,7 @@ namespace xc::app {
 
 Autoplay g_autoplay;
 std::atomic<bool> g_syntheticA{false};
+std::atomic<float> g_syntheticRightX{0.0f}, g_syntheticLeftY{0.0f};
 
 namespace {
 // The home screen was saved: the tests that start from it may go.
@@ -35,6 +36,7 @@ bool settingsShot = false;  // "settingstest": save the screen now
 bool bitrateShot = false;   // "bitratetest": save the screen now
 bool donationShot = false;  // "donationtest": save the screen now
 bool reportShot = false;    // "reporttest": save report.ppm now
+const char* cloudTimeShot = nullptr;  // "cloudtimetest": save this capture now
 bool signInCheckShot = false; // "checksignintest": save the screen now
 bool freeUiShot = false, freeDetailsShot = false; // "freetest": save free account screenshots
 const char* keysShot = nullptr;  // "keystest": the screen to save now
@@ -102,6 +104,14 @@ void loadAutoplay() {
         if (opt == "dump") g_autoplay.dump = true;
         if (opt == "repeat") g_autoplay.runs = 2;
         if (opt == "idle") g_autoplay.idle = true;
+        if (opt == "hz60") g_autoplay.hz60 = true;
+        if (opt == "fnplay") g_autoplay.fnPlay = true;
+        if (opt == "legacy") g_autoplay.legacy = true;
+        if (opt == "imgtest") g_autoplay.imgTest = true;
+        if (opt == "cloudtimetest") g_autoplay.cloudTimeTest = true;
+        if (opt.rfind("cloudleft=", 0) == 0) g_autoplay.cloudLeft = std::atoll(opt.c_str() + 10);
+        // Threads pinned by role (platform.h), to measure it again.
+        if (opt == "pin") platform::setNoThreadPinning(false);
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
         if (opt == "triggertest") input::setTriggerRumble(255, 128, 3000);
         if (opt == "queuetest" || opt == "padspktest") g_autoplay.padSpkTest = true;
@@ -997,6 +1007,73 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         }
     }
 
+    if (g_autoplay.cloudTimeTest && uiSaved) {
+        // The account's cloud time as a limited account shows it: the badge
+        // under the brand, then low (orange), then the error when it ran out.
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) since = now;
+        if (step == 0 && now - since > 500) {
+            g_ui->setPlaytime(15000, 54000);  // 4 h 10 min of 15 h
+            ++step;
+        } else if (step == 1 && now - since > 2500) {
+            cloudTimeShot = "cloudtime_home.ppm";
+            g_ui->setPlaytime(5400, 54000);  // 1 h 30 min: under 2 h
+            ++step;
+        } else if (step == 2 && now - since > 4500) {
+            cloudTimeShot = "cloudtime_low.ppm";
+            g_ui->setPlaytime(0, 54000);  // none left
+            ++step;
+        } else if (step == 3 && now - since > 6500) {
+            cloudTimeShot = "cloudtime_zero.ppm";
+            g_ui->setPlaytime(-1, -1, true);  // an unlimited account
+            ++step;
+        } else if (step == 4 && now - since > 8500) {
+            cloudTimeShot = "cloudtime_unlimited.ppm";
+            // The game menu with the time left, then under 15 minutes.
+            auto saveMenu = [](const char* name, const ui::Canvas& c) {
+                std::string ppm = "P6\n" + std::to_string(c.width()) + " " + std::to_string(c.height()) + "\n255\n";
+                ppm.reserve(ppm.size() + static_cast<size_t>(c.width() * c.height() * 3));
+                for (size_t i = 0; i < static_cast<size_t>(c.width() * c.height()); ++i) {
+                    uint32_t p = c.data()[i];
+                    ppm += static_cast<char>(p & 0xFF);
+                    ppm += static_cast<char>((p >> 8) & 0xFF);
+                    ppm += static_cast<char>((p >> 16) & 0xFF);
+                }
+                platform::writeFileAtomic(platform::dataDir() + "/" + name, ppm);
+                XC_LOGI("AUTOPLAY: %s saved", name);
+            };
+            ui::StreamInfo info;
+            info.region = "Brazil South";
+            info.rttMs = 12;
+            info.fps = 60.0;
+            info.mbps = 20.0;
+            info.width = 1920;
+            info.height = 1080;
+            ui::PadSlots pads{};
+            pads[0].connected = true;
+            pads[0].name = "DualSense Controller";
+            ui::StreamMenu menu(g_ui->fonts());
+            menu.open(0, false, 1, 1, 0, false, true, false, 2, 15, false, 0.5f, false, 100);
+            menu.setPads(pads);
+            info.cloudTimeSeconds = 47 * 60 + 20;
+            saveMenu("cloudtime_menu.ppm", menu.renderMenu(info));
+            info.cloudTimeSeconds = 4 * 60 + 50;
+            saveMenu("cloudtime_menu_low.ppm", menu.renderMenu(info));
+            ui::GameTile tile;
+            g_ui->firstTile(tile);
+            g_ui->showPlayError(ui::tr(ui::Str::CloudTimeUp), tile, "https://www.xbox.com/play");
+            ++step;
+        } else if (step == 5 && now - since > 11000) {
+            cloudTimeShot = "cloudtime_error.ppm";
+            g_ui->setPlaytime(-1, -1);
+            g_ui->showHome();
+            g_autoplay.cloudTimeTest = false;
+            XC_LOGI("AUTOPLAY END: cloud time test");
+            ++step;
+        }
+    }
+
     if (g_autoplay.reportTest && uiSaved) {
         static uint64_t since = 0;
         static int step = 0;
@@ -1203,6 +1280,11 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         donationShot = false;
         saveCanvas("donation.ppm");
         XC_LOGI("AUTOPLAY END: donation screenshot saved");
+    }
+    if (cloudTimeShot) {
+        saveCanvas(cloudTimeShot);
+        XC_LOGI("AUTOPLAY: %s saved", cloudTimeShot);
+        cloudTimeShot = nullptr;
     }
     if (reportShot) {
         reportShot = false;
@@ -1703,6 +1785,38 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
                 ppm += static_cast<char>((p >> 16) & 0xFF);
             }
             platform::writeFileAtomic(platform::dataDir() + "/stream_menu_muted.ppm", ppm);
+            ++step;
+        } else if (step == 2 && now - since > 6000) {
+            // Opened by a USB controller playing as player 2: its Player row
+            // (selected), the pad's name under its slot.
+            ui::StreamMenu menu(g_ui->fonts());
+            menu.setUsbOwner(1);
+            menu.open(0, false, 1, 1, 0, false, true, false, 2, 15, false, 0.3f, false);
+            ui::NavInput down;
+            down.down = true;
+            menu.handle(down);
+            ui::StreamInfo info;
+            info.region = "Brazil South";
+            info.rttMs = 15;
+            info.fps = 60.0;
+            info.mbps = 20.0;
+            info.width = 1920;
+            info.height = 1080;
+            ui::PadSlots pads{};
+            pads[0].connected = true;
+            pads[0].name = "RafaelNGP";
+            pads[1].connected = true;
+            pads[1].name = "8BitDo Ultimate wireless Controller for PC";
+            menu.setPads(pads);
+            ui::Canvas menuCanvas = menu.renderMenu(info);
+            std::string ppm = "P6\n" + std::to_string(menuCanvas.width()) + " " + std::to_string(menuCanvas.height()) + "\n255\n";
+            for (size_t i = 0; i < static_cast<size_t>(menuCanvas.width() * menuCanvas.height()); ++i) {
+                uint32_t p = menuCanvas.data()[i];
+                ppm += static_cast<char>(p & 0xFF);
+                ppm += static_cast<char>((p >> 8) & 0xFF);
+                ppm += static_cast<char>((p >> 16) & 0xFF);
+            }
+            platform::writeFileAtomic(platform::dataDir() + "/stream_menu_usb.ppm", ppm);
             g_autoplay.streamMenuTest = false;
             XC_LOGI("AUTOPLAY END: stream menu test");
             ++step;

@@ -24,9 +24,8 @@ if(NOT XC_PLATFORM STREQUAL "ps5" AND NOT XC_PLATFORM STREQUAL "ps4")
     target_compile_definitions(xc_platform INTERFACE XC_PLATFORM_DESKTOP=1)
 endif()
 # PS4 behaviours the shared code needs to know about (it may not name the platform):
-#   XC_NO_UHID_PADS: no /dev/uhid* USB pads (pads come through libScePad).
 #   XC_HWDEC_NO_SOFTWARE_FALLBACK: a failing hardware decoder recovers by itself; FFmpeg
 #     cannot decode the stream in time on this CPU, so it is never switched to.
 if(XC_PLATFORM STREQUAL "ps4")
-    target_compile_definitions(xc_platform INTERFACE XC_NO_UHID_PADS=1 XC_HWDEC_NO_SOFTWARE_FALLBACK=1)
+    target_compile_definitions(xc_platform INTERFACE XC_HWDEC_NO_SOFTWARE_FALLBACK=1)
 endif()

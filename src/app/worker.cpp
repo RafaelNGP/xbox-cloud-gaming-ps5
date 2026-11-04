@@ -11,6 +11,7 @@
 #include "app/stream_player.h"
 #include "net/http.h"
 #include "platform/platform.h"
+#include "ui/cloud_time.h"
 #include "ui/strings.h"
 #include "util/log.h"
 #include "xcloud/catalog.h"
@@ -118,6 +119,7 @@ std::string endedToast(const std::string& result) {
     if (result.find("KickForStopCommand") != std::string::npos) return ui::tr(ui::Str::EndedOnXbox);
     if (result.find("KickByNewSession") != std::string::npos) return ui::tr(ui::Str::EndedByOtherDevice);
     if (result.find("KickForServerShutdown") != std::string::npos) return ui::tr(ui::Str::EndedXboxOff);
+    if (result.find("KickForBeingIdle") != std::string::npos) return ui::tr(ui::Str::EndedIdle);
     return {};
 }
 
@@ -262,7 +264,8 @@ void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     g_subscription = am.profile().subscription;
     if (!g_subscription.empty()) g_ui->setSubscription(g_subscription);
     s_playtimeRemainingSeconds = am.profile().playtimeRemainingSeconds;
-    g_ui->setPlaytime(am.profile().playtimeRemainingSeconds, am.profile().playtimeMaxSeconds);
+    g_ui->setPlaytime(am.profile().playtimeRemainingSeconds, am.profile().playtimeMaxSeconds,
+                      am.profile().playtimeUnlimited);
     {
         std::lock_guard<std::mutex> lock(g_argMutex);
         g_xblAuth = am.profile().xblAuthorization;
@@ -693,6 +696,7 @@ void worker() {
                     automatic = g_settings.region.empty();
                 }
                 std::string region = automatic && g_regionFallback.count(tile.titleId) ? g_regionFallback[tile.titleId] : "";
+                const int64_t cloudTimeBefore = s_playtimeRemainingSeconds;
                 std::string result = play(am, gssv, tile, failed, region);
                 XC_LOGI("%s", result.c_str());
                 // Some games fail to start in one region only (Dead Cells in
@@ -719,6 +723,19 @@ void worker() {
                         XC_LOGI("%s", result.c_str());
                         if (!failed) g_regionFallback[tile.titleId] = next;
                     }
+                }
+                // A limited account's cloud time after the stream: the service
+                // asked again, against what the stream counted down (the
+                // service may not have counted the session yet).
+                if (cloudTimeBefore >= 0) {
+                    const int64_t counted = s_playtimeRemainingSeconds;
+                    am.refreshCloudTime();
+                    const auto& p = am.profile();
+                    s_playtimeRemainingSeconds =
+                        p.playtimeUnlimited ? -1 : ui::CloudTimeClock::reconcile(counted, p.playtimeRemainingSeconds, cloudTimeBefore);
+                    g_ui->setPlaytime(s_playtimeRemainingSeconds, p.playtimeMaxSeconds, p.playtimeUnlimited);
+                    XC_LOGI("cloud time after the stream: %s left (counted %s)",
+                            ui::formatCloudTime(s_playtimeRemainingSeconds).c_str(), ui::formatCloudTime(counted).c_str());
                 }
                 bool isEntitlementErr = result.find("NoEntitlement") != std::string::npos ||
                                         result.find("NotEntitled") != std::string::npos ||
@@ -751,6 +768,21 @@ void worker() {
                         g_ui->showError(ui::tr(ui::Str::ConnectionIntercepted));
                     } else if (isDnsOrSinkholeError(result)) {
                         g_ui->showError(ui::tr(ui::Str::DnsBlockedNanoDns));
+                    } else if (result.find("OutOfStreamingTime") != std::string::npos ||
+                               result == ui::tr(ui::Str::MonthlyLimitExceeded)) {
+                        // The cloud time ran out (Xbox's monthly limits since
+                        // November 2026), the stream ended for it or refused
+                        // at the start: what it is and where to see the
+                        // options (xbox.com: no hours to buy in the app), not
+                        // "could not start". The hours asked for again when
+                        // the account had no limit known (asked above if so).
+                        g_ui->showPlayError(ui::tr(ui::Str::CloudTimeUp), tile, "https://www.xbox.com/play");
+                        if (cloudTimeBefore < 0) {
+                            am.refreshCloudTime();
+                            const auto& p = am.profile();
+                            s_playtimeRemainingSeconds = p.playtimeUnlimited ? -1 : p.playtimeRemainingSeconds;
+                            g_ui->setPlaytime(p.playtimeRemainingSeconds, p.playtimeMaxSeconds, p.playtimeUnlimited);
+                        }
                     } else {
                         g_ui->showPlayError(result.rfind("ERROR: ", 0) == 0 ? result.substr(7) : result, tile);
                     }

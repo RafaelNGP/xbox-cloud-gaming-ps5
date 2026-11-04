@@ -415,4 +415,11 @@ constexpr Column kFrench = {
     "En file d'attente (temps estimé : %s • attente depuis %s)", // InQueueEstimated
     "Pour jouer aux jeux gratuits autres que Fortnite sans Game Pass, activez les 'Fonctionnalités Preview' dans les Paramètres et sur xbox.com/play.", // F2pPreviewRequiredDesc
     "Ce compte doit activer les 'Fonctionnalités Preview' sur son profil sur xbox.com/play pour débloquer le streaming gratuit avec publicités.", // F2pPreviewAccountNeededDesc
+    "Joueur",                                    // MenuPlayer
+    "Votre temps de jeu dans le cloud Xbox est écoulé : le service Xbox a fermé la session. Depuis novembre 2026, Xbox limite le jeu dans le cloud chaque mois : 15 h avec le Game Pass Ultimate, 10 h avec Premium et 5 h avec Essential. Pour avoir plus de temps, consultez les options sur xbox.com, ou attendez les heures du mois prochain.", // CloudTimeUp
+    "La session s’est terminée pour inactivité", // EndedIdle
+    "%s restantes", // CloudTimeLeft
+    "sur %s", // CloudTimeOf
+    "Temps cloud illimité", // CloudTimeUnlimited
+    "Il vous reste %s de temps de jeu dans le cloud Xbox ce mois-ci", // CloudTimeWarn
 };

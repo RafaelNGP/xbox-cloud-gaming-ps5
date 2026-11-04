@@ -22,6 +22,7 @@
 #include <pthread_np.h>
 #include <sched.h>
 #include <sys/cpuset.h>
+#include <string>
 #include <sys/socket.h>
 
 extern "C" {
@@ -268,6 +269,17 @@ void notify(const std::string& text, const std::string& forLog) {
     sceKernelSendNotificationRequest(0, &req, sizeof req, 0);
 }
 
+namespace {
+// The threads keep the scheduler's choice unless setNoThreadPinning(false):
+// measured in Fortnite (2026-11-04), pinning by role did nothing for the
+// video and made the sound run dry more often (the four audio threads then
+// share one core). It never took before that day either: the cpuset query
+// failed with the SDK's mask size.
+std::atomic<bool> g_noThreadPinning{true};
+}  // namespace
+
+void setNoThreadPinning(bool on) { g_noThreadPinning = on; }
+
 void setThreadAffinity(ThreadRole role, const char* name) {
     if (name && *name) {
         pthread_set_name_np(pthread_self(), name);
@@ -276,11 +288,22 @@ void setThreadAffinity(ThreadRole role, const char* name) {
     static bool s_procMaskQueried = false;
     static int s_allowedCpus[32];
     static int s_numAllowedCpus = 0;
+    // The kernel's cpuset is smaller than the SDK's (256 CPUs): the full
+    // size gets ERANGE, so the sizes it may take are tried down to 64 CPUs.
+    static size_t s_maskSize = sizeof(cpuset_t);
 
     if (!s_procMaskQueried) {
         s_procMaskQueried = true;
-        CPU_ZERO(&s_procMask);
-        int grc = pthread_getaffinity_np(pthread_self(), sizeof(cpuset_t), &s_procMask);
+        int grc = -1;
+        for (size_t size : {sizeof(cpuset_t), size_t{16}, size_t{8}}) {
+            if (size > sizeof(cpuset_t)) continue;
+            CPU_ZERO(&s_procMask);
+            grc = pthread_getaffinity_np(pthread_self(), size, &s_procMask);
+            if (grc == 0) {
+                s_maskSize = size;
+                break;
+            }
+        }
         if (grc == 0) {
             for (int i = 0; i < 32; ++i) {
                 if (CPU_ISSET(i, &s_procMask)) {
@@ -288,13 +311,13 @@ void setThreadAffinity(ThreadRole role, const char* name) {
                 }
             }
         }
-        XC_LOGI("ps5 cpuset: %d allowed cpus detected (grc=%d)", s_numAllowedCpus, grc);
-        for (int i = 0; i < s_numAllowedCpus; ++i) {
-            XC_LOGI("  cpu slot %d: logical core %d", i, s_allowedCpus[i]);
-        }
+        std::string list;
+        for (int i = 0; i < s_numAllowedCpus; ++i) list += (i ? "," : "") + std::to_string(s_allowedCpus[i]);
+        XC_LOGI("ps5 cpuset: %d allowed cpus (%s), mask of %zu bytes (grc=%d)%s", s_numAllowedCpus, list.c_str(),
+                s_maskSize, grc, g_noThreadPinning ? "; threads left unpinned" : "");
     }
 
-    if (s_numAllowedCpus <= 1) {
+    if (s_numAllowedCpus <= 1 || g_noThreadPinning) {
         return;
     }
 
@@ -329,7 +352,7 @@ void setThreadAffinity(ThreadRole role, const char* name) {
         }
         break;
     }
-    int rc = pthread_setaffinity_np(pthread_self(), sizeof(cpuset_t), &mask);
+    int rc = pthread_setaffinity_np(pthread_self(), s_maskSize, &mask);
     if (rc != 0) {
         XC_LOGW("pthread_setaffinity_np(%s): %d", name ? name : "thread", rc);
     } else {

@@ -259,8 +259,15 @@ bool VideoDecoder::decode(const uint8_t* data, size_t len, Picture& out, uint32_
         // fed P-frames it has no references for, so switching to it froze the stream.
         return false;
 #endif
-        if (consecutiveHwErrors_ >= 5) {
-            XC_LOGE("hwdec: consecutive decode errors, falling back to CPU software decoder");
+        // A broken frame (a lost reference, a corrupt slice): the key frame
+        // asked for above brings the hardware decoder back, as on the PS4.
+        // Only errors that outlast several of them (~2 s at 60 fps) move the
+        // stream to FFmpeg for good: one CPU thread does not keep up with
+        // 1080p60, so that fallback is a last resort. Until then, this frame
+        // is lost.
+        if (consecutiveHwErrors_ < 120) return false;
+        if (consecutiveHwErrors_ == 120) {
+            XC_LOGE("hwdec: %d decode errors in a row, falling back to the CPU software decoder", consecutiveHwErrors_);
             isHw_ = false;
             if (ctx_) avcodec_flush_buffers(ctx_);
         }

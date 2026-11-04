@@ -172,6 +172,8 @@ std::string diagnostics() { return {}; }
 std::string platformName() { return "Linux"; }
 size_t imageCacheBudget() { return 160u << 20; }
 
+void setNoThreadPinning(bool) {}
+
 void setThreadAffinity(ThreadRole role, const char* name) {
     if (name && *name) {
         pthread_setname_np(pthread_self(), name);
