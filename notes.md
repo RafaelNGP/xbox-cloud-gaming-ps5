@@ -28,3 +28,6 @@
 ---
 **Instalação no PS5**:
 - Instale via **ProsperoStore** ou **RecompStore**, ou baixe o `PPSA99810.zip` assinado e instale manualmente via Homebrew / FTP.
+
+**Instalação no PS4**:
+- Baixe o `PSBoxCloudGaming[PS4]-v1.6.0.pkg`, copie para a raiz de um pendrive USB (exFAT/FAT32) e instale pelo console em *Configurações > GoldHEN > Package Installer*.
