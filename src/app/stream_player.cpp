@@ -135,6 +135,27 @@ struct StreamPlayer::Impl {
     std::atomic<bool> micMuted{false};
     std::atomic<float> micGain{1.0f};
     std::atomic<uint32_t> audioSendTimestamp{0};
+    // The microphone's packets, every 10 s (issue #187, a mic heard late):
+    // how many went out, the longest encode + send, and how far the RTP
+    // clock (48 kHz, from the samples sent) is from the real one since the
+    // first packet: a receiver's jitter buffer grows with that gap.
+    struct MicStats {
+        uint64_t firstUs = 0, windowUs = 0, maxWorkUs = 0;
+        uint32_t firstTs = 0, packets = 0, skips = 0;
+        void skipped() { ++skips; }
+        void sent(uint64_t startUs, uint64_t endUs, uint32_t tsAfter, uint32_t frame) {
+            if (!firstUs) firstUs = windowUs = startUs, firstTs = tsAfter - frame;
+            ++packets;
+            maxWorkUs = std::max(maxWorkUs, endUs - startUs);
+            if (endUs - windowUs < 10000000) return;
+            const double realMs = static_cast<double>(endUs - firstUs) / 1000.0;
+            const double rtpMs = static_cast<double>(tsAfter - firstTs) / 48.0;
+            XC_LOGI("mic: %u packets in %.1f s (%u without one), encode + send up to %.2f ms, RTP clock %+.0f ms from real time",
+                    packets, static_cast<double>(endUs - windowUs) / 1e6, skips, static_cast<double>(maxWorkUs) / 1000.0,
+                    rtpMs - realMs);
+            windowUs = endUs, packets = skips = 0, maxWorkUs = 0;
+        }
+    } micStats;
     bool encoderInitialized = false;
     platform::Thread inputThread;
     platform::Thread snapshotThread;
@@ -184,22 +205,29 @@ struct StreamPlayer::Impl {
         }
         if (!audioIn.isRecording()) {
             if (!encoderInitialized) {
-                encoderInitialized = audioEncoder.init(24000);
+                // 10 ms packets: the voice waits half as long to go out (20 ms
+                // before 2026-11-04).
+                encoderInitialized = audioEncoder.init(24000, 10);
                 if (!encoderInitialized) {
                     XC_LOGW("audio encoder: Opus init failed, mic input & meter will still operate");
                 }
             }
             audioIn.setMuted(micMuted.load());
             audioIn.setGain(micGain.load());
+            audioIn.setFrameSize(audioEncoder.frameSamples());
             audioIn.open([this](const int16_t* pcmFrames, size_t samples) {
                 if (!running) return;
                 if (!encoderInitialized) return;
                 auto s = current();
                 if (!s || !s->isOpen()) return;
+                const uint64_t t0 = platform::nowUs();
                 std::vector<uint8_t> opus;
                 if (audioEncoder.encode(pcmFrames, samples, opus)) {
                     uint32_t ts = audioSendTimestamp.fetch_add(static_cast<uint32_t>(samples));
                     s->sendAudio(opus.data(), opus.size(), ts);
+                    micStats.sent(t0, platform::nowUs(), ts + static_cast<uint32_t>(samples), static_cast<uint32_t>(samples));
+                } else {
+                    micStats.skipped();
                 }
             });
             input::setEmbeddedMicActive(true);

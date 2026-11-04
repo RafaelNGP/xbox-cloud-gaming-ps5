@@ -27,9 +27,14 @@ public:
     void process(int16_t* pcm, size_t n, bool muted, float gain, std::atomic<float>& level,
                  const AudioIn::AudioCallback& cb);
     void reset() { accumulated_.clear(); }
+    void setFrameSize(size_t samples) {
+        frameSize_ = samples;
+        accumulated_.clear();
+    }
 
 private:
     std::vector<int16_t> accumulated_;
+    size_t frameSize_ = AudioIn::kFrameSize;
 };
 
 }  // namespace xc::media

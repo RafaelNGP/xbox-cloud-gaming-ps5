@@ -36,11 +36,11 @@ void MicPipeline::process(int16_t* pcm, size_t n, bool muted, float gain, std::a
 
     accumulated_.insert(accumulated_.end(), pcm, pcm + n);
 
-    while (accumulated_.size() >= AudioIn::kFrameSize) {
+    while (accumulated_.size() >= frameSize_) {
         if (cb) {
-            cb(accumulated_.data(), AudioIn::kFrameSize);
+            cb(accumulated_.data(), frameSize_);
         }
-        accumulated_.erase(accumulated_.begin(), accumulated_.begin() + static_cast<long>(AudioIn::kFrameSize));
+        accumulated_.erase(accumulated_.begin(), accumulated_.begin() + static_cast<long>(frameSize_));
     }
 }
 

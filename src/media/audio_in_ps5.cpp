@@ -85,13 +85,17 @@ bool AudioIn::open(AudioCallback cb) {
         return false;
     }
     running_ = true;
-    impl_->mic.reset();
+    impl_->mic.setFrameSize(frameSize_);
 
     impl_->thread = std::thread([this]() {
         platform::setThreadAffinity(platform::ThreadRole::Audio, "ps5_audio_in");
         std::vector<int16_t> grain(kGrain);
         unsigned lastStatus = 0xFFFFFFFF;
         uint64_t loopCount = 0;
+        // The capture's pace, every 10 s (issue #187, a mic heard late): the
+        // rate the port really delivers, its longest wait and how many
+        // grains came at once (a backlog being read).
+        uint64_t windowStartUs = 0, lastReturnUs = 0, maxGapUs = 0, windowGrains = 0, bunched = 0;
 
         while (running_) {
             int rc = sceAudioInInput(impl_->handle, grain.data());
@@ -101,6 +105,22 @@ bool AudioIn::open(AudioCallback cb) {
             }
             if (++loopCount == 1) {
                 XC_LOGI("audio in: first input buffer received (%u samples)", kGrain);
+            }
+            const uint64_t nowUs = platform::nowUs();
+            if (!windowStartUs) windowStartUs = nowUs;
+            if (lastReturnUs) {
+                const uint64_t gap = nowUs - lastReturnUs;
+                if (gap > maxGapUs) maxGapUs = gap;
+                if (gap < 1000) ++bunched;
+            }
+            lastReturnUs = nowUs;
+            ++windowGrains;
+            if (nowUs - windowStartUs >= 10000000) {
+                const double secs = static_cast<double>(nowUs - windowStartUs) / 1e6;
+                XC_LOGI("audio in: %.0f samples/s over %.1f s, longest wait %.1f ms, %llu of %llu grains at once",
+                        static_cast<double>(windowGrains * kGrain) / secs, secs, static_cast<double>(maxGapUs) / 1000.0,
+                        static_cast<unsigned long long>(bunched), static_cast<unsigned long long>(windowGrains));
+                windowStartUs = nowUs, maxGapUs = 0, windowGrains = 0, bunched = 0;
             }
 
             int silentState = sceAudioInGetSilentState(impl_->handle);

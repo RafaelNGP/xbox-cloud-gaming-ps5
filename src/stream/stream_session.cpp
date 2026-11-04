@@ -512,14 +512,14 @@ struct StreamSession::Impl {
         // Audio: sendrecv like the browser (the send side carries chat).
         rtc::Description::Audio a("0", rtc::Description::Direction::SendRecv);
         a.addOpusCodec(111, "minptime=10;useinbandfec=1;stereo=1");
-        a.addSSRC(1, "audio");
+        a.addSSRC(kMicSsrc, "audio");
         audio = pc->addTrack(a);
 
         auto audioDepacketizer = std::make_shared<rtc::OpusRtpDepacketizer>();
         audioDepacketizer->addToChain(std::make_shared<RtcpReporter>(48000, 0));
 
         auto rtpConfig = std::make_shared<rtc::RtpPacketizationConfig>(
-            1, "audio", 111, rtc::OpusRtpPacketizer::DefaultClockRate);
+            kMicSsrc, "audio", 111, rtc::OpusRtpPacketizer::DefaultClockRate);
         auto audioPacketizer = std::make_shared<rtc::OpusRtpPacketizer>(rtpConfig);
         audioDepacketizer->addToChain(audioPacketizer);
 
