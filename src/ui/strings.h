@@ -424,6 +424,7 @@ enum class Str {
     InQueueEstimated,
     F2pPreviewRequiredDesc,
     F2pPreviewAccountNeededDesc,
+    MenuPlayer,       // game menu, a USB controller's: the player it plays as
     Count
 };
 

@@ -45,7 +45,7 @@ enum StatsIndicator : uint32_t {
 enum class MenuAction {
     None, Close, Leave, Resolution, Stats, Sharpness, Deband, Upscaler, XboxButton,
     ProfileToggle, Triggers, Deadzone, ConfirmButton, MicToggle, Gyro, PadSpeakerVolume,
-    TouchpadShortcuts
+    TouchpadShortcuts, Player
 };
 
 class StreamMenu {
@@ -110,6 +110,11 @@ public:
                           bool hasCustomProfile);
     // The controllers in use, under the connection.
     void setPads(const PadSlots& pads) { pads_ = pads; }
+    // Opened by a USB controller (input/pad_usb.h): the player it plays as
+    // (0..3), which its Player item changes (MenuAction::Player); -1 when
+    // the menu is player 1's own (no such item).
+    void setUsbOwner(int player) { usbOwnerPlayer_ = player; }
+    int usbOwnerPlayer() const { return usbOwnerPlayer_; }
     // What the display and the pads can do (UiCaps, all by default as on
     // the PS5): the upscaler, sharpness and block smoothing need the
     // display's; trigger vibration and gyro aiming a pad with them; the
@@ -126,6 +131,7 @@ public:
 private:
     enum Item {
         XboxButton,
+        PlayerItem,
         Profile,
         Stats,
         Upscaler,
@@ -169,6 +175,7 @@ private:
     float micLevel_ = 0.0f;
     int padSpeakerVolume_ = 100;
     PadSlots pads_{};
+    int usbOwnerPlayer_ = -1;
     mutable std::vector<float> frametimes_;
 };
 

@@ -7,6 +7,7 @@
 #include "input/controller.h"
 #include "input/controller_backend.h"
 #include "input/input_ext.h"
+#include "input/pad_usb.h"
 #include "util/log.h"
 
 #include <algorithm>
@@ -292,6 +293,7 @@ bool init() {
     }
     if (!openPad(0, uid)) return false;
     refreshPads();
+    usbPadsStart();  // Xbox / XInput pads on USB, as pad 0 too (pad_usb.h)
     return true;
 }
 
@@ -322,6 +324,7 @@ void refreshPads() {
 }
 
 void shutdown() {
+    usbPadsStop();
     for (int i = 0; i < kMaxPads; ++i) closePad(i);
 }
 

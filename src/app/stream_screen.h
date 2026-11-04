@@ -38,6 +38,12 @@ public:
     // is closed (update() sends them).
     void setKbm(input::KbmInput kbm) { kbm_ = std::move(kbm); }
     bool menuOpen() const;
+    // A USB controller's Xbox / Home button (input/pad_usb.h): the in-game
+    // menu for that controller, or closed again by it. While it is up, that
+    // controller alone moves in it (menuUsbOwner(): its slot, -1 when the
+    // menu is closed or player 1's) and the other players keep playing.
+    void usbMenuButton(int slot) { pendingUsbMenu_ = slot; }
+    int menuUsbOwner() const { return menu_.isOpen() ? menuUsbOwner_ : -1; }
     // The hints changed device (keyboard / controller): the overlay again.
     void redrawMenu();
     // What the display and the pads can do: the game menu hides the rest.
@@ -73,6 +79,9 @@ private:
     int upscaler_ = 0;  // as Settings::upscaler
     bool padReleased_ = true;
     bool padAttached_[input::kMaxPads] = {};  // controllers 1..3 announced to the stream
+    bool padUsbOnly_[input::kMaxPads] = {};   // ...by a USB pad alone (told of by app_core.cpp)
+    int menuUsbOwner_ = -1, pendingUsbMenu_ = -1;  // usbMenuButton()
+    uint64_t xboxUntil_[input::kMaxPads] = {};       // players 2..4: the menu's Xbox button pressed for them
     uint32_t playerReconnects_ = 0;
     uint32_t overlaySeq_ = 0;  // g_infoSeq + 1 when drawn; 0 = redraw
     bool hasCustomProfile_ = false;

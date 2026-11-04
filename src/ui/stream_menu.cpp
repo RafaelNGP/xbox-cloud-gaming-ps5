@@ -43,6 +43,7 @@ bool StreamMenu::itemShown(int item) const {
     case GyroLevelItem: return caps_.gyro;
     case PadSpeakerVolumeItem: return caps_.triggerRumble || caps_.adaptiveTriggers;
     case TouchpadShortcutsItem: return caps_.touchpad;
+    case PlayerItem: return usbOwnerPlayer_ >= 0;
     default: return true;
     }
 }
@@ -159,6 +160,10 @@ MenuAction StreamMenu::handle(const NavInput& in) {
     // Up / down over the items shown (the Xbox button always is).
     if (in.up) do selected_ = (selected_ + ItemCount - 1) % ItemCount; while (!itemShown(selected_));
     if (in.down) do selected_ = (selected_ + 1) % ItemCount; while (!itemShown(selected_));
+    if (selected_ == PlayerItem && (in.left || in.right || in.accept)) {
+        usbOwnerPlayer_ = (usbOwnerPlayer_ + (in.left ? 3 : 1)) % 4;
+        return MenuAction::Player;
+    }
     if (selected_ == Profile && (in.left || in.right || in.accept)) {
         hasCustomProfile_ = !hasCustomProfile_;
         return MenuAction::ProfileToggle;
@@ -389,6 +394,7 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         Color fg = sel ? kDark : kWhite;
         int ty = fonts_.semibold.centeredY(row.y, row.h, kPx);
         const char* label = i == XboxButton            ? tr(Str::MenuXboxButton)
+                            : i == PlayerItem          ? tr(Str::MenuPlayer)
                             : i == Profile             ? tr(Str::Profile)
                             : i == Stats               ? tr(Str::MenuStats)
                             : i == Sharpness           ? tr(Str::MenuSharpness)
@@ -406,6 +412,10 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
                                                        : tr(Str::MenuLeave);
         fonts_.semibold.draw(c, label, row.x + 16, ty, kPx, fg);
         std::string value;
+        if (i == PlayerItem) {
+            value = std::to_string(usbOwnerPlayer_ + 1);
+            if (sel) value = "< " + value + " >";
+        }
         if (i == Profile) {
             value = tr(hasCustomProfile_ ? Str::ProfileCustom : Str::ProfileDefault);
             if (sel) value = "< " + value + " >";

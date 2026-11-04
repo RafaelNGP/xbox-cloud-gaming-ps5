@@ -1703,6 +1703,38 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
                 ppm += static_cast<char>((p >> 16) & 0xFF);
             }
             platform::writeFileAtomic(platform::dataDir() + "/stream_menu_muted.ppm", ppm);
+            ++step;
+        } else if (step == 2 && now - since > 6000) {
+            // Opened by a USB controller playing as player 2: its Player row
+            // (selected), the pad's name under its slot.
+            ui::StreamMenu menu(g_ui->fonts());
+            menu.setUsbOwner(1);
+            menu.open(0, false, 1, 1, 0, false, true, false, 2, 15, false, 0.3f, false);
+            ui::NavInput down;
+            down.down = true;
+            menu.handle(down);
+            ui::StreamInfo info;
+            info.region = "Brazil South";
+            info.rttMs = 15;
+            info.fps = 60.0;
+            info.mbps = 20.0;
+            info.width = 1920;
+            info.height = 1080;
+            ui::PadSlots pads{};
+            pads[0].connected = true;
+            pads[0].name = "RafaelNGP";
+            pads[1].connected = true;
+            pads[1].name = "8BitDo Ultimate wireless Controller for PC";
+            menu.setPads(pads);
+            ui::Canvas menuCanvas = menu.renderMenu(info);
+            std::string ppm = "P6\n" + std::to_string(menuCanvas.width()) + " " + std::to_string(menuCanvas.height()) + "\n255\n";
+            for (size_t i = 0; i < static_cast<size_t>(menuCanvas.width() * menuCanvas.height()); ++i) {
+                uint32_t p = menuCanvas.data()[i];
+                ppm += static_cast<char>(p & 0xFF);
+                ppm += static_cast<char>((p >> 8) & 0xFF);
+                ppm += static_cast<char>((p >> 16) & 0xFF);
+            }
+            platform::writeFileAtomic(platform::dataDir() + "/stream_menu_usb.ppm", ppm);
             g_autoplay.streamMenuTest = false;
             XC_LOGI("AUTOPLAY END: stream menu test");
             ++step;

@@ -254,6 +254,14 @@ void setDeadzone(float left, float right) {
     g_deadzone[1] = std::clamp(right, 0.0f, 0.5f);
 }
 
+void applyPadSettings(ControllerState& s) {
+    if (g_circleConfirms) std::swap(s.btnA, s.btnB);
+    s.leftStickX = s.rawLeftX, s.leftStickY = s.rawLeftY;
+    s.rightStickX = s.rawRightX, s.rightStickY = s.rawRightY;
+    radialDeadzone(s.leftStickX, s.leftStickY, g_deadzone[0].load(std::memory_order_relaxed));
+    radialDeadzone(s.rightStickX, s.rightStickY, g_deadzone[1].load(std::memory_order_relaxed));
+}
+
 bool pollPad(int index, ControllerState& out) {
     out = {};
     if (index < 0 || index >= kMaxPads || !backend::padOpen(index)) return false;
