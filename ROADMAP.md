@@ -4,7 +4,7 @@ Planejamento e visão de futuro do projeto **PSBox Cloud Gaming**, priorizado po
 
 Status: **Em andamento (next)**, **Planejado (planned)**, **Futuro (later)**, **Descartado (dropped)**.
 
-> **Última atualização:** 30/10/2026 (release estável **v1.5.5** / ecossistema multi-plataforma).
+> **Última atualização:** 04/11/2026 (release estável **v1.6.0** / suporte a controles USB nativos e cotas de nuvem).
 
 ---
 
@@ -25,6 +25,15 @@ Status: **Em andamento (next)**, **Planejado (planned)**, **Futuro (later)**, **
 - **Sintoma Resolvido**: Estantes de catálogo ("Novidades", "Mais populares", etc.) agora atualizam automaticamente no boot sem intervenção manual.
 - **Implementação**: O `syncDelta()` consulta e sincroniza automaticamente os feeds SIGL atualizados (`kRecentlyAdded`, `kMostPopular`, `kFreeToPlay`, `kLeavingSoon`) e refresca as linhas correspondentes em `layout_`.
 
+### 4. Otimização de Microfone Opus (10 ms) e Latência de Áudio — *done (v1.6.0)* (#187)
+- **Implementação**: Pacotes de microfone com framing de 10 ms (cortando a latência de envio pela metade para ~10.5 ms) com métricas de temporização no log.
+
+### 5. Estabilidade de Stream e Fila Adaptativa de Áudio — *done (v1.6.0)* (#317)
+- **Implementação**: Redução drástica de ~75% de skipped frames, buffer adaptativo de 59–62 ms e proteção por watchdog de 5s.
+
+### 6. Cotas de Tempo de Nuvem e Avisos em Jogo — *done (v1.6.0)* (#342)
+- **Implementação**: Suporte a limites de tempo mensal de nuvem (parser de horas restantes e totais, exibição na barra superior centralizada, avisos a 15m/5m e tela amigável com QR Code).
+
 ---
 
 ## 🚀 Em Andamento e Próximos Passos (Now & Next)
@@ -36,7 +45,7 @@ Port dedicado e otimizado para consoles PlayStation 4 com jailbreak (firmwares 9
 - **Pipeline de Vídeo e Áudio**: Decodificação H.264 por hardware via `libSceVideodec2` em Direct Memory Onion/Garlic, renderizador 2D por software com 4 threads SIMD SSE4.2 (cópia zero de overlay via `shared_ptr`) e saída de áudio DMA com dreno limpo.
 - **Controles e Periféricos**: Suporte completo ao DualShock 4 com rumble de motores duplos, lightbar, touchpad e giroscópio.
 
-### 2. Suporte Nativo a Controles USB no PS5 (8BitDo 2.4G, Xbox, DS4, Fightsticks) — *next*
+### 2. Suporte Nativo a Controles USB no PS5 (8BitDo 2.4G, Xbox, DS4, Fightsticks) — *done (v1.6.0)*
 Leitura direta de nós USB HID e interrupção no kernel do PS5 (`/dev/uhid*`, `/dev/ugen*`), contornando a whitelist restritiva da `libScePad` da Sony que exige coprocessadores criptográficos proprietários:
 - **8BitDo Ultimate 2.4G**: Suporte nativo ao dongle USB em modo D-Input e X-Input.
 - **DualShock 4 USB**: Liberação de controles de PS4 no PS5 para Jogador 1 ou multiplayer local (P2..P4).
