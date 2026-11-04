@@ -112,6 +112,7 @@ Para evitar degradação de desempenho, latência alta e manter a interação á
   1. `PPSA99810.zip` (pacote limpo sem contas/tokens, empacotado sem `XC_INCLUDE_ACCOUNT`).
   2. `PPSA99810.zip.sig` (assinatura ECDSA gerada com `~/.config/psbox-release/signing-key.pem`).
   3. `PPSA99810.zip.sha256` (checksum para integridade).
+- **Formato Bilíngue Obrigatório nas Release Notes**: O arquivo `notes.md` e o corpo da release no GitHub devem SEMPRE apresentar primeiro o conteúdo completo em Inglês (`<!-- LANG:EN -->`) e, em seguida, em Português (`<!-- LANG:PT -->`).
 - **Fluxo Mandatório de Publicação**:
   1. Delegar o empacotamento e assinatura para subagente (preservando o contexto).
   2. Gerar o pacote através de `tools/release.sh <X.Y.Z>` ou do pipeline de empacotamento oficial.
