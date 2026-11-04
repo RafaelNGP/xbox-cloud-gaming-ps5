@@ -12,6 +12,7 @@
 // caller's callback) and nothing is shown until that key frame: a short
 // freeze instead of corruption.
 #pragma once
+#include <atomic>
 
 #include "stream/video_stats.h"
 
@@ -36,6 +37,21 @@ public:
     // deliver each one 30 ms after it is NACKed, like a retransmission (a real
     // retransmission cannot be tested this way: SRTP drops it as a replay).
     void setSimulatedLoss(int percent) { simulatedLoss_ = percent; }
+
+    // When the first packet of the frame with this RTP timestamp came
+    // (platform::nowUs()), 0 when not known: for the latency up to the
+    // screen. On libdatachannel's thread (the frame's onFrame callback).
+    uint64_t firstPacketUs(uint32_t rtpTimestamp) const;
+
+    // The connection's round trip (ms; any thread, once a second): how long
+    // a retransmission takes to come. A frame waits for its lost packets
+    // 2 RTT + 30 ms (90..300 ms) and NACKs again after an RTT (50..250 ms):
+    // with a fixed 90 ms, a 68 ms connection had no time for a second try
+    // and a 141 ms one none for the first (the frame dropped, the picture
+    // frozen until the next key frame).
+    void setRttMs(int rttMs) { rttMs_ = rttMs; }
+    uint64_t lossWaitMs() const;
+    uint64_t renackMs() const;
 
 private:
     static constexpr size_t kMaxPayload = 1536;  // a larger payload is treated as lost (accept())
@@ -80,10 +96,19 @@ private:
     std::function<void()> onKeyframeNeeded_;
     VideoReceiveStats& stats_;
     uint64_t waitMs_ = 300;
+    std::atomic<int> rttMs_{-1};
     std::unique_ptr<PacketSlot[]> ring_;
     size_t packetCount_ = 0;
     std::map<int64_t, Missing> missing_;
     int64_t highest_ = -1;    // highest extended sequence number seen
+    uint64_t lastPacketMs_ = 0;           // VideoReceiveStats::maxGapMs
+    static constexpr size_t kFirstPacketRing = 64;
+    std::pair<uint32_t, uint64_t> firstPacket_[kFirstPacketRing] = {};  // RTP timestamp, its first packet (us)
+    size_t firstPacketNext_ = 0;
+    uint32_t lastNewTs_ = 0;
+    bool anyTs_ = false;
+    uint64_t lastFrameMs_ = 0;            // ...maxLateMs: the previous frame handed on
+    uint32_t lastFrameTs_ = 0;
     int64_t nextSeq_ = -1;    // first packet of the next frame to emit; -1 = resync
     bool waitingKeyframe_ = true;
     uint32_t mediaSsrc_ = 0;

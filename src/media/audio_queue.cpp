@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace xc::media {
 
@@ -18,6 +19,7 @@ void AudioQueue::push(const float* interleaved, size_t frames) {
     if (!open_) return;
     std::lock_guard<std::mutex> lock(mutex_);
     queue_.insert(queue_.end(), interleaved, interleaved + frames * 2);
+    started_ = true;
     if (queue_.size() > kMaxQueued * 2) {
         size_t cut = queue_.size() - kTrimTo * 2;
         stats_.trimmed += cut / 2;
@@ -37,6 +39,15 @@ void AudioQueue::pull(float* out, size_t frames) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         size_t depth = queue_.size() / 2;
+        const size_t refill = refill_.load(std::memory_order_relaxed);
+        bool justDry = false, resumed = false;  // this pull: ran dry (what is left plays out), or refilled
+        if (started_) {
+            lowWater_ = std::min(lowWater_, depth);
+            // Run dry: with a refill level, one event (the silence until it
+            // is back up is meant); without, each grain short.
+            if (depth < frames && (!refill || !refilling_)) ++underruns_;
+            if (depth < frames && refill && !refilling_) refilling_ = justDry = true;
+        }
         stats_.depthSum += depth;
         stats_.depthMax = std::max<uint64_t>(stats_.depthMax, depth);
         ++stats_.pulls;
@@ -47,7 +58,12 @@ void AudioQueue::pull(float* out, size_t frames) {
                     static_cast<unsigned long long>(stats_.empty), stats_.trimmed * 1000.0 / kRate);
             stats_ = {};
         }
-        if (queue_.empty()) {
+        // After running dry, silence until the queue is back to the refill
+        // level (the latency control's target): playing each packet as it
+        // comes would run dry again at the next burst, a crackle every few
+        // grains instead of one gap.
+        if (refilling_ && depth >= refill) refilling_ = false, resumed = true;
+        if (queue_.empty() || (refilling_ && !justDry)) {
             ++stats_.empty;
             std::fill(out, out + frames * 2, 0.0f);
             return;
@@ -55,6 +71,14 @@ void AudioQueue::pull(float* out, size_t frames) {
         size_t n = std::min(frames * 2, queue_.size());
         std::copy(queue_.begin(), queue_.begin() + static_cast<long>(n), out);
         queue_.erase(queue_.begin(), queue_.begin() + static_cast<long>(n));
+        if (resumed) {  // back after a gap: a 1 ms ramp in, no click
+            constexpr size_t kRamp = 48;
+            for (size_t i = 0; i < kRamp * 2 && i < n; i += 2) {
+                const float f = static_cast<float>(i / 2) / static_cast<float>(kRamp);
+                out[i] *= f;
+                out[i + 1] *= f;
+            }
+        }
         if (n < frames * 2) {
             // Soft ramp-out on the tail of partial buffer to eliminate underrun pops
             constexpr size_t kFade = 48;
@@ -76,6 +100,37 @@ void AudioQueue::pull(float* out, size_t frames) {
 void AudioQueue::clear() {
     std::lock_guard<std::mutex> lock(mutex_);
     queue_.clear();
+    started_ = false;
+    refilling_ = false;
+    lowWater_ = SIZE_MAX;
+    underruns_ = 0;
+}
+
+size_t AudioQueue::takeLowWater() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return std::exchange(lowWater_, SIZE_MAX);
+}
+
+uint64_t AudioQueue::takeUnderruns() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return std::exchange(underruns_, 0);
+}
+
+bool AudioQueue::cutAhead(size_t frames) {
+    constexpr size_t kLead = kRate / 100;  // 10 ms left as it is (it may be playing next)
+    constexpr size_t kFade = kRate / 200;  // 5 ms crossfade
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (frames == 0 || queue_.size() / 2 < kLead + frames + kFade) return false;
+    // Overlap-add: the 5 ms before the cut fade out into the 5 ms after it.
+    const size_t a = kLead * 2, b = (kLead + frames) * 2;
+    for (size_t i = 0; i < kFade; ++i) {
+        const float w = (static_cast<float>(i) + 0.5f) / static_cast<float>(kFade);
+        for (size_t c = 0; c < 2; ++c)
+            queue_[a + i * 2 + c] = queue_[a + i * 2 + c] * (1.0f - w) + queue_[b + i * 2 + c] * w;
+    }
+    queue_.erase(queue_.begin() + static_cast<long>(a + kFade * 2), queue_.begin() + static_cast<long>(b + kFade * 2));
+    stats_.trimmed += frames;
+    return true;
 }
 
 void AudioQueue::setVolume(float gain) { volume_ = std::clamp(gain, 0.0f, 2.0f); }

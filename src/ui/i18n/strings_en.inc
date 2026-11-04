@@ -416,4 +416,5 @@ constexpr Column kEnglish = {
     "To stream free-to-play games beyond Fortnite without Game Pass, enable 'Preview Features' in app Settings and on xbox.com/play.", // F2pPreviewRequiredDesc
     "This account needs to enable 'Preview Features' in its profile on xbox.com/play to unlock ad-supported free-to-play streaming.", // F2pPreviewAccountNeededDesc
     "Player",                                    // MenuPlayer
+    "The stream ended after a while without input", // EndedIdle
 };

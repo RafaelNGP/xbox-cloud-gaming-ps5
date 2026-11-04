@@ -27,6 +27,7 @@ namespace xc::app {
 
 Autoplay g_autoplay;
 std::atomic<bool> g_syntheticA{false};
+std::atomic<float> g_syntheticRightX{0.0f}, g_syntheticLeftY{0.0f};
 
 namespace {
 // The home screen was saved: the tests that start from it may go.
@@ -102,6 +103,12 @@ void loadAutoplay() {
         if (opt == "dump") g_autoplay.dump = true;
         if (opt == "repeat") g_autoplay.runs = 2;
         if (opt == "idle") g_autoplay.idle = true;
+        if (opt == "hz60") g_autoplay.hz60 = true;
+        if (opt == "fnplay") g_autoplay.fnPlay = true;
+        if (opt == "legacy") g_autoplay.legacy = true;
+        if (opt == "imgtest") g_autoplay.imgTest = true;
+        // Threads pinned by role (platform.h), to measure it again.
+        if (opt == "pin") platform::setNoThreadPinning(false);
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
         if (opt == "triggertest") input::setTriggerRumble(255, 128, 3000);
         if (opt == "queuetest" || opt == "padspktest") g_autoplay.padSpkTest = true;

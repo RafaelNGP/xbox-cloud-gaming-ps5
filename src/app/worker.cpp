@@ -118,6 +118,7 @@ std::string endedToast(const std::string& result) {
     if (result.find("KickForStopCommand") != std::string::npos) return ui::tr(ui::Str::EndedOnXbox);
     if (result.find("KickByNewSession") != std::string::npos) return ui::tr(ui::Str::EndedByOtherDevice);
     if (result.find("KickForServerShutdown") != std::string::npos) return ui::tr(ui::Str::EndedXboxOff);
+    if (result.find("KickForBeingIdle") != std::string::npos) return ui::tr(ui::Str::EndedIdle);
     return {};
 }
 

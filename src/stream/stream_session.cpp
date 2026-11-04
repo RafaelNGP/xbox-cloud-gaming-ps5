@@ -119,6 +119,7 @@ struct StreamSession::Impl {
     uint64_t lastKeyframeMs = 0;
     VideoReceiveStats videoStats;
     std::shared_ptr<RtcpReporter> videoReporter;
+    H264Receiver* videoReceiverRaw = nullptr;  // owned by the video track
     // The video receiver (a media handler, which libdatachannel may still be
     // running after the session is gone) reaches the session through this.
     struct Guard {
@@ -554,10 +555,11 @@ struct StreamSession::Impl {
             },
             videoStats);
         videoReceiver->setSimulatedLoss(opt.simulatedVideoLoss);
+        videoReceiverRaw = videoReceiver.get();
         videoReporter = std::make_shared<RtcpReporter>(90000, opt.maxBitrate);
         videoReceiver->addToChain(videoReporter);
         video->setMediaHandler(videoReceiver);
-        video->onFrame([this](rtc::binary data, rtc::FrameInfo info) {
+        video->onFrame([this, receiver = videoReceiver.get()](rtc::binary data, rtc::FrameInfo info) {
             static thread_local bool s_netPinned = false;
             if (!s_netPinned) {
                 platform::setThreadAffinity(platform::ThreadRole::Network, "xcloud_net");
@@ -571,7 +573,9 @@ struct StreamSession::Impl {
                         static_cast<unsigned long long>(now - last));
                 padsStale = true;
             }
-            if (cb.video) cb.video(reinterpret_cast<const uint8_t*>(data.data()), data.size(), info.timestamp);
+            if (cb.video)
+                cb.video(reinterpret_cast<const uint8_t*>(data.data()), data.size(), info.timestamp,
+                         receiver->firstPacketUs(info.timestamp));
         });
         XC_LOGI("webrtc: createPeer completed");
     }
@@ -900,7 +904,11 @@ void StreamSession::close() { impl_->close(); }
 int StreamSession::rttMs() const {
     try {
         if (impl_->pc)
-            if (auto rtt = impl_->pc->rtt()) return static_cast<int>(rtt->count());
+            if (auto rtt = impl_->pc->rtt()) {
+                const int ms = static_cast<int>(rtt->count());
+                if (impl_->videoReceiverRaw) impl_->videoReceiverRaw->setRttMs(ms);  // its loss wait follows it
+                return ms;
+            }
     } catch (const std::exception&) {
     }
     return -1;

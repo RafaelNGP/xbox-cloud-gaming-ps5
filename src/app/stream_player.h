@@ -59,7 +59,15 @@ public:
     void dumpVideo(const std::string& path, int seconds);
     // Writes the next decoded picture, half size, as a binary PPM.
     void requestSnapshot(const std::string& path);
+    // Measurements: the next picture drawn with each look, crops saved (autoplay "imgtest").
+    void requestImageTest();
     // Voice chat / microphone controls
+    // Measurements only (autoplay "legacy"): the stream as it was tuned
+    // before 2026-11-04, to compare against. Before start().
+    void setLegacyTuning(bool on);
+    // The screen shows this stream at 119.88 Hz: a couple of frames that
+    // came at once are shown instead of skipped (a refresh drains them).
+    void setHighRefreshOutput(bool on);
     void setMicEnabled(bool enabled);
     bool micEnabled() const;
     void setMicMuted(bool muted);
@@ -74,6 +82,7 @@ public:
         uint64_t decodeFailures = 0, queueResets = 0, keyframeRequests = 0, queued = 0;
         // RTP: packets lost, recovered by NACK, frames the jitter buffer dropped.
         uint64_t rtpPackets = 0, rtpLost = 0, rtpRecovered = 0, rtpNacks = 0, rtpDroppedFrames = 0;
+        uint64_t rtpGapMs = 0, rtpBurst = 0, rtpLateMs = 0;  // VideoReceiveStats::maxGapMs..., this interval
         uint64_t rtpKbps = 0, rembKbps = 0, vibrations = 0;
         uint64_t lateFrames = 0;  // decoded, not drawn: both flips still queued
         int rttMs = -1;  // to the stream server
@@ -82,6 +91,7 @@ public:
         uint64_t decodeAvgUs = 0, decodeMaxUs = 0, drawAvgUs = 0, drawMaxUs = 0;
         // Network arrival to on the screen (GPU path), since the last call.
         uint64_t displayAvgUs = 0, displayMaxUs = 0;
+        uint64_t glassAvgUs = 0, glassMaxUs = 0;  // from the frame's first packet to the screen
         // The pictures' average quantiser since the last call (lower: finer); -1 none.
         double qpAvg = -1;
         bool isHwDecode = false;

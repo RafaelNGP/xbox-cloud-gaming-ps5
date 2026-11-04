@@ -416,4 +416,5 @@ constexpr Column kGerman = {
     "Um kostenlose Spiele außer Fortnite ohne Game Pass zu streamen, aktivieren Sie 'Preview-Funktionen' in den App-Einstellungen und auf xbox.com/play.", // F2pPreviewRequiredDesc
     "Dieses Konto muss 'Preview-Funktionen' im Profil auf xbox.com/play aktivieren, um werbefinanziertes Free-to-Play-Streaming freizuschalten.", // F2pPreviewAccountNeededDesc
     "Spieler",                                   // MenuPlayer
+    "Die Sitzung wurde wegen Inaktivität beendet", // EndedIdle
 };

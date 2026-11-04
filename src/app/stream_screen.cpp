@@ -303,12 +303,13 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         if (g_ui) g_ui->setCircleConfirms(prof.circleConfirms);
         // 120 Hz (VRR) for this game's stream: active when enabled in profile,
         // or defaulted on when the display supports switching refresh (menus stay at 60 Hz).
-        bool want120 = prof.highRefresh || (!hasCustom && display::canSwitchRefresh());
+        bool want120 = (prof.highRefresh || (!hasCustom && display::canSwitchRefresh())) && !g_autoplay.hz60;
         highRefresh_ = want120 && display::setHighRefresh(true);
 
         media::audioSetRoute(static_cast<media::AudioRoute>(g_settings.audioRoute));
         media::audioSetVoiceRouting(g_settings.voiceRouting);
         if (g_player) {
+            g_player->setHighRefreshOutput(highRefresh_);
             g_player->setMicGain(g_settings.micGainFactor());
         }
 
@@ -628,6 +629,8 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
         }
         input::ControllerState sent = input::applyPadMap(padIn, padMap_);
         if (g_syntheticA) sent.btnA = true;
+        if (float x = g_syntheticRightX; x != 0.0f) sent.rightStickX = x;
+        if (float y = g_syntheticLeftY; y != 0.0f) sent.leftStickY = y;
         // While another window has the focus on the cloud console (a
         // publisher's page such as NetEase's terms in Marvel Rivals,
         // which then shows its own pad-driven cursor), touch input is

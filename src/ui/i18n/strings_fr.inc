@@ -416,4 +416,5 @@ constexpr Column kFrench = {
     "Pour jouer aux jeux gratuits autres que Fortnite sans Game Pass, activez les 'Fonctionnalités Preview' dans les Paramètres et sur xbox.com/play.", // F2pPreviewRequiredDesc
     "Ce compte doit activer les 'Fonctionnalités Preview' sur son profil sur xbox.com/play pour débloquer le streaming gratuit avec publicités.", // F2pPreviewAccountNeededDesc
     "Joueur",                                    // MenuPlayer
+    "La session s’est terminée pour inactivité", // EndedIdle
 };

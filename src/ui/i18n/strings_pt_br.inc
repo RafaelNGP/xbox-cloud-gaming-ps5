@@ -416,4 +416,5 @@ constexpr Column kPortugueseBR = {
     "Para transmitir jogos gratuitos além de Fortnite em contas sem Game Pass, ative os 'Recursos Preview' nas Configurações do app e no site xbox.com/play.", // F2pPreviewRequiredDesc
     "Esta conta precisa habilitar os 'Recursos Preview' no perfil em xbox.com/play para liberar o streaming com anúncios de jogos gratuitos.", // F2pPreviewAccountNeededDesc
     "Jogador",                                   // MenuPlayer
+    "O streaming foi encerrado por inatividade", // EndedIdle
 };

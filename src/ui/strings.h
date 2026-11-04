@@ -425,6 +425,7 @@ enum class Str {
     F2pPreviewRequiredDesc,
     F2pPreviewAccountNeededDesc,
     MenuPlayer,       // game menu, a USB controller's: the player it plays as
+    EndedIdle,        // toast: the server ended the stream after a while without input
     Count
 };
 

@@ -76,6 +76,7 @@ struct StreamPlayer::Impl {
         uint32_t rtpTimestamp = 0;
         double arrivalMs = 0;  // StreamSession::clockMs()
         uint64_t arrivalUs = 0;  // platform::nowUs(), for the display latency
+        uint64_t firstPacketUs = 0;  // its first packet came (before the retransmission wait), 0 unknown
     };
     std::deque<VideoFrame> frames;
     std::atomic<bool> running{false};
@@ -98,6 +99,7 @@ struct StreamPlayer::Impl {
     std::atomic<uint64_t> vibrations{0}, lateFrames{0};
     std::atomic<uint64_t> triggerVibrations{0};
     std::atomic<uint64_t> displayUs{0}, displayCount{0}, displayMaxUs{0};
+    std::atomic<uint64_t> glassUs{0}, glassCount{0}, glassMaxUs{0};  // first packet to the screen
     std::atomic<uint64_t> decodeUs{0}, decodeCalls{0}, decodeMaxUs{0}, drawUs{0}, drawCalls{0}, drawMaxUs{0};
     std::atomic<uint64_t> qpSumX100{0}, qpCount{0};  // pictures' quantiser since the last stats()
     int decodeThreads = 1;
@@ -131,6 +133,8 @@ struct StreamPlayer::Impl {
 
     media::AudioIn audioIn;
     media::AudioEncoder audioEncoder;
+    std::atomic<bool> highRefreshOutput{false};  // setHighRefreshOutput()
+    std::atomic<bool> legacy{false};             // setLegacyTuning()
     std::atomic<bool> micEnabled{true};
     std::atomic<bool> micMuted{false};
     std::atomic<float> micGain{1.0f};
@@ -205,9 +209,9 @@ struct StreamPlayer::Impl {
         }
         if (!audioIn.isRecording()) {
             if (!encoderInitialized) {
-                // 10 ms packets: the voice waits half as long to go out (20 ms
-                // before 2026-11-04).
-                encoderInitialized = audioEncoder.init(24000, 10);
+                // 10 ms packets: the voice waits half as long to go out
+                // (20 ms before 2026-11-04, the legacy A/B baseline).
+                encoderInitialized = audioEncoder.init(24000, legacy ? 20 : 10);
                 if (!encoderInitialized) {
                     XC_LOGW("audio encoder: Opus init failed, mic input & meter will still operate");
                 }
@@ -297,10 +301,65 @@ struct StreamPlayer::Impl {
         }
     }
 
+    // The sound's delay: what waits in the audio queue. Once a second, if
+    // even its lowest point over the last 5 s stayed above the target, up to
+    // 20 ms is cut out (crossfaded); a pull that found it dry raises the
+    // target 10 ms (up to 100), a minute without one lowers it 5 (down to
+    // 40). A network burst would otherwise leave the sound that much later
+    // for good (it sat at ~100 ms).
+    struct AudioLatency {
+        uint64_t nextMs = 0, calmSinceMs = 0;
+        int targetMs = 40;
+        bool warm = false;  // past the first 3 s, while the queue fills
+        size_t lows[5] = {SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX, SIZE_MAX};  // each second's lowest
+        size_t lowNext = 0;
+        void reset() {
+            nextMs = 0, targetMs = 40, warm = false, lowNext = 0;
+            for (size_t& l : lows) l = SIZE_MAX;
+            media::audioQueue().setRefill(0);
+        }
+        void update(uint64_t now) {
+            auto& q = media::audioQueue();
+            if (!nextMs) nextMs = now + 3000;
+            q.setRefill(static_cast<size_t>(targetMs) * 48);  // what a dry queue fills back to
+            if (now < nextMs) return;
+            nextMs = now + 1000;
+            if (!warm) {
+                warm = true, calmSinceMs = now;
+                q.takeUnderruns(), q.takeLowWater();  // the start's own
+                return;
+            }
+            const uint64_t dry = q.takeUnderruns();
+            lows[lowNext++ % 5] = q.takeLowWater();
+            if (dry) {
+                if (targetMs < 100) {
+                    targetMs = std::min(targetMs + 10, 100);
+                    XC_LOGI("audio: ran dry (%llu grains), target %d ms", static_cast<unsigned long long>(dry), targetMs);
+                }
+                calmSinceMs = now;
+                return;
+            }
+            if (now - calmSinceMs >= 60000 && targetMs > 40) {
+                targetMs -= 5, calmSinceMs = now;
+                XC_LOGI("audio: steady for a minute, target %d ms", targetMs);
+            }
+            if (lowNext < 5) return;  // 5 s seen first
+            size_t low = SIZE_MAX;
+            for (size_t l : lows) low = std::min(low, l);
+            const size_t target = static_cast<size_t>(targetMs) * 48;
+            if (low != SIZE_MAX && low > target + 480) {
+                const size_t cut = std::min<size_t>(low - target, 960);
+                if (q.cutAhead(cut))
+                    for (size_t& l : lows) l = l == SIZE_MAX ? l : l - std::min(l, cut);  // the queue is that much shorter
+            }
+        }
+    } audioLatency;
+
     void audioLoop() {
         platform::setThreadAffinity(platform::ThreadRole::Audio, "xcloud_adec");
         platform::setThreadRealtimePriority();
         audioDecoder.resetPlc();
+        audioLatency.reset();
         QueuedAudioPacket packet;
         bool first = true;
         uint32_t lastRtpTimestamp = 0;
@@ -375,16 +434,15 @@ struct StreamPlayer::Impl {
                 XC_LOGI("first audio packet decoded: %zu samples", pcm.size() / 2);
             }
             if (decoded) {
-                // When audio buffer builds up beyond healthy headroom (>= 100 ms) due to network bursts,
-                // decode stale packets in Opus to preserve continuous LPC/CELT filter history,
-                // but skip pushing into AudioQueue until queue drains to healthy target (~60 ms).
-                // This keeps audio latency at ~40-60 ms, perfectly in sync with 22-25 ms video,
-                // and completely eliminates 240-700 ms bufferbloat cuts.
-                size_t queued = media::audioQueue().queuedFrames();
-                if (queued >= kOpusFrameSamples * 5) {
-                    continue;
+                if (legacy) {
+                    // Before 2026-11-04 (A/B baseline): a packet dropped whole
+                    // past 100 ms queued, which left the queue at ~100 ms.
+                    if (media::audioQueue().queuedFrames() >= kOpusFrameSamples * 5) continue;
+                    media::audioPush(pcm.data(), pcm.size() / 2);
+                } else {
+                    media::audioPush(pcm.data(), pcm.size() / 2);
+                    audioLatency.update(platform::nowMs());
                 }
-                media::audioPush(pcm.data(), pcm.size() / 2);
             }
         }
     }
@@ -533,14 +591,50 @@ struct StreamPlayer::Impl {
         if (hwProbe && !decoder.isHardware()) XC_LOGI("hwdec: probe %s", hwOk ? "running" : "failed to start");
         uint64_t hwUs = 0, hwMaxUs = 0, hwPictures = 0, hwCalls = 0, hwLogAt = platform::nowMs() + 1000;
         constexpr uint64_t kShownRing = 8;
-        std::pair<uint64_t, uint64_t> inScreenQueue[kShownRing] = {};  // present id, arrival us
-        uint64_t lastShownId = 0;
+        struct OnItsWay {
+            uint64_t id = 0, arrivalUs = 0, firstPacketUs = 0;
+        };
+        OnItsWay inScreenQueue[kShownRing] = {};  // presented, not yet known on the screen
+        uint64_t lastShownId = 0, lastPresentedId = 0;
         uint64_t lastFramePresentUs = 0;
         const uint64_t maxLagUs = uint64_t{display::caps().maxVideoLagMs} * 1000;
         bool lagAwaitingIdr = false;
+        // Display latency: from the frame's arrival (and from its first
+        // packet) to the TV, once the GPU says it is on the screen.
+        auto noteShown = [&] {
+            uint64_t shownId = 0, shownAt = 0;
+            if (!display::lastShown(shownId, shownAt) || shownId == lastShownId) return;
+            lastShownId = shownId;
+            const auto& q = inScreenQueue[shownId % kShownRing];
+            if (q.id != shownId) return;
+            if (shownAt > q.arrivalUs) {
+                uint64_t lat = shownAt - q.arrivalUs;
+                displayUs += lat;
+                ++displayCount;
+                atomicMax(displayMaxUs, lat);
+            }
+            if (q.firstPacketUs && shownAt > q.firstPacketUs) {
+                uint64_t lat = shownAt - q.firstPacketUs;
+                glassUs += lat;
+                ++glassCount;
+                atomicMax(glassMaxUs, lat);
+            }
+        };
         while (running) {
             {
                 std::unique_lock<std::mutex> lock(mutex);
+                // While a frame is on its way to the screen, look every 2 ms
+                // (the GPU is asked without waiting) so its time is known
+                // within 2 ms instead of at the next frame.
+                while (running && frames.empty() && lastPresentedId > lastShownId) {
+                    if (cv.wait_for(lock, std::chrono::milliseconds(2)) == std::cv_status::no_timeout) continue;
+                    lock.unlock();
+                    {
+                        std::lock_guard<std::recursive_mutex> displayLock(display::frameMutex());
+                        noteShown();
+                    }
+                    lock.lock();
+                }
                 cv.wait(lock, [&] { return !running || !frames.empty(); });
                 if (!running) break;
                 frame = std::move(frames.front());
@@ -658,16 +752,22 @@ struct StreamPlayer::Impl {
                 presentCv.notify_one();
                 continue;
             }
-            // When a burst of frames arrives after network wait/jitter, fast-forward decode
-            // stale frames in FFmpeg without waiting for vblank present, keeping reference
-            // picture state intact while draining backlog in ~3.4ms per frame.
-            // Present only once caught up to the live edge (backlog <= 1).
+            // Behind the live edge (frames that came at once after a pause in
+            // delivery or a retransmission): the frame is decoded, keeping the
+            // references, but not shown. At 120 Hz a couple of frames are shown
+            // instead (a refresh or two drains them); a longer backlog, or a
+            // frame already over 35 ms old with others waiting, is skipped. At
+            // 60 Hz a second frame waiting is skipped: showing it would hold
+            // the next ones back a refresh.
             size_t pendingFrames = 0;
             {
                 std::lock_guard<std::mutex> lock(mutex);
                 pendingFrames = frames.size();
             }
-            if (pendingFrames > 1) {
+            const bool behind = highRefreshOutput && !legacy
+                                    ? pendingFrames > 2 || (pendingFrames > 0 && platform::nowUs() - frame.arrivalUs > 35000)
+                                    : pendingFrames > 1;
+            if (behind) {
                 ++droppedFrames;
                 continue;
             }
@@ -706,21 +806,10 @@ struct StreamPlayer::Impl {
                 }
             }
             lastFramePresentUs = t3;
-            // Display latency: network arrival to the TV, once the GPU says
-            // the frame is on the screen (a frame or so later).
             if (uint64_t id = display::lastPresentId()) {
-                inScreenQueue[id % kShownRing] = {id, frame.arrivalUs};
-                uint64_t shownId = 0, shownAt = 0;
-                if (display::lastShown(shownId, shownAt) && shownId != lastShownId) {
-                    lastShownId = shownId;
-                    const auto& q = inScreenQueue[shownId % kShownRing];
-                    if (q.first == shownId && shownAt > q.second) {
-                        uint64_t lat = shownAt - q.second;
-                        displayUs += lat;
-                        ++displayCount;
-                        atomicMax(displayMaxUs, lat);
-                    }
-                }
+                inScreenQueue[id % kShownRing] = {id, frame.arrivalUs, frame.firstPacketUs};
+                lastPresentedId = id;
+                noteShown();
             }
             meta.renderedMs = stream::clockMs();
             if (auto s = current(); s && known) s->reportFrame(meta);
@@ -733,6 +822,7 @@ struct StreamPlayer::Impl {
             ++drawCalls;
             atomicMax(drawMaxUs, t3 - t2);
             if (decodedFrames == 1) XC_LOGI("first frame presented");
+            if (imageTestWanted.exchange(false)) imageTest(pic, drawPic);
         }
     }
 
@@ -741,7 +831,7 @@ struct StreamPlayer::Impl {
         if (!media::audioStart()) XC_LOGW("no audio output: playing without sound");
 
         stream::StreamCallbacks cb;
-        cb.video = [this](const uint8_t* d, size_t n, uint32_t rtpTimestamp) {
+        cb.video = [this](const uint8_t* d, size_t n, uint32_t rtpTimestamp, uint64_t firstPacketUs) {
             if (n == 0) {  // the depacketizer emits these after loss
                 keyframeWanted = true;
                 return;
@@ -770,7 +860,8 @@ struct StreamPlayer::Impl {
                 frames.clear();
                 keyframeWanted = true;
             }
-            frames.push_back({std::vector<uint8_t>(d, d + n), rtpTimestamp, stream::clockMs(), platform::nowUs()});
+            frames.push_back(
+                {std::vector<uint8_t>(d, d + n), rtpTimestamp, stream::clockMs(), platform::nowUs(), firstPacketUs});
             cv.notify_one();
         };
         cb.audio = [this](const uint8_t* d, size_t n, uint32_t rtpTimestamp) {
@@ -855,6 +946,7 @@ struct StreamPlayer::Impl {
             opts.maxBitrate = std::min(opts.maxBitrate, deviceCap);
             if (opts.resolutionAlias == "1080HQ") opts.resolutionAlias = "1080";
         }
+        if (legacy) opts.keyframeIntervalSec = 5;
         opts.simulatedVideoLoss = simulatedLoss;
         if (const char* loss = std::getenv("XC_SIM_LOSS")) opts.simulatedVideoLoss = std::atoi(loss);
         callbacks = cb;
@@ -975,6 +1067,45 @@ struct StreamPlayer::Impl {
     }
 
     // The scan-out buffer just presented, at full resolution.
+    // Measurements (autoplay "imgtest"): this picture drawn again with each
+    // look (upscaler, sharpening), a 1280x720 crop of the 4K output
+    // saved for each (img_<name>.ppm). The stream is left with the defaults.
+    std::atomic<bool> imageTestWanted{false};
+    template <class Draw>
+    void imageTest(const media::Picture& pic, const Draw& drawPic) {
+        struct Look {
+            const char* name;
+            int upscaler, sharpness;  // stream_screen.cpp's applyUpscaler mode, kSharpAmount
+        };
+        static constexpr Look kLooks[] = {
+            {"1_clean_med", 2, 176}, {"2_fsr_med", 0, 176},  {"3_clean_high", 2, 256}, {"4_clean_low", 2, 96},
+            {"5_clean_off", 2, 0},   {"6_fsr_off", 0, 0},    {"7_a4k_med", 1, 176},    {"8_a4k_clean_med", 3, 176},
+            {"9_default", 2, 176},
+        };
+        for (const Look& look : kLooks) {
+            display::setUpscaler(look.upscaler & 1);
+            display::setRestore(look.upscaler >= 2);
+            display::setSharpness(look.sharpness);
+            std::vector<uint8_t> rgb;
+            int w = 0, h = 0;
+            {
+                std::lock_guard<std::recursive_mutex> lock(display::frameMutex());
+                if (!drawPic(pic, true)) continue;
+                display::present();
+                if (!display::readBackRgb(rgb, w, h)) continue;
+            }
+            if (std::string(look.name) == "9_default") break;
+            const int cw = std::min(1280, w), ch = std::min(720, h), x0 = std::min(1100, w - cw), y0 = std::min(300, h - ch);
+            std::string data = "P6\n" + std::to_string(cw) + " " + std::to_string(ch) + "\n255\n";
+            for (int y = 0; y < ch; ++y)
+                data.append(reinterpret_cast<const char*>(rgb.data() + (static_cast<size_t>(y0 + y) * w + x0) * 3),
+                            static_cast<size_t>(cw) * 3);
+            const std::string path = platform::dataDir() + "/img_" + look.name + ".ppm";
+            XC_LOGI("image test: %s (%dx%d of %dx%d) %s", look.name, cw, ch, w, h,
+                    platform::writeFileAtomic(path, data) ? "saved" : "not saved");
+        }
+    }
+
     void saveScreen() {
         try {
             std::vector<uint8_t> rgb;
@@ -1182,6 +1313,8 @@ void StreamPlayer::dumpVideo(const std::string& path, int seconds) {
     XC_LOGI("dumping video to %s: %s", path.c_str(), impl_->dumpFile ? "ok" : "failed");
 }
 
+void StreamPlayer::requestImageTest() { impl_->imageTestWanted = true; }
+
 void StreamPlayer::requestSnapshot(const std::string& path) {
     std::lock_guard<std::mutex> lock(impl_->snapshotMutex);
     impl_->snapshotPath = path;
@@ -1222,6 +1355,9 @@ StreamPlayer::Stats StreamPlayer::stats() const {
     uint64_t dn = impl_->displayCount.exchange(0), du2 = impl_->displayUs.exchange(0);
     st.displayAvgUs = dn ? du2 / dn : 0;
     st.displayMaxUs = impl_->displayMaxUs.exchange(0);
+    uint64_t gn = impl_->glassCount.exchange(0), gu = impl_->glassUs.exchange(0);
+    st.glassAvgUs = gn ? gu / gn : 0;
+    st.glassMaxUs = impl_->glassMaxUs.exchange(0);
     if (auto s = impl_->current()) {
         const auto& v = s->videoStats();
         st.rtpPackets = v.packets;
@@ -1229,6 +1365,7 @@ StreamPlayer::Stats StreamPlayer::stats() const {
         st.rtpRecovered = v.recovered;
         st.rtpNacks = v.nacks;
         st.rtpDroppedFrames = v.framesDropped;
+        st.rtpGapMs = v.maxGapMs.exchange(0), st.rtpBurst = v.maxBurst.exchange(0), st.rtpLateMs = v.maxLateMs.exchange(0);
         st.keyframeRequests += v.keyframeRequests;
         st.rtpKbps = v.receiveRate / 1000;
         st.rttMs = s->rttMs();
@@ -1239,6 +1376,17 @@ StreamPlayer::Stats StreamPlayer::stats() const {
         st.queued = impl_->frames.size();
     }
     return st;
+}
+
+void StreamPlayer::setLegacyTuning(bool on) {
+    impl_->legacy = on;
+    if (on) XC_LOGI("stream: legacy tuning (measurement baseline)");
+}
+
+void StreamPlayer::setHighRefreshOutput(bool on) {
+    impl_->highRefreshOutput = on;
+    XC_LOGI("video: %s output, frames that come at once %s", on ? "120 Hz" : "60 Hz",
+            on ? "shown up to 2 behind" : "skipped from the second one waiting");
 }
 
 void StreamPlayer::setMicEnabled(bool enabled) {

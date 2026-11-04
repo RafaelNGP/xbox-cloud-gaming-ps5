@@ -173,6 +173,9 @@ std::atomic<bool> g_restore{false};  // Anime4K Restore before the upscale
 uint32_t g_frame = 0;
 uint32_t g_swapImages = 3;
 bool g_noPresentWait = true;
+// The longest a frame waits for the GPU or a free swapchain image (250 ms).
+constexpr uint64_t kGpuWaitNs = 250'000'000ull;
+uint32_t g_gpuTimeouts = 0;
 PFN_vkWaitForPresentKHR vkWaitForPresentKHR = nullptr;
 // The last frame known on the screen: its present id and when (us).
 std::atomic<uint64_t> g_shownId{0}, g_shownAtUs{0};
@@ -926,7 +929,13 @@ uint32_t asBits(float f) {
 bool beginFrame(bool wait) {
     if (!g.ready) return false;
     if (g.fencePending) {
-        vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, UINT64_MAX);
+        // The previous frame's GPU work, a few ms at most: bounded, so a hung
+        // GPU or display costs this frame (drawn on a later call) instead of
+        // freezing the video thread and, through the frame mutex, the app.
+        if (vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, kGpuWaitNs) == VK_TIMEOUT) {
+            if (g_gpuTimeouts++ % 60 == 0) XC_LOGW("gpu: the previous frame is still not done after 250 ms (%u times)", g_gpuTimeouts);
+            return false;
+        }
         g.fencePending = false;
     }
     if (g.frameOpen) return true;  // drawn twice without a present: draw over it
@@ -955,13 +964,15 @@ bool beginFrame(bool wait) {
         }
     }
     uint64_t t0 = platform::nowUs();
-    VkResult r = vkAcquireNextImageKHR(g.device, g.swapchain, wait ? UINT64_MAX : 0, g.acquired, VK_NULL_HANDLE,
+    VkResult r = vkAcquireNextImageKHR(g.device, g.swapchain, wait ? kGpuWaitNs : 0, g.acquired, VK_NULL_HANDLE,
                                        &g.frameIndex);
     if (r == VK_ERROR_OUT_OF_DATE_KHR && g.wsi.createSurface) {
         if (!recreateSwapchain()) return false;
-        r = vkAcquireNextImageKHR(g.device, g.swapchain, wait ? UINT64_MAX : 0, g.acquired, VK_NULL_HANDLE,
+        r = vkAcquireNextImageKHR(g.device, g.swapchain, wait ? kGpuWaitNs : 0, g.acquired, VK_NULL_HANDLE,
                                   &g.frameIndex);
     }
+    if (r == VK_TIMEOUT && wait && g_gpuTimeouts++ % 60 == 0)
+        XC_LOGW("gpu: no free image after 250 ms (%u times)", g_gpuTimeouts);
     if (r == VK_NOT_READY || r == VK_TIMEOUT) return false;
     if (r == VK_SUBOPTIMAL_KHR) g.needSwapchain = true;
     uint64_t waited = platform::nowUs() - t0;
@@ -1288,6 +1299,16 @@ void setPresentWait(bool on) { g_noPresentWait = !on; }
 uint64_t lastPresentId() { return g.presented; }
 
 bool lastShown(uint64_t& id, uint64_t& atUs) {
+    // What reached the screen since the last look, asked now without
+    // waiting (the thread that presents calls this, as beginFrame does).
+    if (g.ready && g.presentWait && g.swapchain && g.presented > g_shownId) {
+        for (uint64_t p = g.presented; p > g_shownId; --p)
+            if (vkWaitForPresentKHR(g.device, g.swapchain, p, 0) == VK_SUCCESS) {
+                g_shownAtUs = platform::nowUs();
+                g_shownId = p;
+                break;
+            }
+    }
     id = g_shownId;
     atUs = g_shownAtUs;
     return id != 0;
@@ -1309,7 +1330,7 @@ void setSwapImages(int count) { g_swapImages = static_cast<uint32_t>(std::clamp(
 bool readBack(std::vector<uint8_t>& rgb, int& width, int& height) {
     if (!g.ready || g.lastPresented == UINT32_MAX) return false;
     if (g.fencePending) {
-        vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, UINT64_MAX);
+        if (vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, 1'000'000'000ull) == VK_TIMEOUT) return false;
         g.fencePending = false;
     }
     size_t bytes = static_cast<size_t>(g.boxW) * g.boxH * 4;
@@ -1335,7 +1356,10 @@ bool readBack(std::vector<uint8_t>& rgb, int& width, int& height) {
     submit.pCommandBuffers = &g.cmd;
     vkResetFences(g.device, 1, &g.fence);
     if (vkQueueSubmit(g.queue, 1, &submit, g.fence) != VK_SUCCESS) return false;
-    vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, UINT64_MAX);
+    if (vkWaitForFences(g.device, 1, &g.fence, VK_TRUE, 1'000'000'000ull) == VK_TIMEOUT) {
+        g.fencePending = true;  // still the GPU's: the next frame waits for it
+        return false;
+    }
     width = static_cast<int>(g.boxW);
     height = static_cast<int>(g.boxH);
     rgb.resize(static_cast<size_t>(width) * height * 3);

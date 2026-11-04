@@ -16,7 +16,9 @@
 #include "xcloud/regions.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <vector>
 
@@ -107,6 +109,7 @@ std::string stream(xcloud::GssvClient& gssv) {
         XC_LOGI("stream: video decoder %s", preferHw ? "hardware preferred" : "software (CPU)");
         player.setMicGain(g_settings.micGainFactor());
         player.setMicEnabled(g_settings.micEnabled);
+        player.setLegacyTuning(g_autoplay.legacy);
         int cap = g_autoplay.bitrateMbps > 0 ? g_autoplay.bitrateMbps : g_settings.maxBitrateMbps;
         player.setMaxBitrate(cap);
         media::audioSetVolume(g_settings.gameVolume / 100.0f);
@@ -171,7 +174,37 @@ std::string stream(xcloud::GssvClient& gssv) {
         XC_LOGI("resolution probe (%s): %dp at most", gssv.isHome() ? "own Xbox" : "cloud", tallest);
     };
     app::StreamPlayer::Stats last{};
+    uint64_t nextSnapCheck = 0;
+    // A watch on this loop (issue #317: a PS4 stream froze for good with no
+    // line logged, the "no video" check never firing): past 5 s without a
+    // pass, which step it is stuck in goes into the log, once a stall.
+    struct LoopWatch {
+        std::atomic<const char*> step{"start"};
+        std::atomic<uint64_t> beatMs{platform::nowMs()};
+        std::atomic<bool> stop{false};
+        platform::Thread thread;
+        void run() {
+            bool told = false;
+            while (!stop) {
+                for (int i = 0; i < 10 && !stop; ++i) platform::sleepMs(100);
+                const uint64_t idle = platform::nowMs() - beatMs.load();
+                if (idle > 5000 && !told) {
+                    XC_LOGW("stream loop: stuck for %llu ms in \"%s\"", static_cast<unsigned long long>(idle), step.load());
+                    told = true;
+                } else if (idle <= 5000 && told) {
+                    XC_LOGW("stream loop: going again after \"%s\"", step.load());
+                    told = false;
+                }
+            }
+        }
+    } watch;
+    platform::startThread(watch.thread, [&watch] { watch.run(); }, 64u << 10);
+    auto beat = [&watch](const char* step) {
+        watch.step = step;
+        watch.beatMs = platform::nowMs();
+    };
     while (player.running() && !g_cancel) {
+        beat("loop");
         uint64_t elapsed = platform::nowMs() - started;
         if (!g_autoplay.title.empty()) {
             if (elapsed >= static_cast<uint64_t>(g_autoplay.seconds) * 1000u) {
@@ -186,6 +219,19 @@ std::string stream(xcloud::GssvClient& gssv) {
                          ((elapsed >= 22000 && elapsed < 22300) ||
                           (elapsed >= 26000 && elapsed < 26300) ||
                           (elapsed >= 70000 && (elapsed % 6000 < 300)));
+            if (g_autoplay.fnPlay) {
+                // Fortnite: nothing pressed for 150 s (the match is reached by
+                // hand, through the web gamepad, as Fortnite's lobby and its
+                // pop-ups change from one session to the next); then the
+                // camera keeps turning and the player runs for 4 s of every 10
+                // and jumps: motion like a game's, the same each run.
+                press = false;
+                const bool moving = elapsed >= 150000;
+                const float t = static_cast<float>(elapsed % 8000) / 8000.0f;
+                g_syntheticRightX = moving ? 0.7f * std::sin(t * 6.2831853f) : 0.0f;
+                g_syntheticLeftY = moving && elapsed % 10000 < 4000 ? -1.0f : 0.0f;
+                if (moving && elapsed % 10000 >= 4000 && elapsed % 10000 < 4200) press = true;
+            }
             if (press != g_syntheticA.exchange(press)) XC_LOGI("autoplay: A %s", press ? "down" : "up");
             static bool dropped = false;
             if (g_autoplay.dropTest && !dropped && elapsed >= 20000) {
@@ -204,6 +250,21 @@ std::string stream(xcloud::GssvClient& gssv) {
                 snapshot4 = true;
                 player.requestSnapshot(platform::dataDir() + "/frame4.ppm");
             }
+            static bool imageTested = false;
+            if (g_autoplay.imgTest && !imageTested && elapsed + 25000 >= static_cast<uint64_t>(g_autoplay.seconds) * 1000u) {
+                imageTested = true;
+                player.requestImageTest();
+            }
+            // A capture asked for from outside (the file snap.req appears): now.ppm.
+            if (elapsed >= nextSnapCheck) {
+                nextSnapCheck = elapsed + 500;
+                const std::string req = platform::dataDir() + "/snap.req";
+                std::string unused;
+                if (platform::readFile(req, unused)) {
+                    std::remove(req.c_str());
+                    player.requestSnapshot(platform::dataDir() + "/now.ppm");
+                }
+            }
             if (elapsed >= nextPeriodicShot) {
                 nextPeriodicShot = elapsed + 30000;
                 player.requestSnapshot(platform::dataDir() + "/frame" + std::to_string(periodicShotIdx++) + ".ppm");
@@ -213,12 +274,16 @@ std::string stream(xcloud::GssvClient& gssv) {
             uint64_t tickNow = platform::nowMs();
             double dt = lastTickAt ? (tickNow - lastTickAt) / 1000.0 : 1.0;
             nextTick = tickNow + 1000;
+            beat("player.tick (reconnects, keyframe requests)");
             player.tick();
+            beat("player.stats (counters, round trip)");
             auto st = player.stats();
+            beat("the stats line");
             XC_LOGI("stream: %llu frames, %llu decoded, %llu skipped, %llu failed, %llu resets, %llu kf req, "
                     "%llu queued, %llu audio; rtp %llu pkts, %llu lost, %llu recovered, %llu nacks, "
                     "%llu frames dropped; %llu kbps (remb %llu); %llu rumble; decode %.1f/%.1f ms (%s), draw %.1f/%.1f ms, %llu late; "
-                    "rtt %d ms; %dx%d; on screen %.1f/%.1f ms after arrival; qp %.1f",
+                    "rtt %d ms; %dx%d; on screen %.1f/%.1f ms after arrival; qp %.1f; packets %llu ms apart at most, "
+                    "%llu frames at once, a frame %llu ms late; first packet to screen %.1f/%.1f ms",
                     static_cast<unsigned long long>(st.videoFrames), static_cast<unsigned long long>(st.decodedFrames),
                     static_cast<unsigned long long>(st.droppedFrames), static_cast<unsigned long long>(st.decodeFailures),
                     static_cast<unsigned long long>(st.queueResets), static_cast<unsigned long long>(st.keyframeRequests),
@@ -230,7 +295,9 @@ std::string stream(xcloud::GssvClient& gssv) {
                     st.decodeAvgUs / 1000.0, st.decodeMaxUs / 1000.0, st.isHwDecode ? "HW" : "SW",
                     st.drawAvgUs / 1000.0, st.drawMaxUs / 1000.0,
                     static_cast<unsigned long long>(st.lateFrames), st.rttMs, st.width, st.height,
-                    st.displayAvgUs / 1000.0, st.displayMaxUs / 1000.0, st.qpAvg);
+                    st.displayAvgUs / 1000.0, st.displayMaxUs / 1000.0, st.qpAvg,
+                    static_cast<unsigned long long>(st.rtpGapMs), static_cast<unsigned long long>(st.rtpBurst),
+                    static_cast<unsigned long long>(st.rtpLateMs), st.glassAvgUs / 1000.0, st.glassMaxUs / 1000.0);
             if (st.rttMs > 0 && (bestRtt < 0 || st.rttMs < bestRtt)) bestRtt = st.rttMs;
             tallest = std::max(tallest, st.height);
             if (!probeDone && platform::nowMs() - started >= 20000) {
@@ -292,8 +359,11 @@ std::string stream(xcloud::GssvClient& gssv) {
             }
             last = st;
         }
+        beat("sleep");
         platform::sleepMs(100);
     }
+    watch.stop = true;
+    if (watch.thread.joinable()) watch.thread.join();
     {
         std::lock_guard<std::mutex> lock(g_playerMutex);
         g_player = nullptr;
@@ -361,7 +431,8 @@ std::string stream(xcloud::GssvClient& gssv) {
     bool normalEnd = g_cancel || autoplayDone || reason == "stopped" ||
                      reason.find("KickForStopCommand") != std::string::npos ||
                      reason.find("KickByNewSession") != std::string::npos ||
-                     reason.find("KickForServerShutdown") != std::string::npos;
+                     reason.find("KickForServerShutdown") != std::string::npos ||
+                     reason.find("KickForBeingIdle") != std::string::npos;
     if (!normalEnd) {
         g_gameClosedOnServer = reason.rfind("the game closed on the server", 0) == 0;
         return "ERROR: " + ui::trf(ui::Str::StreamFailed, reason);

@@ -174,7 +174,7 @@ int cmdStream(auth::AuthManager& am, const std::string& titleId, int seconds, co
     std::atomic<uint64_t> videoFrames{0}, videoBytes{0}, audioPackets{0}, keyFrames{0};
     std::atomic<bool> closed{false};
     stream::StreamCallbacks cb;
-    cb.video = [&](const uint8_t* d, size_t n, uint32_t) {
+    cb.video = [&](const uint8_t* d, size_t n, uint32_t, uint64_t) {
         ++videoFrames;
         videoBytes += n;
         // An IDR slice (NAL type 5) after a 4-byte start code anywhere in the AU.

@@ -1570,6 +1570,22 @@ static void testAudioEncoder() {
 // A burst of loss: a frame lost for good, then a frame with a hole of its
 // own, then a complete key frame. The receiver must resume at that key frame
 // (it used to stop at the frame with the hole: a freeze of seconds).
+// The wait for a retransmission follows the round trip: none known keeps
+// the default; a slow connection gets time for a NACK and a second try.
+static void testH264LossWaitFollowsRtt() {
+    xc::stream::VideoReceiveStats stats;
+    xc::stream::H264Receiver rx([] {}, stats);
+    CHECK(rx.lossWaitMs() == 90 && rx.renackMs() == 50);
+    rx.setRttMs(15);  // this console's connection: as before
+    CHECK(rx.lossWaitMs() == 90 && rx.renackMs() == 50);
+    rx.setRttMs(68);  // issue #317 (PS4): 166 ms, a second NACK after 78
+    CHECK(rx.lossWaitMs() == 166 && rx.renackMs() == 78);
+    rx.setRttMs(141);  // issue #342: 300 ms at most
+    CHECK(rx.lossWaitMs() == 300 && rx.renackMs() == 151);
+    rx.setRttMs(-1);  // not measured any more: the default again
+    CHECK(rx.lossWaitMs() == 90);
+}
+
 static void testH264Resync() {
     xc::stream::VideoReceiveStats stats;
     int keyframeAsks = 0;
@@ -2387,6 +2403,49 @@ static void testDrawNv12() {
 
 // The audio queue: bounded at ~250 ms (cut back to 140 ms, oldest first),
 // silence past its end, the volume, and what the periodic log counts.
+static void testAudioQueueLatency() {
+    media::AudioQueue q;
+    q.open();
+    CHECK(q.takeLowWater() == SIZE_MAX && q.takeUnderruns() == 0);
+    std::vector<float> out(512);
+    q.pull(out.data(), 256);  // before any sound: not a dry pull
+    CHECK(q.takeUnderruns() == 0);
+    std::vector<float> tone(4800 * 2, 0.5f);  // 100 ms, constant
+    q.push(tone.data(), 4800);
+    q.pull(out.data(), 256);
+    q.pull(out.data(), 256);
+    CHECK(q.takeLowWater() == 4800 - 256);  // the lowest seen at a pull
+    CHECK(q.takeLowWater() == SIZE_MAX);
+    const size_t before = q.queuedFrames();
+    CHECK(q.cutAhead(960));
+    CHECK(q.queuedFrames() == before - 960);
+    // Both sides of the cut were 0.5: the crossfade keeps it 0.5, no click.
+    std::vector<float> rest(before * 2);
+    q.pull(rest.data(), q.queuedFrames());
+    bool flat = true;
+    for (size_t i = 0; i < (before - 960) * 2; ++i) flat &= std::abs(rest[i] - 0.5f) < 1e-4f;
+    CHECK(flat);
+    CHECK(!q.cutAhead(960));  // nothing queued
+    q.pull(out.data(), 256);  // dry, after sound
+    CHECK(q.takeUnderruns() == 1);
+    q.clear();
+    q.pull(out.data(), 256);
+    CHECK(q.takeUnderruns() == 0);  // cleared: not started again
+
+    // A refill level: after running dry the sound waits for 40 ms queued.
+    q.setRefill(1920);
+    q.push(tone.data(), 300);  // 6 ms: plays out, then dry
+    q.pull(out.data(), 256);
+    q.pull(out.data(), 256);   // dry: refilling (one event, not one per grain)
+    CHECK(q.takeUnderruns() == 1);
+    q.push(tone.data(), 960);  // 20 ms: under the level, still silent
+    q.pull(out.data(), 256);
+    CHECK(out[100] == 0.0f && q.queuedFrames() == 960 && q.takeUnderruns() == 0);
+    q.push(tone.data(), 1200);  // 45 ms queued: resumes, ramping in
+    q.pull(out.data(), 256);
+    CHECK(out[0] == 0.0f && std::abs(out[400] - 0.5f) < 1e-4f && q.queuedFrames() == 2160 - 256);
+}
+
 static void testAudioQueue() {
     media::AudioQueue q;
     std::vector<float> in(48 * 2 * 10, 0.25f);  // 10 ms
@@ -6995,6 +7054,7 @@ int main() {
     testVisibleSettingsRows();
     testMissingFont();
     testNullBackendsM1();
+    testAudioQueueLatency();
     testAudioQueue();
     testMicPipeline();
     testDs5TriggerEffects();
@@ -7016,6 +7076,7 @@ int main() {
     testSubscriptionPlan();
     testMicrosoftHost();
     testAudioEncoder();
+    testH264LossWaitFollowsRtt();
     testH264Resync();
     testH264PaddingPacket();
     testAudioDecoderEmptyPacket();
