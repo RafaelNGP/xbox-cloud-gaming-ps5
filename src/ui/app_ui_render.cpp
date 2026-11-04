@@ -73,17 +73,22 @@ void AppUi::drawCloudTime(Canvas& c, int x, int y) {
     end = fonts_.semibold.draw(c, " " + trf(Str::CloudTimeOf, formatCloudTime(playtimeMax_)), end, ty, kPx, kDim);
     // As wide as the brand name, or the line when that is longer.
     const int w = std::max(fonts_.semibold.measure(tr(Str::CloudGaming), 22), end - x);
-    const Rect bar{x, y + kLineH + 4, w, 4};
+    const Rect bar{x, y + kLineH + 2, w, 4};
     c.fillRect(bar, rgba(255, 255, 255, 36), 2);
     const double f = std::clamp(static_cast<double>(playtimeRemaining_) / static_cast<double>(playtimeMax_), 0.0, 1.0);
     if (const int fw = static_cast<int>(w * f + 0.5); fw > 0) c.fillRect({x, bar.y, std::max(fw, 4), bar.h}, col, 2);
 }
 
 void AppUi::drawTopBar(Canvas& c) {
+    const bool hasCloudTime = playtimeUnlimited_ || playtimeRemaining_ >= 0;
     drawLogo(c, kMargin + 22, 72, 22);
-    fonts_.semibold.draw(c, tr(Str::CloudGaming), kMargin + 64, 60, 22, kWhite);
 
-    drawCloudTime(c, kMargin + 64, 86);
+    if (hasCloudTime) {
+        fonts_.semibold.draw(c, tr(Str::CloudGaming), kMargin + 64, 45, 22, kWhite);
+        drawCloudTime(c, kMargin + 64, 73);
+    } else {
+        fonts_.semibold.draw(c, tr(Str::CloudGaming), kMargin + 64, 60, 22, kWhite);
+    }
 
     int x = kW - kMargin;
     constexpr int kAvatar = 52;
