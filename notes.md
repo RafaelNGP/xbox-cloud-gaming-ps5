@@ -36,7 +36,7 @@
 - Download `PSBoxCloudGaming[PS4]-v1.6.0.pkg`, copy it to the root of a USB drive (exFAT/FAT32), and install via *Settings > GoldHEN > Package Installer*.
 
 **Installation on Linux**:
-- Download `PSBox-v1.6.0-linux-x86_64.tar.gz`, unpack it anywhere and run `PSBox/psbox` (`PSBox/README-linux.txt` has the details).
+- Download `PSBox-v1.6.0-linux-x86_64.AppImage`, make it executable (`chmod +x`) and run it. It also works on the Steam Deck, in Desktop and Game modes.
 
 <!-- LANG:PT -->
 # PSBox Cloud Gaming v1.6.0 (Português)
@@ -76,4 +76,4 @@
 - Baixe o `PSBoxCloudGaming[PS4]-v1.6.0.pkg`, copie para a raiz de um pendrive USB (exFAT/FAT32) e instale pelo console em *Configurações > GoldHEN > Package Installer*.
 
 **Instalação no Linux**:
-- Baixe o `PSBox-v1.6.0-linux-x86_64.tar.gz`, descompacte onde quiser e rode `PSBox/psbox` (detalhes em `PSBox/README-linux.txt`).
+- Baixe o `PSBox-v1.6.0-linux-x86_64.AppImage`, torne-o executável (`chmod +x`) e execute. Funciona também no Steam Deck, nos modos Desktop e Jogo.
