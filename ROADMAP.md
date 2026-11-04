@@ -29,7 +29,7 @@ Status: **Em andamento (next)**, **Planejado (planned)**, **Futuro (later)**, **
 - **Implementação**: Pacotes de microfone com framing de 10 ms (cortando a latência de envio pela metade para ~10.5 ms) com métricas de temporização no log.
 
 ### 5. Estabilidade de Stream e Fila Adaptativa de Áudio — *done (v1.6.0)* (#317)
-- **Implementação**: Redução drástica de ~75% de skipped frames, buffer adaptativo de 59–62 ms e proteção por watchdog de 5s.
+- **Implementação**: ~75% menos quadros pulados; fila de áudio adaptativa (alvo de 40–100 ms; de ~98 para ~60 ms em média nos testes com Fortnite) que volta suave depois de uma falha; espera por pacotes reenviados que acompanha o ping; e registro no log de onde a transmissão trava por mais de 5 s.
 
 ### 6. Cotas de Tempo de Nuvem e Avisos em Jogo — *done (v1.6.0)* (#342)
 - **Implementação**: Suporte a limites de tempo mensal de nuvem (parser de horas restantes e totais, exibição na barra superior centralizada, avisos a 15m/5m e tela amigável com QR Code).
@@ -45,12 +45,14 @@ Port dedicado e otimizado para consoles PlayStation 4 com jailbreak (firmwares 9
 - **Pipeline de Vídeo e Áudio**: Decodificação H.264 por hardware via `libSceVideodec2` em Direct Memory Onion/Garlic, renderizador 2D por software com 4 threads SIMD SSE4.2 (cópia zero de overlay via `shared_ptr`) e saída de áudio DMA com dreno limpo.
 - **Controles e Periféricos**: Suporte completo ao DualShock 4 com rumble de motores duplos, lightbar, touchpad e giroscópio.
 
-### 2. Suporte Nativo a Controles USB no PS5 (8BitDo 2.4G, Xbox, DS4, Fightsticks) — *done (v1.6.0)*
-Leitura direta de nós USB HID e interrupção no kernel do PS5 (`/dev/uhid*`, `/dev/ugen*`), contornando a whitelist restritiva da `libScePad` da Sony que exige coprocessadores criptográficos proprietários:
-- **8BitDo Ultimate 2.4G**: Suporte nativo ao dongle USB em modo D-Input e X-Input.
-- **DualShock 4 USB**: Liberação de controles de PS4 no PS5 para Jogador 1 ou multiplayer local (P2..P4).
-- **Controles Xbox**: Suporte a Xbox 360 (com fio ou receptor sem fio USB), Xbox One e Series via USB-C.
-- **Fightsticks & Arcade**: Mapeamento direto de controles arcade HID genéricos de 14/16 botões.
+### 2. Suporte Nativo a Controles USB no PS5 — *parcial (v1.6.0)*
+Leitura direta pelo `/dev/ugen*` com ioctls `USB_FS`, contornando a `libScePad` (o `/dev/uhid*` não existe no PS5).
+- **Entregue na v1.6.0**: controles **Xbox Series** no cabo (GIP) e controles/dongles **XInput** (ex: **8BitDo Ultimate 2.4G** no modo X-Input). Cada controle é um jogador, na ordem em que conecta; Xbox/Home abre o menu do jogo daquele jogador e Xbox/Home + LB/RB troca o jogador.
+- **Falta**:
+  - **DualShock 4 USB**.
+  - **Xbox 360 com receptor sem fio** e **Adaptador Sem Fio Xbox** (protocolos diferentes).
+  - **8BitDo em D-Input, fightsticks e controles HID genéricos** (exige ler o descritor HID).
+  - Vibração nos controles USB, ícones de botões do Xbox e teste do controle de Xbox One no cabo.
 
 ### 3. Multi-Phone WebUI Controllers (P1..P4) & Layout Studio — *next*
 Expansão do servidor local integrado (porta 8080) para multiplayer cooperativo local sem custos de hardware:
@@ -86,9 +88,6 @@ Superar a limitação de partição somente-leitura (`/user/app/`) do Orbis OS p
 ### 4. Atalhos Diretos na Tela Inicial do PS5 (Home-Screen Forwarders) — *later*
 - Criação de atalhos individuais na dashboard principal do PS5 para iniciar títulos específicos em nuvem diretamente, utilizando o formato ProsperoLight forwarder.
 
-### 5. Acompanhamento de Quota Mensal de Nuvem — *later*
-- Suporte no cliente já implementado (`AuthManager::fetchPlaytimeLimit`); aguardando ativação oficial das quotas mensais pela Microsoft para exibir tempo restante no perfil.
-
 ---
 
 ## 🚫 Decisões Técnicas e Recursos Descartados (Dropped)
@@ -106,7 +105,13 @@ Superar a limitação de partição somente-leitura (`/user/app/`) do Orbis OS p
 
 Para o histórico completo e detalhado de todas as versões anteriores (v0.3.0 até v1.4.0), consulte as [Releases Oficiais no GitHub](https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/releases).
 
-- **v1.5.5** *(Atual)*:
+- **v1.6.0** *(Atual)*:
+  - **Controles USB no PS5**: Xbox Series no cabo e controles/dongles XInput (8BitDo Ultimate 2.4G), cada um como seu próprio jogador.
+  - **Horas de jogo na nuvem** (#342): tempo restante na barra superior, avisos aos 15 e 5 minutos, e tela explicativa com QR quando o tempo acaba.
+  - **Microfone em pacotes de 10 ms** (#187): latência de codificação de ~21 para ~10,5 ms.
+  - **Transmissão** (#317): ~75% menos quadros pulados, áudio com menos atraso e recuperação suave, espera por pacotes reenviados que acompanha o ping.
+  - **README** com foco no PS5 e instalação pela RecompStore e Prospero Store.
+- **v1.5.5**:
   - **Eliminação do Falso Positivo de "46 Novos Jogos" & Boot Instantâneo**: Persistência integral de todos os produtos do catálogo em `library_cache.json` (`knownProducts_`), cálculo estrito de adições reais ao catálogo e liberação imediata da Splash Screen (`showHome()`) com sincronização diferencial não-bloqueante em segundo plano.
   - **Cursor do Mouse sem Duplicação no Desktop**: Chamada a `SDL_HideCursor()` no backend SDL3, ocultando o cursor de hardware nativo do sistema operacional e preservando exclusivamente o cursor vetorial suave da interface.
   - **Atualização Automática de Estantes do Game Pass**: Sincronização em segundo plano dos feeds SIGL ("Novidades", "Mais populares", "Streaming gratuito", "Saindo em breve") no `syncDelta` sem necessidade de refresh manual (<kbd>L3</kbd>).
