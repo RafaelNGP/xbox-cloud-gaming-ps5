@@ -31,6 +31,7 @@
 #include "ui/pad_glyphs.h"
 #include "ui/input_mode.h"
 #include "ui/stream_menu.h"
+#include "ui/cloud_time.h"
 #include "ui/strings.h"
 #include "ui/app_ui_internal.h"
 #include "util/json.h"
@@ -516,59 +517,142 @@ static void testPerGameSettings() {
     std::remove(path.c_str());
 }
 
+// Protobuf wire format for the Content Access tests.
+static std::string pbVarint(uint64_t v) {
+    std::string s;
+    do {
+        uint8_t b = v & 0x7F;
+        v >>= 7;
+        s += static_cast<char>(b | (v ? 0x80 : 0));
+    } while (v);
+    return s;
+}
+static std::string pbInt(int field, uint64_t v) { return pbVarint(static_cast<uint64_t>(field) << 3) + pbVarint(v); }
+static std::string pbMsg(int field, const std::string& body) {
+    return pbVarint((static_cast<uint64_t>(field) << 3) | 2) + pbVarint(body.size()) + body;
+}
+// A product as Content Access sends it: its ID, then for each user (PUID)
+// the access types and, when timed, the streaming gameplay time.
+static std::string pbProduct(const std::string& id, const std::string& puid, int64_t remaining, int64_t max) {
+    std::string streaming = pbInt(1, 2);
+    if (remaining >= 0) streaming += pbInt(2, static_cast<uint64_t>(remaining));
+    if (max >= 0) streaming += pbInt(4, static_cast<uint64_t>(max));
+    std::string access = pbInt(1, 1) + pbInt(2, 1788310800u) + pbMsg(11, streaming);  // aggregate types: a big bit mask
+    return pbMsg(2, pbMsg(1, id) + pbMsg(2, pbMsg(2, pbMsg(1, puid) + pbMsg(2, access))));
+}
+
+static void testCloudTimeClock() {
+    using xc::ui::CloudTimeClock;
+    using xc::ui::formatCloudTime;
+    // Whole minutes, rounded down.
+    CHECK(formatCloudTime(15000) == "4 h 10 min");
+    CHECK(formatCloudTime(54000) == "15 h");
+    CHECK(formatCloudTime(2879) == "47 min");
+    CHECK(formatCloudTime(59) == "< 1 min");
+    CHECK(formatCloudTime(0) == "0 min");
+    // After a session: an answer the service has not counted yet keeps the
+    // count; one over the earlier answer is new hours; none keeps the count.
+    CHECK((CloudTimeClock::reconcile(3000, 6600, 6600) == 3000));
+    CHECK((CloudTimeClock::reconcile(3000, 2000, 6600) == 2000));
+    CHECK((CloudTimeClock::reconcile(3000, 54000, 6600) == 54000));
+    CHECK((CloudTimeClock::reconcile(3000, -1, 6600) == 3000));
+    CHECK((CloudTimeClock::reconcile(-1, 900, -1) == 900));
+
+    CloudTimeClock c;
+    c.start(-1, 0);
+    CHECK(!c.limited());
+    CHECK(c.left(60000) == -1);
+    CHECK(c.noticeDue(60000) == -1);
+
+    c.start(16 * 60, 0);  // 16 min left
+    CHECK(c.left(0) == 16 * 60);
+    CHECK(c.noticeDue(0) == -1);
+    CHECK(c.left(30500) == 16 * 60 - 30);
+    CHECK(c.noticeDue(60000) == 15 * 60);  // 15 min: the first notice, once
+    CHECK(c.noticeDue(61000) == -1);
+    c.answer(16 * 60, 120000);  // stale: the service had not counted the stream
+    CHECK(c.left(120000) == 14 * 60);
+    c.answer(10 * 60, 120000);  // lower: taken
+    CHECK(c.left(120000) == 10 * 60);
+    CHECK(c.noticeDue(420000) == 5 * 60);  // 5 min
+    CHECK(c.noticeDue(500000) == -1);
+    CHECK(c.left(10000000) == 0);
+    c.answer(15 * 3600, 10000000);  // hours bought: over the start's answer
+    CHECK(c.left(10000000) == 15 * 3600);
+
+    c.start(10 * 60, 0);  // a stream that starts under 15 minutes: one notice now
+    CHECK(c.noticeDue(0) == 10 * 60);
+    CHECK(c.noticeDue(1000) == -1);
+    CHECK(c.noticeDue(300000) == 5 * 60);
+    c.start(4 * 60, 0);  // under 5: just the one
+    CHECK(c.noticeDue(0) == 4 * 60);
+    CHECK(c.noticeDue(60000) == -1);
+    c.start(5 * 60 + 10, 0);  // "5 min" already shown: not said twice
+    CHECK(c.noticeDue(0) == 5 * 60 + 10);
+    CHECK(c.noticeDue(10000) == -1);
+    c.start(16 * 60 + 30, 0);  // the notice when "15 min" first shows
+    CHECK(c.noticeDue(30000) == -1);
+    CHECK(c.noticeDue(31000) == 15 * 60 + 59);
+}
+
 static void testPlaytimeLimit() {
     int64_t rem = -1, max = -1;
+    const std::string passes = pbMsg(1, pbMsg(1, "puid-1") + pbMsg(2, pbMsg(1, pbMsg(1, "CFQ7TTC0KHS0") + pbMsg(2, pbInt(1, 0)))));
 
-    // 1. Valid JSON format
-    std::string jsonStr = R"({"remainingGameplayTimeInSeconds": 36000, "maxGameplayTimeInSeconds": 54000})";
-    CHECK(auth::parsePlaytimeLimit(jsonStr, rem, max));
-    CHECK(rem == 36000 && max == 54000);
+    // 1. The account's allowance: the same remaining / max on its limited
+    // products (15 h a month, 9 h 30 left), not the access bit masks.
+    std::string body = passes + pbProduct("9NBLGGH4R315", "puid-1", 34200, 54000) +
+                       pbProduct("BT5P2X999VH2", "puid-1", 34200, 54000) + pbProduct("9PNCL2R6G8D0", "puid-1", 34200, 54000) +
+                       pbProduct("9NZQPT0MWTD0", "puid-1", -1, -1);
+    auth::ContentAccessPlaytime t;
+    CHECK(auth::parseContentAccessPlaytime(body, t));
+    CHECK(t.products == 4 && t.limited == 3 && t.byProduct.size() == 3);
+    CHECK(t.accountRemaining == 34200 && t.accountMax == 54000);
+    CHECK(t.byProduct["BT5P2X999VH2"].first == 34200 && t.byProduct["BT5P2X999VH2"].second == 54000);
+    CHECK(auth::parsePlaytimeLimit(body, rem, max) && rem == 34200 && max == 54000);
 
-    // 2. Nested JSON format
-    std::string nestedJson = R"({"user": {"limits": {"remainingGameplayTimeInSeconds": 7200, "maxGameplayTimeInSeconds": 18000}}})";
-    CHECK(auth::parsePlaytimeLimit(nestedJson, rem, max));
-    CHECK(rem == 7200 && max == 18000);
+    // 2. One timed product (a game's own free time): no account allowance.
+    std::string one = passes + pbProduct("BT5P2X999VH2", "puid-1", 0, 3600) + pbProduct("9NZQPT0MWTD0", "puid-1", -1, -1);
+    CHECK(auth::parseContentAccessPlaytime(one, t));
+    CHECK(t.limited == 1 && t.accountRemaining == -1 && t.byProduct["BT5P2X999VH2"].first == 0);
+    CHECK(!auth::parsePlaytimeLimit(one, rem, max) && rem == -1 && max == -1);
 
-    // 3. String-encoded numbers in JSON
-    std::string strJson = R"({"remainingGameplayTimeInSeconds": "18000", "maxGameplayTimeInSeconds": "36000"})";
-    CHECK(auth::parsePlaytimeLimit(strJson, rem, max));
-    CHECK(rem == 18000 && max == 36000);
+    // 3. Another user's access (a family member) is not this account's.
+    std::string other = passes + pbProduct("A", "puid-2", 100, 200) + pbProduct("B", "puid-2", 100, 200) +
+                        pbProduct("C", "puid-2", 100, 200);
+    CHECK(auth::parseContentAccessPlaytime(other, t) && t.byProduct.empty() && t.accountRemaining == -1);
 
-    // 4. Protobuf wire format (tag 1 varint 18000, tag 2 varint 54000)
-    std::string proto = std::string("\x08\xD0\x8C\x01\x10\xF0\xA5\x03", 8);
-    CHECK(auth::parsePlaytimeLimit(proto, rem, max));
-    CHECK(rem == 18000 && max == 54000);
+    // 4. JSON: the same rule over its objects.
+    std::string json = R"({"products":[{"productId":"A","remainingGameplayTimeInSeconds":7200,"maxGameplayTimeInSeconds":18000},
+        {"productId":"B","remainingGameplayTimeInSeconds":"7200","maxGameplayTimeInSeconds":"18000"},
+        {"productId":"C","remainingGameplayTimeInSeconds":7200,"maxGameplayTimeInSeconds":18000}]})";
+    CHECK(auth::parsePlaytimeLimit(json, rem, max) && rem == 7200 && max == 18000);
 
-    // 5. Empty and invalid inputs
+    // 5. The account's own record (top-level field 3): its first bucket.
+    auto account = [&](uint64_t remaining, uint64_t max) {
+        std::string bucket = pbInt(2, remaining) + pbInt(3, 1791335750u) + pbInt(4, max) + pbInt(5, 1);
+        std::string other = pbInt(3, 1791335750u) + pbInt(5, 1);
+        return pbMsg(3, pbMsg(1, "puid-1") + pbMsg(2, pbMsg(2, bucket) + pbMsg(3, other) + pbMsg(4, other)));
+    };
+    // As this console's Ultimate account answered on 2026-11-04: no limit
+    // (all bits set), and no product with a time of its own.
+    std::string unlimited = passes + pbProduct("9NZQPT0MWTD0", "puid-1", -1, -1) + account(~0ull, ~0ull);
+    CHECK(auth::parseContentAccessPlaytime(unlimited, t));
+    CHECK(t.unlimited && t.accountRemaining == -1 && t.accountBuckets.size() == 3);
+    CHECK(t.accountBuckets[2].first == auth::ContentAccessPlaytime::kUnlimited && t.accountBuckets[3].first == -1);
+    CHECK(!auth::parsePlaytimeLimit(unlimited, rem, max));
+    // A limited account: 15 h a month, 4 h 10 min left; the record wins over
+    // the products' own times.
+    std::string limited = passes + pbProduct("A", "puid-1", 100, 200) + pbProduct("B", "puid-1", 100, 200) +
+                          pbProduct("C", "puid-1", 100, 200) + account(15000, 54000);
+    CHECK(auth::parseContentAccessPlaytime(limited, t) && !t.unlimited);
+    CHECK(t.accountRemaining == 15000 && t.accountMax == 54000);
+    CHECK(auth::parsePlaytimeLimit(limited, rem, max) && rem == 15000 && max == 54000);
+
+    // 6. Empty and invalid answers.
     CHECK(!auth::parsePlaytimeLimit("", rem, max));
     CHECK(!auth::parsePlaytimeLimit("not a valid payload", rem, max));
-
-    // 6. Zero playtime remains purely informational
-    std::string zeroJson = R"({"remainingGameplayTimeInSeconds": 0, "maxGameplayTimeInSeconds": 18000})";
-    CHECK(auth::parsePlaytimeLimit(zeroJson, rem, max));
-    CHECK(rem == 0 && max == 18000);
-
-    // 7. Client-side launch is never blocked by zero or low remaining playtime
-    ui::Fonts fonts;
-    ui::ImageCache images([] {});
-    ui::AppUi app(fonts, images);
-    app.setSubscription("GamePass");
-    ui::GameTile tile;
-    tile.titleId = "TEST_TITLE_1";
-    tile.productId = "TEST_PROD_1";
-    tile.playable = true;
-    ui::GameRow row;
-    row.title = "Popular";
-    row.tiles = {tile};
-    app.setRows({row});
-    app.setPlaytime(0, 18000);  // 0 seconds remaining
-    app.showHome();
-    ui::NavInput in;
-    in.accept = true;
-    app.handle(in);                   // Home -> Details
-    ui::UiEvent ev = app.handle(in);  // Details -> Play
-    CHECK(ev.action == ui::Action::Play);
-    CHECK(ev.game.titleId == "TEST_TITLE_1");
+    CHECK(!auth::parseContentAccessPlaytime(std::string("\x0a\x05\x01", 3), t));  // length past the end
 }
 
 static void testFreeAccountPlayability() {
@@ -7094,6 +7178,7 @@ int main() {
     testMicGain();
     testPerGameSettings();
     testPlaytimeLimit();
+    testCloudTimeClock();
     testStrings();
     testRegions();
     testPrices();

@@ -322,9 +322,9 @@ public:
     void setSearchPools(std::vector<GameTile> gamePass, std::vector<GameTile> library);
     // Measured round trip to each region, ms (shown in Settings).
     void setRegionLatency(std::map<std::string, int> ms);
-    // Cloud playtime limit telemetry (remaining and max in seconds, -1 unknown).
-    // Purely informative; never blocks launch or gameplay.
-    void setPlaytime(int64_t remainingSeconds, int64_t maxSeconds);
+    // The account's cloud time: remaining and max in seconds (-1 unknown), or
+    // `unlimited`. Purely informative; never blocks launch or gameplay.
+    void setPlaytime(int64_t remainingSeconds, int64_t maxSeconds, bool unlimited = false);
     // Store prices, formatted: productId -> {now, regular (empty unless on sale)}.
     void setPrices(const std::map<std::string, PriceInfo>& prices);
     // Saved preferences: hidden games, the "Your games" order, favorites, and wishlist.
@@ -517,6 +517,7 @@ private:
     void drawTopBar(Canvas& c);
     void drawLogo(Canvas& c, float cx, float cy, float r);
     void drawGamerscoreBadge(Canvas& c, float cx, float cy, float r);
+    void drawCloudTime(Canvas& c, int x, int y);
     using Hint = std::pair<int, const char*>;
     void drawHints(Canvas& c, const std::vector<Hint>& hints);
     void drawSpinner(Canvas& c, float cx, float cy, float r, uint64_t nowMs);
@@ -642,6 +643,7 @@ private:
     std::string code_, codeUrl_;
     std::string gamertag_, gamerpicUrl_, gamerscore_, subscription_;
     int64_t playtimeRemaining_ = -1, playtimeMax_ = -1;
+    bool playtimeUnlimited_ = false;
     std::vector<GameRow> rows_;
     int focusRow_ = 0;
     std::vector<int> focusCol_;

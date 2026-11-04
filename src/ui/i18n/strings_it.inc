@@ -416,5 +416,10 @@ constexpr Column kItalian = {
     "Per giocare a titoli gratuiti oltre a Fortnite senza Game Pass, abilita 'Funzionalità Preview' nelle Impostazioni e su xbox.com/play.", // F2pPreviewRequiredDesc
     "Questo account deve abilitare le 'Funzionalità Preview' nel profilo su xbox.com/play per sbloccare lo streaming gratuito supportato da annunci.", // F2pPreviewAccountNeededDesc
     "Giocatore",                                 // MenuPlayer
+    "Il tuo tempo di gioco nel cloud Xbox è esaurito, quindi il servizio Xbox ha chiuso la sessione. Da novembre 2026 Xbox limita il gioco nel cloud ogni mese: 15 ore con Game Pass Ultimate, 10 con Premium e 5 con Essential. Per avere più tempo, vedi le opzioni su xbox.com, o attendi le ore del mese prossimo.", // CloudTimeUp
     "La sessione è terminata per inattività", // EndedIdle
+    "%s rimanenti", // CloudTimeLeft
+    "di %s", // CloudTimeOf
+    "Tempo cloud illimitato", // CloudTimeUnlimited
+    "Restano %s del tuo tempo di gioco nel cloud Xbox questo mese", // CloudTimeWarn
 };

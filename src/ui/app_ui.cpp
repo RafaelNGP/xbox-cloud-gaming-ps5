@@ -450,10 +450,11 @@ void AppUi::setPrefs(const std::vector<std::string>& hidden, LibrarySort sort, c
     rebuild(true);
 }
 
-void AppUi::setPlaytime(int64_t remainingSeconds, int64_t maxSeconds) {
+void AppUi::setPlaytime(int64_t remainingSeconds, int64_t maxSeconds, bool unlimited) {
     std::lock_guard<std::mutex> lock(mutex_);
-    playtimeRemaining_ = remainingSeconds;
-    playtimeMax_ = maxSeconds;
+    playtimeRemaining_ = unlimited ? -1 : remainingSeconds;
+    playtimeMax_ = unlimited ? -1 : maxSeconds;
+    playtimeUnlimited_ = unlimited;
     dirty_ = true;
 }
 

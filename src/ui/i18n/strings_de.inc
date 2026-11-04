@@ -416,5 +416,10 @@ constexpr Column kGerman = {
     "Um kostenlose Spiele außer Fortnite ohne Game Pass zu streamen, aktivieren Sie 'Preview-Funktionen' in den App-Einstellungen und auf xbox.com/play.", // F2pPreviewRequiredDesc
     "Dieses Konto muss 'Preview-Funktionen' im Profil auf xbox.com/play aktivieren, um werbefinanziertes Free-to-Play-Streaming freizuschalten.", // F2pPreviewAccountNeededDesc
     "Spieler",                                   // MenuPlayer
+    "Ihre Xbox-Cloud-Spielzeit ist aufgebraucht, deshalb hat der Xbox-Dienst die Sitzung beendet. Seit November 2026 begrenzt Xbox das Cloud-Gaming pro Monat: 15 Std. mit Game Pass Ultimate, 10 Std. mit Premium und 5 Std. mit Essential. Mehr Zeit: Ihre Optionen finden Sie auf xbox.com, oder Sie warten auf die Stunden des nächsten Monats.", // CloudTimeUp
     "Die Sitzung wurde wegen Inaktivität beendet", // EndedIdle
+    "%s verbleibend", // CloudTimeLeft
+    "von %s", // CloudTimeOf
+    "Unbegrenzte Cloud-Zeit", // CloudTimeUnlimited
+    "Noch %s Xbox-Cloud-Spielzeit in diesem Monat", // CloudTimeWarn
 };

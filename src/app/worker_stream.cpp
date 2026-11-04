@@ -10,6 +10,7 @@
 #include "media/audio_out.h"
 #include "media/audio_queue.h"
 #include "platform/platform.h"
+#include "ui/cloud_time.h"
 #include "ui/strings.h"
 #include "util/log.h"
 #include "xcloud/catalog.h"
@@ -85,7 +86,7 @@ namespace {
 std::string g_stageTitle;
 std::string g_stageProduct;
 
-std::string stream(xcloud::GssvClient& gssv) {
+std::string stream(xcloud::GssvClient& gssv, const auth::CloudTimeQuery& cloudQuery) {
     crash::setStage(gssv.isHome() ? "streaming own Xbox" : ("streaming " + g_stageTitle).c_str());
     g_gameClosedOnServer = false;
     app::StreamPlayer player(gssv);
@@ -141,6 +142,44 @@ std::string stream(xcloud::GssvClient& gssv) {
 
     const uint64_t started = platform::nowMs();
     uint64_t nextTick = started;
+    // The account's cloud time (a limited account's, in the cloud): counted
+    // down for the game menu, a notice at 15 and at 5 minutes left (Xbox
+    // ends the stream at none, issue #342), and the service asked again every
+    // 10 minutes from a thread of its own (the loop never waits on it).
+    ui::CloudTimeClock cloud;
+    const bool cloudTest = g_autoplay.cloudLeft >= 0;
+    if (!gssv.isHome()) cloud.start(cloudTest ? g_autoplay.cloudLeft : s_playtimeRemainingSeconds, started);
+    if (cloud.limited()) XC_LOGI("cloud time: %s left at the start", ui::formatCloudTime(cloud.left(started)).c_str());
+    struct CloudAsk {
+        platform::Thread thread;
+        std::atomic<bool> done{false};
+        std::atomic<int64_t> remaining{-1};
+    } ask;
+    const uint64_t kAskEveryMs = cloudTest ? 20000 : 600000;
+    uint64_t nextAsk = started + kAskEveryMs;
+    auto cloudTimeStep = [&](uint64_t nowMs) {
+        if (!cloud.limited()) return;
+        if (const int64_t due = cloud.noticeDue(nowMs); due > 0)
+            platform::notify(ui::trf(ui::Str::CloudTimeWarn, ui::formatCloudTime(due)),
+                             "cloud time: " + ui::formatCloudTime(due) + " left (notification)");
+        if (ask.done) {
+            ask.thread.join();
+            ask.done = false;
+            const int64_t counted = cloud.left(nowMs);
+            cloud.answer(ask.remaining, nowMs);
+            XC_LOGI("cloud time: the service says %s, counted %s: %s left",
+                    ask.remaining < 0 ? "no limit or nothing" : ui::formatCloudTime(ask.remaining).c_str(),
+                    ui::formatCloudTime(counted).c_str(), ui::formatCloudTime(cloud.left(nowMs)).c_str());
+        }
+        if (!ask.thread.joinable() && nowMs >= nextAsk && !cloudQuery.marketplace.token.empty()) {
+            nextAsk = nowMs + kAskEveryMs;
+            platform::startThread(ask.thread, [&ask, cloudQuery] {
+                auth::ContentAccessPlaytime t;
+                ask.remaining = auth::queryCloudTime(cloudQuery, t, 8000) ? t.accountRemaining : -1;
+                ask.done = true;
+            }, 1u << 20);
+        }
+    };
     bool snapshot1 = false, snapshot2 = false, snapshot3 = false, snapshot4 = false;
     uint64_t nextPeriodicShot = 150000;
     int periodicShotIdx = 5;
@@ -206,6 +245,8 @@ std::string stream(xcloud::GssvClient& gssv) {
     while (player.running() && !g_cancel) {
         beat("loop");
         uint64_t elapsed = platform::nowMs() - started;
+        beat("the cloud time");
+        cloudTimeStep(started + elapsed);
         if (!g_autoplay.title.empty()) {
             if (elapsed >= static_cast<uint64_t>(g_autoplay.seconds) * 1000u) {
                 autoplayDone = true;
@@ -348,9 +389,7 @@ std::string stream(xcloud::GssvClient& gssv) {
                     session.kbps += st.rtpKbps;
                     if (st.rttMs > 0) session.rttSum += static_cast<uint64_t>(st.rttMs), ++session.rttCount;
                 }
-                if (s_playtimeRemainingSeconds >= 0) {
-                    info.playtimeHours = static_cast<int>((s_playtimeRemainingSeconds + 3599) / 3600);
-                }
+                info.cloudTimeSeconds = cloud.left(platform::nowMs());
                 info.playtimeSeconds = prevPlaytime + session.seconds;
                 player.getRecentFrametimes(info.frametimes);
                 std::lock_guard<std::mutex> lock(g_infoMutex);
@@ -364,6 +403,12 @@ std::string stream(xcloud::GssvClient& gssv) {
     }
     watch.stop = true;
     if (watch.thread.joinable()) watch.thread.join();
+    if (ask.thread.joinable()) ask.thread.join();  // 8 s at most
+    if (cloud.limited()) {
+        if (ask.done) cloud.answer(ask.remaining, platform::nowMs());
+        if (!cloudTest) s_playtimeRemainingSeconds = cloud.left(platform::nowMs());
+        XC_LOGI("cloud time: %s left at the end", ui::formatCloudTime(cloud.left(platform::nowMs())).c_str());
+    }
     {
         std::lock_guard<std::mutex> lock(g_playerMutex);
         g_player = nullptr;
@@ -620,7 +665,7 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
                 playQueueReadyAlert(true);
             }
             g_ui->setLaunchStatus(ui::tr(ui::Str::StartingStream));
-            result = stream(gssv);
+            result = stream(gssv, am.cloudTimeQuery());
             failed = result.rfind("ERROR", 0) == 0;
             break;
         }

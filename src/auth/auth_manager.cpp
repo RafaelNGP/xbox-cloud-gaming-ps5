@@ -8,6 +8,8 @@
 #include "util/log.h"
 
 #include <algorithm>
+#include <vector>
+#include <map>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -182,94 +184,220 @@ bool AuthManager::ensureFresh(xcloud::GssvClient* gssv, std::string& err, bool f
 
 namespace {
 
-static uint64_t readVarint(const uint8_t*& ptr, const uint8_t* end, bool& ok) {
-    uint64_t val = 0;
-    int shift = 0;
-    while (ptr < end && shift < 64) {
-        uint8_t b = *ptr++;
-        val |= static_cast<uint64_t>(b & 0x7F) << shift;
-        if ((b & 0x80) == 0) {
-            ok = true;
-            return val;
+// Content Access (contentaccess.exp.xboxservices.com/all/v1), protobuf:
+//   1: passes by user  {1: PUID, 2: passes}
+//   2: products        {1: product ID, 2: {2 (repeated): {1: PUID, 2: access}}}
+//      access          {1: user access types, 2: aggregate access types,
+//                       11: streaming gameplay {1: program, 2: remaining s, 4: max s}}
+// The cloud time is the product's (the layout as owenselles/CloudNow decodes
+// it): the account's own allowance shows as the same remaining / max on all of
+// its limited products.
+struct PbReader {
+    const uint8_t* p = nullptr;
+    const uint8_t* end = nullptr;
+    bool ok = true;
+    uint64_t value = 0;  // the last varint field's
+    uint64_t varint() {
+        uint64_t v = 0;
+        for (int shift = 0; shift < 64 && p < end; shift += 7) {
+            const uint8_t b = *p++;
+            v |= static_cast<uint64_t>(b & 0x7F) << shift;
+            if (!(b & 0x80)) return v;
         }
-        shift += 7;
+        ok = false;
+        return 0;
     }
-    ok = false;
-    return 0;
+    // The next field: its number and wire type, `sub` the bytes of a
+    // length-delimited one; the reader moves past it in every case.
+    bool next(uint32_t& field, uint32_t& wire, PbReader& sub) {
+        if (!ok || p >= end) return false;
+        const uint64_t tag = varint();
+        if (!ok) return false;
+        field = static_cast<uint32_t>(tag >> 3);
+        wire = static_cast<uint32_t>(tag & 7);
+        sub = PbReader{p, p};
+        switch (wire) {
+            case 0: value = varint(); return ok;
+            case 1:
+                if (end - p < 8) return ok = false;
+                p += 8;
+                return true;
+            case 5:
+                if (end - p < 4) return ok = false;
+                p += 4;
+                return true;
+            case 2: {
+                const uint64_t n = varint();
+                if (!ok || n > static_cast<uint64_t>(end - p)) return ok = false;
+                sub = PbReader{p, p + n};
+                p += n;
+                return true;
+            }
+            default: return ok = false;
+        }
+    }
+    static std::string text(const PbReader& sub) {
+        return std::string(reinterpret_cast<const char*>(sub.p), static_cast<size_t>(sub.end - sub.p));
+    }
+};
+
+// One user's access to a product: its streaming time, when it has one.
+void readProductAccess(PbReader r, int64_t& remaining, int64_t& max) {
+    uint32_t f = 0, w = 0;
+    PbReader sub;
+    while (r.next(f, w, sub)) {
+        if (f != 11 || w != 2) continue;
+        PbReader g = sub, unused;
+        while (g.next(f, w, unused)) {
+            if (w == 0 && f == 2) remaining = static_cast<int64_t>(g.value);
+            else if (w == 0 && f == 4) max = static_cast<int64_t>(g.value);
+        }
+    }
 }
 
-static void parseProtobufPlaytime(const uint8_t* ptr, const uint8_t* end, int depth, int64_t& remaining, int64_t& max) {
-    if (depth > 6) return;
-    while (ptr < end) {
-        bool ok = false;
-        uint64_t tag = readVarint(ptr, end, ok);
-        if (!ok) break;
-        uint32_t fieldNum = static_cast<uint32_t>(tag >> 3);
-        uint32_t wireType = static_cast<uint32_t>(tag & 0x7);
-        if (wireType == 0) { // Varint
-            uint64_t v = readVarint(ptr, end, ok);
-            if (!ok) break;
-            if (fieldNum == 1 && remaining < 0) remaining = static_cast<int64_t>(v);
-            else if (fieldNum == 2 && max < 0) max = static_cast<int64_t>(v);
-        } else if (wireType == 1) { // 64-bit
-            if (ptr + 8 > end) break;
-            ptr += 8;
-        } else if (wireType == 2) { // Length-delimited
-            uint64_t len = readVarint(ptr, end, ok);
-            if (!ok || ptr + len > end) break;
-            parseProtobufPlaytime(ptr, ptr + len, depth + 1, remaining, max);
-            ptr += len;
-        } else if (wireType == 5) { // 32-bit
-            if (ptr + 4 > end) break;
-            ptr += 4;
-        } else {
-            break;
+bool parseContentAccessProto(const std::string& body, ContentAccessPlaytime& out) {
+    const auto* begin = reinterpret_cast<const uint8_t*>(body.data());
+    PbReader top{begin, begin + body.size()};
+    std::string puid;  // the user: the first one with passes
+    std::vector<PbReader> products;
+    uint32_t f = 0, w = 0;
+    PbReader sub;
+    int fields = 0;
+    while (top.next(f, w, sub)) {
+        ++fields;
+        if (w != 2) continue;
+        if (f == 1 && puid.empty()) {
+            PbReader e = sub, v;
+            while (e.next(f, w, v))
+                if (f == 1 && w == 2) puid = PbReader::text(v);
+        } else if (f == 2) {
+            products.push_back(sub);
         }
+    }
+    if (!top.ok || fields == 0 || (puid.empty() && products.empty())) return false;
+    // The account's record, after the products ({1: PUID, 2: {bucket: {2:
+    // remaining, 3: updated, 4: max, 5: ?}}}): its cloud time, when limited.
+    top = PbReader{begin, begin + body.size()};
+    while (top.next(f, w, sub)) {
+        if (f != 3 || w != 2) continue;
+        PbReader rec = sub, v;
+        std::string who;
+        std::vector<PbReader> buckets;
+        while (rec.next(f, w, v)) {
+            if (f == 1 && w == 2) who = PbReader::text(v);
+            if (f == 2 && w == 2) buckets.push_back(v);
+        }
+        if (!puid.empty() && who != puid) continue;
+        for (PbReader b : buckets) {
+            PbReader entry;
+            while (b.next(f, w, entry)) {
+                if (w != 2) continue;
+                const uint32_t bucket = f;
+                int64_t remaining = -1, max = -1;
+                PbReader g = entry, unused;
+                while (g.next(f, w, unused)) {
+                    auto seconds = [](uint64_t x) {
+                        return x >= static_cast<uint64_t>(INT64_MAX) ? ContentAccessPlaytime::kUnlimited : static_cast<int64_t>(x);
+                    };
+                    if (w == 0 && f == 2) remaining = seconds(g.value);
+                    else if (w == 0 && f == 4) max = seconds(g.value);
+                }
+                out.accountBuckets[static_cast<int>(bucket)] = {remaining, max};
+            }
+        }
+    }
+    for (PbReader prod : products) {
+        std::string productId;
+        int64_t remaining = -1, max = -1;
+        PbReader v;
+        while (prod.next(f, w, v)) {
+            if (f == 1 && w == 2) productId = PbReader::text(v);
+            if (f != 2 || w != 2) continue;
+            PbReader data = v, entry;
+            while (data.next(f, w, entry)) {
+                if (f != 2 || w != 2) continue;
+                PbReader e = entry, x, access;
+                std::string who;
+                bool haveAccess = false;
+                while (e.next(f, w, x)) {
+                    if (f == 1 && w == 2) who = PbReader::text(x);
+                    if (f == 2 && w == 2) access = x, haveAccess = true;
+                }
+                if (haveAccess && (puid.empty() || who == puid)) readProductAccess(access, remaining, max);
+            }
+        }
+        ++out.products;
+        if (remaining >= 0 || max >= 0) out.byProduct[productId] = {remaining, max};
+    }
+    return true;
+}
+
+void collectJson(const json::Value& val, ContentAccessPlaytime& out) {
+    if (val.isObject()) {
+        int64_t remaining = -1, max = -1;
+        auto num = [](const json::Value& v) {
+            return v.isString() ? static_cast<int64_t>(std::strtoll(v.str().c_str(), nullptr, 10)) : v.asInt();
+        };
+        for (const auto& [k, v] : val.members()) {
+            if (k == "remainingGameplayTimeInSeconds" || k == "remainingGameplayTime") remaining = num(v);
+            else if (k == "maxGameplayTimeInSeconds" || k == "maxGameplayTime") max = num(v);
+            else collectJson(v, out);
+        }
+        if (remaining >= 0 || max >= 0) {
+            std::string id = val["productId"].str("#" + std::to_string(out.byProduct.size()));
+            out.byProduct[id] = {remaining, max};
+            ++out.products;
+        }
+    } else if (val.isArray()) {
+        for (const auto& e : val.items()) collectJson(e, out);
     }
 }
 
 }  // namespace
 
-bool parsePlaytimeLimit(const std::string& body, int64_t& remaining, int64_t& max) {
-    remaining = -1;
-    max = -1;
+bool parseContentAccessPlaytime(const std::string& body, ContentAccessPlaytime& out) {
+    out = {};
     if (body.empty()) return false;
-
-    // 1. Try JSON
-    auto j = json::parse(body);
-    if (j) {
-        std::function<void(const json::Value&)> walk = [&](const json::Value& val) {
-            if (val.isObject()) {
-                for (const auto& [k, v] : val.members()) {
-                    if (k == "remainingGameplayTimeInSeconds" || k == "remainingGameplayTime") {
-                        if (v.isNumber()) remaining = v.asInt();
-                        else if (v.isString()) remaining = std::strtoll(v.str().c_str(), nullptr, 10);
-                    } else if (k == "maxGameplayTimeInSeconds" || k == "maxGameplayTime") {
-                        if (v.isNumber()) max = v.asInt();
-                        else if (v.isString()) max = std::strtoll(v.str().c_str(), nullptr, 10);
-                    }
-                    walk(v);
-                }
-            } else if (val.isArray()) {
-                for (const auto& elem : val.items()) walk(elem);
-            }
-        };
-        walk(*j);
-        if (remaining >= 0) {
-            if (max > 0 && max < remaining) std::swap(remaining, max);
-            return true;
+    if (auto j = json::parse(body)) {
+        collectJson(*j, out);
+    } else if (!parseContentAccessProto(body, out)) {
+        return false;
+    }
+    // The account's allowance: one remaining / max shared by (nearly) all of
+    // its limited products, a few of them at least.
+    std::map<std::pair<int64_t, int64_t>, int> counts;
+    for (const auto& [id, t] : out.byProduct)
+        if (t.second > 0) ++counts[t], ++out.limited;
+    for (const auto& [t, n] : counts)
+        if (n > out.commonCount) out.commonCount = n, out.common = t;
+    if (out.limited >= 3 && out.commonCount * 5 >= out.limited * 4) {
+        out.accountRemaining = out.common.first;
+        out.accountMax = out.common.second;
+    }
+    // The account's own record wins: its first bucket that carries a time
+    // (2 so far); all bits set there means no limit.
+    for (const auto& [bucket, t] : out.accountBuckets) {
+        if (t.first < 0 && t.second < 0) continue;
+        if (t.first == ContentAccessPlaytime::kUnlimited || t.second == ContentAccessPlaytime::kUnlimited) {
+            out.unlimited = true;
+            out.accountRemaining = out.accountMax = -1;
+        } else {
+            out.unlimited = false;
+            out.accountRemaining = t.first;
+            out.accountMax = t.second;
         }
+        break;
     }
+    return true;
+}
 
-    // 2. Minimal Protobuf reader
-    const uint8_t* ubody = reinterpret_cast<const uint8_t*>(body.data());
-    parseProtobufPlaytime(ubody, ubody + body.size(), 0, remaining, max);
-    if (remaining >= 0) {
-        if (max > 0 && max < remaining) std::swap(remaining, max);
-        return true;
-    }
-
-    return false;
+bool parsePlaytimeLimit(const std::string& body, int64_t& remaining, int64_t& max) {
+    ContentAccessPlaytime t;
+    remaining = max = -1;
+    if (!parseContentAccessPlaytime(body, t) || t.accountRemaining < 0) return false;
+    remaining = t.accountRemaining;
+    max = t.accountMax;
+    return true;
 }
 
 std::string subscriptionPlan(const std::string& body) {
@@ -325,6 +453,7 @@ void AuthManager::fetchSubscription(const XblToken& userToken, const std::string
         return;
     }
     marketplaceXsts_ = mp;
+    market_ = market;
     net::Request req;
     req.method = "POST";
     req.url = "https://emerald.xboxservices.com/xboxcomfd/entitlements/bulk?locale=en-US";
@@ -347,13 +476,18 @@ void AuthManager::fetchSubscription(const XblToken& userToken, const std::string
     fetchPlaytimeLimit(mp, market);
 }
 
-void AuthManager::fetchPlaytimeLimit(const XblToken& mp, const std::string& market) {
+void AuthManager::refreshCloudTime() {
+    if (!marketplaceXsts_.token.empty()) fetchPlaytimeLimit(marketplaceXsts_, market_);
+}
+
+bool queryCloudTime(const CloudTimeQuery& q, ContentAccessPlaytime& out, int timeoutMs) {
     net::Request req;
     req.method = "GET";
-    std::string m = market.empty() ? "US" : market;
+    req.timeoutMs = timeoutMs;
+    std::string m = q.market.empty() ? "US" : q.market;
     req.url = "https://contentaccess.exp.xboxservices.com/all/v1?market=" + m + "&offering=xgpuweb";
     req.headers = {
-        {"Authorization", mp.authorizationHeader()},
+        {"Authorization", q.marketplace.authorizationHeader()},
         {"Accept", "application/json, application/x-protobuf"},
         {"X-MS-API-Version", "1.0"},
         {"MS-CV", "PSBoxPlaytime.1"}
@@ -361,14 +495,57 @@ void AuthManager::fetchPlaytimeLimit(const XblToken& mp, const std::string& mark
     auto r = net::perform(req);
     if (!r.ok()) {
         XC_LOGW("playtime limit: %s", r.status ? ("HTTP " + std::to_string(r.status)).c_str() : r.error.c_str());
-        return;
+        return false;
     }
-    parsePlaytimeLimit(r.body, profile_.playtimeRemainingSeconds, profile_.playtimeMaxSeconds);
-    if (profile_.playtimeRemainingSeconds >= 0) {
-        XC_LOGI("playtime limit: %lld h remaining of %lld h",
-                static_cast<long long>(profile_.playtimeRemainingSeconds / 3600),
-                static_cast<long long>(profile_.playtimeMaxSeconds / 3600));
+    // Diagnostics: the answer kept as it came when asked (a file named
+    // contentaccess.request in the data folder; removed once done).
+    if (std::string asked; platform::readFile(platform::dataDir() + "/contentaccess.request", asked)) {
+        std::remove((platform::dataDir() + "/contentaccess.request").c_str());
+        platform::writeFileAtomic(platform::dataDir() + "/contentaccess.bin", r.body);
+        XC_LOGI("cloud time: the answer saved to contentaccess.bin (%s)", r.header("content-type").c_str());
     }
+    if (!parseContentAccessPlaytime(r.body, out)) {
+        XC_LOGW("cloud time: an answer of %zu bytes not understood", r.body.size());
+        return false;
+    }
+    out.bytes = r.body.size();
+    return true;
+}
+
+void AuthManager::fetchPlaytimeLimit(const XblToken& mp, const std::string& market) {
+    ContentAccessPlaytime t;
+    if (!queryCloudTime({mp, market}, t)) return;
+    profile_.playtimeRemainingSeconds = t.accountRemaining;
+    profile_.playtimeMaxSeconds = t.accountMax;
+    profile_.playtimeUnlimited = t.unlimited;
+    profile_.productPlaytime = t.byProduct;
+    // What the service says, for the log: how many products carry a time
+    // limit and the remaining / max they share most.
+    std::map<std::pair<int64_t, int64_t>, int> counts;
+    for (const auto& [id, v] : t.byProduct) ++counts[v];
+    std::vector<std::pair<int, std::pair<int64_t, int64_t>>> ranked;
+    for (const auto& [v, n] : counts) ranked.push_back({n, v});
+    std::sort(ranked.rbegin(), ranked.rend());
+    std::string common;
+    auto hm = [](int64_t s) {
+        if (s < 0) return std::string("-");
+        char b[32];
+        std::snprintf(b, sizeof b, "%lldh%02lld", static_cast<long long>(s / 3600), static_cast<long long>(s % 3600 / 60));
+        return std::string(b);
+    };
+    for (size_t i = 0; i < ranked.size() && i < 3; ++i)
+        common += (i ? ", " : "") + hm(ranked[i].second.first) + " of " + hm(ranked[i].second.second) + " x" +
+                  std::to_string(ranked[i].first);
+    std::string buckets;
+    auto hmu = [&](int64_t s) { return s == ContentAccessPlaytime::kUnlimited ? std::string("unlimited") : hm(s); };
+    for (const auto& [b, v] : t.accountBuckets)
+        buckets += (buckets.empty() ? "" : ", ") + std::to_string(b) + ": " + hmu(v.first) + " of " + hmu(v.second);
+    XC_LOGI("cloud time: %zu bytes, %d products, %zu with time data (%d with a maximum)%s%s; account record [%s]: %s",
+            t.bytes, t.products, t.byProduct.size(), t.limited, common.empty() ? "" : ": ", common.c_str(),
+            buckets.c_str(),
+            t.unlimited ? "unlimited"
+            : t.accountRemaining >= 0 ? (hm(t.accountRemaining) + " left of " + hm(t.accountMax)).c_str()
+                                      : "no limit seen");
 }
 
 bool AuthManager::loginOffering(xcloud::GssvClient& other, std::string& err) const {

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 #include "ui/app_ui_internal.h"
+#include "ui/cloud_time.h"
+
+#include <algorithm>
 
 namespace xc::ui {
 
@@ -46,20 +49,41 @@ void AppUi::drawGamerscoreBadge(Canvas& c, float cx, float cy, float r) {
     c.line(cx + r * 0.05f, cy, cx + ring + t * 0.5f, cy, t, kBg);
 }
 
+// The account's cloud time (Xbox limits it each month since November 2026),
+// under the brand name: the left side, the account's own (name, score, plan)
+// being on the right. What is left of the month's hours and a bar; orange
+// from 2 h left, red at none. An unlimited account says so; nothing when it
+// is not known.
+void AppUi::drawCloudTime(Canvas& c, int x, int y) {
+    constexpr int kPx = 15, kLineH = 20;
+    const int ty = fonts_.semibold.centeredY(y, kLineH, kPx);
+    const float iconY = y + kLineH / 2.0f;
+    if (playtimeUnlimited_) {
+        drawClockIcon(c, x + 7.0f, iconY, 7.0f, kGray);
+        fonts_.semibold.draw(c, tr(Str::CloudTimeUnlimited), x + 20, ty, kPx, kGray);
+        return;
+    }
+    if (playtimeRemaining_ < 0) return;
+    const Color col = playtimeRemaining_ <= 0      ? rgba(240, 100, 100)
+                      : playtimeRemaining_ < 7260 ? rgba(255, 160, 40)
+                                                   : kGray;
+    drawClockIcon(c, x + 7.0f, iconY, 7.0f, col);
+    int end = fonts_.semibold.draw(c, trf(Str::CloudTimeLeft, formatCloudTime(playtimeRemaining_)), x + 20, ty, kPx, col);
+    if (playtimeMax_ <= 0) return;
+    end = fonts_.semibold.draw(c, " " + trf(Str::CloudTimeOf, formatCloudTime(playtimeMax_)), end, ty, kPx, kDim);
+    // As wide as the brand name, or the line when that is longer.
+    const int w = std::max(fonts_.semibold.measure(tr(Str::CloudGaming), 22), end - x);
+    const Rect bar{x, y + kLineH + 4, w, 4};
+    c.fillRect(bar, rgba(255, 255, 255, 36), 2);
+    const double f = std::clamp(static_cast<double>(playtimeRemaining_) / static_cast<double>(playtimeMax_), 0.0, 1.0);
+    if (const int fw = static_cast<int>(w * f + 0.5); fw > 0) c.fillRect({x, bar.y, std::max(fw, 4), bar.h}, col, 2);
+}
+
 void AppUi::drawTopBar(Canvas& c) {
     drawLogo(c, kMargin + 22, 72, 22);
     fonts_.semibold.draw(c, tr(Str::CloudGaming), kMargin + 64, 60, 22, kWhite);
 
-    // Cloud playtime remaining badge positioned under the "PSBox Cloud Gaming" brand mark.
-    // Purely informative; hidden from the active UI for now until Xbox Cloud Gaming enforces limits.
-    constexpr bool kShowPlaytimeBadge = false;
-    if (kShowPlaytimeBadge && playtimeRemaining_ >= 0) {
-        int hours = static_cast<int>((playtimeRemaining_ + 3599) / 3600);
-        std::string pt = trf(Str::HoursRemaining, std::to_string(hours));
-        bool warn = playtimeRemaining_ <= 7200;
-        Color col = warn ? rgba(255, 160, 40) : kGray;
-        fonts_.semibold.draw(c, pt, kMargin + 64, 86, 14, col);
-    }
+    drawCloudTime(c, kMargin + 64, 86);
 
     int x = kW - kMargin;
     constexpr int kAvatar = 52;

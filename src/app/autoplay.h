@@ -64,6 +64,8 @@ struct Autoplay {
     bool fnPlay = false;         // fnplay: Fortnite gameplay for measurements (Play once, then the camera turns and the player runs)
     bool legacy = false;         // legacy: the stream as it was tuned before 2026-11-04 (the A/B baseline)
     bool imgTest = false;        // imgtest: 25 s before the end, one picture drawn with each look (img_*.ppm)
+    int64_t cloudLeft = -1;      // cloudleft=N: a stream counts down from N seconds left (the menu, the notices)
+    bool cloudTimeTest = false;  // cloudtimetest: the cloud time line (4 h 10 of 15 h, 1 h 30, none, unlimited), the game menu with it, the time-up error
     bool cpuDisplay = false;     // the CPU display even where the GPU comes up
     int upscaler = -1;           // ai: Anime4K instead of the setting
     bool restore = false;        // restore: Anime4K Restore before the upscale

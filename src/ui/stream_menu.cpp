@@ -2,6 +2,8 @@
 // Copyright (C) 2026 RafaelNGP
 #include "ui/stream_menu.h"
 
+#include "ui/cloud_time.h"
+
 #include "ui/strings.h"
 #include "ui/input_mode.h"
 #include "ui/pad_glyphs.h"
@@ -381,7 +383,21 @@ Canvas StreamMenu::renderMenu(const StreamInfo& info) const {
         return c;
     }
 
-    fonts_.bold.draw(c, tr(Str::MenuTitle), kPad, 34, 30, kWhite);
+    const int titleEnd = fonts_.bold.draw(c, tr(Str::MenuTitle), kPad, 34, 30, kWhite);
+    // The account's cloud time left, right of the title (a limited account
+    // only): orange from 15 minutes shown, when the notices start; red at none.
+    if (info.cloudTimeSeconds >= 0) {
+        const std::string left = trf(Str::CloudTimeLeft, formatCloudTime(info.cloudTimeSeconds));
+        const int w = fonts_.semibold.measure(left, 17);
+        const int x = kMenuW - kPad - w;
+        if (x - 24 > titleEnd + 16) {
+            const Color col = info.cloudTimeSeconds <= 0        ? rgba(240, 100, 100)
+                              : info.cloudTimeSeconds < 16 * 60 ? rgba(255, 160, 40)
+                                                                 : kGray;
+            drawClockIcon(c, x - 14.0f, 34 + 15.0f, 8.0f, col);
+            fonts_.semibold.draw(c, left, x, fonts_.semibold.centeredY(34, 30, 17), 17, col);
+        }
+    }
 
     // The items: the selected one white, like the Xbox guide.
     constexpr int kRowH = 37, kTop = 78, kPx = 19;
