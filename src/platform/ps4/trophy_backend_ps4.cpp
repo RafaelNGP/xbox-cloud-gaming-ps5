@@ -163,4 +163,8 @@ ITrophyBackend* createPlatformTrophyBackend() {
     return new TrophyBackendPS4();
 }
 
+void runPsboxNativeSelfTest() {
+    XC_LOGI("psbox selftest: no-op on PS4");
+}
+
 }  // namespace xc::trophy

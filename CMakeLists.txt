@@ -49,6 +49,7 @@ add_library(xcloud_core STATIC
     src/input/pad_map.cpp
     src/input/keyboard_nav.cpp
     src/input/pad_usb.cpp
+    src/input/pad_usb_hid.cpp
     src/input/sdl_mapping.cpp
     src/xcloud/social.cpp
     src/xcloud/achievements.cpp
@@ -200,6 +201,7 @@ elseif(XC_TARGET_PS4)
         src/display/display_ps4.cpp
         src/media/hw_decoder_ps4.cpp
         src/input/controller_ps4.cpp
+        src/input/pad_usb_ps4.cpp
         src/input/kbm_ps4.cpp
         src/media/audio_out_ps4.cpp
         src/media/audio_in_ps4.cpp

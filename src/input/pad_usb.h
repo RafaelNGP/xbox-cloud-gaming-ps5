@@ -25,7 +25,19 @@ namespace xc::input {
 //   XInput: subclass 0x5D, protocol 0x01 (Xbox 360 and its clones: 8BitDo,
 //           GameSir, Machenike... in their PC mode);
 //   GIP:    subclass 0x47, protocol 0xD0 (Xbox One and Series pads).
-enum class UsbPadProtocol { None, XInput, Gip };
+enum class UsbPadProtocol {
+    None,
+    XInput,
+    Gip,
+    DualShock3,
+    DualShock4,
+    DualSense,
+    SwitchPro,
+    SwitchInputOnly,
+    Stadia,
+    GenericHid
+};
+const char* usbPadProtocolName(UsbPadProtocol protocol);
 UsbPadProtocol usbPadProtocolFor(uint8_t ifaceClass, uint8_t ifaceSubclass, uint8_t ifaceProtocol);
 
 // The pad's interface in a configuration descriptor (as USB_GET_FULL_DESC
@@ -49,6 +61,12 @@ std::vector<std::array<uint8_t, 13>> gipAcksFor(const uint8_t* data, size_t len)
 // rumble and status reports, GIP's announce / keep-alive...).
 bool parseXInputReport(const uint8_t* data, size_t len, ControllerState& state);
 bool parseGipReport(const uint8_t* data, size_t len, ControllerState& state);
+bool parseDualShock3Report(const uint8_t* data, size_t len, ControllerState& state);
+bool parseDualShock4Report(const uint8_t* data, size_t len, ControllerState& state);
+bool parseDualSenseReport(const uint8_t* data, size_t len, ControllerState& state);
+bool parseSwitchProReport(const uint8_t* data, size_t len, ControllerState& state);
+bool parseSwitchInputOnlyReport(const uint8_t* data, size_t len, ControllerState& state);
+bool parseStadiaReport(const uint8_t* data, size_t len, ControllerState& state);
 bool parseUsbPadReport(UsbPadProtocol protocol, const uint8_t* data, size_t len, ControllerState& state);
 
 // The transport tells the shared code about each pad (slot 0..kMaxUsbPads-1).

@@ -63,7 +63,7 @@ std::thread g_scanner;
 std::atomic<bool> g_running{false};
 
 const char* protocolName(UsbPadProtocol p) {
-    return p == UsbPadProtocol::Gip ? "GIP" : p == UsbPadProtocol::XInput ? "XInput" : "none";
+    return usbPadProtocolName(p);
 }
 
 std::string hex(const uint8_t* p, int n) {

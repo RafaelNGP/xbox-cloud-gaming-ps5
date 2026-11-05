@@ -3,6 +3,7 @@
 #include "input/controller.h"
 #include "input/controller_backend.h"
 #include "input/input_ext.h"
+#include "input/pad_usb.h"
 #include "util/log.h"
 
 #include <algorithm>
@@ -264,6 +265,7 @@ bool init() {
         XC_LOGW("sceUserServiceGetInitialUser: 0x%08x (uid=%d), will retry in refreshPads", static_cast<unsigned>(rc), uid);
     }
     refreshPads();
+    usbPadsStart();
     return true;
 }
 
@@ -313,6 +315,7 @@ void refreshPads() {
 }
 
 void shutdown() {
+    usbPadsStop();
     for (int i = 0; i < 4; ++i) closePad(i);
 }
 

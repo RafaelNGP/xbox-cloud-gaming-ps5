@@ -4,6 +4,7 @@
 // pollUsbPad(). The report layouts are those of the Linux xpad driver and
 // OmniPad CE (usb_controllers.c).
 #include "input/pad_usb.h"
+#include "input/pad_usb_hid.h"
 
 #include "input/keyboard_nav.h"
 #include "platform/platform.h"
@@ -207,10 +208,386 @@ bool parseGipReport(const uint8_t* data, size_t len, ControllerState& s) {
     return true;
 }
 
+const char* usbPadProtocolName(UsbPadProtocol p) {
+    switch (p) {
+        case UsbPadProtocol::XInput: return "XInput";
+        case UsbPadProtocol::Gip: return "GIP";
+        case UsbPadProtocol::DualShock3: return "DualShock 3";
+        case UsbPadProtocol::DualShock4: return "DualShock 4";
+        case UsbPadProtocol::DualSense: return "DualSense";
+        case UsbPadProtocol::SwitchPro: return "Switch Pro";
+        case UsbPadProtocol::SwitchInputOnly: return "Switch";
+        case UsbPadProtocol::Stadia: return "Stadia";
+        case UsbPadProtocol::GenericHid: return "Generic HID";
+        case UsbPadProtocol::None: break;
+    }
+    return "none";
+}
+
+bool parseDualShock3Report(const uint8_t* data, size_t len, ControllerState& s) {
+    if (!data || len < 14 || data[0] != 0x01) return false;
+    const uint8_t b1 = data[2];
+    const uint8_t b2 = data[3];
+    const uint8_t b3 = (len > 4) ? data[4] : 0;
+
+    s.btnTouchpad = (b1 & 0x01) != 0; // Select
+    s.btnL3 = (b1 & 0x02) != 0;
+    s.btnR3 = (b1 & 0x04) != 0;
+    s.btnOptions = (b1 & 0x08) != 0;  // Start
+    s.dpadUp = (b1 & 0x10) != 0;
+    s.dpadRight = (b1 & 0x20) != 0;
+    s.dpadDown = (b1 & 0x40) != 0;
+    s.dpadLeft = (b1 & 0x80) != 0;
+
+    s.btnL1 = (b2 & 0x04) != 0;
+    s.btnR1 = (b2 & 0x08) != 0;
+    s.btnY = (b2 & 0x10) != 0; // Triangle
+    s.btnB = (b2 & 0x20) != 0; // Circle
+    s.btnA = (b2 & 0x40) != 0; // Cross
+    s.btnX = (b2 & 0x80) != 0; // Square
+
+    s.btnNexus = (b3 & 0x01) != 0; // PS button
+
+    if (len >= 10) {
+        s.rawLeftX = s.leftStickX = (static_cast<float>(data[6]) - 128.0f) / 127.5f;
+        s.rawLeftY = s.leftStickY = (static_cast<float>(data[7]) - 128.0f) / 127.5f;
+        s.rawRightX = s.rightStickX = (static_cast<float>(data[8]) - 128.0f) / 127.5f;
+        s.rawRightY = s.rightStickY = (static_cast<float>(data[9]) - 128.0f) / 127.5f;
+    }
+    if (len >= 20) {
+        s.triggerL2 = static_cast<float>(data[18]) / 255.0f;
+        s.triggerR2 = static_cast<float>(data[19]) / 255.0f;
+    } else {
+        s.triggerL2 = (b2 & 0x01) ? 1.0f : 0.0f;
+        s.triggerR2 = (b2 & 0x02) ? 1.0f : 0.0f;
+    }
+
+    s.connected = true;
+    return true;
+}
+
+bool parseDualShock4Report(const uint8_t* data, size_t len, ControllerState& s) {
+    if (!data || len < 10) return false;
+    const uint8_t* p = (data[0] == 0x01 && len >= 11) ? data + 1 : data;
+    const size_t effectiveLen = (data[0] == 0x01 && len >= 11) ? (len - 1) : len;
+    if (effectiveLen < 9) return false;
+
+    s.rawLeftX = s.leftStickX = (static_cast<float>(p[0]) - 128.0f) / 127.5f;
+    s.rawLeftY = s.leftStickY = (static_cast<float>(p[1]) - 128.0f) / 127.5f;
+    s.rawRightX = s.rightStickX = (static_cast<float>(p[2]) - 128.0f) / 127.5f;
+    s.rawRightY = s.rightStickY = (static_cast<float>(p[3]) - 128.0f) / 127.5f;
+
+    const uint8_t b0 = p[4];
+    const uint8_t hat = b0 & 0x0F;
+    s.dpadUp = s.dpadDown = s.dpadLeft = s.dpadRight = false;
+    switch (hat) {
+        case 0: s.dpadUp = true; break;
+        case 1: s.dpadUp = s.dpadRight = true; break;
+        case 2: s.dpadRight = true; break;
+        case 3: s.dpadDown = s.dpadRight = true; break;
+        case 4: s.dpadDown = true; break;
+        case 5: s.dpadDown = s.dpadLeft = true; break;
+        case 6: s.dpadLeft = true; break;
+        case 7: s.dpadUp = s.dpadLeft = true; break;
+        default: break;
+    }
+    s.btnX = (b0 & 0x10) != 0; // Square
+    s.btnA = (b0 & 0x20) != 0; // Cross
+    s.btnB = (b0 & 0x40) != 0; // Circle
+    s.btnY = (b0 & 0x80) != 0; // Triangle
+
+    const uint8_t b1 = p[5];
+    s.btnL1 = (b1 & 0x01) != 0;
+    s.btnR1 = (b1 & 0x02) != 0;
+    s.btnOptions = (b1 & 0x20) != 0;  // Options
+    s.btnL3 = (b1 & 0x40) != 0;
+    s.btnR3 = (b1 & 0x80) != 0;
+
+    const uint8_t b2 = p[6];
+    s.btnNexus = (b2 & 0x01) != 0; // PS button
+    s.btnTouchpad = ((b1 & 0x10) != 0) || ((b2 & 0x02) != 0); // Share or Touchpad click
+
+    if (effectiveLen >= 9) {
+        s.triggerL2 = static_cast<float>(p[7]) / 255.0f;
+        s.triggerR2 = static_cast<float>(p[8]) / 255.0f;
+    } else {
+        s.triggerL2 = (b1 & 0x04) ? 1.0f : 0.0f;
+        s.triggerR2 = (b1 & 0x08) ? 1.0f : 0.0f;
+    }
+
+    if (effectiveLen >= 39) {
+        if ((p[34] & 0x80) == 0) { // active touch 1
+            s.touching = true;
+            uint16_t tx = static_cast<uint16_t>(p[35] | ((p[36] & 0x0F) << 8));
+            uint16_t ty = static_cast<uint16_t>((p[36] >> 4) | (p[37] << 4));
+            s.touchX = std::clamp(static_cast<float>(tx) / 1919.0f, 0.0f, 1.0f);
+            s.touchY = std::clamp(static_cast<float>(ty) / 941.0f, 0.0f, 1.0f);
+            s.touchSecond = (effectiveLen >= 43 && (p[38] & 0x80) == 0);
+        } else {
+            s.touching = false;
+            s.touchSecond = false;
+        }
+    }
+
+    s.connected = true;
+    return true;
+}
+
+bool parseDualSenseReport(const uint8_t* data, size_t len, ControllerState& s) {
+    if (!data || len < 10) return false;
+    const uint8_t* p = (data[0] == 0x01 && len >= 11) ? data + 1 : data;
+    const size_t effectiveLen = (data[0] == 0x01 && len >= 11) ? (len - 1) : len;
+    if (effectiveLen < 10) return false;
+
+    s.rawLeftX = s.leftStickX = (static_cast<float>(p[0]) - 128.0f) / 127.5f;
+    s.rawLeftY = s.leftStickY = (static_cast<float>(p[1]) - 128.0f) / 127.5f;
+    s.rawRightX = s.rightStickX = (static_cast<float>(p[2]) - 128.0f) / 127.5f;
+    s.rawRightY = s.rightStickY = (static_cast<float>(p[3]) - 128.0f) / 127.5f;
+    s.triggerL2 = static_cast<float>(p[4]) / 255.0f;
+    s.triggerR2 = static_cast<float>(p[5]) / 255.0f;
+
+    const uint8_t b0 = p[7];
+    const uint8_t hat = b0 & 0x0F;
+    s.dpadUp = s.dpadDown = s.dpadLeft = s.dpadRight = false;
+    switch (hat) {
+        case 0: s.dpadUp = true; break;
+        case 1: s.dpadUp = s.dpadRight = true; break;
+        case 2: s.dpadRight = true; break;
+        case 3: s.dpadDown = s.dpadRight = true; break;
+        case 4: s.dpadDown = true; break;
+        case 5: s.dpadDown = s.dpadLeft = true; break;
+        case 6: s.dpadLeft = true; break;
+        case 7: s.dpadUp = s.dpadLeft = true; break;
+        default: break;
+    }
+    s.btnX = (b0 & 0x10) != 0; // Square
+    s.btnA = (b0 & 0x20) != 0; // Cross
+    s.btnB = (b0 & 0x40) != 0; // Circle
+    s.btnY = (b0 & 0x80) != 0; // Triangle
+
+    const uint8_t b1 = p[8];
+    s.btnL1 = (b1 & 0x01) != 0;
+    s.btnR1 = (b1 & 0x02) != 0;
+    s.btnOptions = (b1 & 0x20) != 0;  // Options
+    s.btnL3 = (b1 & 0x40) != 0;
+    s.btnR3 = (b1 & 0x80) != 0;
+
+    const uint8_t b2 = p[9];
+    s.btnNexus = (b2 & 0x01) != 0; // PS button
+    s.btnTouchpad = ((b1 & 0x10) != 0) || ((b2 & 0x02) != 0); // Create/Share or Touchpad click
+
+    if (effectiveLen >= 36) {
+        if ((p[32] & 0x80) == 0) { // active touch 1
+            s.touching = true;
+            uint16_t tx = static_cast<uint16_t>(p[33] | ((p[34] & 0x0F) << 8));
+            uint16_t ty = static_cast<uint16_t>((p[34] >> 4) | (p[35] << 4));
+            s.touchX = std::clamp(static_cast<float>(tx) / 1919.0f, 0.0f, 1.0f);
+            s.touchY = std::clamp(static_cast<float>(ty) / 1079.0f, 0.0f, 1.0f);
+            s.touchSecond = (effectiveLen >= 40 && (p[36] & 0x80) == 0);
+        } else {
+            s.touching = false;
+            s.touchSecond = false;
+        }
+    }
+
+    s.connected = true;
+    return true;
+}
+
+bool parseSwitchProReport(const uint8_t* data, size_t len, ControllerState& s) {
+    if (!data || len < 11) return false;
+    // Full reports (0x30, 0x21, 0x31)
+    if (data[0] == 0x30 || data[0] == 0x21 || data[0] == 0x31) {
+        if (len < 12) return false;
+        const uint8_t btnRight = data[3];
+        const uint8_t btnShared = data[4];
+        const uint8_t btnLeft = data[5];
+
+        s.btnX = (btnRight & 0x01) != 0; // Y -> Square
+        s.btnY = (btnRight & 0x02) != 0; // X -> Triangle
+        s.btnA = (btnRight & 0x04) != 0; // B -> Cross
+        s.btnB = (btnRight & 0x08) != 0; // A -> Circle
+        s.btnR1 = (btnRight & 0x40) != 0;
+        s.triggerR2 = (btnRight & 0x80) ? 1.0f : 0.0f;
+
+        s.btnOptions = (btnShared & 0x02) != 0;  // Plus
+        s.btnR3 = (btnShared & 0x04) != 0;
+        s.btnL3 = (btnShared & 0x08) != 0;
+        s.btnNexus = (btnShared & 0x10) != 0;    // Home
+        s.btnTouchpad = ((btnShared & 0x01) != 0) || ((btnShared & 0x20) != 0); // Minus or Capture
+
+        s.dpadDown = (btnLeft & 0x01) != 0;
+        s.dpadUp = (btnLeft & 0x02) != 0;
+        s.dpadRight = (btnLeft & 0x04) != 0;
+        s.dpadLeft = (btnLeft & 0x08) != 0;
+        s.btnL1 = (btnLeft & 0x40) != 0;
+        s.triggerL2 = (btnLeft & 0x80) ? 1.0f : 0.0f;
+
+        uint16_t lx12 = static_cast<uint16_t>(data[6] | ((data[7] & 0x0F) << 8));
+        uint16_t ly12 = static_cast<uint16_t>((data[7] >> 4) | (data[8] << 4));
+        uint16_t rx12 = static_cast<uint16_t>(data[9] | ((data[10] & 0x0F) << 8));
+        uint16_t ry12 = static_cast<uint16_t>((data[10] >> 4) | (data[11] << 4));
+
+        auto normStick = [](uint16_t raw) {
+            return std::clamp((static_cast<float>(raw) - 2048.0f) / 2047.0f * 1.42f, -1.0f, 1.0f);
+        };
+        s.rawLeftX = s.leftStickX = normStick(lx12);
+        // Switch Pro native Y axis: 0 is top (-1.0f in ControllerState), 4095 is bottom (+1.0f)
+        s.rawLeftY = s.leftStickY = normStick(ly12);
+        s.rawRightX = s.rightStickX = normStick(rx12);
+        s.rawRightY = s.rightStickY = normStick(ry12);
+
+        s.connected = true;
+        return true;
+    }
+    // Simple reports (0x3F)
+    if (data[0] == 0x3F && len >= 11) {
+        const uint8_t b0 = data[1];
+        const uint8_t b1 = data[2];
+        const uint8_t hat = data[3];
+
+        s.btnX = (b0 & 0x01) != 0; // Y -> Square
+        s.btnA = (b0 & 0x02) != 0; // B -> Cross
+        s.btnB = (b0 & 0x04) != 0; // A -> Circle
+        s.btnY = (b0 & 0x08) != 0; // X -> Triangle
+        s.btnL1 = (b0 & 0x10) != 0;
+        s.btnR1 = (b0 & 0x20) != 0;
+        s.triggerL2 = (b0 & 0x40) ? 1.0f : 0.0f;
+        s.triggerR2 = (b0 & 0x80) ? 1.0f : 0.0f;
+
+        s.btnOptions = (b1 & 0x02) != 0;  // Plus
+        s.btnL3 = (b1 & 0x04) != 0;
+        s.btnR3 = (b1 & 0x08) != 0;
+        s.btnNexus = (b1 & 0x10) != 0;    // Home
+        s.btnTouchpad = ((b1 & 0x01) != 0) || ((b1 & 0x20) != 0); // Minus or Capture
+
+        s.dpadUp = s.dpadDown = s.dpadLeft = s.dpadRight = false;
+        switch (hat) {
+            case 0: s.dpadUp = true; break;
+            case 1: s.dpadUp = s.dpadRight = true; break;
+            case 2: s.dpadRight = true; break;
+            case 3: s.dpadDown = s.dpadRight = true; break;
+            case 4: s.dpadDown = true; break;
+            case 5: s.dpadDown = s.dpadLeft = true; break;
+            case 6: s.dpadLeft = true; break;
+            case 7: s.dpadUp = s.dpadLeft = true; break;
+            default: break;
+        }
+
+        s.rawLeftX = s.leftStickX = (static_cast<float>(data[5]) - 128.0f) / 127.5f;
+        s.rawLeftY = s.leftStickY = (static_cast<float>(data[7]) - 128.0f) / 127.5f;
+        s.rawRightX = s.rightStickX = (static_cast<float>(data[9]) - 128.0f) / 127.5f;
+        s.rawRightY = s.rightStickY = (static_cast<float>(data[11]) - 128.0f) / 127.5f;
+
+        s.connected = true;
+        return true;
+    }
+    return false;
+}
+
+bool parseSwitchInputOnlyReport(const uint8_t* data, size_t len, ControllerState& s) {
+    if (!data || len < 7) return false;
+    const uint8_t b0 = data[0];
+    const uint8_t b1 = data[1];
+    const uint8_t hat = data[2];
+
+    s.btnX = (b0 & 0x01) != 0; // Y -> Square
+    s.btnA = (b0 & 0x02) != 0; // B -> Cross
+    s.btnB = (b0 & 0x04) != 0; // A -> Circle
+    s.btnY = (b0 & 0x08) != 0; // X -> Triangle
+    s.btnL1 = (b0 & 0x10) != 0;
+    s.btnR1 = (b0 & 0x20) != 0;
+    s.triggerL2 = (b0 & 0x40) ? 1.0f : 0.0f;
+    s.triggerR2 = (b0 & 0x80) ? 1.0f : 0.0f;
+
+    s.btnOptions = (b1 & 0x02) != 0;  // Plus
+    s.btnL3 = (b1 & 0x04) != 0;
+    s.btnR3 = (b1 & 0x08) != 0;
+    s.btnNexus = (b1 & 0x10) != 0;    // Home
+    s.btnTouchpad = ((b1 & 0x01) != 0) || ((b1 & 0x20) != 0); // Minus or Capture
+
+    s.dpadUp = s.dpadDown = s.dpadLeft = s.dpadRight = false;
+    switch (hat) {
+        case 0: s.dpadUp = true; break;
+        case 1: s.dpadUp = s.dpadRight = true; break;
+        case 2: s.dpadRight = true; break;
+        case 3: s.dpadDown = s.dpadRight = true; break;
+        case 4: s.dpadDown = true; break;
+        case 5: s.dpadDown = s.dpadLeft = true; break;
+        case 6: s.dpadLeft = true; break;
+        case 7: s.dpadUp = s.dpadLeft = true; break;
+        default: break;
+    }
+
+    s.rawLeftX = s.leftStickX = (static_cast<float>(data[3]) - 128.0f) / 127.5f;
+    s.rawLeftY = s.leftStickY = (static_cast<float>(data[4]) - 128.0f) / 127.5f;
+    s.rawRightX = s.rightStickX = (static_cast<float>(data[5]) - 128.0f) / 127.5f;
+    s.rawRightY = s.rightStickY = (static_cast<float>(data[6]) - 128.0f) / 127.5f;
+
+    s.connected = true;
+    return true;
+}
+
+bool parseStadiaReport(const uint8_t* data, size_t len, ControllerState& s) {
+    if (!data || len < 9) return false;
+    const uint8_t* p = (data[0] == 0x03 && len >= 10) ? data + 1 : data;
+    const size_t effectiveLen = (data[0] == 0x03 && len >= 10) ? (len - 1) : len;
+    if (effectiveLen < 9) return false;
+
+    const uint8_t hat = p[0];
+    s.dpadUp = s.dpadDown = s.dpadLeft = s.dpadRight = false;
+    switch (hat) {
+        case 0: s.dpadUp = true; break;
+        case 1: s.dpadUp = s.dpadRight = true; break;
+        case 2: s.dpadRight = true; break;
+        case 3: s.dpadDown = s.dpadRight = true; break;
+        case 4: s.dpadDown = true; break;
+        case 5: s.dpadDown = s.dpadLeft = true; break;
+        case 6: s.dpadLeft = true; break;
+        case 7: s.dpadUp = s.dpadLeft = true; break;
+        default: break;
+    }
+
+    const uint8_t bMain = p[1];
+    s.btnNexus = (bMain & 0x10) != 0;       // Stadia button
+    s.btnOptions = (bMain & 0x20) != 0;     // Menu
+    s.btnTouchpad = ((bMain & 0x03) != 0) || ((bMain & 0x40) != 0); // Capture / Assistant or Options
+    s.btnR3 = (bMain & 0x80) != 0;
+
+    const uint8_t bExtra = p[2];
+    s.btnL3 = (bExtra & 0x01) != 0;
+    s.btnR1 = (bExtra & 0x02) != 0;
+    s.btnL1 = (bExtra & 0x04) != 0;
+    s.btnY = (bExtra & 0x08) != 0;
+    s.btnX = (bExtra & 0x10) != 0;
+    s.btnB = (bExtra & 0x20) != 0;
+    s.btnA = (bExtra & 0x40) != 0;
+
+    s.rawLeftX = s.leftStickX = (static_cast<float>(p[3]) - 128.0f) / 127.5f;
+    s.rawLeftY = s.leftStickY = (static_cast<float>(p[4]) - 128.0f) / 127.5f;
+    s.rawRightX = s.rightStickX = (static_cast<float>(p[5]) - 128.0f) / 127.5f;
+    s.rawRightY = s.rightStickY = (static_cast<float>(p[6]) - 128.0f) / 127.5f;
+
+    s.triggerL2 = static_cast<float>(p[7]) / 255.0f;
+    s.triggerR2 = static_cast<float>(p[8]) / 255.0f;
+    if (bMain & 0x04) s.triggerL2 = std::max(s.triggerL2, 1.0f);
+    if (bMain & 0x08) s.triggerR2 = std::max(s.triggerR2, 1.0f);
+
+    s.connected = true;
+    return true;
+}
+
 bool parseUsbPadReport(UsbPadProtocol protocol, const uint8_t* data, size_t len, ControllerState& state) {
     switch (protocol) {
         case UsbPadProtocol::XInput: return parseXInputReport(data, len, state);
         case UsbPadProtocol::Gip: return parseGipReport(data, len, state);
+        case UsbPadProtocol::DualShock3: return parseDualShock3Report(data, len, state);
+        case UsbPadProtocol::DualShock4: return parseDualShock4Report(data, len, state);
+        case UsbPadProtocol::DualSense: return parseDualSenseReport(data, len, state);
+        case UsbPadProtocol::SwitchPro: return parseSwitchProReport(data, len, state);
+        case UsbPadProtocol::SwitchInputOnly: return parseSwitchInputOnlyReport(data, len, state);
+        case UsbPadProtocol::Stadia: return parseStadiaReport(data, len, state);
+        case UsbPadProtocol::GenericHid: return parseGenericHidFallback(data, len, state);
         case UsbPadProtocol::None: break;
     }
     return false;

@@ -21,6 +21,7 @@
 #include "input/gyro.h"
 #include "input/tuning.h"
 #include "input/pad_usb.h"
+#include "input/pad_usb_hid.h"
 #include "net/http.h"
 #include "platform/platform.h"
 #include "platform/toasts.h"
@@ -4219,6 +4220,251 @@ static void testUsbPadReports() {
     const std::array<uint8_t, 13> ack = {0x01, 0x20, 0x01, 0x09, 0x00, 0x07, 0x20, 0x02, 0, 0, 0, 0, 0};
     CHECK(!acks.empty() && acks[0] == ack);
     CHECK(input::gipAcksFor(gip, sizeof gip).empty());  // input is not acknowledged
+
+    // DualShock 3 (PS3): Select + DPad Up + Cross + L1 + PS button, sticks, triggers
+    uint8_t ds3[49] = {};
+    ds3[0] = 0x01;
+    ds3[2] = 0x11;  // Select (0x01) + DPad Up (0x10)
+    ds3[3] = 0x44;  // Cross (0x40) + L1 (0x04)
+    ds3[4] = 0x01;  // PS button (0x01)
+    ds3[6] = 255;   // LX right (1.0f)
+    ds3[7] = 0;     // LY up (-1.0f)
+    ds3[8] = 128;   // RX center (0.0f)
+    ds3[9] = 255;   // RY down (1.0f)
+    ds3[18] = 255;  // L2 trigger (1.0f)
+    ds3[19] = 128;  // R2 trigger (~0.5f)
+    s = {};
+    CHECK(input::parseDualShock3Report(ds3, sizeof ds3, s));
+    CHECK(s.connected && s.btnA && s.btnL1 && s.dpadUp && s.btnTouchpad && s.btnNexus);
+    CHECK(!s.btnB && !s.btnX && !s.btnY && !s.btnR1 && !s.dpadDown && !s.btnOptions);
+    CHECK(near(s.rawLeftX, 1.0f) && near(s.rawLeftY, -1.0f));
+    CHECK(near(s.rawRightX, 0.0f) && near(s.rawRightY, 1.0f));
+    CHECK(near(s.triggerL2, 1.0f) && near(s.triggerR2, 0.5f));
+    CHECK(input::parseUsbPadReport(input::UsbPadProtocol::DualShock3, ds3, sizeof ds3, s));
+
+    // DualSense (PS5 USB): Cross + DPad Right + R1 + Options + PS button + touch point
+    uint8_t ds5[64] = {};
+    ds5[0] = 0x01;  // Report ID
+    ds5[1] = 0;     // LX left (-1.0f)
+    ds5[2] = 255;   // LY down (1.0f)
+    ds5[3] = 255;   // RX right (1.0f)
+    ds5[4] = 128;   // RY center (0.0f)
+    ds5[5] = 255;   // L2 (1.0f)
+    ds5[6] = 0;     // R2 (0.0f)
+    ds5[8] = 0x22;  // Hat 2 (Right) + Cross (0x20)
+    ds5[9] = 0x22;  // R1 (0x02) + Options (0x20)
+    ds5[10] = 0x01; // PS button (0x01)
+    ds5[33] = 0x00; // Touch point 0 active (contact bit 7 == 0)
+    ds5[34] = 0x80; // tx lo
+    ds5[35] = 0x43; // tx hi (0x3), ty lo (0x4)
+    ds5[36] = 0x20; // ty hi (0x20)
+    s = {};
+    CHECK(input::parseDualSenseReport(ds5, sizeof ds5, s));
+    CHECK(s.connected && s.btnA && s.dpadRight && s.btnR1 && s.btnOptions && s.btnNexus);
+    CHECK(!s.btnB && !s.btnX && !s.btnY && !s.btnL1 && !s.dpadUp);
+    CHECK(near(s.rawLeftX, -1.0f) && near(s.rawLeftY, 1.0f));
+    CHECK(near(s.rawRightX, 1.0f) && near(s.rawRightY, 0.0f));
+    CHECK(near(s.triggerL2, 1.0f) && near(s.triggerR2, 0.0f));
+    CHECK(s.touching);
+    CHECK(input::parseUsbPadReport(input::UsbPadProtocol::DualSense, ds5, sizeof ds5, s));
+
+    // Nintendo Switch Pro (full report 0x30): B (btnA) + R (btnR1) + Plus (btnOptions) + Home (btnNexus) + Up
+    uint8_t sw[12] = {};
+    sw[0] = 0x30;
+    sw[3] = 0x04 | 0x40; // B (0x04) + R (0x40)
+    sw[4] = 0x02 | 0x10; // Plus (0x02) + Home (0x10)
+    sw[5] = 0x02 | 0x80; // Up (0x02) + ZL (0x80)
+    sw[6] = 0x00; sw[7] = 0x08; sw[8] = 0x80;  // 12-bit LX=2048, LY=2048 (center)
+    sw[9] = 0x00; sw[10] = 0x08; sw[11] = 0x80; // 12-bit RX=2048, RY=2048 (center)
+    s = {};
+    CHECK(input::parseSwitchProReport(sw, sizeof sw, s));
+    CHECK(s.connected && s.btnA && s.btnR1 && s.btnOptions && s.btnNexus && s.dpadUp);
+    CHECK(near(s.triggerL2, 1.0f) && near(s.triggerR2, 0.0f));
+    CHECK(near(s.rawLeftX, 0.0f) && near(s.rawLeftY, 0.0f));
+    CHECK(input::parseUsbPadReport(input::UsbPadProtocol::SwitchPro, sw, sizeof sw, s));
+
+    // Nintendo Switch Pro (simple report 0x3F)
+    uint8_t swSimple[12] = {};
+    swSimple[0] = 0x3F;
+    swSimple[1] = 0x02 | 0x20; // B (btnA) + R (btnR1)
+    swSimple[2] = 0x02 | 0x10; // Plus (btnOptions) + Home (btnNexus)
+    swSimple[3] = 0;           // Hat 0 = Up
+    swSimple[5] = 255;         // LX right
+    swSimple[7] = 0;           // LY up
+    swSimple[9] = 128;         // RX center
+    swSimple[11] = 255;        // RY down
+    s = {};
+    CHECK(input::parseSwitchProReport(swSimple, sizeof swSimple, s));
+    CHECK(s.connected && s.btnA && s.btnR1 && s.btnOptions && s.btnNexus && s.dpadUp);
+    CHECK(near(s.rawLeftX, 1.0f) && near(s.rawLeftY, -1.0f));
+    CHECK(near(s.rawRightX, 0.0f) && near(s.rawRightY, 1.0f));
+
+    // Nintendo Switch Input-Only (7 bytes)
+    uint8_t swIn[7] = {0x02 | 0x10, 0x10 | 0x01, 4, 255, 0, 128, 255}; // B+L, Home+Minus, Hat 4=Down, sticks
+    s = {};
+    CHECK(input::parseSwitchInputOnlyReport(swIn, sizeof swIn, s));
+    CHECK(s.connected && s.btnA && s.btnL1 && s.btnNexus && s.btnTouchpad && s.dpadDown);
+    CHECK(near(s.rawLeftX, 1.0f) && near(s.rawLeftY, -1.0f));
+    CHECK(near(s.rawRightX, 0.0f) && near(s.rawRightY, 1.0f));
+    CHECK(input::parseUsbPadReport(input::UsbPadProtocol::SwitchInputOnly, swIn, sizeof swIn, s));
+
+    // Google Stadia (10 bytes)
+    uint8_t stadia[10] = {0x03, 6, 0x10 | 0x20, 0x40 | 0x02, 0, 128, 128, 255, 255, 0};
+    s = {};
+    CHECK(input::parseStadiaReport(stadia, sizeof stadia, s));
+    CHECK(s.connected && s.dpadLeft && s.btnNexus && s.btnOptions && s.btnA && s.btnR1);
+    CHECK(near(s.triggerL2, 1.0f) && near(s.triggerR2, 0.0f));
+    CHECK(near(s.rawLeftX, -1.0f) && near(s.rawRightY, 1.0f));
+    CHECK(input::parseUsbPadReport(input::UsbPadProtocol::Stadia, stadia, sizeof stadia, s));
+
+    // DualShock 4 (PS4 third-party): 64-byte report with ID 0x01
+    // Cross + DPad Left + L1 + Options + PS + Touchpad click + touches
+    uint8_t ds4[64] = {};
+    ds4[0] = 0x01; // Report ID
+    ds4[1] = 0;    // LX left (-1.0f)
+    ds4[2] = 255;  // LY down (1.0f)
+    ds4[3] = 255;  // RX right (1.0f)
+    ds4[4] = 0;    // RY up (-1.0f)
+    ds4[5] = 0x26; // Hat 6 (Left) + Cross (0x20)
+    ds4[6] = 0x21; // L1 (0x01) + Options (0x20)
+    ds4[7] = 0x03; // PS (0x01) + Touchpad click (0x02)
+    ds4[8] = 255;  // L2 trigger (1.0f)
+    ds4[9] = 128;  // R2 trigger (~0.5f)
+    ds4[35] = 0x00; // Touch point 0 active (contact bit 7 == 0)
+    ds4[36] = 0x80; // tx lo
+    ds4[37] = 0x43; // tx hi (0x3), ty lo (0x4)
+    ds4[38] = 0x20; // ty hi (0x20)
+    s = {};
+    CHECK(input::parseDualShock4Report(ds4, sizeof ds4, s));
+    CHECK(s.connected && s.btnA && s.dpadLeft && s.btnL1 && s.btnOptions && s.btnNexus && s.btnTouchpad);
+    CHECK(!s.btnB && !s.btnX && !s.btnY && !s.btnR1 && !s.dpadUp && !s.dpadRight && !s.dpadDown);
+    CHECK(near(s.rawLeftX, -1.0f) && near(s.rawLeftY, 1.0f));
+    CHECK(near(s.rawRightX, 1.0f) && near(s.rawRightY, -1.0f));
+    CHECK(near(s.triggerL2, 1.0f) && near(s.triggerR2, 0.5f));
+    CHECK(s.touching);
+    CHECK(input::parseUsbPadReport(input::UsbPadProtocol::DualShock4, ds4, sizeof ds4, s));
+
+    // DualShock 4 release D-Pad and Touch: hat = 8 (neutral), touch active bit 7 = 1
+    ds4[5] = 0x08; // hat neutral, no face buttons
+    ds4[35] = 0x80; // touch inactive
+    CHECK(input::parseDualShock4Report(ds4, sizeof ds4, s));
+    CHECK(!s.dpadLeft && !s.dpadUp && !s.dpadDown && !s.dpadRight);
+    CHECK(!s.btnA && !s.touching);
+
+    // DualSense release D-Pad and Touch
+    ds5[8] = 0x08; // hat neutral
+    ds5[33] = 0x80; // touch 0 inactive
+    CHECK(input::parseDualSenseReport(ds5, sizeof ds5, s));
+    CHECK(!s.dpadRight && !s.dpadUp && !s.dpadDown && !s.dpadLeft);
+    CHECK(!s.touching);
+
+    // Switch Pro 0x30 stick deflections: LY up (0) should produce rawLeftY = -1.0f
+    sw[5] = 0x00; // D-Pad neutral
+    sw[6] = 0x00; sw[7] = 0x08; sw[8] = 0x00; // 12-bit LX=2048 (center), LY=0 (full UP)
+    CHECK(input::parseSwitchProReport(sw, sizeof sw, s));
+    CHECK(!s.dpadUp && !s.dpadDown && !s.dpadLeft && !s.dpadRight);
+    CHECK(near(s.rawLeftX, 0.0f) && near(s.rawLeftY, -1.0f));
+
+    // Switch Pro 0x3F hat release
+    swSimple[3] = 8; // neutral hat
+    CHECK(input::parseSwitchProReport(swSimple, sizeof swSimple, s));
+    CHECK(!s.dpadUp && !s.dpadDown && !s.dpadLeft && !s.dpadRight);
+
+    // Switch Input-Only hat release
+    swIn[2] = 8; // neutral hat
+    CHECK(input::parseSwitchInputOnlyReport(swIn, sizeof swIn, s));
+    CHECK(!s.dpadDown && !s.dpadUp && !s.dpadLeft && !s.dpadRight);
+
+    // Stadia hat release
+    stadia[1] = 8; // neutral hat
+    CHECK(input::parseStadiaReport(stadia, sizeof stadia, s));
+    CHECK(!s.dpadLeft && !s.dpadUp && !s.dpadDown && !s.dpadRight);
+
+    // Generic HID fallback (raw axes + buttons)
+    uint8_t hidRaw[7] = {255, 0, 128, 255, 0, 0x02 | 0x10, 0x10}; // LX=1.0, LY=-1.0, RX=0.0, RY=1.0, Hat=Up, Cross+L1, PS
+    s = {};
+    CHECK(input::parseGenericHidFallback(hidRaw, sizeof hidRaw, s));
+    CHECK(s.connected && s.btnA && s.btnL1 && s.dpadUp && s.btnNexus);
+    CHECK(near(s.rawLeftX, 1.0f) && near(s.rawLeftY, -1.0f));
+    CHECK(input::parseUsbPadReport(input::UsbPadProtocol::GenericHid, hidRaw, sizeof hidRaw, s));
+
+    // Generic HID fallback hat release
+    hidRaw[4] = 8; // neutral hat
+    CHECK(input::parseGenericHidFallback(hidRaw, sizeof hidRaw, s));
+    CHECK(!s.dpadUp && !s.dpadDown && !s.dpadLeft && !s.dpadRight);
+
+    // Generic HID descriptor with Rx/Ry right stick, Z/Rz triggers, and 12-button combo
+    const uint8_t hidGamepadDesc[] = {
+        0x05, 0x01,        // Usage Page (Generic Desktop)
+        0x09, 0x05,        // Usage (Gamepad)
+        0xA1, 0x01,        // Collection (Application)
+        0x05, 0x01,        //   Usage Page (Generic Desktop)
+        0x09, 0x30,        //   Usage (X)
+        0x09, 0x31,        //   Usage (Y)
+        0x09, 0x32,        //   Usage (Z)
+        0x09, 0x35,        //   Usage (Rz)
+        0x09, 0x33,        //   Usage (Rx)
+        0x09, 0x34,        //   Usage (Ry)
+        0x15, 0x00,        //   Logical Minimum (0)
+        0x26, 0xFF, 0x00,  //   Logical Maximum (255)
+        0x75, 0x08,        //   Report Size (8)
+        0x95, 0x06,        //   Report Count (6)
+        0x81, 0x02,        //   Input (Data, Var, Abs)
+        0x09, 0x39,        //   Usage (Hat switch)
+        0x15, 0x00,        //   Logical Minimum (0)
+        0x25, 0x07,        //   Logical Maximum (7)
+        0x75, 0x04,        //   Report Size (4)
+        0x95, 0x01,        //   Report Count (1)
+        0x81, 0x42,        //   Input (Data, Var, Abs, Null)
+        0x75, 0x04,        //   Report Size (4)
+        0x95, 0x01,        //   Report Count (1)
+        0x81, 0x01,        //   Input (Const)
+        0x05, 0x09,        //   Usage Page (Button)
+        0x19, 0x01,        //   Usage Minimum (1)
+        0x29, 0x0C,        //   Usage Maximum (12)
+        0x15, 0x00,        //   Logical Minimum (0)
+        0x25, 0x01,        //   Logical Maximum (1)
+        0x75, 0x01,        //   Report Size (1)
+        0x95, 0x0C,        //   Report Count (12)
+        0x81, 0x02,        //   Input (Data, Var, Abs)
+        0x75, 0x04,        //   Report Size (4)
+        0x95, 0x01,        //   Report Count (1)
+        0x81, 0x01,        //   Input (Const)
+        0xC0               // End Collection
+    };
+    input::GenericHidContext hidCtx{};
+    CHECK(input::parseHidDescriptor(hidCtx, hidGamepadDesc, sizeof(hidGamepadDesc), 0x1234, 0x5678));
+    CHECK(hidCtx.role[input::ROLE_LX] == input::AX_X);
+    CHECK(hidCtx.role[input::ROLE_LY] == input::AX_Y);
+    CHECK(hidCtx.role[input::ROLE_RX] == input::AX_RX);
+    CHECK(hidCtx.role[input::ROLE_RY] == input::AX_RY);
+    CHECK(hidCtx.role[input::ROLE_L2] == input::AX_Z);
+    CHECK(hidCtx.role[input::ROLE_R2] == input::AX_RZ);
+
+    // Feed a report to hidCtx:
+    // LX=255, LY=0, Z=255 (L2), Rz=128 (R2), Rx=0, Ry=255, Hat=2 (Right), Buttons: Select (btn 9, bit 8) + Start (btn 10, bit 9)
+    uint8_t hidReport[9] = {
+        255, 0, 255, 128, 0, 255,
+        0x02, // Hat=2 (Right)
+        0x00, 0x03 // bits 8 and 9 (Select + Start)
+    };
+    s = {};
+    CHECK(input::parseGenericHidReport(hidCtx, hidReport, sizeof(hidReport), s));
+    CHECK(s.connected && s.dpadRight);
+    CHECK(near(s.rawLeftX, 1.0f) && near(s.rawLeftY, -1.0f));
+    CHECK(near(s.rawRightX, -1.0f) && near(s.rawRightY, 1.0f));
+    CHECK(near(s.triggerL2, 1.0f) && near(s.triggerR2, 0.5f));
+    CHECK(s.btnTouchpad && s.btnOptions);
+    CHECK(s.btnNexus); // 12-button combo active!
+
+    // Protocol names
+    CHECK(std::string(input::usbPadProtocolName(input::UsbPadProtocol::DualShock3)) == "DualShock 3");
+    CHECK(std::string(input::usbPadProtocolName(input::UsbPadProtocol::DualShock4)) == "DualShock 4");
+    CHECK(std::string(input::usbPadProtocolName(input::UsbPadProtocol::DualSense)) == "DualSense");
+    CHECK(std::string(input::usbPadProtocolName(input::UsbPadProtocol::SwitchPro)) == "Switch Pro");
+    CHECK(std::string(input::usbPadProtocolName(input::UsbPadProtocol::SwitchInputOnly)) == "Switch");
+    CHECK(std::string(input::usbPadProtocolName(input::UsbPadProtocol::Stadia)) == "Stadia");
+    CHECK(std::string(input::usbPadProtocolName(input::UsbPadProtocol::GenericHid)) == "Generic HID");
 }
 
 static void testUsbPadDescriptors() {

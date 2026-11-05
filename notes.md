@@ -12,6 +12,10 @@
 - **Eliminated Ghost Phone Icon**: Fixed virtual gamepad detection so inactive WebUI connections do not display a phantom phone controller icon on desktop slot 0.
 - **Low-Latency Presentation & Handheld Detection**: Vulkan NV12 decode pipeline and mailbox presentation for Linux desktop and handheld devices (Steam Deck / ROG Ally / Legion Go).
 
+## 🎮 PS4 Native USB Controller Support (OneFamily Integration)
+- **Universal USB Controller Drivers**: Direct in-app support on PS4 (using `libSceUsbd`) for PS3 (DualShock 3), PS4 (wired/third-party), PS5 (DualSense), Xbox 360, Xbox One / Series X|S (GIP), 8BitDo adapters/controllers, Nintendo Switch Pro & Input-Only, Google Stadia, and generic DirectInput/HID gamepads.
+- **Autonomous & Zero-Dependency**: Works out of the box directly in the application without requiring background daemons or external GoldHEN payloads.
+
 ---
 **Installation on PS5**:
 - Install directly from **ProsperoStore** or **RecompStore**, or download the signed `PPSA99810.zip` and install manually via Homebrew / FTP.
@@ -35,6 +39,10 @@
 - **Correção da Tecla Delete**: Evita que a tecla `Delete` acione o botão touchpad (desconexão da conta) no desktop.
 - **Eliminação do Ícone Fantasma de Celular**: Corrigida a detecção do controle virtual da WebUI para evitar a exibição indevida de ícone de celular no slot 0 do desktop.
 - **Apresentação de Baixa Latência & Detecção de Handhelds**: Pipeline Vulkan NV12 e modo de apresentação mailbox para desktop Linux e dispositivos portáteis (Steam Deck / ROG Ally / Legion Go).
+
+## 🎮 Suporte Nativo a Controles USB no PS4 (Integração OneFamily)
+- **Drivers Universais de Controles USB**: Suporte nativo direto no app para PS4 (via `libSceUsbd`) para controles de PS3 (DualShock 3), PS4 (com fio/paralelos), PS5 (DualSense), Xbox 360, Xbox One / Series X|S (GIP), adaptadores/controles 8BitDo, Nintendo Switch Pro e Input-Only, Google Stadia e gamepads HID/DirectInput genéricos.
+- **Autônomo e Sem Dependências Externas**: Funciona imediatamente dentro do próprio aplicativo sem necessidade de daemons ou payloads externos do GoldHEN em segundo plano.
 
 ---
 **Instalação no PS5**:
