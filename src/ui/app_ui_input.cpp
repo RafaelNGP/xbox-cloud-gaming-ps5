@@ -676,9 +676,11 @@ UiEvent AppUi::onMouseDown(float x, float y, int button) {
             Rect btn1{btnStartX + kBtnW + kBtnGap, btnY, kBtnW, kBtnH};
             auto inRect = [&](const Rect& r) { return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h; };
             if (inRect(btn0)) {
+                settings_.syncTrophies = false;
                 removeTrophiesConfirmOpen_ = false;
                 dirty_ = true;
                 ev.action = Action::RemoveTrophies;
+                ev.settings = settings_;
             } else if (inRect(btn1) || !inRect(panel)) {
                 removeTrophiesConfirmOpen_ = false;
                 dirty_ = true;
@@ -1043,9 +1045,11 @@ UiEvent AppUi::handle(const NavInput& in) {
                     dirty_ = true;
                 } else if (in.accept) {
                     if (removeTrophiesFocus_ == 0) {
+                        settings_.syncTrophies = false;
                         removeTrophiesConfirmOpen_ = false;
                         dirty_ = true;
                         ev.action = Action::RemoveTrophies;
+                        ev.settings = settings_;
                     } else {
                         removeTrophiesConfirmOpen_ = false;
                         dirty_ = true;

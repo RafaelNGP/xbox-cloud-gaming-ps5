@@ -889,6 +889,7 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         static int step = 0;
         if (!since) since = now;
         static SettingsWalk walk;
+        static SettingsWalk walk2;
         if (step == 0 && now - since >= 500) {
             nav.options = true; // Open Settings
             step++;
@@ -915,8 +916,7 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
             trophyEnabledShot = true; // Capture toggled ON
             step++;
         } else if (step == 7 && now - since >= 10500) {
-            nav.down = true; // Move to row 25 (Remove Trophies)
-            step++;
+            if (walk2.step(nav, 1)) step++; // Move to row 25 (Remove Trophies)
         } else if (step == 8 && now - since >= 12000) {
             if (onSettingsRow(25, "trophy remove test")) {
                 nav.accept = true; // Open remove confirm modal
@@ -929,12 +929,15 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
             trophyRemoveConfirmShot = true; // Capture remove confirm modal
             step++;
         } else if (step == 10 && now - since >= 15000) {
-            nav.accept = true; // Confirm removal ("Remover")
+            nav.left = true; // Move focus from Cancel (1) to Remover (0)
             step++;
         } else if (step == 11 && now - since >= 16500) {
-            trophyRemovedToastShot = true; // Capture toast notification
+            nav.accept = true; // Confirm removal ("Remover")
             step++;
         } else if (step == 12 && now - since >= 18000) {
+            trophyRemovedToastShot = true; // Capture toast notification
+            step++;
+        } else if (step == 13 && now - since >= 19500) {
             nav.back = true;
             g_ui->showHome();
             g_autoplay.trophyTest = false;

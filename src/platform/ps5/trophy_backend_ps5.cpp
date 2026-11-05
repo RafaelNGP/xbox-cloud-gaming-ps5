@@ -7,6 +7,7 @@
 #include "util/log.h"
 
 #include <arpa/inet.h>
+#include <dirent.h>
 #include <fcntl.h>
 #include <map>
 #include <mutex>
@@ -46,7 +47,15 @@ namespace {
 
 std::string systemLib(const char* name) {
     const char* word = sceKernelGetFsSandboxRandomWord();
-    return std::string("/") + (word ? word : "") + "/common/lib/" + name;
+    if (word && *word) {
+        std::string jailed = std::string("/") + word + "/common/lib/" + name;
+        struct stat st{};
+        if (::stat(jailed.c_str(), &st) == 0) return jailed;
+    }
+    std::string sys = std::string("/system/common/lib/") + name;
+    struct stat st{};
+    if (::stat(sys.c_str(), &st) == 0) return sys;
+    return std::string("/common/lib/") + name;
 }
 
 void triggerSceShellCorePatch() {
@@ -97,6 +106,30 @@ bool waitForUnjail(int timeoutMs) {
     }
     XC_LOGW("trophy ps5: unjail NOT confirmed after %d ms; file deploy will fail with ENOENT", timeoutMs);
     return false;
+}
+
+void rmTree(const std::string& path) {
+    DIR* d = ::opendir(path.c_str());
+    if (!d) {
+        ::unlink(path.c_str());
+        return;
+    }
+    struct dirent* de;
+    while ((de = ::readdir(d)) != nullptr) {
+        std::string name = de->d_name;
+        if (name == "." || name == "..") continue;
+        std::string sub = path + "/" + name;
+        struct stat st{};
+        if (::lstat(sub.c_str(), &st) == 0) {
+            if (S_ISDIR(st.st_mode)) {
+                rmTree(sub);
+            } else {
+                ::unlink(sub.c_str());
+            }
+        }
+    }
+    ::closedir(d);
+    ::rmdir(path.c_str());
 }
 
 }  // namespace
@@ -184,6 +217,12 @@ public:
 
             // Re-trigger patch to guarantee client-side libSceNpTrophy2 and SceShellCore are patched
             triggerSceShellCorePatch();
+
+            if (trophyModule_ < 0) loadNpTrophyModule();
+            if (trophyModule_ < 0) {
+                XC_LOGW("trophy ps5: cannot register title: libSceNpTrophy2.sprx not loaded");
+                return false;
+            }
 
             int rc = sceNpTrophy2CreateContext(&context_, static_cast<int32_t>(userId_), 1, 0);
             XC_LOGI("trophy ps5: sceNpTrophy2CreateContext(user=0x%08x, serviceLabel=1) -> rc=0x%08x, context=%d",
@@ -336,6 +375,7 @@ public:
 
     bool removeAllTrophies(const std::vector<std::pair<std::string, std::string>>& titles, int& removedCount, std::string& err) override {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (!initialized_) init(0);
         removedCount = 0;
 
         triggerSceShellCorePatch();
@@ -347,22 +387,18 @@ public:
             if (!npComm.empty()) {
                 char dataDir[256];
                 snprintf(dataDir, sizeof(dataDir), "/user/home/%08x/trophy2/nobackup/data/%s", userId_, npComm.c_str());
-                std::string datFile = std::string(dataDir) + "/TRPTITLE.DAT";
                 struct stat st{};
-                if (::stat(datFile.c_str(), &st) == 0) {
-                    ::unlink(datFile.c_str());
-                    ::rmdir(dataDir);
+                if (::stat(dataDir, &st) == 0) {
+                    rmTree(dataDir);
                     foundAny = true;
-                    XC_LOGI("trophy ps5 remove: deleted %s", datFile.c_str());
+                    XC_LOGI("trophy ps5 remove: purged %s", dataDir);
                 }
 
                 std::string confDir = "/user/trophy2/nobackup/conf/" + npComm;
-                std::string ucpFile = confDir + "/TROPHY.UCP";
-                if (::stat(ucpFile.c_str(), &st) == 0) {
-                    ::unlink(ucpFile.c_str());
-                    ::rmdir(confDir.c_str());
+                if (::stat(confDir.c_str(), &st) == 0) {
+                    rmTree(confDir);
                     foundAny = true;
-                    XC_LOGI("trophy ps5 remove: deleted %s", ucpFile.c_str());
+                    XC_LOGI("trophy ps5 remove: purged %s", confDir.c_str());
                 }
             }
 
@@ -373,24 +409,33 @@ public:
                         "/user/appmeta/PPSA99810/trophy2",
                         "/user/app/PPSA99810/sce_sys/trophy2",
                         "/data/homebrew/PPSA99810/sce_sys/trophy2",
-                        "/system_data/game/temp/PPSA99810/trophy2"
+                        "/system_data/game/temp/PPSA99810/trophy2",
+                        "/system_data/game/temp/PPSA99810"
                     };
                     for (const auto& d : appMetaDirs) {
-                        ::unlink((d + "/trophy00.ucp").c_str());
-                        ::unlink((d + "/npbind.dat").c_str());
-                        ::rmdir(d.c_str());
+                        struct stat st{};
+                        if (::stat(d.c_str(), &st) == 0) {
+                            rmTree(d);
+                            foundAny = true;
+                        }
                     }
+                    ::unlink("/system_data/priv/appmeta/PPSA99810/npbind.dat");
+                    ::unlink("/user/appmeta/PPSA99810/npbind.dat");
+                    ::unlink("/system_data/game/temp/PPSA99810/npbind.dat");
                 } else {
                     const std::string titleDirs[] = {
                         "/system_data/priv/appmeta/" + sonyTitle,
                         "/user/appmeta/" + sonyTitle,
-                        "/user/app/" + sonyTitle + "/sce_sys"
+                        "/user/app/" + sonyTitle + "/sce_sys",
+                        "/user/app/" + sonyTitle,
+                        "/system_data/game/temp/" + sonyTitle
                     };
                     for (const auto& d : titleDirs) {
-                        ::unlink((d + "/param.json").c_str());
-                        ::unlink((d + "/nptitle.dat").c_str());
-                        ::unlink((d + "/icon0.png").c_str());
-                        ::rmdir(d.c_str());
+                        struct stat st{};
+                        if (::stat(d.c_str(), &st) == 0) {
+                            rmTree(d);
+                            foundAny = true;
+                        }
                     }
                 }
             }
@@ -411,15 +456,24 @@ public:
 
 private:
     void loadNpTrophyModule() {
+        if (trophyModule_ >= 0) return;
         int res = 0;
-        int mod = sceKernelLoadStartModule(systemLib("libSceNpTrophy2.sprx").c_str(), 0, nullptr, 0, nullptr, &res);
-        if (mod < 0) {
-            mod = sceKernelLoadStartModule("libSceNpTrophy2.sprx", 0, nullptr, 0, nullptr, &res);
+        trophyModule_ = sceKernelLoadStartModule(systemLib("libSceNpTrophy2.sprx").c_str(), 0, nullptr, 0, nullptr, &res);
+        if (trophyModule_ < 0) {
+            const char* paths[] = {
+                "/system/common/lib/libSceNpTrophy2.sprx",
+                "/common/lib/libSceNpTrophy2.sprx",
+                "libSceNpTrophy2.sprx"
+            };
+            for (const char* p : paths) {
+                trophyModule_ = sceKernelLoadStartModule(p, 0, nullptr, 0, nullptr, &res);
+                if (trophyModule_ >= 0) break;
+            }
         }
-        XC_LOGI("trophy ps5: load libSceNpTrophy2.sprx -> 0x%08x (res=%d)", static_cast<unsigned>(mod), res);
-        int modMgr = sceKernelLoadStartModule(systemLib("libSceNpManager.sprx").c_str(), 0, nullptr, 0, nullptr, &res);
+        XC_LOGI("trophy ps5: load libSceNpTrophy2.sprx -> 0x%08x (res=%d)", static_cast<unsigned>(trophyModule_), res);
+        int modMgr = sceKernelLoadStartModule("/system/common/lib/libSceNpManager.sprx", 0, nullptr, 0, nullptr, &res);
         if (modMgr < 0) {
-            modMgr = sceKernelLoadStartModule("libSceNpManager.sprx", 0, nullptr, 0, nullptr, &res);
+            modMgr = sceKernelLoadStartModule(systemLib("libSceNpManager.sprx").c_str(), 0, nullptr, 0, nullptr, &res);
         }
         XC_LOGI("trophy ps5: load libSceNpManager.sprx -> 0x%08x (res=%d)", static_cast<unsigned>(modMgr), res);
     }
@@ -437,6 +491,7 @@ private:
     }
 
     bool initialized_ = false;
+    int trophyModule_ = -1;
     uint32_t userId_ = 0x1ea2f4da;
     int32_t context_ = -1;
     int32_t handle_ = -1;

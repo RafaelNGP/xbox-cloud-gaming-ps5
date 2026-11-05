@@ -20,6 +20,7 @@
 #include "app/stream_player.h"
 #include "app/stream_screen.h"
 #include "app/web_server.h"
+#include "app/worker_internal.h"
 #include "display/display.h"
 #include "input/controller.h"
 #include "input/input_ext.h"
@@ -843,15 +844,16 @@ void Core::dispatchUiAction(const ui::UiEvent& ev) {
             break;
         }
         case ui::Action::SyncTrophies: {
-            XC_LOGI("trophy sync: requested from Settings");
+            saveSettings(ev.settings);
+            XC_LOGI("trophy sync: requested from Settings (saved syncTrophies=%d)", g_settings.syncTrophies ? 1 : 0);
             int idle = kNone;
             if (!g_command.compare_exchange_strong(idle, kSyncTrophies)) XC_LOGW("trophy sync: worker is busy");
             break;
         }
         case ui::Action::RemoveTrophies: {
-            XC_LOGI("trophy remove: requested from Settings");
-            int idle = kNone;
-            if (!g_command.compare_exchange_strong(idle, kRemoveTrophies)) XC_LOGW("trophy remove: worker is busy");
+            saveSettings(ev.settings);
+            XC_LOGI("trophy remove: requested from Settings (saved syncTrophies=%d)", g_settings.syncTrophies ? 1 : 0);
+            std::thread([]() { runRemoveTrophies(); }).detach();
             break;
         }
         case ui::Action::TestQueueAlert: {

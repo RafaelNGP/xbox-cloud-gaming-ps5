@@ -138,6 +138,17 @@ private:
         }
     }
 
+    bool removeAllTrophies(const std::vector<std::pair<std::string, std::string>>& titles, int& removedCount, std::string& err) override {
+        (void)err;
+        std::lock_guard<std::mutex> lock(mutex_);
+        cleanupContext();
+        removedCount = static_cast<int>(registeredTitles_.size() > 0 ? registeredTitles_.size() : titles.size());
+        registeredTitles_.clear();
+        unlockedTrophies_.clear();
+        XC_LOGI("trophy ps4: removeAllTrophies cleared %d titles", removedCount);
+        return true;
+    }
+
     bool initialized_ = false;
     uint32_t userId_ = 0x10000000;
     int32_t context_ = -1;

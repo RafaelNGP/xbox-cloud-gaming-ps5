@@ -7561,19 +7561,32 @@ static void testTrophyModalsAndDesktopInput() {
     ui::UiEvent evAware = app.handle(accept);
     CHECK(app.settings().syncTrophies);
     CHECK(evAware.action == ui::Action::SyncTrophies);
+    CHECK(evAware.settings.syncTrophies);
+    app::Settings st;
+    ui::applyChoice(evAware.settings, st);
+    CHECK(st.syncTrophies);
 
     // Click row 24 again: turns it off directly
     ui::UiEvent evOff = app.onMouseDown(100.0f, static_cast<float>(y24), 1);
     CHECK(!app.settings().syncTrophies);
     CHECK(evOff.action == ui::Action::SettingsChanged);
+    CHECK(!evOff.settings.syncTrophies);
+    ui::applyChoice(evOff.settings, st);
+    CHECK(!st.syncTrophies);
 
-    // 2. Click row 25: opens remove trophies confirm modal
+    // 2. Turn sync back on to test removal resets it
+    app.onMouseDown(100.0f, static_cast<float>(y24), 1);
+    app.handle(accept);
+    CHECK(app.settings().syncTrophies);
+
+    // Click row 25: opens remove trophies confirm modal
     app.onMouseDown(100.0f, static_cast<float>(y25), 1);
     app.render(c, 1000);
 
     // Default focus is "Cancelar" (focus 1) for safety
     ui::UiEvent evCancelRm = app.handle(accept);
     CHECK(evCancelRm.action != ui::Action::RemoveTrophies);
+    CHECK(app.settings().syncTrophies);
 
     // Click row 25 again, navigate left to "Remover" (focus 0)
     app.onMouseDown(100.0f, static_cast<float>(y25), 1);
@@ -7582,6 +7595,10 @@ static void testTrophyModalsAndDesktopInput() {
     app.handle(navLeft);
     ui::UiEvent evRm = app.handle(accept);
     CHECK(evRm.action == ui::Action::RemoveTrophies);
+    CHECK(!evRm.settings.syncTrophies);
+    CHECK(!app.settings().syncTrophies);
+    ui::applyChoice(evRm.settings, st);
+    CHECK(!st.syncTrophies);
 
     // 3. Desktop Search & text input
     app.showHome();

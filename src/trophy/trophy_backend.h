@@ -30,7 +30,9 @@ public:
     virtual void flush() {}
 
     // Removes local trophy data and packages for provisioned titles
-    virtual bool removeAllTrophies(const std::vector<std::pair<std::string, std::string>>& titles, int& removedCount, std::string& err) = 0;
+    virtual bool removeAllTrophies(const std::vector<std::pair<std::string, std::string>>& titles, int& removedCount, std::string& err) {
+        (void)titles; (void)err; removedCount = 0; return true;
+    }
 
     // Backend identifier name
     virtual std::string name() const = 0;
