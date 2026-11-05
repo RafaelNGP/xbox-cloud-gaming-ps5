@@ -6898,6 +6898,78 @@ static void testTrophySystem() {
 
     std::string genericParam = buildParamJson("PPSA12345", "Custom Game");
     CHECK(genericParam.find("\"titleId\": \"PPSA12345\"") != std::string::npos);
+
+    // 4d. Full official Fortnite Save the World 45-achievement set mapping
+    std::vector<xcloud::Achievement> fnAchs;
+    for (int i = 1; i <= 45; ++i) {
+        xcloud::Achievement ach;
+        ach.id = std::to_string(i);
+        ach.name = "Fortnite Achievement " + std::to_string(i);
+        ach.gamerscore = (i == 29 || i == 40 || i == 44) ? 50 : 20;
+        fnAchs.push_back(ach);
+    }
+    fnAchs[28].name = "All Tied Up"; // ID 29 (0-indexed 28)
+    fnAchs[39].name = "Anjo da Guarda"; // ID 40 (0-indexed 39)
+    fnAchs[43].name = "Plays Well with Others"; // ID 44 (0-indexed 43)
+    fnAchs[22].name = "Plankerton livre"; // ID 23
+    fnAchs[25].name = "Amped for Expansion"; // ID 26
+    fnAchs[26].name = "Desencana!"; // ID 27
+    fnAchs[27].name = "Into the Night"; // ID 28
+    fnAchs[36].name = "Coisas malvadas com uns dentões"; // ID 37
+    fnAchs[37].name = "Talented Builder"; // ID 38
+    fnAchs[38].name = "Vai Gnomo!"; // ID 39
+    fnAchs[40].name = "Loot Legend"; // ID 41
+    fnAchs[41].name = "World Explorer"; // ID 42
+    fnAchs[42].name = "Horrores Inenarráveis"; // ID 43
+
+    TitleTrophySet fnSet = resolveTitleSet("267695549", "BT5P2X999VH2", "Fortnite", fnAchs);
+    CHECK(fnSet.npCommId == "NPWR20561_00");
+    CHECK(fnSet.totalCount == 45);
+    int goldCount = 0, silverCount = 0, bronzeCount = 0;
+    for (const auto& item : fnSet.items) {
+        if (item.grade == TrophyGrade::Gold) goldCount++;
+        else if (item.grade == TrophyGrade::Silver) silverCount++;
+        else if (item.grade == TrophyGrade::Bronze) bronzeCount++;
+    }
+    CHECK(goldCount == 3);
+    CHECK(silverCount == 10);
+    CHECK(bronzeCount == 32);
+
+    // Test UTF-8 Portuguese accent folding in normalizeTrophyName
+    CHECK(normalizeTrophyName("Coisas malvadas com uns dent\u00f5es") == "coisasmalvadascomunsdentoes");
+    CHECK(normalizeTrophyName("Horrores Inenarr\u00e1veis") == "horroresinenarraveis");
+    CHECK(normalizeTrophyName("Vai, Gnomo!") == "vaignomo");
+
+    // Test single-item Fortnite grade resolution by ID and by name (regardless of totalCount)
+    std::vector<xcloud::Achievement> singleAch;
+    xcloud::Achievement ach29;
+    ach29.id = "29";
+    ach29.name = "Coisas malvadas com uns dent\u00f5es"; // Silver
+    ach29.gamerscore = 20;
+    singleAch.push_back(ach29);
+    TitleTrophySet singleSet = resolveTitleSet("267695549", "BT5P2X999VH2", "Fortnite", singleAch);
+    CHECK(singleSet.items.size() == 1);
+    CHECK(singleSet.items[0].grade == TrophyGrade::Silver);
+
+    // Verify UCP builds with Platinum metadata
+    std::vector<uint8_t> fnUcp;
+    CHECK(buildUcp(fnSet, fnUcp));
+    std::string ucpStr(reinterpret_cast<const char*>(fnUcp.data()), fnUcp.size());
+    CHECK(ucpStr.find("Hero of the Storm") != std::string::npos);
+    CHECK(ucpStr.find("Her\u00f3i da Tempestade") != std::string::npos);
+
+    // Test convertTo512Png helper with a minimal valid 1x1 PNG
+    static const uint8_t kTinyPng[67] = {
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+        0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+        0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+        0x42, 0x60, 0x82
+    };
+    CHECK(!is512x512Png(kTinyPng, sizeof(kTinyPng)));
+    std::vector<uint8_t> dummyPng;
+    CHECK(convertTo512Png(kTinyPng, sizeof(kTinyPng), dummyPng));
+    CHECK(is512x512Png(dummyPng.data(), dummyPng.size()));
     CHECK(genericParam.find("\"contentId\": \"UP0001-PPSA12345_00-0000000000000000\"") != std::string::npos);
     CHECK(genericParam.find("\"titleName\": \"Custom Game\"") != std::string::npos);
 

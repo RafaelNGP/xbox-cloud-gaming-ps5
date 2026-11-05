@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 #include "trophy/trophy_sync.h"
+#include "trophy/trophy_builder.h"
 #include "trophy/trophy_registry.h"
 #include "trophy/trophy_rules.h"
+#include "net/http.h"
 #include "platform/platform.h"
 #include "ui/strings.h"
 #include "util/json.h"
@@ -87,6 +89,86 @@ bool TrophySyncEngine::syncTitleAchievements(const std::string& xblAuth, const s
 
     // 2. Resolve trophy set mapping
     TitleTrophySet titleSet = resolveTitleSet(xboxTitleId, "", titleName, ach.items);
+
+    // 2b. Cache trophy and game icons on disk
+    std::string iconsBase = trophyCacheDir() + "/icons";
+    ::mkdir(iconsBase.c_str(), 0777);
+    std::string iconsDir = iconsBase + "/" + titleSet.npCommId;
+    ::mkdir(iconsDir.c_str(), 0777);
+
+    std::string icon0File = iconsDir + "/icon0.png";
+    struct stat st0{};
+    if (::stat(icon0File.c_str(), &st0) != 0 || st0.st_size == 0) {
+        std::string candidatePaths[] = {
+            "/system_data/priv/appmeta/" + titleSet.sonyTitleId + "/icon0.png",
+            "/user/appmeta/" + titleSet.sonyTitleId + "/icon0.png",
+            "/user/app/" + titleSet.sonyTitleId + "/sce_sys/icon0.png"
+        };
+        for (const auto& cp : candidatePaths) {
+            std::string raw;
+            if (platform::readFile(cp, raw) && raw.size() > 100) {
+                std::vector<uint8_t> png512;
+                const auto* udata = reinterpret_cast<const uint8_t*>(raw.data());
+                if (is512x512Png(udata, raw.size())) {
+                    platform::writeFileAtomic(icon0File, raw);
+                    break;
+                } else if (convertTo512Png(udata, raw.size(), png512)) {
+                    platform::writeFileAtomic(icon0File, std::string(reinterpret_cast<const char*>(png512.data()), png512.size()));
+                    break;
+                }
+            }
+        }
+    }
+
+    // Platinum icon (trop0000.png) for titles with dedicated Platinum like Fortnite
+    std::string platFile = iconsDir + "/trop0000.png";
+    struct stat stPlat{};
+    if (::stat(platFile.c_str(), &stPlat) != 0 || stPlat.st_size == 0 || (st0.st_size > 0 && stPlat.st_size == st0.st_size)) {
+        if (titleSet.npCommId == "NPWR20561_00") {
+            net::Request req;
+            req.method = "GET";
+            req.url = "https://m.exophase.com/psn/awards/l/d41b74.png";
+            auto r = net::perform(req);
+            if (r.ok() && !r.body.empty()) {
+                std::vector<uint8_t> png512;
+                const auto* udata = reinterpret_cast<const uint8_t*>(r.body.data());
+                if (convertTo512Png(udata, r.body.size(), png512)) {
+                    platform::writeFileAtomic(platFile, std::string(reinterpret_cast<const char*>(png512.data()), png512.size()));
+                    XC_LOGI("trophy sync: cached genuine Platinum icon for %s (%zu bytes)", titleSet.npCommId.c_str(), png512.size());
+                }
+            }
+        }
+    }
+
+    for (size_t i = 0; i < ach.items.size() && i < titleSet.items.size(); ++i) {
+        const auto& a = ach.items[i];
+        const auto& def = titleSet.items[i];
+        if (a.iconUrl.empty()) continue;
+        char nameBuf[32];
+        snprintf(nameBuf, sizeof(nameBuf), "trop%04d.png", def.trophyId);
+        std::string iconFile = iconsDir + "/" + nameBuf;
+        struct stat st{};
+        // Skip only if existing file is valid and not an accidental duplicate of cover art
+        if (::stat(iconFile.c_str(), &st) == 0 && st.st_size > 0 && (st0.st_size == 0 || st.st_size != st0.st_size)) continue;
+
+        std::string fetchUrl = a.iconUrl;
+        if (fetchUrl.find("images-eds-ssl.xboxlive.com") != std::string::npos &&
+            fetchUrl.find("format=") == std::string::npos) {
+            fetchUrl += (fetchUrl.find('?') == std::string::npos) ? "?format=jpg" : "&format=jpg";
+        }
+        net::Request req;
+        req.method = "GET";
+        req.url = fetchUrl;
+        auto r = net::perform(req);
+        if (r.ok() && !r.body.empty()) {
+            std::vector<uint8_t> png512;
+            const auto* udata = reinterpret_cast<const uint8_t*>(r.body.data());
+            if (convertTo512Png(udata, r.body.size(), png512)) {
+                platform::writeFileAtomic(iconFile, std::string(reinterpret_cast<const char*>(png512.data()), png512.size()));
+                XC_LOGI("trophy sync: cached icon %s (%zu bytes)", nameBuf, png512.size());
+            }
+        }
+    }
 
     // 3. Load local cache snapshot
     std::set<std::string> prevUnlocked;
@@ -220,6 +302,10 @@ bool TrophySyncEngine::syncAllAccountTrophies(const std::string& xblAuth, const 
     std::unordered_set<std::string> seenXboxTitles;
     std::vector<std::pair<std::string, std::string>> titlesToSync; // pair<xboxTitleId, titleName>
 
+    // Always prioritize Fortnite first for focused verification (AGENTS.md §8.1)
+    seenXboxTitles.insert("267695549");
+    titlesToSync.emplace_back("267695549", "Fortnite");
+
     // Add titles from owned library, resolving known titles if xboxTitleId is missing
     for (const auto& game : ownedGames) {
         std::string xid = game.xboxTitleId;
@@ -231,11 +317,6 @@ bool TrophySyncEngine::syncAllAccountTrophies(const std::string& xblAuth, const 
         if (!xid.empty() && seenXboxTitles.insert(xid).second) {
             titlesToSync.emplace_back(xid, game.name.empty() ? ("Xbox Title " + xid) : game.name);
         }
-    }
-
-    // Always include Fortnite if not already added
-    if (seenXboxTitles.insert("267695549").second) {
-        titlesToSync.emplace_back("267695549", "Fortnite");
     }
 
     XC_LOGI("trophy back-sync: starting synchronization for %d titles", static_cast<int>(titlesToSync.size()));

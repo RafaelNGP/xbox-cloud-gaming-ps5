@@ -20,6 +20,12 @@ struct ExistingTrophyRecord {
 // Parses a TRPTITLE.DAT buffer to extract existing trophy unlock records and timestamps.
 bool parseTrpTitleDat(const uint8_t* data, size_t size, std::map<uint32_t, ExistingTrophyRecord>& outTrophies);
 
+// Returns true if rawData contains a valid PNG signature with 512x512 dimensions.
+bool is512x512Png(const uint8_t* data, size_t size);
+
+// Center-crops and resizes raw image data (JPEG or PNG) to a 512x512 RGBA PNG buffer.
+bool convertTo512Png(const uint8_t* rawData, size_t rawSize, std::vector<uint8_t>& outPng);
+
 // Builds an nptitle.dat file (160 bytes) for the given titleId.
 bool buildNpTitleDat(const std::string& titleId, std::vector<uint8_t>& outNpTitle);
 

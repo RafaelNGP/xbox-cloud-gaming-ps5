@@ -82,6 +82,7 @@ def register_title_app_db(local_db_path, model_title_id="PPSA22520",
         new_row["icon0Info"] = f"/user/app/{target_title_id}/sce_sys/icon0.png"
         new_row["pic0Info"] = f"/user/app/{target_title_id}/sce_sys/pic0.png"
         new_row["appType"] = 1  # 1 = Game
+        new_row["dispLocation"] = 0  # Keep hidden from Game Library
 
         if new_row.get("AppInfoJson"):
             try:
@@ -92,6 +93,7 @@ def register_title_app_db(local_db_path, model_title_id="PPSA22520",
                 info["CONCEPT_ID"] = target_concept_id
                 info["APP_TYPE"] = 1
                 info["ATTRIBUTE3"] = 1835012
+                info["DISPLAYLOCATION"] = 0
                 info["DEEPLINK_URI"] = f"psgm:play?id={target_title_id}"
                 info["HUBAPP_URI"] = f"pshome:gamehub?titleId={target_title_id}"
                 info["_metadata_path"] = f"/system_data/priv/appmeta/{target_title_id}"
@@ -123,6 +125,7 @@ def register_title_app_db(local_db_path, model_title_id="PPSA22520",
                 info["CONCEPT_ID"] = target_concept_id
                 info["APP_TYPE"] = 1
                 info["ATTRIBUTE3"] = 1835012
+                info["DISPLAYLOCATION"] = 0
                 for k in list(info.keys()):
                     if k.startswith("TITLE_") and k != "TITLE_ID":
                         info[k] = target_title_name
@@ -130,10 +133,10 @@ def register_title_app_db(local_db_path, model_title_id="PPSA22520",
             except Exception:
                 pass
         if app_json_str:
-            c.execute("UPDATE tbl_contentinfo SET appType = 1, titleName = ?, contentId = ?, conceptId = ?, AppInfoJson = ? WHERE titleId = ?",
+            c.execute("UPDATE tbl_contentinfo SET appType = 1, dispLocation = 0, titleName = ?, contentId = ?, conceptId = ?, AppInfoJson = ? WHERE titleId = ?",
                       (target_title_name, target_content_id, target_concept_id, app_json_str, target_title_id))
         else:
-            c.execute("UPDATE tbl_contentinfo SET appType = 1, titleName = ?, contentId = ?, conceptId = ? WHERE titleId = ?",
+            c.execute("UPDATE tbl_contentinfo SET appType = 1, dispLocation = 0, titleName = ?, contentId = ?, conceptId = ? WHERE titleId = ?",
                       (target_title_name, target_content_id, target_concept_id, target_title_id))
 
     # 2. All tbl_iconinfo_* tables
@@ -151,7 +154,7 @@ def register_title_app_db(local_db_path, model_title_id="PPSA22520",
                 new_row["contentId"] = target_content_id
                 new_row["conceptId"] = target_concept_id
                 new_row["localConceptId"] = target_local_concept_id
-                new_row["visible"] = 1
+                new_row["visible"] = 0
                 new_row["installStatus"] = 2
                 new_row["appDrmType"] = 5
                 new_row["deeplinkUri"] = f"psgm:play?id={target_title_id}"
@@ -164,7 +167,7 @@ def register_title_app_db(local_db_path, model_title_id="PPSA22520",
                 print(f"Inserted {target_title_id} into {tbl}")
         else:
             print(f"{target_title_id} already exists in {tbl}, updating...")
-            c.execute(f"UPDATE {tbl} SET conceptId = ?, localConceptId = ?, contentId = ?, titleName = ?, visible = 1, installStatus = 2, appDrmType = 5 WHERE titleId = ?",
+            c.execute(f"UPDATE {tbl} SET conceptId = ?, localConceptId = ?, contentId = ?, titleName = ?, visible = 0, installStatus = 2, appDrmType = 5 WHERE titleId = ?",
                       (target_concept_id, target_local_concept_id, target_content_id, target_title_name, target_title_id))
 
     # 3. All tbl_concepticoninfo_* tables
@@ -255,6 +258,8 @@ def register_title_appinfo_db(local_db_path, model_title_id="PPSA22520",
                   (1835012, target_title_id))
         c.execute("UPDATE tbl_appinfo SET val = ? WHERE titleId = ? AND key = '_local_concept_id'",
                   (target_local_concept_id, target_title_id))
+        c.execute("UPDATE tbl_appinfo SET val = 0 WHERE titleId = ? AND key = 'DISPLAYLOCATION'",
+                  (target_title_id,))
 
 
     conn.commit()

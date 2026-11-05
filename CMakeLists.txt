@@ -53,7 +53,7 @@ add_library(xcloud_core STATIC
     src/platform/toasts.cpp
     src/input/gyro.cpp
 )
-target_include_directories(xcloud_core PUBLIC src)
+target_include_directories(xcloud_core PUBLIC src extern/stb)
 if(NOT MSVC)
     target_compile_options(xcloud_core PUBLIC -g1 -fno-omit-frame-pointer PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()

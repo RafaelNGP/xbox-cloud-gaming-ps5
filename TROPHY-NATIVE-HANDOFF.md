@@ -1,200 +1,167 @@
-# Troféus nativos no PSBox (xCloud-PS5) — Handoff técnico
+# PS5 Native Trophies & Session Handoff (xCloud-PS5)
 
-> **Público-alvo:** um desenvolvedor (ou agente) dando continuidade à feature de troféus
-> no console PS5 13.60 jailbroken do dono do projeto. Documento de estado + achados +
-> referências. Não é um manual de bypass passo-a-passo; a implementação do bypass de
-> aceitação do daemon é via o método público (PHU, MIT) referenciado no fim.
-
-Data: 2026-11-03. Firmware alvo: **13.60** (jailbreak Relapse, público; kstuff + ShadowMountPlus + nanoDNS).
-
----
-
-## 1. Objetivo
-
-Exibir, no **perfil local** do PS5, as conquistas que o usuário ganhou jogando via
-streaming no PSBox Cloud Gaming (xCloud) — nome do jogo, ícone, lista de troféus, grau,
-desbloqueado/bloqueado — **nativamente** (notificação do sistema + coleção de Troféus),
-como se fossem troféus de um jogo instalado.
-
-Cenário: **100% offline** dos servidores da Sony (nanoDNS bloqueia). Nada sincroniza com
-a PSN. As conquistas são reais (ganhas pelo usuário em serviço oficial Xbox); o objetivo
-é só espelhá-las localmente, de forma organizada. Aceita-se marcar como local/não-sync.
+> **Documento de Hand-off Técnico e Estado Atual do Projeto**
+> **Data:** 2026-11-05
+> **Branch:** `feat/trophy-sync` (Worktree: `/home/notebook-storm/Documentos/PS5 Ports/xCloud-PS5-trophy`)
+> **Target Console:** PS5 FW 13.60 (IP: `192.168.15.17`, Portas: 2121 FTP, 8084 elfldr, 3232 klog)
+> **Usuário Alvo:** `0x1ea2f4da` (`devRafaelNGP`)
+> **Título Alvo:** Estritamente **Fortnite (`PPSA01922` / `NPWR20561_00`)** — regra AGENTS.md §8.1
 
 ---
 
-## 2. Como o sistema de troféus do PS5 funciona (conceitual)
+## 1. Resumo Executivo e Status Geral
 
-Dois subsistemas DISJUNTOS dentro do **SceShellCore** (o daemon de troféus, NPXS40082):
+1. **Correção de Regressão Crítica de Login/Gravação (Resolvida)**:
+   - **Sintoma:** O app abria deslogado, sem carregar a conta existente (`account.json`), e ao tentar fazer login, este não salvava (`g_dataDirWritable = false`).
+   - **Causa Raiz 1 (Timing de Unjail):** Em `src/platform/ps5/platform_ps5.cpp`, a função `init()` disparava o unjail assíncrono via `127.0.0.1:8084` e aguardava apenas `150ms`. Quando o payload demorava mais de 150ms para unjail do PID, `writable("/data/psbox")` falhava com `errno 13` (EACCES) ou `errno 2` (ENOENT). A pasta de dados caía em fallback restrito (`/download0/psbox`) e `g_dataDirWritable` tornava-se `false`, ignorando o `account.json` existente e impedindo gravações.
+   - **Causa Raiz 2 (Autoplay Residual):** O arquivo `/data/psbox/autoplay.txt` continha `AUTOTEST 35 trophytest`. Toda inicialização ativava `guardSettingsForAutoplay()`, restaurando o backup anterior das configurações.
+   - **Solução Implementada:** 
+     - Adicionado loop de retry polling em `platform_ps5.cpp:init()` de até 30 tentativas (100ms cada = até 3.0s de janela) para esperar o unjail antes de avaliar as pastas de dados.
+     - Higienizado o console: removidos todos os `autoplay.txt` residuais de `/data/psbox/` e `/data/homebrew/PPSA99810/`.
+     - Confirmado via FTP: `/data/psbox/account.json` (491 bytes, gamertag `RafaelNGP`, uid 1, permissão 0666) está preservado e intacto.
 
-- **(B) Desbloqueio** — encena o valor do troféu no contexto por-usuário e grava os bytes
-  em disco via um **serviço externo** de troféus (IPC). É o que `sceNpTrophyUnlockTrophy`
-  (jogo real) e as variantes System/Debug tocam.
-- **(A) Coleção / exibição** — é o que faz o título + troféus APARECEREM em Perfil →
-  Troféus e dispara o popup. Num console normal, o **serviço externo** dispara esse passo
-  de volta no SceShellCore DEPOIS de um desbloqueio aceito.
-
-Os dois NÃO se cruzam no grafo de chamadas. Desbloquear sem passar pela via (A) grava
-dados mas **não aparece nada**.
-
-Armazenamento:
-- Config (lista de troféus): `TROPHY.UCP` / `trophy00.ucp` + `npbind.dat` em
-  `/system_data/priv/appmeta/<TitleID>/trophy2/` e `/user/trophy2/nobackup/conf/<NPWR>/`.
-- Estado por-usuário: `TRPTITLE.DAT` em `/user/home/<uid>/trophy2/nobackup/data/<NPWR>/`.
-- A **coleção que a UI lê** NÃO são esses arquivos crus — é um índice em memória/selado
-  mantido pelo serviço; a entrada é criada pela via (A).
+2. **Causa do Kernel Panic na Execução Anterior (Diagnosticada e Sanada)**:
+   - **Causa Raiz:** Em versões experimentais anteriores do payload `tools/ps5/payload_patch_test/main.c`, patches agressivos no SceShellCore (especialmente `B18`, que forçava retorno 0 em falhas de `FindTitle`) faziam o daemon desreferenciar ponteiros nulos no kernel/daemon, somado a um dump de heap de 32MB (`kernel_proc_copyout`) durante execução concorrente.
+   - **Solução Implementada:** Removidos todos os patches perigosos e instáveis (`B13`, `B14`, `B15`, `B16`, `B18`, `B21`, `B22`, e scan de heap). O payload `patch_test.elf` agora executa o unjail do PID na linha 1 do `main()` de forma determinística (< 1ms) e aplica `chmod 0777` seguro nas pastas de troféus. O ELF foi recompilado e atualizado em `/data/pldmgr/payloads/patch_test/patch_test.elf`.
 
 ---
 
-## 3. Diagnóstico — por que a implementação atual NÃO funciona
+## 2. Análise Profunda das Referências da Comunidade
 
-Testado e verificado neste console:
+### 2.1 RecompTrophy (`cptlamarca/RecompTrophy`)
+Criado por **lamarking** para prover troféus PS5 nativos para portas e emuladores do Xbox 360 no console:
+- **Arquivos Manipulados (e apenas eles):**
+  1. `/user/trophy2/nobackup/conf/<NPWR>/TROPHY.UCP`:
+     - Contém `tropconf.json` (`schemaVersion: "1.00"`, `trophyDefinitionRevision: 1`, `trophySetVersion: "01.00"`).
+     - Contém `tropmeta_<lang>.json` (`schemaVersion: "0.90"`).
+     - Contém os PNGs de ícones (`trop0000.png` até `tropXXXX.png`, 512x512).
+     - Header UCP `0xB228C60A`, versão 1, SHA-1 nos bytes `0x1C..0x2F`.
+  2. `/user/home/<UID>/trophy2/nobackup/data/<NPWR>/TRPTITLE.DAT`:
+     - Clona os registros de cabeçalho `0x1` e `0x2` de um jogo PS5 existente no perfil (`NPWR39259_00`).
+     - Insere o SHA-1 do `TROPHY.UCP` no registro `0x100`.
+     - Configura o registro `0x300` com o NPWR e máscara de troféus.
+     - Grava os registros `0x800` (desbloqueios) com flags `0x11` e timestamps em microssegundos desde 0001-01-01 (`unix_time + 62135596800ULL * 1000000ULL`).
+     - Empacota em blocos de `0x400` bytes de dados + `0x20` bytes de SHA-256 (stride `0x420`).
+- **O que o RecompTrophy NÃO faz:**
+  - **NÃO toca no `app.db`**.
+  - **NÃO toca no `appinfo.db`**.
+  - **NÃO toca em `/system_data/priv/appmeta/`** nem em `npbind.dat`.
+  - **NÃO aplica patches de kernel nem de SceShellCore**.
+- **Como a UI do PS5 exibe os troféus:**
+  - O README do RecompTrophy estabelece expressamente: *"In a few seconds its trophies are in the PS5's Trophies list. If they don't show up yet, restart the console."*
+  - Popups durante o gameplay são gerados por um watcher em background chamando `sceNotificationSend(0xFE, true, json)` com template `InteractiveToastTrophy` e canal `Trophies`.
 
-1. **Usa o backdoor de debug** (`sceNpTrophy2SystemDebugUnlockTrophy`). Ele retorna
-   `rc=0` mas está no subsistema (B) — **nunca** toca a coleção. Por isso "tudo dá certo
-   nos logs e nada aparece". (Confirmado: 22 unlocks rc=0, nada no perfil.)
-2. **`RegisterContext` já é aceito** (rc=0) para o título — mas registrar sozinho coloca o
-   contexto na tabela interna por-ctx, **não** na coleção. (Confirmado: registramos e o
-   usuário checou o perfil — não apareceu.)
-3. **Reboot/rescan não ingere** os arquivos crus (confirmado pelo usuário).
-4. **Religar a função da via (A)** não teve efeito — ela só é alcançável pela via de
-   comando/serviço que o nosso fluxo não aciona.
-5. **O unlock normal** (`sceNpTrophy2UnlockTrophy`) **crashou o app** quando chamado da
-   nossa casca — provável símbolo não exportado / NID errado, OU a função falha porque o
-   título não está "provisionado" o suficiente.
-
-**Por que os dumps do usuário funcionam e a nossa casca não:** um dump é um jogo real,
-com NPWR/commId/pacote de troféus **provisionados pela Sony** e rodando sob a identidade
-real do título. O serviço aceita o desbloqueio dele e dispara a via (A). A nossa casca
-(nuvem / homebrew) tem dados **fabricados** e/ou identidade de processo diferente → o
-serviço não dispara a via (A) para ela sem ajuste no daemon.
-
----
-
-## 4. Arquitetura mapeada (achados de RE deste console, fw 13.60, mapbase 0x3059c000)
-
-Endereços como offset-de-mapbase (ao vivo = mapbase + offset). São ACHADOS factuais da RE,
-para orientar quem continuar — não um procedimento de patch.
-
-- Via (A) de exibição: handler de comando `0xe232e0` → `0xe1a4c0` → ingest no cache da
-  coleção `call [cache_vtable+0x30]` (= `0xe39310`) → fan-out `0xe34e70` → `0xe330a0` →
-  `0xe1f8f0` (porta do ShellUI).
-- `0xe1a4c0` só é alcançável de `0xe23487` (dentro de `0xe232e0`) e de `0xba7ce5`.
-- Serviço: ponteiro singleton em `[mapbase+0x22269a0]`; cache da coleção em `[svc+0x80]`
-  (vtable `0x2035d60`, mapa de 32 buckets em `cache+0x18`, flags em `+0xc/+0xd/+0xe`);
-  vtable do serviço `0x2035900`; init do serviço `0xe36250` registra handlers via
-  `0xe1d420/0xe1d6e0/0xe1d9b0/0xe1dc80/0xe1df50`.
-- Subsistema (B) de unlock: handlers ~`0xe59610/0xe59b50/0xe5b110` → updater `0xe63570`
-  → worker de registro `0xe65c10`.
-- `RegisterContext` = IPMI cmd `0x90016`.
-- Placeholder de commId `AAAA00000` (alvo "B1" do PHU) presente na rodata do 13.60, **não**
-  patchado — confirma que o setup base do usuário não faz esse patch.
-
-Dumps descriptografados do SceShellCore 13.60 capturados (base para a RE da via de unlock):
-no diretório de scratchpad da sessão — `sc_text.bin` (mb+0xb00000), `sc_rodata.bin`
-(mb+0x1a00000), `sc_data.bin` (mb+0x1f00000). Payload read-only de dump:
-`tools/ps5/payload_patch_test/dump_shellcore.c`.
+### 2.2 TrophyManager (`kauansilvalopes/trophy`)
+- Lê os jogos instalados diretamente de `/appdb`.
+- Busca `/system_data/priv/appmeta/<TitleID>/trophy2/npbind.dat` para descobrir o NPWR associado ao título.
+- Acessa e edita `/user/home/<UID>/trophy2/nobackup/data/<NPWR>/TRPTITLE.DAT`.
+- Confirma que o PS5 valida estritamente a integridade SHA-256 dos blocos de `TRPTITLE.DAT`.
 
 ---
 
-## 5. O caminho conhecido e PÚBLICO (referência de implementação)
+## 3. Estado Atual dos Arquivos no Console PS5 (`192.168.15.17`)
 
-A cena homebrew já resolve "troféus de jogos dumpados aparecerem nativamente":
-
-- **ArkSama/PS5-PHU-Trophy-System** (MIT) — https://github.com/ArkSama/PS5-PHU-Trophy-System
-  "PS5 trophy install + unlock for dumped games", 24 firmwares (4.03 → 12.70). Documenta,
-  em `README.md` + `WORKFLOW.md`, exatamente como o daemon aceita/rejeita e onde ficam os
-  pontos de ajuste ("B-patches": strings de commId, inventário de app, gate do LncManager,
-  injeção de commId client-side no NpAsmClient do processo do jogo, e o register vindo do
-  processo do jogo). **Esse repo é a referência de método.**
-- **kauansilvalopes/trophy** (Trophy Manager) — app nativo no console, sem PC/payload.
-- KIK-Trophy (edita TRPTITLE.DAT), PS5TrophyExtract0r (extrai trophy00.ucp), Hamad3bdulla/PS5-Trophy-Unlocker-.
-
-**Importante sobre 13.60:** o PHU para no 12.70. Para 13.60, os offsets equivalentes
-precisam ser **re-derivados** pelo MESMO método do PHU, usando os dumps da seção 4 como
-ponto de partida. Um perfil 13.60 "diagnóstico" (sem offsets chutados) existe no repo do
-Hamad3bdulla; a comunidade está adicionando offsets até 13.60 mas pelo menos um valor por
-perfil precisa ser verificado em console real.
-
-**Adaptação do caso nuvem (o que é novo além do PHU):** o PHU ancora no processo do JOGO
-real rodando. Na nuvem não há processo do jogo — o PSBox (PPSA99810) é o processo. Então a
-adaptação é fazer o título alvo ser uma identidade real no console (ex.: a ideia de
-**forwarder por jogo** — cada jogo um tile/título próprio com seu pacote de troféus) e o
-register/unlock sair sob essa identidade. Essa parte é genuinamente nova.
+### 3.1 Fortnite (`PPSA01922` / `NPWR20561_00`)
+- **TRPTITLE.DAT** (`/user/home/1ea2f4da/trophy2/nobackup/data/NPWR20561_00/TRPTITLE.DAT`):
+  - Tamanho: 18.016 bytes.
+  - Total de troféus: 46 (22 já registrados como desbloqueados).
+  - Integridade: **17/17 blocos com SHA-256 100% válidos**.
+  - Registro 0x100: SHA-1 (`9053681804adefb38e52ced0d736baf80e899167`) bate **100% com o TROPHY.UCP**.
+- **TROPHY.UCP** (`/user/trophy2/nobackup/conf/NPWR20561_00/TROPHY.UCP`):
+  - Tamanho: 193.040 bytes.
+  - Total de arquivos: 50 (`tropconf.json`, `tropmeta_en-US.json`, `tropmeta_pt-BR.json`, 47 PNGs).
+  - Header: Magic `0xB228C60A`, Version 1, SHA-1 verificado.
+- **Banco de Dados do Sistema (`app.db` / `appinfo.db`)**:
+  - `PPSA01922` está atualmente registrado com `DISPLAYLOCATION: 138` (o que fez o jogo aparecer na Biblioteca de Jogos).
+  - **Decisão do Usuário:** O usuário solicitou manter o jogo oculto na Biblioteca (`visible = 0` / `DISPLAYLOCATION: 0`) a menos que a exibição na lista de troféus exija visibilidade, ou até que um forwarder executável funcional seja configurado.
+- **Higienização de Conflitos:**
+  - Removidos pacotes duplicados de `NPWR20561_00` que estavam em `/system_data/priv/appmeta/PPSA99810/trophy2/` para evitar colisão com o app principal PSBox.
 
 ---
 
-## 6. Estado do repositório (tudo não-commitado, na working tree)
+## 4. Estado da Árvore Git (`xCloud-PS5-trophy`)
 
-- `src/platform/ps5/trophy_backend_ps5.cpp`:
-  - **Correção de regressão (verificada): `waitForUnjail()`** antes de `deployTrophyPack`.
-    Sem ela, o deploy dos arquivos falhava silencioso com `errno=2` (o unjail assíncrono não
-    tinha efetivado). Depois da correção: `errno=2` = 0, arquivos reescritos. **Isso é um
-    fix bom, independente do resto.**
-  - Log honesto no `flush()` (não afirma "commit to OS database").
-  - `runPsboxNativeSelfTest()` — auto-teste que registra um conjunto de troféus no título do
-    próprio PSBox e tenta o unlock normal (crasha no unlock — ver §3.5). Gatilho: autoplay
-    `psboxself`.
-- `tools/ps5/payload_patch_test/main.c`: **payload limpo de 19 → 12 patches** (removidos 7
-  que eram chutes de agentes passados em funções off-path/inertes). Cabeçalho documenta o
-  que saiu. #18 mudado de "stub" para "restaurar" a função de ingest.
-- `ps5/stubs/libSceNpTrophy2.c`: adicionado `sceNpTrophy2UnlockTrophy` (import).
-- `src/app/autoplay.cpp` / `autoplay.h`: gatilho `psboxself`.
-- `tools/ps5/payload_patch_test/dump_shellcore.c`: payload read-only de dump de memória.
-
-Observação: a feature inteira de troféus está **não-commitada** desde antes desta sessão.
-
----
-
-## 7. Precauções de engenharia (obrigatórias)
-
-Do AGENTS.md §8 e da experiência desta sessão:
-
-- **Um título por vez.** Validar em UM alvo até provar persistência; nunca o catálogo todo
-  (já houve poluição de NPWR8xxxx virtuais de um sync de catálogo completo proibido).
-- **Nada de bips/vibração/toasts de debug** no caminho de troféu (§8.2); só a barra de
-  progresso padrão.
-- **`serviceLabel` nunca 0** — usar 1 ou -1 (senão kernel `0x80553914`).
-- **Higiene do console:** matar o app antes de FTP; remover `autoplay.txt` ao final;
-  relançar o app em foreground interativo. NUNCA deixar o console com app crashado.
-- **Backups antes de escrever em DB de sistema:** `app.db`/`appinfo.db` em `/system_data/
-  priv/mms/` são sensíveis — fazer `.bak` antes e escrever só as linhas do título alvo.
-- **NÃO sobrescrever o `param.json` real do PSBox** no appmeta — escrever só o subdir
-  `trophy2/` (escrita aditiva), senão arriscar a metadata do próprio app.
-- **NÃO tocar nos outros payloads** em `/data/pldmgr/payloads/` (ftpsrv, kstuff, etc.).
-- **Carregar o módulo de troféu ANTES do unjail** — depois do unjail o caminho
-  `/<sandboxword>/common/lib/` quebra (erro `0x80020002`).
-- **Chamar só símbolos resolvidos** — chamar um import não-exportado crasha o app na hora
-  (foi o que derrubou nas tentativas de unlock). Verificar o símbolo/NID antes.
-- **Rollback do daemon:** qualquer patch em memória no SceShellCore deve ter restauração dos
-  bytes originais (e some no reboot, pois o jailbreak é tethered). Patches persistentes no
-  daemon podem quebrar o fluxo de licença de jogos PS4 BC (ver PHU: rollback ao sair do jogo).
-- **Offline/não-sync:** manter o nanoDNS/bloqueio de PSN; nunca sincronizar na conta
-  principal. Se possível, marcar os troféus como locais.
-- **Console de acesso:** 192.168.15.17 — FTP 2121 (anon), klog 3232, ps5vkctl 9111.
-  Build/deploy: ver `tools/ps5/autotest.sh` e o README ("Particularidades do PS5").
+Branch: `feat/trophy-sync`
+Principais arquivos modificados:
+1. `src/platform/ps5/platform_ps5.cpp`:
+   - Early unjail trigger via localhost:8084.
+   - Retry loop de até 3s para aguardar `writable(kDataDir)` após o unjail.
+   - Logs detalhados de diagnóstico da pasta de armazenamento.
+2. `src/platform/ps5/trophy_backend_ps5.cpp`:
+   - Geração e gravação direta dos arquivos `TRPTITLE.DAT` e `TROPHY.UCP`.
+   - Remoção de bips de áudio, vibração ou toasts intrusivos de debug.
+3. `src/trophy/trophy_builder.cpp`:
+   - Implementação fiel e testada do builder de `TRPTITLE.DAT` e `TROPHY.UCP`, espelhando a lógica de `RecompTrophy`.
+4. `tools/ps5/payload_patch_test/main.c`:
+   - Early unjail instantâneo no início da execução.
+   - Remoção de patches instáveis do SceShellCore que provocaram o kernel panic.
+5. `tools/ps5/register_title_db.py`:
+   - Script para manipulação e ajuste de `app.db`/`appinfo.db`.
 
 ---
 
-## 8. Pontos em aberto / próximos passos (conceitual)
+## 5. Próximos Passos Imediatos para a Nova Sessão
 
-1. Descobrir o símbolo/caminho REAL do unlock normal no 13.60 (o `sceNpTrophy2UnlockTrophy`
-   crashou) — e se, para um título provisionado, ele dispara a via (A).
-2. Determinar se algum comando IPMI cliente alcança o handler da coleção `0xe232e0`, ou se
-   só o serviço externo o emite (decide "chamar via SDK" vs "acionar a via (A) por payload").
-3. Re-derivar, pelo método do PHU, os pontos de aceitação do daemon no 13.60 (usar os dumps
-   da §4), se a via nativa exigir que o título seja aceito como provisionado.
-4. Fechar a adaptação da identidade para o caso nuvem (forwarder por jogo vs título do PSBox).
-5. Verificação sempre a nível de serviço (re-dump do cache `[svc+0x80]` após o unlock, checar
-   a entrada do NPWR + flag `+0xe`) E visual (o dono olhando Perfil → Troféus na TV — não há
-   como capturar a tela do sistema remotamente).
+1. **Validação do Login e Persistência**:
+   - Recompilar e enviar a build atualizada de `xCloud-PS5-trophy` com o fix de retry loop:
+     ```bash
+     ninja -C build-ps5 xcloud_app
+     bash tools/ps5/link.sh build-ps5
+     XC_INCLUDE_ACCOUNT=1 bash tools/ps5/package.sh build-ps5
+     PS5_HOST=192.168.15.17 python3 ../PS5_Vulkan/tools/ps5_console.py kill PPSA99810
+     PS5_HOST=192.168.15.17 ./tools/ps5/deploy.sh build-ps5
+     ```
+   - Iniciar em modo interativo foreground:
+     ```bash
+     PS5_HOST=192.168.15.17 python3 ../PS5_Vulkan/tools/ps5_console.py launch PPSA99810
+     ```
+   - Confirmar que o app inicia já com a conta `RafaelNGP` autenticada e que qualquer alteração de configuração persiste em `/data/psbox/settings.json`.
+
+2. **Visibilidade do Título na Biblioteca vs Troféus**:
+   - Ajustar `DISPLAYLOCATION` de `PPSA01922` para `0` em `app.db` / `appinfo.db` (usando `register_title_db.py`) para que o título fique oculto na Biblioteca de Jogos conforme a preferência do usuário.
+   - Se os troféus precisarem de um gatilho de leitura do SceShellUI (como documentado no RecompTrophy), verificar se a reinicialização da interface/console ou o envio da notificação nativa (`sceNotificationSend`) indexa o conjunto no menu Perfil.
 
 ---
 
-## 9. O que já é ganho sólido, sem depender do resto
+## 6. Feedback Visual do Usuário no Console & Diagnóstico dos Pontos Faltantes
 
-- A correção do `errno=2` (deploy de arquivos voltou a funcionar) — commitável.
-- O payload limpo (12 patches, documentado) — reduz "lixo" de tentativas passadas.
-- Todo o mapeamento/diagnóstico acima.
-- Alternativa pronta para construir: **tela de conquistas DENTRO do PSBox** (não é o perfil
-  nativo do sistema, mas mostra nome/ícone/lista/grau/progresso de tudo que a pessoa
-  conquistou) — 100% legítima, sem depender da via (A).
+### 6.1 Status Visual Confirmado pelo Usuário
+- **FORTNITE APARECE NA LISTA NATIVA DE TROFÉUS DO PS5!**
+- Exibe **22 troféus liberados (48% de conclusão)**.
+- Cada troféu exibe corretamente seu **nome**, **descrição** e **timestamp de quando foi desbloqueado**.
+
+### 6.2 Análise dos 3 Pontos Pendentes e Soluções:
+
+1. **Graus dos Troféus no PlayStation (Verificação Oficial via PSNProfiles / PlayStationTrophies)**:
+   - **No PlayStation, os 46 troféus do Fortnite NÃO são todos Bronze.**
+   - A distribuição oficial é:
+     - **1 Platina:** `Hero of the Storm` (Obtenha todos os outros troféus).
+     - **3 Ouro:**
+       1. `All Tied Up` (Twine Peaks Storm Shield Defense 6)
+       2. `Guardian Angel` (Salvar 10.000 sobreviventes em missões concluídas)
+       3. `Plays Well with Others` (Completar 1.000 missões "Jogar com Outros")
+     - **10 Prata:**
+       1. `Many Planks` (Missões principais de Plankerton)
+       2. `Amped for Expansion` (Canny Valley Storm Shield Defense 6)
+       3. `Uncanny!` (Missões principais de Canny Valley)
+       4. `Into the Night` (Twine Peaks Storm Shield Defense 1)
+       5. `Evil Things with Crazy Teeth` (Toxic Treasures - Estágio 10)
+       6. `Talented Builder` (Construir 500.000 estruturas)
+       7. `Go Gnome!` (Destruir 100 Gnomos de Jardim)
+       8. `Loot Legend` (Abrir 300 Baús de Tesouro)
+       9. `World Explorer` (Explorar 1.500 zonas completamente)
+       10. `Unspeakable Horrors` (Eliminar 20.000 Monstros de Névoa)
+     - **32 Bronze:** Todos os outros 32 troféus.
+   - **Ação:** No próximo chat, mapear o array `set.items` no `trophy_sync.cpp` para atribuir exatamente esses graus oficiais (`Platinum`, `Gold`, `Silver`, `Bronze`), em vez do fallback genérico de Bronze.
+
+2. **Ícones dos Troféus e Ícone do Jogo (Círculo Verde)**:
+   - **Por que está repetido e verde:**
+     - Em `src/trophy/trophy_builder.cpp:425`, `icon0_en-US.png` foi montado usando `kDefaultIconPng`, que é um bitmap embutido de um círculo verde estático.
+     - Em `src/trophy/trophy_builder.cpp:431`, todos os `trop0001.png` .. `trop0045.png` foram montados usando `kDefaultTropPng`, que é um único ícone genérico de troféu.
+   - **Ação:** Substituir `icon0_en-US.png` pelo PNG real de capa do Fortnite (já presente em `/system_data/priv/appmeta/PPSA01922/icon0.png` no console) e carregar os PNGs de cada conquista retornados pela API da Xbox Live (`mediaAssets` / URLs de ícones) ao gerar o UCP.
+
+3. **Carregamento e Gravação da Conta**:
+   - O usuário testou com o binário antigo (anterior ao retry loop).
+   - O fix está implementado em `src/platform/ps5/platform_ps5.cpp` (loop de até 3s aguardando unjail) e o `autoplay.txt` foi removido do console.
+   - Ao rodar o deploy da nova build, o app lerá `/data/psbox/account.json` (que já existe e é válido) no primeiro frame.
+

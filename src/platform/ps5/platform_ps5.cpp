@@ -96,44 +96,78 @@ void migrateLegacy() {
 }
 
 bool init() {
-    int errPsbox = 0;
-    int errLegacy = 0;
-    if (writable(kDataDir, errPsbox)) {
-        g_dataDirWritable = true;
-        migrateLegacy();
-    } else if (writable(kLegacyDir, errLegacy)) {  // as before 0.9.7
-        g_dataDirWritable = true;
-        g_dataDir = kLegacyDir;
-        g_dataNote = std::string(kDataDir) + " not writable (errno " + std::to_string(errPsbox) + "); using " + kLegacyDir;
-    } else {
-        // Try fallback directories on PS5 sandbox
-        bool found = false;
-        for (const char* fb : {"/download0/psbox", "/user/home/psbox", "/temp0/psbox"}) {
-            int errFb = 0;
-            if (writable(fb, errFb)) {
-                g_dataDir = fb;
-                g_dataDirWritable = true;
-                g_dataNote = std::string("neither ") + kDataDir + " (errno " + std::to_string(errPsbox) +
-                             ") nor " + kLegacyDir + " (errno " + std::to_string(errLegacy) +
-                             ") writable; fallback to " + fb;
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            g_dataDirErrno = errPsbox ? errPsbox : errLegacy;
-            g_dataDirWritable = false;
-            g_dataNote = std::string("neither ") + kDataDir + " (errno " + std::to_string(errPsbox) +
-                         ") nor " + kLegacyDir + " (errno " + std::to_string(errLegacy) +
-                         ") is writable: nothing will be kept";
-        }
-    }
-    // libSceNet's resolver: 32 KiB pool.
+    // 1. Initialize networking early so we can trigger early unjail via localhost (127.0.0.1:8084)
     int rc = sceNetInit();
     if (rc < 0) XC_LOGW("sceNetInit: 0x%08x", static_cast<unsigned>(rc));
     int pool = sceNetPoolCreate("xcloud", 32 * 1024, 0);
     if (pool < 0) XC_LOGE("sceNetPoolCreate: 0x%08x (host names will not resolve)", static_cast<unsigned>(pool));
     g_netPool = pool;
+
+    // 2. Trigger early unjail via elfldr / payload manager (127.0.0.1:8084)
+    int s = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (s >= 0) {
+        struct sockaddr_in sin{};
+        sin.sin_family = AF_INET;
+        sin.sin_port = htons(8084);
+        sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        struct timeval tv{0, 250000}; // 250ms
+        ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        ::setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        if (::connect(s, reinterpret_cast<struct sockaddr*>(&sin), sizeof(sin)) == 0) {
+            const char req[] = "GET /loadpayload:/data/pldmgr/payloads/patch_test/patch_test.elf HTTP/1.1\r\nHost: 127.0.0.1:8084\r\nConnection: close\r\n\r\n";
+            ::send(s, req, sizeof(req) - 1, 0);
+            char buf[128];
+            ::recv(s, buf, sizeof(buf), 0);
+        }
+        ::close(s);
+        ::usleep(150000); // 150ms for payload to unjail PID
+    }
+
+    int errPsbox = 0;
+    int errLegacy = 0;
+    bool ok = false;
+    for (int retry = 0; retry < 30; ++retry) {
+        if (writable(kDataDir, errPsbox)) {
+            g_dataDir = kDataDir;
+            g_dataDirWritable = true;
+            migrateLegacy();
+            ok = true;
+            break;
+        }
+        ::usleep(100000); // 100ms * 30 = up to 3s wait for unjail
+    }
+
+    if (!ok) {
+        if (writable(kLegacyDir, errLegacy)) {  // as before 0.9.7
+            g_dataDirWritable = true;
+            g_dataDir = kLegacyDir;
+            g_dataNote = std::string(kDataDir) + " not writable (errno " + std::to_string(errPsbox) + "); using " + kLegacyDir;
+        } else {
+            // Try fallback directories on PS5 sandbox
+            bool found = false;
+            for (const char* fb : {"/download0/psbox", "/user/home/psbox", "/temp0/psbox"}) {
+                int errFb = 0;
+                if (writable(fb, errFb)) {
+                    g_dataDir = fb;
+                    g_dataDirWritable = true;
+                    g_dataNote = std::string("neither ") + kDataDir + " (errno " + std::to_string(errPsbox) +
+                                 ") nor " + kLegacyDir + " (errno " + std::to_string(errLegacy) +
+                                 ") writable; fallback to " + fb;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                g_dataDirErrno = errPsbox ? errPsbox : errLegacy;
+                g_dataDirWritable = false;
+                g_dataNote = std::string("neither ") + kDataDir + " (errno " + std::to_string(errPsbox) +
+                             ") nor " + kLegacyDir + " (errno " + std::to_string(errLegacy) +
+                             ") is writable: nothing will be kept";
+            }
+        }
+    }
+    XC_LOGI("platform ps5: storage dir=%s (writable=%d, errno=%d, note=%s)",
+            g_dataDir.c_str(), g_dataDirWritable ? 1 : 0, g_dataDirErrno, g_dataNote.c_str());
     return true;
 }
 
@@ -151,16 +185,29 @@ std::string appDir() {
     // /app0 is the app's own folder; its real path where it has been
     // tested to take updates (renames over the running eboot.bin).
     struct stat legacy {}, running {};
-    if (::stat((std::string(kLegacyDir) + "/eboot.bin").c_str(), &legacy) == 0 &&
-        ::stat("/app0/eboot.bin", &running) == 0 && legacy.st_ino == running.st_ino)
+    if (::stat("/app0/eboot.bin", &running) == 0) {
+        if (::stat((std::string(kLegacyDir) + "/eboot.bin").c_str(), &legacy) == 0 &&
+            legacy.st_ino == running.st_ino)
+            return kLegacyDir;
+        return "/app0";
+    }
+    if (::stat((std::string(kLegacyDir) + "/eboot.bin").c_str(), &legacy) == 0)
         return kLegacyDir;
     return "/app0";
 }
 
-std::string assetDir() { return "/app0/assets"; }
+std::string assetDir() {
+    struct stat st{};
+    if (::stat("/app0/assets/fonts/Inter-Regular.ttf", &st) == 0) return "/app0/assets";
+    std::string legacyAssets = std::string(kLegacyDir) + "/assets";
+    if (::stat((legacyAssets + "/fonts/Inter-Regular.ttf").c_str(), &st) == 0) return legacyAssets;
+    return appDir() + "/assets";
+}
 
 std::string caBundlePath() {
-    // Shipped in /app0/assets/cacert.pem
+    struct stat st{};
+    std::string p = assetDir() + "/cacert.pem";
+    if (::stat(p.c_str(), &st) == 0) return p;
     return "/app0/assets/cacert.pem";
 }
 
