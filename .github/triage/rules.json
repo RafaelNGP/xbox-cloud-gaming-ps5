@@ -9,15 +9,14 @@
         "0x804101e1",
         "dns lookup failed",
         "sinkhole ip",
-        "connect failed to (?:login\\.live\\.com|[^\\s]+\\.xboxlive\\.com|[^\\s]+\\.microsoft\\.com)[^\\n]*errno 61",
         "dns.*bloqueado",
         "dns.*servidores da microsoft",
         "dns.*microsoft servers"
       ],
       "fixed_in": "1.3.2",
-      "reply": "**DNS blocked or sinkholed** (`0x8041013d` / `0x804101e1` / `errno 61`): the DNS configured on your PS5 or router is blocking Microsoft/Xbox domains (`login.live.com`, `*.xboxlive.com`). To keep Sony updates blocked while allowing Xbox Cloud Gaming, run the **NanoDNS** payload on your PS5 and set the PS5 network **Primary DNS** to your PS5's local IP address and **Secondary DNS** to `0.0.0.0` (or use `1.1.1.1` / `8.8.8.8` if you don't use a DNS blocker).",
-      "reply_pt": "**DNS bloqueado ou redirecionado (sinkhole)** (`0x8041013d` / `0x804101e1` / `errno 61`): o DNS configurado no seu PS5 ou roteador está bloqueando os domínios da Microsoft/Xbox (`login.live.com`, `*.xboxlive.com`). Para manter os servidores da Sony bloqueados sem bloquear o Xbox Cloud Gaming, execute o payload **NanoDNS** no próprio PS5 e configure na rede do console o **DNS Primário** com o IP local do seu PS5 e o **DNS Secundário** como `0.0.0.0` (ou use `1.1.1.1` / `8.8.8.8` caso não utilize bloqueio de DNS).",
-      "reply_es": "**DNS bloqueado o redirigido (sinkhole)** (`0x8041013d` / `0x804101e1` / `errno 61`): el DNS configurado en tu PS5 o router está bloqueando los dominios de Microsoft/Xbox (`login.live.com`, `*.xboxlive.com`). Para mantener bloqueados los servidores de Sony sin bloquear Xbox Cloud Gaming, ejecuta el payload **NanoDNS** en tu PS5 y configura en la red de la consola el **DNS Primario** con la IP local de tu PS5 y el **DNS Secundario** como `0.0.0.0` (o usa `1.1.1.1` / `8.8.8.8` si no usas bloqueador de DNS)."
+      "reply": "**DNS blocked or sinkholed** (`0x8041013d` / `0x804101e1`): the DNS configured on your PS5 or router is blocking Microsoft/Xbox domains (`login.live.com`, `*.xboxlive.com`). To keep Sony updates blocked while allowing Xbox Cloud Gaming, run the **NanoDNS** payload on your PS5 and set the PS5 network **Primary DNS** to your PS5's local IP address and **Secondary DNS** to `0.0.0.0` (or use `1.1.1.1` / `8.8.8.8` if you don't use a DNS blocker).",
+      "reply_pt": "**DNS bloqueado ou redirecionado (sinkhole)** (`0x8041013d` / `0x804101e1`): o DNS configurado no seu PS5 ou roteador está bloqueando os domínios da Microsoft/Xbox (`login.live.com`, `*.xboxlive.com`). Para manter os servidores da Sony bloqueados sem bloquear o Xbox Cloud Gaming, execute o payload **NanoDNS** no próprio PS5 e configure na rede do console o **DNS Primário** com o IP local do seu PS5 e o **DNS Secundário** como `0.0.0.0` (ou use `1.1.1.1` / `8.8.8.8` caso não utilize bloqueio de DNS).",
+      "reply_es": "**DNS bloqueado o redirigido (sinkhole)** (`0x8041013d` / `0x804101e1`): el DNS configurado en tu PS5 o router está bloqueando los dominios de Microsoft/Xbox (`login.live.com`, `*.xboxlive.com`). Para mantener bloqueados los servidores de Sony sin bloquear Xbox Cloud Gaming, ejecuta el payload **NanoDNS** en tu PS5 y configura en la red de la consola el **DNS Primario** com o IP local de tu PS5 y el **DNS Secundario** como `0.0.0.0` (o usa `1.1.1.1` / `8.8.8.8` si no usas bloqueador de DNS)."
     },
     {
       "id": "xbox-profile",

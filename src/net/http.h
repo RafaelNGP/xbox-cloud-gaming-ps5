@@ -123,6 +123,7 @@ long long chunkedLength(std::string_view in);
 bool keepAliveAfter(int status, bool http10, const std::string& connection, long long bodyEnd, size_t received);
 
 // Helpers.
+int connectTcp(const std::string& host, int port, int timeoutMs, std::string& err);
 std::string urlEncode(const std::string& s);
 std::string formEncode(const std::vector<std::pair<std::string, std::string>>& fields);
 

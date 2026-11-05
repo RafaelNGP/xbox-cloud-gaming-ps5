@@ -119,6 +119,18 @@ class Triage(unittest.TestCase):
         self.assertIn("area: auth", labels)
         self.assertIn("Gamertag", comment)
 
+    def test_tcp_refusal_errno_61_not_flagged_as_dns_blocked(self):
+        # Issue #357: TCP connect rejection (errno 61) is not a DNS blockage / NanoDNS problem.
+        labels, comment = self.run_triage(
+            form("can't sign in", "1.6.0", "11.60",
+                 LOG + "21:43:16 [W] token refresh: connect failed to login.live.com:443 [20.190.173.67] (errno 61)\n"
+                       "21:43:19 [E] sign-in failed: token refresh failed: connect failed to login.live.com:443 [20.190.173.67] (errno 61)")
+        )
+        self.assertNotIn("area: network", labels)
+        if comment:
+            self.assertNotIn("NanoDNS", comment)
+            self.assertNotIn("DNS blocked or sinkholed", comment)
+
     def test_multilingual_spanish_and_portuguese(self):
         labels, comment = self.run_triage(
             form("Error al adquirir el juego gratuito: 9P22THR57FV7", "1.3.0", "13.60", LOG),

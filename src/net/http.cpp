@@ -110,75 +110,117 @@ void setTimeouts(int fd, int timeoutMs) {
     ::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
 }
 
+}  // namespace
+
 int connectTcp(const std::string& host, int port, int timeoutMs, std::string& err) {
-    uint32_t ip = 0;
-    if (!platform::resolveIPv4(host, ip, err)) return -1;
-    uint32_t hostOrderIp = ntohl(ip);
-    char ipStr[32];
-    std::snprintf(ipStr, sizeof ipStr, "%u.%u.%u.%u",
-                  (hostOrderIp >> 24) & 0xFF, (hostOrderIp >> 16) & 0xFF,
-                  (hostOrderIp >> 8) & 0xFF, hostOrderIp & 0xFF);
-    if (host != "localhost" && host != "127.0.0.1" &&
-        (hostOrderIp == 0 || (hostOrderIp >> 24) == 127)) {
-        err = "DNS lookup failed for " + host + " (sinkhole IP " + ipStr + ")";
+    std::vector<uint32_t> addrs;
+    if (!platform::resolveIPv4(host, addrs, err)) return -1;
+    if (addrs.empty()) {
+        err = "DNS lookup failed for " + host + ": no addresses found";
         return -1;
     }
-    sockaddr_in sa{};
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons(static_cast<uint16_t>(port));
-    sa.sin_addr.s_addr = ip;
 
-    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) {
-        err = "socket() failed (errno " + std::to_string(errno) + ")";
-        return -1;
-    }
-    setTimeouts(fd, timeoutMs);
-    int one = 1;
-    ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
-#ifdef SO_NOSIGPIPE
-    ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
-#endif
-    // A larger window: catalog responses are hundreds of KB from far away.
-    int buf = 1 << 20;
-    ::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buf, sizeof buf);
+    uint64_t startMs = platform::nowMs();
+    std::string lastErr;
 
-    int on = 1;
-    ::ioctl(fd, FIONBIO, &on);
-    int rc = ::connect(fd, reinterpret_cast<sockaddr*>(&sa), sizeof sa);
-    if (rc != 0) {
-        if (errno == EINPROGRESS || errno == EWOULDBLOCK) {
-            struct pollfd pfd{};
-            pfd.fd = fd;
-            pfd.events = POLLOUT;
-            int connectTimeout = (timeoutMs > 0) ? std::min(timeoutMs, 10000) : 10000;
-            int pr = ::poll(&pfd, 1, connectTimeout);
-            if (pr <= 0) {
-                err = (pr == 0) ? "connect timed out to " + host + ":" + std::to_string(port) + " [" + ipStr + "]"
-                                : "poll failed connecting to " + host + ":" + std::to_string(port) + " [" + ipStr + "] (errno " + std::to_string(errno) + ")";
-                ::close(fd);
-                return -1;
-            }
-            int so_error = 0;
-            socklen_t len = sizeof so_error;
-            if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &len) < 0 || so_error != 0) {
-                err = "connect failed to " + host + ":" + std::to_string(port) + " [" + ipStr + "] (errno " + std::to_string(so_error ? so_error : errno) + ")";
-                ::close(fd);
-                return -1;
-            }
-        } else {
-            err = "connect failed to " + host + ":" + std::to_string(port) + " [" + ipStr + "] (errno " + std::to_string(errno) + ")";
-            ::close(fd);
-            return -1;
+    for (size_t i = 0; i < addrs.size(); ++i) {
+        uint32_t ip = addrs[i];
+        uint32_t hostOrderIp = ntohl(ip);
+        char ipStr[32];
+        std::snprintf(ipStr, sizeof ipStr, "%u.%u.%u.%u",
+                      (hostOrderIp >> 24) & 0xFF, (hostOrderIp >> 16) & 0xFF,
+                      (hostOrderIp >> 8) & 0xFF, hostOrderIp & 0xFF);
+        if (host != "localhost" && host != "127.0.0.1" &&
+            (hostOrderIp == 0 || (hostOrderIp >> 24) == 127)) {
+            lastErr = "DNS lookup failed for " + host + " (sinkhole IP " + ipStr + ")";
+            continue;
         }
+
+        int remainingMs = timeoutMs;
+        if (timeoutMs > 0) {
+            uint64_t elapsed = platform::nowMs() - startMs;
+            if (elapsed >= static_cast<uint64_t>(timeoutMs)) {
+                if (lastErr.empty()) {
+                    lastErr = "connect timed out to " + host + ":" + std::to_string(port);
+                }
+                break;
+            }
+            remainingMs = static_cast<int>(static_cast<uint64_t>(timeoutMs) - elapsed);
+        }
+
+        int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0) {
+            lastErr = "socket() failed (errno " + std::to_string(errno) + ")";
+            break;
+        }
+        setTimeouts(fd, remainingMs > 0 ? remainingMs : timeoutMs);
+        int one = 1;
+        ::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+#ifdef SO_NOSIGPIPE
+        ::setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+#endif
+        // A larger window: catalog responses are hundreds of KB from far away.
+        int buf = 1 << 20;
+        ::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buf, sizeof buf);
+
+        int on = 1;
+        ::ioctl(fd, FIONBIO, &on);
+
+        sockaddr_in sa{};
+        sa.sin_family = AF_INET;
+        sa.sin_port = htons(static_cast<uint16_t>(port));
+        sa.sin_addr.s_addr = ip;
+
+        int rc = ::connect(fd, reinterpret_cast<sockaddr*>(&sa), sizeof sa);
+        if (rc != 0) {
+            if (errno == EINPROGRESS || errno == EWOULDBLOCK) {
+                struct pollfd pfd{};
+                pfd.fd = fd;
+                pfd.events = POLLOUT;
+                int connectTimeout = (remainingMs > 0) ? std::min(remainingMs, 10000) : 10000;
+                if (addrs.size() > 1 && (remainingMs <= 0 || remainingMs > 3000)) {
+                    connectTimeout = (remainingMs > 0) ? std::min(remainingMs, 3000) : 3000;
+                }
+                int pr = ::poll(&pfd, 1, connectTimeout);
+                if (pr <= 0) {
+                    lastErr = (pr == 0) ? "connect timed out to " + host + ":" + std::to_string(port) + " [" + ipStr + "]"
+                                        : "poll failed connecting to " + host + ":" + std::to_string(port) + " [" + ipStr + "] (errno " + std::to_string(errno) + ")";
+                    ::close(fd);
+                    if (i + 1 < addrs.size()) {
+                        XC_LOGW("%s, trying next IP (%zu/%zu)", lastErr.c_str(), i + 2, addrs.size());
+                    }
+                    continue;
+                }
+                int so_error = 0;
+                socklen_t len = sizeof so_error;
+                if (::getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &len) < 0 || so_error != 0) {
+                    lastErr = "connect failed to " + host + ":" + std::to_string(port) + " [" + ipStr + "] (errno " + std::to_string(so_error ? so_error : errno) + ")";
+                    ::close(fd);
+                    if (i + 1 < addrs.size()) {
+                        XC_LOGW("%s, trying next IP (%zu/%zu)", lastErr.c_str(), i + 2, addrs.size());
+                    }
+                    continue;
+                }
+            } else {
+                lastErr = "connect failed to " + host + ":" + std::to_string(port) + " [" + ipStr + "] (errno " + std::to_string(errno) + ")";
+                ::close(fd);
+                if (i + 1 < addrs.size()) {
+                    XC_LOGW("%s, trying next IP (%zu/%zu)", lastErr.c_str(), i + 2, addrs.size());
+                }
+                continue;
+            }
+        }
+        on = 0;
+        ::ioctl(fd, FIONBIO, &on);
+        return fd;
     }
-    on = 0;
-    ::ioctl(fd, FIONBIO, &on);
-    return fd;
+
+    err = lastErr.empty() ? ("connect failed to " + host + ":" + std::to_string(port)) : lastErr;
+    return -1;
 }
 
+namespace {
 std::function<Response(const Request&)> g_testTransport;
-
 }  // namespace
 
 bool dechunk(const std::string& in, std::string& out) {

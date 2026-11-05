@@ -70,6 +70,14 @@
 #include <csignal>
 #include <sys/wait.h>
 #include <unistd.h>
+#if !defined(_WIN32)
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#else
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#endif
 #include <cstdlib>
 #include <ctime>
 #include <map>
@@ -1420,6 +1428,55 @@ static void testHttpKeepAlive() {
     CHECK(!keepAliveAfter(0, false, "", 0, 0));       // no answer
     CHECK(!keepAliveAfter(200, true, "", 10, 10));    // HTTP/1.0 closes by default
     CHECK(keepAliveAfter(200, true, "Keep-Alive", 10, 10));
+}
+
+static void testResolveIPv4AndConnectTcp() {
+    std::string err;
+    std::vector<uint32_t> addrs;
+    CHECK(platform::resolveIPv4("127.0.0.1", addrs, err));
+    CHECK(!addrs.empty());
+    CHECK(addrs[0] == htonl(0x7F000001));
+
+    uint32_t singleAddr = 0;
+    CHECK(platform::resolveIPv4("127.0.0.1", singleAddr, err));
+    CHECK(singleAddr == htonl(0x7F000001));
+
+    addrs.clear();
+    CHECK(!platform::resolveIPv4("this-domain-should-never-exist-xyz123.local", addrs, err));
+    CHECK(addrs.empty());
+    CHECK(!err.empty());
+
+    // Connecting to an unopened port on loopback fails with connection refusal, NOT a DNS error
+    int fd = net::connectTcp("127.0.0.1", 1, 500, err);
+    CHECK(fd < 0);
+    CHECK(err.find("DNS lookup failed") == std::string::npos);
+    CHECK(err.find("connect failed to 127.0.0.1:1") != std::string::npos ||
+          err.find("connect timed out") != std::string::npos);
+
+    // Sinkhole addresses are detected
+    fd = net::connectTcp("0.0.0.0", 443, 500, err);
+    CHECK(fd < 0);
+    CHECK(err.find("sinkhole IP") != std::string::npos);
+
+    // Successful connectTcp to a listening server socket
+    int serverFd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (serverFd >= 0) {
+        sockaddr_in sa{};
+        sa.sin_family = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sa.sin_port = 0;
+        if (::bind(serverFd, reinterpret_cast<sockaddr*>(&sa), sizeof sa) == 0 &&
+            ::listen(serverFd, 1) == 0) {
+            socklen_t len = sizeof sa;
+            if (::getsockname(serverFd, reinterpret_cast<sockaddr*>(&sa), &len) == 0) {
+                int port = ntohs(sa.sin_port);
+                int clientFd = net::connectTcp("127.0.0.1", port, 2000, err);
+                CHECK(clientFd >= 0);
+                if (clientFd >= 0) ::close(clientFd);
+            }
+        }
+        ::close(serverFd);
+    }
 }
 
 // The home rows come from the network on every load(): the cache's rows
@@ -7906,6 +7963,7 @@ int main() {
     testLoginCountry();
     testPrivacyAndRobustness();
     testHttpKeepAlive();
+    testResolveIPv4AndConnectTcp();
     testStoreLeftovers();
     testLibraryRowsOnce();
     testHostPacer();

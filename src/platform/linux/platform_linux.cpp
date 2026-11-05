@@ -10,6 +10,8 @@
 #include "platform/toasts.h"
 #include "util/log.h"
 
+#include <algorithm>
+#include <arpa/inet.h>
 #include <atomic>
 #include <cerrno>
 #include <csignal>
@@ -131,7 +133,12 @@ bool randomBytes(void* out, size_t len) {
     return true;
 }
 
-bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err) {
+bool resolveIPv4(const std::string& host, std::vector<uint32_t>& addrs, std::string& err) {
+    in_addr literal{};
+    if (::inet_pton(AF_INET, host.c_str(), &literal) == 1) {
+        addrs.push_back(literal.s_addr);
+        return true;
+    }
     addrinfo hints{};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -141,8 +148,26 @@ bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err) {
         err = "DNS lookup failed for " + host + ": " + gai_strerror(rc);
         return false;
     }
-    addr = reinterpret_cast<sockaddr_in*>(res->ai_addr)->sin_addr.s_addr;
+    for (addrinfo* p = res; p != nullptr; p = p->ai_next) {
+        if (p->ai_family == AF_INET && p->ai_addr) {
+            uint32_t a = reinterpret_cast<sockaddr_in*>(p->ai_addr)->sin_addr.s_addr;
+            if (std::find(addrs.begin(), addrs.end(), a) == addrs.end()) {
+                addrs.push_back(a);
+            }
+        }
+    }
     ::freeaddrinfo(res);
+    if (addrs.empty()) {
+        err = "DNS lookup failed for " + host + ": no IPv4 address found";
+        return false;
+    }
+    return true;
+}
+
+bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err) {
+    std::vector<uint32_t> addrs;
+    if (!resolveIPv4(host, addrs, err)) return false;
+    addr = addrs[0];
     return true;
 }
 

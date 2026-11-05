@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace xc::platform {
 
@@ -37,9 +38,10 @@ std::string caBundlePath();
 
 bool randomBytes(void* out, size_t len);
 
-// Host name -> IPv4 address (network byte order). The PS5 app sandbox has no
+// Host name -> IPv4 address(es) (network byte order). The PS5 app sandbox has no
 // resolv.conf, so the console goes through sceNetResolver instead of
 // getaddrinfo. Returns false (with a message in `err`) on failure.
+bool resolveIPv4(const std::string& host, std::vector<uint32_t>& addrs, std::string& err);
 bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err);
 // Returns the active local IPv4 address (e.g. "192.168.1.50") or "127.0.0.1".
 std::string localIPv4();

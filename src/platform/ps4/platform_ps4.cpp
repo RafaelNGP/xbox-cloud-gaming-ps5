@@ -16,6 +16,7 @@
 #include <dlfcn.h>
 #include <orbis/NetCtl.h>
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <atomic>
 #include <ifaddrs.h>
@@ -916,6 +917,30 @@ int sceNetInit(void);
 int sceNetPoolCreate(const char* name, int size, int flags);
 int sceNetResolverCreate(const char* name, int memid, int flags);
 int sceNetResolverStartNtoa(int rid, const char* hostname, uint32_t* addr, int timeout, int retry, int flags);
+
+struct SceNetInAddr {
+    uint32_t s_addr;
+};
+
+union SceNetAddrUnion {
+    SceNetInAddr addr;
+    uint8_t addr6[16];
+};
+
+struct SceNetResolverAddr {
+    SceNetAddrUnion u;
+    uint32_t af;
+    uint32_t reserved[3];
+};
+
+struct SceNetResolverInfo {
+    SceNetResolverAddr addrs[10];
+    uint32_t records;
+    uint32_t recordsv4;
+    uint32_t reserved[14];
+};
+
+int sceNetResolverStartNtoaMultipleRecords(int rid, const char* hostname, SceNetResolverInfo* info, int timeout, int retry, int flags);
 int sceNetResolverDestroy(int rid);
 int sceKernelAvailableDirectMemorySize(off_t start, off_t end, size_t align, off_t* startOut, size_t* sizeOut);
 size_t sceKernelGetDirectMemorySize(void);
@@ -1041,10 +1066,10 @@ bool randomBytes(void* out, size_t len) {
     return true;
 }
 
-bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err) {
+bool resolveIPv4(const std::string& host, std::vector<uint32_t>& addrs, std::string& err) {
     in_addr literal{};
     if (::inet_pton(AF_INET, host.c_str(), &literal) == 1) {
-        addr = literal.s_addr;
+        addrs.push_back(literal.s_addr);
         return true;
     }
     int pool = g_netPool.load();
@@ -1059,16 +1084,40 @@ bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err) {
         err = "DNS lookup failed for " + host + ": " + buf;
         return false;
     }
-    uint32_t a = 0;
-    int rc = sceNetResolverStartNtoa(rid, host.c_str(), &a, 5000000, 2, 0);
+    SceNetResolverInfo info{};
+    int rc = sceNetResolverStartNtoaMultipleRecords(rid, host.c_str(), &info, 5000000, 2, 0);
+    if (rc >= 0) {
+        uint32_t count = std::min<uint32_t>(info.records, 10);
+        for (uint32_t i = 0; i < count; ++i) {
+            if (info.addrs[i].af == AF_INET && info.addrs[i].u.addr.s_addr != 0) {
+                uint32_t a = info.addrs[i].u.addr.s_addr;
+                if (std::find(addrs.begin(), addrs.end(), a) == addrs.end()) {
+                    addrs.push_back(a);
+                }
+            }
+        }
+    }
+    if (addrs.empty()) {
+        uint32_t a = 0;
+        rc = sceNetResolverStartNtoa(rid, host.c_str(), &a, 5000000, 2, 0);
+        if (rc >= 0 && a != 0) {
+            addrs.push_back(a);
+        }
+    }
     sceNetResolverDestroy(rid);
-    if (rc < 0) {
+    if (addrs.empty()) {
         char buf[64];
         std::snprintf(buf, sizeof buf, "0x%08x", static_cast<unsigned>(rc));
         err = "DNS lookup failed for " + host + " (" + buf + ")";
         return false;
     }
-    addr = a;
+    return true;
+}
+
+bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err) {
+    std::vector<uint32_t> addrs;
+    if (!resolveIPv4(host, addrs, err)) return false;
+    addr = addrs[0];
     return true;
 }
 

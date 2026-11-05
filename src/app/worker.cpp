@@ -153,8 +153,7 @@ namespace {
 bool isDnsOrSinkholeError(const std::string& err) {
     return err.find("DNS lookup failed") != std::string::npos ||
            err.find("0x8041013d") != std::string::npos ||
-           err.find("0x804101e1") != std::string::npos ||
-           err.find("(errno 61)") != std::string::npos;
+           err.find("0x804101e1") != std::string::npos;
 }
 
 void signInAndLoad(auth::AuthManager& am, xcloud::GssvClient& gssv) {

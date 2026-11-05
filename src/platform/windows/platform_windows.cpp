@@ -17,6 +17,7 @@
 #include <io.h>
 #endif
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -133,7 +134,7 @@ bool randomBytes(void* out, size_t len) {
     return true;
 }
 
-bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err) {
+bool resolveIPv4(const std::string& host, std::vector<uint32_t>& addrs, std::string& err) {
 #if defined(_WIN32) || defined(__CYGWIN__)
     addrinfo hints{};
     hints.ai_family = AF_INET;
@@ -144,15 +145,33 @@ bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err) {
         err = "DNS lookup failed for " + host + " (error " + std::to_string(WSAGetLastError()) + ")";
         return false;
     }
-    addr = reinterpret_cast<sockaddr_in*>(res->ai_addr)->sin_addr.s_addr;
+    for (addrinfo* p = res; p != nullptr; p = p->ai_next) {
+        if (p->ai_family == AF_INET && p->ai_addr) {
+            uint32_t a = reinterpret_cast<sockaddr_in*>(p->ai_addr)->sin_addr.s_addr;
+            if (std::find(addrs.begin(), addrs.end(), a) == addrs.end()) {
+                addrs.push_back(a);
+            }
+        }
+    }
     freeaddrinfo(res);
+    if (addrs.empty()) {
+        err = "DNS lookup failed for " + host + ": no IPv4 address found";
+        return false;
+    }
     return true;
 #else
     (void)host;
-    (void)addr;
+    (void)addrs;
     err = "resolveIPv4 not implemented on this host";
     return false;
 #endif
+}
+
+bool resolveIPv4(const std::string& host, uint32_t& addr, std::string& err) {
+    std::vector<uint32_t> addrs;
+    if (!resolveIPv4(host, addrs, err)) return false;
+    addr = addrs[0];
+    return true;
 }
 
 std::string localIPv4() {
