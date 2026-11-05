@@ -196,6 +196,28 @@ class Triage(unittest.TestCase):
         self.assertTrue(close)
         self.assertIn("Versão não suportada", comment)
 
+    def test_unsupported_147_points_to_official_ps4_latest_release(self):
+        url = "https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/releases/latest"
+        cases = [
+            (form("It crashed", "1.4.7", "13.00", LOG), "Problem on 1.4.7"),
+            (form("Não consigo entrar no jogo", "1.4.7", "13.00", LOG), "Erro ao logar na conta"),
+            (form("No puedo iniciar sesión en el juego", "1.4.7", "13.00", LOG), "Error al iniciar sesión"),
+        ]
+        for body, title in cases:
+            _, comment, _ = self.run_triage_full(body, title=title, latest="1.6.1")
+            self.assertIn(url, comment)
+            self.assertIn("**PlayStation 4**", comment)
+            self.assertIn("reddit.com/r/PSBoxCloudGaming", comment)
+            self.assertNotIn("exclusiv", comment)
+
+    def test_official_ps4_user_not_closed_as_unsupported(self):
+        for fw in ("PS4", "ps4"):
+            labels, comment, close = self.run_triage_full(
+                form("Game freezes after 5 minutes", "1.6.1", fw, LOG), title="Game freezes", latest="1.6.1")
+            self.assertNotIn("unsupported-platform", labels)
+            self.assertFalse(close)
+            self.assertNotIn("1.4.7", comment or "")
+
     def test_empty_issue_known_claim_free(self):
         labels, comment, close = self.run_triage_full(
             "",
