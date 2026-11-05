@@ -197,11 +197,11 @@ std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool cus
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 24;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+constexpr int kSettingRows = 25;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
                                   // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys,
                                   // display mode (a desktop's window), controller buttons, gyro aiming, queue chime,
                                   // check sign-in, network test, support project, video decoder, audio-to-haptics,
-                                  // touchpad shortcuts, restore defaults
+                                  // touchpad shortcuts, restore defaults, sync trophies
 
 struct SignInStage {
     std::string name;
@@ -246,6 +246,7 @@ enum class Action {
     RefreshLibrary, // manual library refresh
     CheckSignIn,    // run sign-in diagnostic stages
     RunNetworkTest, // run regional RTT/jitter & NAT probe
+    SyncTrophies,   // synchronize Xbox achievements to PlayStation trophies
     TestQueueAlert, // play test chime and vibration for queue-ready alert
     ResetSettings   // restore settings to default
 };

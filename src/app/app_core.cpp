@@ -842,6 +842,12 @@ void Core::dispatchUiAction(const ui::UiEvent& ev) {
             if (!g_command.compare_exchange_strong(idle, kNetworkTest)) XC_LOGW("network test: worker is busy");
             break;
         }
+        case ui::Action::SyncTrophies: {
+            XC_LOGI("trophy sync: requested from Settings");
+            int idle = kNone;
+            if (!g_command.compare_exchange_strong(idle, kSyncTrophies)) XC_LOGW("trophy sync: worker is busy");
+            break;
+        }
         case ui::Action::TestQueueAlert: {
             XC_LOGI("settings: manual queue-ready alert test requested");
             playQueueReadyAlert();

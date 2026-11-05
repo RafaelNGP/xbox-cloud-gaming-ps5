@@ -54,9 +54,16 @@
 #include "xcloud/purchase.h"
 #include "xcloud/regions.h"
 #include "xcloud/achievements.h"
+#include "trophy/trophy_types.h"
+#include "trophy/trophy_rules.h"
+#include "trophy/trophy_registry.h"
+#include "trophy/trophy_backend.h"
+#include "trophy/trophy_sync.h"
+#include "trophy/trophy_builder.h"
 
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <cmath>
 #include <cstdio>
 #include <csignal>
@@ -2295,21 +2302,21 @@ static void testVisibleSettingsRows() {
     };
     const ui::UiCaps ps5;
     auto all = ui::visibleSettingsRows(ps5);
-    CHECK((ids(all) == std::vector<int>{0, 2, 8, 17, 18, 1, 20, 9, 10, 14, 12, 3, 15, 4, 21, 5, 6, 16, 22, 19, 7, 23}));
-    CHECK((groups(all) == std::vector<bool>{false, false, false, false, false, true, false, false, false, true, false, false, false, false, false, false, false, false, false, true, false, true}));
+    CHECK((ids(all) == std::vector<int>{0, 2, 8, 17, 18, 24, 1, 20, 9, 10, 14, 12, 3, 15, 4, 21, 5, 6, 16, 22, 19, 7, 23}));
+    CHECK((groups(all) == std::vector<bool>{false, false, false, false, false, false, true, false, false, false, true, false, false, false, false, false, false, false, false, false, true, false, true}));
     ui::UiCaps pc;
     pc.lightBar = pc.triggerRumble = pc.adaptiveTriggers = pc.gyro = pc.touchpad = false;
     pc.upscalers = pc.sharpen = pc.deband = pc.highRefresh = pc.console = pc.selfUpdate = false;
     pc.openUrl = true;
     auto desk = ui::visibleSettingsRows(pc);
-    CHECK((ids(desk) == std::vector<int>{0, 2, 8, 17, 18, 1, 20, 10, 14, 12, 3, 5, 16, 22, 19, 7, 23}));
-    CHECK((groups(desk) == std::vector<bool>{false, false, false, false, false, true, false, false, true, false, false, false, false, false, true, false, true}));
+    CHECK((ids(desk) == std::vector<int>{0, 2, 8, 17, 18, 24, 1, 20, 10, 14, 12, 3, 5, 16, 22, 19, 7, 23}));
+    CHECK((groups(desk) == std::vector<bool>{false, false, false, false, false, false, true, false, false, true, false, false, false, false, false, true, false, true}));
     // The desktop app's window: Display mode after the resolution, in the stream's group.
     ui::UiCaps win = pc;
     win.desktopWindow = true;
     auto w = ui::visibleSettingsRows(win);
-    CHECK((ids(w) == std::vector<int>{0, 2, 8, 17, 18, 1, 20, 13, 10, 14, 12, 3, 5, 16, 22, 19, 7, 23}));
-    CHECK((groups(w) == std::vector<bool>{false, false, false, false, false, true, false, false, false, true, false, false, false, false, false, true, false, true}));
+    CHECK((ids(w) == std::vector<int>{0, 2, 8, 17, 18, 24, 1, 20, 13, 10, 14, 12, 3, 5, 16, 22, 19, 7, 23}));
+    CHECK((groups(w) == std::vector<bool>{false, false, false, false, false, false, true, false, false, false, true, false, false, false, false, false, true, false, true}));
     ui::UiCaps xbox = pc;  // an Xbox pad: impulse triggers, no light bar
     xbox.triggerRumble = true;
     auto x = ids(ui::visibleSettingsRows(xbox));
@@ -2355,14 +2362,15 @@ static void testVisibleSettingsRows() {
     CHECK((ids(game) == std::vector<int>{0, 4, 15, 14, 5, 7, 11, 9}));
     CHECK((groups(game) == std::vector<bool>{false, true, false, false, true, false, false, false}));
     // How far down the autoplay tests walk to each row (autoplay.cpp's downsTo).
-    CHECK(ui::settingsRowPosition(ps5, 1) == 5 && ui::settingsRowPosition(ps5, 3) == 11);
-    CHECK(ui::settingsRowPosition(ps5, 16) == 17);
-    CHECK(ui::settingsRowPosition(ps5, 5) == 15 && ui::settingsRowPosition(ps5, 6) == 16);
-    CHECK(ui::settingsRowPosition(ps5, 12) == 10 && ui::settingsRowPosition(ps5, 14) == 9);
-    CHECK(ui::settingsRowPosition(ps5, 22) == 18);
-    CHECK(ui::settingsRowPosition(ps5, 7) == 20 && ui::settingsRowPosition(ps5, 19) == 19 && ui::settingsRowPosition(ps5, 2) == 1);
-    CHECK(ui::settingsRowPosition(ps5, 21) == 14);
-    CHECK(ui::settingsRowPosition(pc, 5) == 11 && ui::settingsRowPosition(pc, 6) == -1 && ui::settingsRowPosition(pc, 4) == -1);
+    CHECK(ui::settingsRowPosition(ps5, 24) == 5);
+    CHECK(ui::settingsRowPosition(ps5, 1) == 6 && ui::settingsRowPosition(ps5, 3) == 12);
+    CHECK(ui::settingsRowPosition(ps5, 16) == 18);
+    CHECK(ui::settingsRowPosition(ps5, 5) == 16 && ui::settingsRowPosition(ps5, 6) == 17);
+    CHECK(ui::settingsRowPosition(ps5, 12) == 11 && ui::settingsRowPosition(ps5, 14) == 10);
+    CHECK(ui::settingsRowPosition(ps5, 22) == 19);
+    CHECK(ui::settingsRowPosition(ps5, 7) == 21 && ui::settingsRowPosition(ps5, 19) == 20 && ui::settingsRowPosition(ps5, 2) == 1);
+    CHECK(ui::settingsRowPosition(ps5, 21) == 15);
+    CHECK(ui::settingsRowPosition(pc, 5) == 12 && ui::settingsRowPosition(pc, 6) == -1 && ui::settingsRowPosition(pc, 4) == -1);
 }
 
 // The controller's glyphs by pad kind (ui/pad_glyphs.h).
@@ -7127,8 +7135,374 @@ static void testPs4VideoPipelineAndSse2Converter() {
     }
 }
 
+static void testTrophySystem() {
+    using namespace xc::trophy;
+
+    // 1. Gamerscore to Trophy grade conversion rules
+    // <= 50G -> Bronze
+    CHECK(scoreToGrade(0) == TrophyGrade::Bronze);
+    CHECK(scoreToGrade(5) == TrophyGrade::Bronze);
+    CHECK(scoreToGrade(20) == TrophyGrade::Bronze);
+    CHECK(scoreToGrade(50) == TrophyGrade::Bronze);
+    // 55G..99G -> Silver
+    CHECK(scoreToGrade(55) == TrophyGrade::Silver);
+    CHECK(scoreToGrade(75) == TrophyGrade::Silver);
+    CHECK(scoreToGrade(99) == TrophyGrade::Silver);
+    // >= 100G -> Gold
+    CHECK(scoreToGrade(100) == TrophyGrade::Gold);
+    CHECK(scoreToGrade(150) == TrophyGrade::Gold);
+    CHECK(scoreToGrade(200) == TrophyGrade::Gold);
+
+    // Grade to string & points
+    CHECK(std::string(gradeToString(TrophyGrade::Bronze)) == "Bronze");
+    CHECK(std::string(gradeToString(TrophyGrade::Silver)) == "Silver");
+    CHECK(std::string(gradeToString(TrophyGrade::Gold)) == "Gold");
+    CHECK(std::string(gradeToString(TrophyGrade::Platinum)) == "Platinum");
+
+    CHECK(gradeToPoints(TrophyGrade::Bronze) == 15);
+    CHECK(gradeToPoints(TrophyGrade::Silver) == 30);
+    CHECK(gradeToPoints(TrophyGrade::Gold) == 90);
+    CHECK(gradeToPoints(TrophyGrade::Platinum) == 300);
+
+    // Platinum automatic award calculation
+    CHECK(!hasEarnedPlatinum(0, 0));
+    CHECK(!hasEarnedPlatinum(0, 10));
+    CHECK(!hasEarnedPlatinum(9, 10));
+    CHECK(hasEarnedPlatinum(10, 10));
+    CHECK(hasEarnedPlatinum(11, 10));
+
+    // 2. Known cross-platform titles (Scenario A: Fortnite pilot, etc.)
+    const auto* fortnite = findKnownTitle("267695549", "");
+    CHECK(fortnite != nullptr);
+    CHECK(fortnite->titleName == "Fortnite");
+    CHECK(fortnite->npCommId == "NPWR20561_00");
+    CHECK(fortnite->sonyTitleId == "PPSA01922");
+    CHECK(fortnite->productId == "BT5P2X999VH2");
+
+    const auto* fortniteByProd = findKnownTitle("", "BT5P2X999VH2");
+    CHECK(fortniteByProd == fortnite);
+
+    const auto* minecraft = findKnownTitle("1828326430", "");
+    CHECK(minecraft != nullptr);
+    CHECK(minecraft->npCommId == "NPWR18283_00");
+
+    // 3. Mapping for titles without fixed known entry
+    std::string haloNp = generateNpCommId("2144722883");
+    std::string haloSony = generateSonyTitleId("2144722883");
+    CHECK(haloNp.rfind("NPWR", 0) == 0);
+    CHECK(haloNp.size() == 12); // NPWRXXXXX_00
+    CHECK(haloNp.substr(haloNp.size() - 3) == "_00");
+    CHECK(haloSony.rfind("PPSA", 0) == 0);
+    // Deterministic: same input gives exact same output
+    CHECK(haloNp == generateNpCommId("2144722883"));
+    CHECK(haloSony == generateSonyTitleId("2144722883"));
+
+    // 4. resolveTitleSet mapping
+    std::vector<xcloud::Achievement> achs;
+    xcloud::Achievement a1;
+    a1.id = "1";
+    a1.name = "Gunsmith";
+    a1.gamerscore = 20;
+    a1.unlocked = true;
+    achs.push_back(a1);
+
+    xcloud::Achievement a2;
+    a2.id = "2";
+    a2.name = "Hero";
+    a2.gamerscore = 60;
+    a2.unlocked = false;
+    achs.push_back(a2);
+
+    xcloud::Achievement a3;
+    a3.id = "3";
+    a3.name = "Legend";
+    a3.gamerscore = 100;
+    a3.unlocked = false;
+    achs.push_back(a3);
+
+    TitleTrophySet titleSet = resolveTitleSet("267695549", "BT5P2X999VH2", "Fortnite", achs);
+    CHECK(titleSet.npCommId == "NPWR20561_00");
+    CHECK(titleSet.totalCount == 3);
+    CHECK(titleSet.unlockedCount == 1);
+    CHECK(titleSet.items.size() == 3);
+    CHECK(titleSet.items[0].grade == TrophyGrade::Bronze);
+    CHECK(titleSet.items[1].grade == TrophyGrade::Silver);
+    CHECK(titleSet.items[2].grade == TrophyGrade::Gold);
+
+    // Name normalization
+    CHECK(normalizeTrophyName("Gunsmith") == "gunsmith");
+    CHECK(normalizeTrophyName("Take Out 10 Enemies!") == "takeout10enemies");
+
+    // 4b. Test buildUcp and buildTrpTitleDat
+    std::vector<uint8_t> ucpBytes;
+    std::vector<uint8_t> sha1;
+    CHECK(buildUcp(titleSet, ucpBytes, &sha1));
+    CHECK(ucpBytes.size() > 1024);
+    CHECK(ucpBytes[0] == 0xb2 && ucpBytes[1] == 0x28 && ucpBytes[2] == 0xc6 && ucpBytes[3] == 0x0a);
+    CHECK(sha1.size() == 20);
+    // UCP header at 0x1c must contain genuine SHA-1 digest
+    CHECK(memcmp(ucpBytes.data() + 0x1c, sha1.data(), 20) == 0);
+
+    std::vector<uint8_t> datBytes;
+    CHECK(buildTrpTitleDat(titleSet, 0x1ea2f4da, datBytes, sha1.data()));
+    CHECK(datBytes.size() > 2048);
+    CHECK(memcmp(datBytes.data(), "T2PD", 4) == 0);
+    CHECK(memcmp(datBytes.data() + 0x40, "T2TD", 4) == 0);
+    // Tag 0x0100 in TRPTITLE.DAT must match genuine UCP SHA-1 digest
+    CHECK(memcmp(datBytes.data() + 0x250, sha1.data(), 20) == 0);
+
+    // 4c. Test buildParamJson for Fortnite and general titles
+    std::string fnParam = buildParamJson("PPSA01922", "Fortnite");
+    CHECK(fnParam.find("\"titleId\": \"PPSA01922\"") != std::string::npos);
+    CHECK(fnParam.find("\"contentId\": \"UP1477-PPSA01922_00-FORTNITECORE0001\"") != std::string::npos);
+    CHECK(fnParam.find("\"conceptId\": \"210118\"") != std::string::npos);
+    CHECK(fnParam.find("\"appType\": 1") != std::string::npos);
+    CHECK(fnParam.find("\"attribute3\": 1835012") != std::string::npos);
+    CHECK(fnParam.find("\"titleName\": \"Fortnite\"") != std::string::npos);
+
+    std::string genericParam = buildParamJson("PPSA12345", "Custom Game");
+    CHECK(genericParam.find("\"titleId\": \"PPSA12345\"") != std::string::npos);
+
+    // 4d. Full official Fortnite Save the World 45-achievement set mapping
+    std::vector<xcloud::Achievement> fnAchs;
+    for (int i = 1; i <= 45; ++i) {
+        xcloud::Achievement ach;
+        ach.id = std::to_string(i);
+        ach.name = "Fortnite Achievement " + std::to_string(i);
+        ach.gamerscore = (i == 29 || i == 40 || i == 44) ? 50 : 20;
+        fnAchs.push_back(ach);
+    }
+    fnAchs[28].name = "All Tied Up"; // ID 29 (0-indexed 28)
+    fnAchs[39].name = "Anjo da Guarda"; // ID 40 (0-indexed 39)
+    fnAchs[43].name = "Plays Well with Others"; // ID 44 (0-indexed 43)
+    fnAchs[22].name = "Plankerton livre"; // ID 23
+    fnAchs[25].name = "Amped for Expansion"; // ID 26
+    fnAchs[26].name = "Desencana!"; // ID 27
+    fnAchs[27].name = "Into the Night"; // ID 28
+    fnAchs[36].name = "Coisas malvadas com uns dentões"; // ID 37
+    fnAchs[37].name = "Talented Builder"; // ID 38
+    fnAchs[38].name = "Vai Gnomo!"; // ID 39
+    fnAchs[40].name = "Loot Legend"; // ID 41
+    fnAchs[41].name = "World Explorer"; // ID 42
+    fnAchs[42].name = "Horrores Inenarráveis"; // ID 43
+
+    TitleTrophySet fnSet = resolveTitleSet("267695549", "BT5P2X999VH2", "Fortnite", fnAchs);
+    CHECK(fnSet.npCommId == "NPWR20561_00");
+    CHECK(fnSet.totalCount == 45);
+    int goldCount = 0, silverCount = 0, bronzeCount = 0;
+    for (const auto& item : fnSet.items) {
+        if (item.grade == TrophyGrade::Gold) goldCount++;
+        else if (item.grade == TrophyGrade::Silver) silverCount++;
+        else if (item.grade == TrophyGrade::Bronze) bronzeCount++;
+    }
+    CHECK(goldCount == 3);
+    CHECK(silverCount == 10);
+    CHECK(bronzeCount == 32);
+
+    // Test UTF-8 Portuguese accent folding in normalizeTrophyName
+    CHECK(normalizeTrophyName("Coisas malvadas com uns dent\u00f5es") == "coisasmalvadascomunsdentoes");
+    CHECK(normalizeTrophyName("Horrores Inenarr\u00e1veis") == "horroresinenarraveis");
+    CHECK(normalizeTrophyName("Vai, Gnomo!") == "vaignomo");
+
+    // Test single-item Fortnite grade resolution by ID and by name (regardless of totalCount)
+    std::vector<xcloud::Achievement> singleAch;
+    xcloud::Achievement ach29;
+    ach29.id = "29";
+    ach29.name = "Coisas malvadas com uns dent\u00f5es"; // Silver
+    ach29.gamerscore = 20;
+    singleAch.push_back(ach29);
+    TitleTrophySet singleSet = resolveTitleSet("267695549", "BT5P2X999VH2", "Fortnite", singleAch);
+    CHECK(singleSet.items.size() == 1);
+    CHECK(singleSet.items[0].grade == TrophyGrade::Silver);
+
+    // Verify UCP builds with Platinum metadata
+    std::vector<uint8_t> fnUcp;
+    CHECK(buildUcp(fnSet, fnUcp));
+    std::string ucpStr(reinterpret_cast<const char*>(fnUcp.data()), fnUcp.size());
+    CHECK(ucpStr.find("Hero of the Storm") != std::string::npos);
+    CHECK(ucpStr.find("Her\u00f3i da Tempestade") != std::string::npos);
+
+    // Test convertTo512Png helper with a minimal valid 1x1 PNG
+    static const uint8_t kTinyPng[67] = {
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+        0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+        0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+        0x42, 0x60, 0x82
+    };
+    CHECK(!is512x512Png(kTinyPng, sizeof(kTinyPng)));
+    std::vector<uint8_t> dummyPng;
+    CHECK(convertTo512Png(kTinyPng, sizeof(kTinyPng), dummyPng));
+    CHECK(is512x512Png(dummyPng.data(), dummyPng.size()));
+    CHECK(genericParam.find("\"contentId\": \"UP0001-PPSA12345_00-0000000000000000\"") != std::string::npos);
+    CHECK(genericParam.find("\"titleName\": \"Custom Game\"") != std::string::npos);
+
+    // 4d. Test buildNpTitleDat
+    std::vector<uint8_t> npTitle;
+    CHECK(buildNpTitleDat("PPSA01922", npTitle));
+    CHECK(npTitle.size() == 160);
+    CHECK(memcmp(npTitle.data(), "NPTD", 4) == 0);
+    CHECK(memcmp(npTitle.data() + 0x10, "PPSA01922_00", 12) == 0);
+
+    // 4e. Test buildTrpTitleDat append-only merging & timestamp preservation
+    // Setup initial DAT where trophy 1 is unlocked with custom timestamp
+    TitleTrophySet initialSet = titleSet;
+    initialSet.items[0].unlocked = true;
+    initialSet.items[1].unlocked = false;
+    initialSet.items[2].unlocked = false;
+    std::vector<uint8_t> initialDat;
+    CHECK(buildTrpTitleDat(initialSet, 0x1ea2f4da, initialDat, sha1.data()));
+
+    std::map<uint32_t, ExistingTrophyRecord> parsedInitial;
+    CHECK(parseTrpTitleDat(initialDat.data(), initialDat.size(), parsedInitial));
+    CHECK(parsedInitial.count(1) > 0);
+    CHECK(parsedInitial[1].state == 1);
+    uint64_t t1OriginalTs = parsedInitial[1].timestamp;
+
+    // Simulate new sync where Xbox reports trophy 2 unlocked, but trophy 1 is offline/missing (unlocked=false)
+    TitleTrophySet nextSet = titleSet;
+    nextSet.items[0].unlocked = false; // missing in current sync!
+    nextSet.items[1].unlocked = true;  // newly unlocked
+    nextSet.items[2].unlocked = false;
+
+    std::vector<uint8_t> mergedDat;
+    CHECK(buildTrpTitleDat(nextSet, 0x1ea2f4da, mergedDat, sha1.data(), &initialDat));
+
+    std::map<uint32_t, ExistingTrophyRecord> parsedMerged;
+    CHECK(parseTrpTitleDat(mergedDat.data(), mergedDat.size(), parsedMerged));
+    // Trophy 1 MUST be preserved 100% with original timestamp!
+    CHECK(parsedMerged.count(1) > 0);
+    CHECK(parsedMerged[1].state == 1);
+    CHECK(parsedMerged[1].timestamp == t1OriginalTs);
+    // Trophy 2 MUST be newly unlocked
+    CHECK(parsedMerged.count(2) > 0);
+    CHECK(parsedMerged[2].state == 1);
+    CHECK(parsedMerged[2].timestamp > 0);
+    // Trophy 3 remains locked
+    CHECK(parsedMerged.count(3) > 0);
+    CHECK(parsedMerged[3].state == 0);
+
+
+    // 5. Mock ITrophyBackend & TrophySyncEngine integration
+    class TestBackend : public ITrophyBackend {
+    public:
+        bool init(uint32_t uid) override {
+            userId = uid;
+            return true;
+        }
+        bool registerTitle(const TitleTrophySet& set) override {
+            registered = true;
+            return true;
+        }
+        bool unlockTrophy(const std::string& npComm, int tid, TrophyGrade g, const std::string& n) override {
+            for (const auto& u : unlocked) {
+                if (u.npCommId == npComm && u.trophyId == tid) return true;
+            }
+            unlocked.push_back({npComm, tid, g});
+            return true;
+        }
+        bool isTrophyUnlocked(const std::string& npComm, int tid) override {
+            for (const auto& u : unlocked) {
+                if (u.npCommId == npComm && u.trophyId == tid) return true;
+            }
+            return false;
+        }
+        std::string name() const override { return "TestBackend"; }
+
+        struct UnlockedItem {
+            std::string npCommId;
+            int trophyId;
+            TrophyGrade grade;
+        };
+        uint32_t userId = 0;
+        bool registered = false;
+        std::vector<UnlockedItem> unlocked;
+    };
+
+    auto backendPtr = std::make_unique<TestBackend>();
+    TestBackend* rawBackend = backendPtr.get();
+    TrophySyncEngine engine(std::move(backendPtr));
+    CHECK(engine.init(0x1ea2f4da));
+    CHECK(rawBackend->userId == 0x1ea2f4da);
+
+    std::string baseDir = platform::dataDir();
+    if (baseDir.empty()) baseDir = ".";
+    std::string cacheFile = baseDir + "/trophies/267695549.json";
+    ::unlink(cacheFile.c_str());
+
+    // Mock network transport for achievements
+    net::setTestTransport([&](const net::Request& req) -> net::Response {
+        net::Response res;
+        if (req.url.find("achievements.xboxlive.com") != std::string::npos) {
+            res.status = 200;
+            res.body = R"({
+                "achievements": [
+                    {
+                        "id": "101",
+                        "name": "First Step",
+                        "description": "Completed first step",
+                        "progressState": "Achieved",
+                        "rewards": [{"type": "Gamerscore", "value": "20"}],
+                        "mediaAssets": [{"name": "Icon", "url": "https://img/icon1.png"}]
+                    },
+                    {
+                        "id": "102",
+                        "name": "Big Step",
+                        "description": "Completed big step",
+                        "progressState": "Achieved",
+                        "rewards": [{"type": "Gamerscore", "value": "100"}],
+                        "mediaAssets": [{"name": "Icon", "url": "https://img/icon2.png"}]
+                    }
+                ],
+                "pagingInfo": {"totalItems": 2}
+            })";
+            return res;
+        }
+        res.status = 404;
+        return res;
+    });
+
+    int newlyUnlocked = 0;
+    std::string syncErr;
+    bool syncOk = engine.syncTitleAchievements("Bearer mockToken", "25332749", "267695549", "Fortnite",
+                                               newlyUnlocked, syncErr);
+    CHECK(syncOk);
+    // Both 101 and 102 were unlocked (2 achievements = 100% -> awards Platinum too: total 3!)
+    CHECK(newlyUnlocked == 3);
+    CHECK(rawBackend->unlocked.size() == 3);
+    CHECK(rawBackend->unlocked[0].grade == TrophyGrade::Bronze);
+    CHECK(rawBackend->unlocked[0].trophyId == 1);
+    CHECK(rawBackend->unlocked[1].grade == TrophyGrade::Gold);
+    CHECK(rawBackend->unlocked[1].trophyId == 2);
+    CHECK(rawBackend->unlocked[2].grade == TrophyGrade::Platinum);
+    CHECK(rawBackend->unlocked[2].trophyId == kPlatinumTrophyId); // Trophy ID 0
+
+    // Verify rich JSON cache persistence
+    std::string cacheSaved;
+    CHECK(platform::readFile(cacheFile, cacheSaved));
+    auto jCache = json::parse(cacheSaved);
+    CHECK(jCache && jCache->isObject());
+    CHECK((*jCache)["xboxTitleId"].str() == "267695549");
+    CHECK((*jCache)["unlockedCount"].asInt() == 2);
+    CHECK((*jCache)["trophies"].isArray());
+    CHECK((*jCache)["trophies"].items().size() == 2);
+
+    // Repeat sync: snapshot is cached, 0 newly unlocked
+    newlyUnlocked = 0;
+    syncOk = engine.syncTitleAchievements("Bearer mockToken", "25332749", "267695549", "Fortnite",
+                                          newlyUnlocked, syncErr);
+    CHECK(syncOk);
+    CHECK(newlyUnlocked == 0); // No duplicate unlocks!
+    CHECK(rawBackend->unlocked.size() == 3);
+
+    // Clean up
+    net::setTestTransport({});
+    ::unlink(cacheFile.c_str());
+}
+
 int main() {
     testPs4VideoPipelineAndSse2Converter();
+    testTrophySystem();
     testReleaseV155Features();
     testSizedUrl();
     testPhase1BugFixesAndPhase2Optimizations();

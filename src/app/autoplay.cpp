@@ -14,8 +14,10 @@
 #include "ui/canvas.h"
 #include "ui/stream_menu.h"
 #include "ui/strings.h"
+#include "trophy/trophy_sync.h"
 #include "util/log.h"
 
+#include <thread>
 #include <cerrno>
 #include <cmath>
 #include <csignal>
@@ -38,6 +40,7 @@ bool donationShot = false;  // "donationtest": save the screen now
 bool reportShot = false;    // "reporttest": save report.ppm now
 const char* cloudTimeShot = nullptr;  // "cloudtimetest": save this capture now
 bool signInCheckShot = false; // "checksignintest": save the screen now
+bool trophySettingsShot = false, trophySyncedShot = false; // "trophytest": save screenshots
 bool freeUiShot = false, freeDetailsShot = false; // "freetest": save free account screenshots
 const char* keysShot = nullptr;  // "keystest": the screen to save now
 uint64_t homeSince = 0, launchSince = 0;
@@ -142,6 +145,8 @@ void loadAutoplay() {
         if (opt == "checksignintest") g_autoplay.checkSignInTest = true;
         if (opt == "freetest") g_autoplay.freeTest = true;
         if (opt == "settingstest") g_autoplay.settingsTest = true;
+        if (opt == "trophytest") g_autoplay.trophyTest = true;
+        if (opt == "psboxself") g_autoplay.psboxSelfTest = true;
         if (opt == "keystest") g_autoplay.keysTest = true;
         if (opt == "padmaptest") g_autoplay.padMapTest = true;
         if (opt == "badca") g_autoplay.badCa = true;
@@ -878,6 +883,69 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         }
     }
 
+    if (g_autoplay.trophyTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        static bool syncStarted = false;
+        static uint64_t step4Start = 0;
+        if (!since) since = now;
+        static SettingsWalk walk;
+        if (step == 0 && now - since >= 500) {
+            std::string cachePath = platform::dataDir() + "/trophies/267695549.json";
+            std::remove(cachePath.c_str());
+            nav.options = true;
+            step++;
+        } else if (step == 1 && now - since >= 1500) {
+            if (walk.step(nav, downsTo(24))) step++;
+        } else if (step == 2 && now - since >= 2500) {
+            if (onSettingsRow(24, "trophy test")) {
+                trophySettingsShot = true;
+                step++;
+            } else {
+                g_autoplay.trophyTest = false;
+                g_ui->showHome();
+            }
+        } else if (step == 3 && now - since >= 3500) {
+            nav.accept = true; // launch Action::SyncTrophies
+            step++;
+        } else if (step == 4) {
+            if (!step4Start) step4Start = now;
+            bool syncing = trophy::syncEngine().isSyncing();
+            if (syncing) {
+                syncStarted = true;
+            }
+            uint64_t elapsed = now - step4Start;
+            // Complete if sync finished, or after 25s of active sync, or 35s safety timeout
+            if ((syncStarted && !syncing && elapsed > 5000) || (syncStarted && elapsed > 25000) || (elapsed > 35000)) {
+                trophySyncedShot = true;
+                nav.back = true;
+                g_ui->showHome();
+                g_autoplay.trophyTest = false;
+                XC_LOGI("AUTOPLAY END: trophy test finished (elapsed=%llu ms, syncStarted=%d)",
+                        static_cast<unsigned long long>(elapsed), syncStarted ? 1 : 0);
+                step++;
+            }
+        }
+    }
+
+    if (g_autoplay.psboxSelfTest && uiSaved) {
+        static bool fired = false;
+        static uint64_t fireAt = 0;
+        if (!fired) {
+            fired = true;
+            fireAt = now;
+            XC_LOGI("AUTOPLAY: psbox native self-test starting");
+            std::thread([]() { trophy::runPsboxNativeSelfTest(); }).detach();
+        }
+        if (fireAt && now - fireAt > 15000) {
+            g_autoplay.psboxSelfTest = false;
+            nav.back = true;
+            g_ui->showHome();
+            XC_LOGI("AUTOPLAY END: psbox self-test finished (elapsed=%llu ms)",
+                    static_cast<unsigned long long>(now - fireAt));
+        }
+    }
+
     if (g_autoplay.freeTest && uiSaved) {
         static uint64_t since = 0;
         static int step = 0;
@@ -1298,6 +1366,16 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         signInCheckShot = false;
         saveCanvas("signin_check.ppm");
         XC_LOGI("AUTOPLAY END: check signin test (saved signin_check.ppm)");
+    }
+    if (trophySettingsShot) {
+        trophySettingsShot = false;
+        saveCanvas("trophy_settings.ppm");
+        XC_LOGI("AUTOPLAY: saved trophy_settings.ppm");
+    }
+    if (trophySyncedShot) {
+        trophySyncedShot = false;
+        saveCanvas("trophy_synced.ppm");
+        XC_LOGI("AUTOPLAY: saved trophy_synced.ppm");
     }
     if (freeUiShot) {
         freeUiShot = false;

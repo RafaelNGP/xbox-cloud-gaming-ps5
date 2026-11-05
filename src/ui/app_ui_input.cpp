@@ -710,6 +710,9 @@ UiEvent AppUi::onMouseDown(float x, float y, int button) {
                     openTester(Tester::NetworkTest);
                     ev.action = Action::RunNetworkTest;
                     return ev;
+                } else if (i == 24) {
+                    ev.action = Action::SyncTrophies;
+                    return ev;
                 } else if (i == 19) {
                     openTester(Tester::Donation);
                     return ev;
@@ -1071,6 +1074,8 @@ UiEvent AppUi::handle(const NavInput& in) {
             } else if (in.accept && settingsRow_ == 18) {
                 openTester(Tester::NetworkTest);
                 ev.action = Action::RunNetworkTest;
+            } else if (in.accept && settingsRow_ == 24) {
+                ev.action = Action::SyncTrophies;
             } else if (in.accept && settingsRow_ == 19) {
                 openTester(Tester::Donation);
             } else if (in.accept && settingsRow_ == 7) {

@@ -880,7 +880,7 @@ void AppUi::drawSettings(Canvas& c) {
                                         tr(Str::Gyro),          tr(Str::QueueReadyNotification),
                                         tr(Str::CheckSignIn),   tr(Str::NetworkTest),   tr(Str::SupportProject),
                                         tr(Str::VideoDecoder),  tr(Str::AudioHaptics),  tr(Str::PreviewFeatures),
-                                        tr(Str::ResetSettings)};
+                                        tr(Str::ResetSettings), tr(Str::SyncTrophies)};
     constexpr int kRowW = 1140, kRowH = 30, kGap = 2, kGroupGap = 4, kRowPx = 22;
     Rect rows[kSettingRows];  // by row id
     int y = 184;
@@ -914,7 +914,7 @@ void AppUi::drawSettings(Canvas& c) {
             if (focused && !dropdownOpen_) c.strokeRect({r.x - 4, r.y - 4, r.w + 8, r.h + 8}, kWhite, 3, 16);
             fonts_.semibold.draw(c, labels[i], r.x + 32, ty, kRowPx, kWhite);
             float cx = static_cast<float>(r.x + r.w - 40), cy = static_cast<float>(r.y + r.h / 2);
-            if (i != 7 && i != 17 && i != 18 && i != 19) {
+            if (i != 7 && i != 17 && i != 18 && i != 19 && i != 24) {
                 c.line(cx - 8, cy - 3, cx, cy + 4, 2.5f, focused ? kWhite : kGray);
                 c.line(cx, cy + 4, cx + 8, cy - 3, 2.5f, focused ? kWhite : kGray);
             }
@@ -929,9 +929,9 @@ void AppUi::drawSettings(Canvas& c) {
                 Color color = !updateAvailable_.empty() && !updateChecking_ ? rgba(120, 220, 120) : focused ? kWhite : kGray;
                 int w = fonts_.regular.measure(value, kRowPx);
                 fonts_.regular.draw(c, value, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx, color);
-            } else if (i == 17 || i == 18 || i == 19) {
-                // Action items (Check sign-in, Network test, Support)
-                std::string label = (i == 17) ? tr(Str::RunCheck) : (i == 18) ? tr(Str::RunTest) : tr(Str::SupportKoFi);
+            } else if (i == 17 || i == 18 || i == 19 || i == 24) {
+                // Action items (Check sign-in, Network test, Support, Sync Trophies)
+                std::string label = (i == 17) ? tr(Str::RunCheck) : (i == 18) ? tr(Str::RunTest) : (i == 24) ? tr(Str::RunSyncTrophies) : tr(Str::SupportKoFi);
                 int w = fonts_.regular.measure(label, kRowPx);
                 fonts_.regular.draw(c, label, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx,
                                     focused ? kWhite : kGray);
@@ -977,6 +977,7 @@ void AppUi::drawSettings(Canvas& c) {
         Str::SettingDescAudioHaptics,
         Str::SettingDescPreviewFeatures,
         Str::SettingDescResetSettings,
+        Str::SettingDescSyncTrophies,
     };
     if (settingsRow_ >= 0 && settingsRow_ < kSettingRows) {
         int dy = std::max(y + 6, 922);

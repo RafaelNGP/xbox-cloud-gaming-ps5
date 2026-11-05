@@ -422,4 +422,18 @@ constexpr Column kItalian = {
     "di %s", // CloudTimeOf
     "Tempo cloud illimitato", // CloudTimeUnlimited
     "Restano %s del tuo tempo di gioco nel cloud Xbox questo mese", // CloudTimeWarn
+    "Sincronizza trofei",                             // SyncTrophies
+    "Sincronizza tutti gli obiettivi Xbox del tuo account e assegna i trofei corrispondenti al tuo profilo PlayStation.", // SettingDescSyncTrophies
+    "Sincronizza",                                    // RunSyncTrophies
+    "Sincronizzazione completata: %s trofeo/i su %s titolo/i assegnati al tuo profilo!", // TrophiesSyncedToast
+    "Avviso sui trofei",                              // TrophiesDisclaimerTitle
+    "L'abilitazione della conversione dei trofei aggiunge i trofei direttamente al tuo profilo PlayStation. Se colleghi questo account a PlayStation Network per sincronizzare, rischi un ban dell'account. Attiva questa opzione solo su un profilo locale o se non intendi più connetterti a PSN.", // TrophiesDisclaimerBody
+    "Ho capito",                                      // TrophiesDisclaimerAware
+    "Annulla",                                        // TrophiesDisclaimerCancel
+    "Rimuovi trofei sincronizzati",                   // RemoveTrophies
+    "Rimuove tutti i trofei aggiunti da PSBox da questo profilo locale, evitando rischi di ban su PSN. Potrai risincronizzarli in qualsiasi momento dal tuo account Xbox.", // SettingDescRemoveTrophies
+    "Rimuovere i trofei sincronizzati?",              // RemoveTrophiesConfirmTitle
+    "Questo cancellerà i pacchetti di trofei locali di PSBox per questo profilo. I tuoi obiettivi rimangono al sicuro sul tuo account Microsoft/Xbox.", // RemoveTrophiesConfirmBody
+    "Rimuovi",                                        // RemoveTrophiesConfirm
+    "Rimossi %s titoli di trofei da questo profilo.", // TrophiesRemovedToast
 };

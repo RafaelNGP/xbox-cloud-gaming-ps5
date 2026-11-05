@@ -422,4 +422,18 @@ constexpr Column kEnglish = {
     "of %s", // CloudTimeOf
     "Unlimited cloud time", // CloudTimeUnlimited
     "%s of your Xbox cloud gaming time left this month", // CloudTimeWarn
+    "Sync Trophies",                                  // SyncTrophies
+    "Synchronizes all Xbox achievements from your account and awards matching trophies to your PlayStation profile.", // SettingDescSyncTrophies
+    "Sync",                                           // RunSyncTrophies
+    "Sync complete: %s trophy(ies) across %s title(s) awarded to your profile!", // TrophiesSyncedToast
+    "Trophy Sync Warning",                            // TrophiesDisclaimerTitle
+    "Enabling trophy conversion adds trophies directly to your PlayStation profile. If you connect this account to PlayStation Network, syncing may risk an account ban. Only enable this on an offline/local profile, or if you do not plan to connect to PSN.", // TrophiesDisclaimerBody
+    "I understand",                                   // TrophiesDisclaimerAware
+    "Cancel",                                         // TrophiesDisclaimerCancel
+    "Remove Synced Trophies",                         // RemoveTrophies
+    "Removes all trophies added by PSBox from this local profile, eliminating ban risk. You can re-sync them anytime from your Xbox account.", // SettingDescRemoveTrophies
+    "Remove Synced Trophies?",                        // RemoveTrophiesConfirmTitle
+    "This will delete local trophy packages added by PSBox for this profile. Your achievements remain safe on your Microsoft/Xbox account.", // RemoveTrophiesConfirmBody
+    "Remove",                                         // RemoveTrophiesConfirm
+    "Removed %s trophy title(s) from this profile.",  // TrophiesRemovedToast
 };

@@ -422,4 +422,18 @@ constexpr Column kPortugueseBR = {
     "de %s", // CloudTimeOf
     "Tempo de nuvem ilimitado", // CloudTimeUnlimited
     "Restam %s do seu tempo de jogo na nuvem do Xbox neste mês", // CloudTimeWarn
+    "Sincronizar Troféus",                            // SyncTrophies
+    "Sincroniza todas as conquistas do Xbox da sua conta e atribui os troféus correspondentes ao perfil do PlayStation.", // SettingDescSyncTrophies
+    "Sincronizar",                                    // RunSyncTrophies
+    "Sincronização concluída: %s troféu(s) em %s título(s) atribuídos ao seu perfil!", // TrophiesSyncedToast
+    "Aviso sobre Troféus",                            // TrophiesDisclaimerTitle
+    "A sincronização de troféus adiciona conquistas do Xbox diretamente ao seu perfil do PlayStation. Se você conectar esta conta à PSN para sincronizar, há chances de a conta ser banida. Ligue esta opção apenas em uma conta local (sem PSN) ou caso não pretenda mais se conectar à PSN.", // TrophiesDisclaimerBody
+    "Estou ciente",                                   // TrophiesDisclaimerAware
+    "Cancelar",                                       // TrophiesDisclaimerCancel
+    "Remover Troféus Sincronizados",                  // RemoveTrophies
+    "Remove todos os troféus adicionados pelo PSBox da conta local, evitando o risco de banimento. Você poderá adicioná-los novamente quando quiser a partir da conta Xbox.", // SettingDescRemoveTrophies
+    "Remover Troféus Sincronizados?",                 // RemoveTrophiesConfirmTitle
+    "Isso apagará os pacotes locais de troféus adicionados pelo PSBox para este perfil. Suas conquistas continuam salvas na sua conta Microsoft/Xbox.", // RemoveTrophiesConfirmBody
+    "Remover",                                        // RemoveTrophiesConfirm
+    "Removido(s) %s título(s) de troféus deste perfil.", // TrophiesRemovedToast
 };

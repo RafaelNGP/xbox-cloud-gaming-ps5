@@ -431,6 +431,20 @@ enum class Str {
     CloudTimeOf,        // top bar, after CloudTimeLeft: "%s" = the month's hours
     CloudTimeUnlimited, // top bar: the account has no cloud time limit
     CloudTimeWarn,      // notification while streaming: "%s" = the cloud time left
+    SyncTrophies,
+    SettingDescSyncTrophies,
+    RunSyncTrophies,
+    TrophiesSyncedToast,
+    TrophiesDisclaimerTitle,
+    TrophiesDisclaimerBody,
+    TrophiesDisclaimerAware,
+    TrophiesDisclaimerCancel,
+    RemoveTrophies,
+    SettingDescRemoveTrophies,
+    RemoveTrophiesConfirmTitle,
+    RemoveTrophiesConfirmBody,
+    RemoveTrophiesConfirm,
+    TrophiesRemovedToast,
     Count
 };
 

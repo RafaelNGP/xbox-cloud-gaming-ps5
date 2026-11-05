@@ -58,6 +58,15 @@ bool fetchTitleAchievements(const std::string& xblAuth, const std::string& xuid,
             ach.timeUnlocked = prog["timeUnlocked"].str();
         }
 
+        for (const auto& ma : a["mediaAssets"].items()) {
+            std::string type = ma["type"].str();
+            std::string name = ma["name"].str();
+            if (type == "Icon" || name == "Icon" || ach.iconUrl.empty()) {
+                ach.iconUrl = ma["url"].str();
+                if (type == "Icon" || name == "Icon") break;
+            }
+        }
+
         for (const auto& rw : a["rewards"].items()) {
             std::string type = rw["type"].str();
             std::string name = rw["name"].str();

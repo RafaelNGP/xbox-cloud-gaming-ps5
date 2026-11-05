@@ -416,10 +416,24 @@ constexpr Column kSpanish = {
     "Para transmitir juegos gratuitos además de Fortnite en cuentas sin Game Pass, activa 'Funciones Preview' en Ajustes y en xbox.com/play.", // F2pPreviewRequiredDesc
     "Esta cuenta necesita habilitar 'Funciones Preview' en su perfil en xbox.com/play para desbloquear el streaming con anuncios de juegos gratuitos.", // F2pPreviewAccountNeededDesc
     "Jugador",                                   // MenuPlayer
-    "Se acabó tu tiempo de juego en la nube de Xbox, así que el servicio de Xbox cerró la sesión. Desde noviembre de 2026, Xbox limita el juego en la nube cada mes: 15 h con Game Pass Ultimate, 10 h con Premium y 5 h con Essential. Para tener más tiempo, mira las opciones en xbox.com, o espera las horas del próximo mes.", // CloudTimeUp
+    "Se acabó tu tiempo de juego en la nube de Xbox, así que el servicio de Xbox cerró la sesión. Desde noviembre de 2026, Xbox limita el juego en la nube cada mes: 15 h con Game Pass Ultimate, 10 h con Premium e 5 h con Essential. Para tener más tiempo, mira las opciones en xbox.com, o espera las horas del próximo mes.", // CloudTimeUp
     "La sesión terminó por inactividad", // EndedIdle
     "%s restantes", // CloudTimeLeft
     "de %s", // CloudTimeOf
     "Tiempo en la nube ilimitado", // CloudTimeUnlimited
     "Te quedan %s de tu tiempo de juego en la nube de Xbox este mes", // CloudTimeWarn
+    "Sincronizar Trofeos",                            // SyncTrophies
+    "Sincroniza todos los logros de Xbox de tu cuenta y otorga los trofeos correspondientes en tu perfil de PlayStation.", // SettingDescSyncTrophies
+    "Sincronizar",                                    // RunSyncTrophies
+    "¡Sincronización completada: %s trofeo(s) en %s título(s) otorgados a tu perfil!", // TrophiesSyncedToast
+    "Aviso sobre Trofeos",                            // TrophiesDisclaimerTitle
+    "Habilitar la conversión de trofeos añade trofeos directamente a tu perfil de PlayStation. Si conectas esta cuenta a PlayStation Network para sincronizar, existen posibilidades de que la cuenta sea baneada. Activa esto solo en un perfil local o si no planeas conectarte a PSN.", // TrophiesDisclaimerBody
+    "Estoy al tanto",                                 // TrophiesDisclaimerAware
+    "Cancelar",                                       // TrophiesDisclaimerCancel
+    "Eliminar Trofeos Sincronizados",                 // RemoveTrophies
+    "Elimina todos los trofeos añadidos por PSBox del perfil local para evitar riesgos con PSN. Podrás volver a sincronizarlos cuando quieras desde tu cuenta Xbox.", // SettingDescRemoveTrophies
+    "¿Eliminar Trofeos Sincronizados?",               // RemoveTrophiesConfirmTitle
+    "Esto borrará los paquetes locales de trofeos de PSBox para este perfil. Tus logros permanecen seguros en tu cuenta Microsoft/Xbox.", // RemoveTrophiesConfirmBody
+    "Eliminar",                                       // RemoveTrophiesConfirm
+    "Se han eliminado %s título(s) de trofeos de este perfil.", // TrophiesRemovedToast
 };

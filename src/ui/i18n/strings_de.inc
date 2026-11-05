@@ -422,4 +422,18 @@ constexpr Column kGerman = {
     "von %s", // CloudTimeOf
     "Unbegrenzte Cloud-Zeit", // CloudTimeUnlimited
     "Noch %s Xbox-Cloud-Spielzeit in diesem Monat", // CloudTimeWarn
+    "Trophäen synchronisieren",                       // SyncTrophies
+    "Synchronisiert alle Xbox-Erfolge Ihres Kontos und weist entsprechende Trophäen Ihrem PlayStation-Profil zu.", // SettingDescSyncTrophies
+    "Sync",                                           // RunSyncTrophies
+    "Synchronisierung abgeschlossen: %s Trophäe(n) in %s Titel(n) deinem Profil hinzugefügt!", // TrophiesSyncedToast
+    "Trophäen-Warnung",                               // TrophiesDisclaimerTitle
+    "Das Aktivieren der Trophäen-Konvertierung fügt Trophäen Ihrem PlayStation-Profil hinzu. Wenn Sie dieses Konto mit dem PlayStation Network verbinden, besteht Bann-Gefahr. Aktivieren Sie dies nur auf einem lokalen Profil oder wenn Sie sich nicht mehr mit dem PSN verbinden.", // TrophiesDisclaimerBody
+    "Ich verstehe",                                   // TrophiesDisclaimerAware
+    "Abbrechen",                                      // TrophiesDisclaimerCancel
+    "Synchronisierte Trophäen entfernen",             // RemoveTrophies
+    "Entfernt alle von PSBox hinzugefügten Trophäen aus diesem lokalen Profil, um ein PSN-Bannrisiko auszuschließen. Sie können sie jederzeit wieder über Ihr Xbox-Konto synchronisieren.", // SettingDescRemoveTrophies
+    "Synchronisierte Trophäen entfernen?",            // RemoveTrophiesConfirmTitle
+    "Dies löscht die lokalen Trophäenpakete von PSBox für dieses Profil. Ihre Erfolge bleiben auf Ihrem Microsoft/Xbox-Konto sicher gespeichert.", // RemoveTrophiesConfirmBody
+    "Entfernen",                                      // RemoveTrophiesConfirm
+    "%s Trophäen-Titel aus diesem Profil entfernt.",  // TrophiesRemovedToast
 };
