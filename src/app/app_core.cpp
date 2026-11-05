@@ -848,6 +848,12 @@ void Core::dispatchUiAction(const ui::UiEvent& ev) {
             if (!g_command.compare_exchange_strong(idle, kSyncTrophies)) XC_LOGW("trophy sync: worker is busy");
             break;
         }
+        case ui::Action::RemoveTrophies: {
+            XC_LOGI("trophy remove: requested from Settings");
+            int idle = kNone;
+            if (!g_command.compare_exchange_strong(idle, kRemoveTrophies)) XC_LOGW("trophy remove: worker is busy");
+            break;
+        }
         case ui::Action::TestQueueAlert: {
             XC_LOGI("settings: manual queue-ready alert test requested");
             playQueueReadyAlert();
@@ -1075,6 +1081,11 @@ bool Core::frame() {
         std::vector<uint8_t> navKeys;
         for (uint8_t vk : kbm.held)
             if (std::find(swallowedKeys.begin(), swallowedKeys.end(), vk) == swallowedKeys.end()) navKeys.push_back(vk);
+        if (shell::caps().window && typing) {
+            navKeys.clear();
+        } else if (shell::caps().window) {
+            navKeys.erase(std::remove(navKeys.begin(), navKeys.end(), uint8_t{0x2E}), navKeys.end());
+        }
         input::keyboardToPad(navKeys, pad);
     }
     kbmConnected = kbm.keyboard || kbm.mouse || g_autoplay.kbHints;
@@ -1158,7 +1169,8 @@ bool Core::frame() {
             uint64_t vpadActive = virtualGamepadActiveAt(i);
             uint64_t phoneT = (vpadConn && (now >= vpadActive) && (now - vpadActive < 15000)) ? vpadActive : 0;
 
-            bool connected = padConn || vpadConn || (kbmConnected && i == kbPlayer);
+            bool vpadValid = vpadConn && (!shell::caps().window || phoneT > 0);
+            bool connected = padConn || vpadValid || (kbmConnected && i == kbPlayer);
 
             ui::PadDevice dev = ui::PadDevice::Gamepad;
             if (phoneT > 0 && phoneT >= padT && phoneT >= kbT) {
@@ -1170,10 +1182,10 @@ bool Core::frame() {
             } else {
                 if (padConn) {
                     dev = ui::PadDevice::Gamepad;
-                } else if (vpadConn) {
-                    dev = ui::PadDevice::Phone;
                 } else if (kbmConnected && i == kbPlayer) {
                     dev = ui::PadDevice::Keyboard;
+                } else if (vpadValid) {
+                    dev = ui::PadDevice::Phone;
                 }
             }
 

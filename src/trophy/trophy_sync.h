@@ -40,6 +40,9 @@ public:
                                const std::function<bool()>& cancelCheck = nullptr,
                                const std::function<void(int done, int total)>& progressCb = nullptr);
 
+    // Removes all local trophies and packages created by PSBox
+    bool removeAllTrophies(int& removedCount, std::string& err);
+
     // Swap backend (useful for testing or platform initialization)
     void setBackend(std::unique_ptr<ITrophyBackend> backend);
     ITrophyBackend* backend() const { return backend_.get(); }

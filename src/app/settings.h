@@ -121,6 +121,7 @@ struct Settings {
     int padSpeakerVolume = 100; // 0 to 100% (DualSense controller speaker)
     bool queueReadyAlert = true; // Queue-ready chime and rumble alert
     bool previewFeatures = true; // xCloud preview client identification & ad-supported F2P streaming
+    bool syncTrophies = false;   // Xbox achievement to PlayStation trophy conversion
     std::map<std::string, uint64_t> titlePlaytime; // accumulated playtime in seconds (productId or titleId -> seconds)
 
     uint64_t playtimeForGame(const std::string& productId, const std::string& titleId) const {

@@ -5,6 +5,8 @@
 #include "trophy/trophy_types.h"
 #include <cstdint>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace xc::trophy {
 
@@ -26,6 +28,9 @@ public:
 
     // Flushes pending trophy commits to the system profile/database
     virtual void flush() {}
+
+    // Removes local trophy data and packages for provisioned titles
+    virtual bool removeAllTrophies(const std::vector<std::pair<std::string, std::string>>& titles, int& removedCount, std::string& err) = 0;
 
     // Backend identifier name
     virtual std::string name() const = 0;

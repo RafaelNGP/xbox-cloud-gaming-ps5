@@ -34,6 +34,7 @@ SettingsChoice choiceFromSettings(const app::Settings& s) {
     c.gameVolume = s.gameVolume;
     c.queueReadyAlert = s.queueReadyAlert;
     c.previewFeatures = s.previewFeatures;
+    c.syncTrophies = s.syncTrophies;
     c.keyMap = s.keyMap;
     c.padMap = s.padMap;
     c.gyroMode = s.gyroMode;
@@ -71,6 +72,7 @@ void applyChoice(const SettingsChoice& c, app::Settings& s) {
     s.gameVolume = c.gameVolume;
     s.queueReadyAlert = c.queueReadyAlert;
     s.previewFeatures = c.previewFeatures;
+    s.syncTrophies = c.syncTrophies;
     s.keyMap = c.keyMap;
     if (input::padMapValid(c.padMap)) s.padMap = c.padMap;  // the screen only lets a complete one out
     s.gyroMode = c.gyroMode;

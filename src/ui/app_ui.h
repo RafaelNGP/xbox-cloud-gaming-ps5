@@ -143,6 +143,7 @@ struct SettingsChoice {
     bool touchpadMouse = false;
     input::TouchpadShortcuts touchpadShortcuts = input::defaultTouchpadShortcuts();
     int voiceRouting = 0;      // 0 Auto (DualSense pad speaker if available), 1 Always TV/Headset
+    bool syncTrophies = false; // Xbox achievement to PlayStation trophy conversion
     std::map<std::string, uint64_t> titlePlaytime; // accumulated playtime in seconds
 };
 
@@ -197,11 +198,11 @@ std::vector<SettingsRowPos> visibleGameSettingsRows(const UiCaps& caps, bool cus
 
 // The largest stick dead zone Settings offers, in percent of the travel.
 constexpr int kMaxDeadzone = 30;
-constexpr int kSettingRows = 25;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
+constexpr int kSettingRows = 26;  // language, resolution, region, dead zone, triggers, confirm, light bar, updates,
                                   // sign-in country, 120 Hz output, bitrate cap, game volume, keyboard keys,
                                   // display mode (a desktop's window), controller buttons, gyro aiming, queue chime,
                                   // check sign-in, network test, support project, video decoder, audio-to-haptics,
-                                  // touchpad shortcuts, restore defaults, sync trophies
+                                  // touchpad shortcuts, restore defaults, sync trophies, remove trophies
 
 struct SignInStage {
     std::string name;
@@ -247,6 +248,7 @@ enum class Action {
     CheckSignIn,    // run sign-in diagnostic stages
     RunNetworkTest, // run regional RTT/jitter & NAT probe
     SyncTrophies,   // synchronize Xbox achievements to PlayStation trophies
+    RemoveTrophies, // remove local PSBox trophy packages
     TestQueueAlert, // play test chime and vibration for queue-ready alert
     ResetSettings   // restore settings to default
 };
@@ -615,6 +617,8 @@ private:
     void drawSignInCheck(Canvas& c, uint64_t nowMs);
     void drawNetworkTest(Canvas& c, uint64_t nowMs);
     void drawDonationModal(Canvas& c);
+    void drawTrophyDisclaimerModal(Canvas& c);
+    void drawRemoveTrophiesConfirmModal(Canvas& c);
     void openAchievements();
     void drawAchievementsModal(Canvas& c, uint64_t nowMs);
     // A modal panel over Settings with its title; returns its rectangle.
@@ -783,6 +787,10 @@ private:
     uint64_t signOutHoldStart_ = 0;  // TOUCHPAD hold in progress
     bool signOutLatched_ = false;    // fired; wait for release
     uint64_t resetSettingsHoldStart_ = 0; // Cross hold in progress for ResetSettings
+    bool trophyDisclaimerOpen_ = false;
+    int trophyDisclaimerFocus_ = 0; // 0 = Estou ciente, 1 = Cancelar
+    bool removeTrophiesConfirmOpen_ = false;
+    int removeTrophiesFocus_ = 1;   // 0 = Remover, 1 = Cancelar
     void drawSignOutHold(Canvas& c, uint64_t nowMs);
     std::string toast_;
     uint64_t toastUntil_ = 0;

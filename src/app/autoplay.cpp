@@ -41,6 +41,7 @@ bool reportShot = false;    // "reporttest": save report.ppm now
 const char* cloudTimeShot = nullptr;  // "cloudtimetest": save this capture now
 bool signInCheckShot = false; // "checksignintest": save the screen now
 bool trophySettingsShot = false, trophySyncedShot = false; // "trophytest": save screenshots
+bool trophyDisclaimerShot = false, trophyEnabledShot = false, trophyRemoveConfirmShot = false, trophyRemovedToastShot = false;
 bool freeUiShot = false, freeDetailsShot = false; // "freetest": save free account screenshots
 const char* keysShot = nullptr;  // "keystest": the screen to save now
 uint64_t homeSince = 0, launchSince = 0;
@@ -886,18 +887,14 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
     if (g_autoplay.trophyTest && uiSaved) {
         static uint64_t since = 0;
         static int step = 0;
-        static bool syncStarted = false;
-        static uint64_t step4Start = 0;
         if (!since) since = now;
         static SettingsWalk walk;
         if (step == 0 && now - since >= 500) {
-            std::string cachePath = platform::dataDir() + "/trophies/267695549.json";
-            std::remove(cachePath.c_str());
-            nav.options = true;
+            nav.options = true; // Open Settings
             step++;
         } else if (step == 1 && now - since >= 1500) {
             if (walk.step(nav, downsTo(24))) step++;
-        } else if (step == 2 && now - since >= 2500) {
+        } else if (step == 2 && now - since >= 3000) {
             if (onSettingsRow(24, "trophy test")) {
                 trophySettingsShot = true;
                 step++;
@@ -905,26 +902,44 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
                 g_autoplay.trophyTest = false;
                 g_ui->showHome();
             }
-        } else if (step == 3 && now - since >= 3500) {
-            nav.accept = true; // launch Action::SyncTrophies
+        } else if (step == 3 && now - since >= 4500) {
+            nav.accept = true; // Open disclaimer modal
             step++;
-        } else if (step == 4) {
-            if (!step4Start) step4Start = now;
-            bool syncing = trophy::syncEngine().isSyncing();
-            if (syncing) {
-                syncStarted = true;
-            }
-            uint64_t elapsed = now - step4Start;
-            // Complete if sync finished, or after 25s of active sync, or 35s safety timeout
-            if ((syncStarted && !syncing && elapsed > 5000) || (syncStarted && elapsed > 25000) || (elapsed > 35000)) {
-                trophySyncedShot = true;
-                nav.back = true;
-                g_ui->showHome();
-                g_autoplay.trophyTest = false;
-                XC_LOGI("AUTOPLAY END: trophy test finished (elapsed=%llu ms, syncStarted=%d)",
-                        static_cast<unsigned long long>(elapsed), syncStarted ? 1 : 0);
+        } else if (step == 4 && now - since >= 6000) {
+            trophyDisclaimerShot = true; // Capture disclaimer modal
+            step++;
+        } else if (step == 5 && now - since >= 7500) {
+            nav.accept = true; // Confirm disclaimer ("Estou ciente")
+            step++;
+        } else if (step == 6 && now - since >= 9000) {
+            trophyEnabledShot = true; // Capture toggled ON
+            step++;
+        } else if (step == 7 && now - since >= 10500) {
+            nav.down = true; // Move to row 25 (Remove Trophies)
+            step++;
+        } else if (step == 8 && now - since >= 12000) {
+            if (onSettingsRow(25, "trophy remove test")) {
+                nav.accept = true; // Open remove confirm modal
                 step++;
+            } else {
+                g_autoplay.trophyTest = false;
+                g_ui->showHome();
             }
+        } else if (step == 9 && now - since >= 13500) {
+            trophyRemoveConfirmShot = true; // Capture remove confirm modal
+            step++;
+        } else if (step == 10 && now - since >= 15000) {
+            nav.accept = true; // Confirm removal ("Remover")
+            step++;
+        } else if (step == 11 && now - since >= 16500) {
+            trophyRemovedToastShot = true; // Capture toast notification
+            step++;
+        } else if (step == 12 && now - since >= 18000) {
+            nav.back = true;
+            g_ui->showHome();
+            g_autoplay.trophyTest = false;
+            XC_LOGI("AUTOPLAY END: trophy test passed 100%%");
+            step++;
         }
     }
 
@@ -1371,6 +1386,26 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         trophySettingsShot = false;
         saveCanvas("trophy_settings.ppm");
         XC_LOGI("AUTOPLAY: saved trophy_settings.ppm");
+    }
+    if (trophyDisclaimerShot) {
+        trophyDisclaimerShot = false;
+        saveCanvas("trophy_disclaimer.ppm");
+        XC_LOGI("AUTOPLAY: saved trophy_disclaimer.ppm");
+    }
+    if (trophyEnabledShot) {
+        trophyEnabledShot = false;
+        saveCanvas("trophy_enabled.ppm");
+        XC_LOGI("AUTOPLAY: saved trophy_enabled.ppm");
+    }
+    if (trophyRemoveConfirmShot) {
+        trophyRemoveConfirmShot = false;
+        saveCanvas("trophy_remove_confirm.ppm");
+        XC_LOGI("AUTOPLAY: saved trophy_remove_confirm.ppm");
+    }
+    if (trophyRemovedToastShot) {
+        trophyRemovedToastShot = false;
+        saveCanvas("trophy_removed_toast.ppm");
+        XC_LOGI("AUTOPLAY: saved trophy_removed_toast.ppm");
     }
     if (trophySyncedShot) {
         trophySyncedShot = false;

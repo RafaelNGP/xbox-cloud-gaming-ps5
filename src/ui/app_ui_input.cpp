@@ -645,6 +645,46 @@ UiEvent AppUi::onMouseDown(float x, float y, int button) {
             }
         }
     } else if (screen_ == Screen::Settings) {
+        if (trophyDisclaimerOpen_) {
+            Rect panel{(kW - 1100) / 2, (kH - 520) / 2 - 30, 1100, 520};
+            constexpr int kBtnW = 260, kBtnH = 58, kBtnGap = 40;
+            int totalBtnsW = 2 * kBtnW + kBtnGap;
+            int btnStartX = panel.x + (panel.w - totalBtnsW) / 2;
+            int btnY = panel.y + panel.h - 90;
+            Rect btn0{btnStartX, btnY, kBtnW, kBtnH};
+            Rect btn1{btnStartX + kBtnW + kBtnGap, btnY, kBtnW, kBtnH};
+            auto inRect = [&](const Rect& r) { return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h; };
+            if (inRect(btn0)) {
+                settings_.syncTrophies = true;
+                trophyDisclaimerOpen_ = false;
+                dirty_ = true;
+                ev.action = Action::SyncTrophies;
+                ev.settings = settings_;
+            } else if (inRect(btn1) || !inRect(panel)) {
+                trophyDisclaimerOpen_ = false;
+                dirty_ = true;
+            }
+            return ev;
+        }
+        if (removeTrophiesConfirmOpen_) {
+            Rect panel{(kW - 1100) / 2, (kH - 480) / 2 - 30, 1100, 480};
+            constexpr int kBtnW = 260, kBtnH = 58, kBtnGap = 40;
+            int totalBtnsW = 2 * kBtnW + kBtnGap;
+            int btnStartX = panel.x + (panel.w - totalBtnsW) / 2;
+            int btnY = panel.y + panel.h - 90;
+            Rect btn0{btnStartX, btnY, kBtnW, kBtnH};
+            Rect btn1{btnStartX + kBtnW + kBtnGap, btnY, kBtnW, kBtnH};
+            auto inRect = [&](const Rect& r) { return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h; };
+            if (inRect(btn0)) {
+                removeTrophiesConfirmOpen_ = false;
+                dirty_ = true;
+                ev.action = Action::RemoveTrophies;
+            } else if (inRect(btn1) || !inRect(panel)) {
+                removeTrophiesConfirmOpen_ = false;
+                dirty_ = true;
+            }
+            return ev;
+        }
         if (tester_ != Tester::None || pickerOpen_) {
             return ev;
         }
@@ -711,7 +751,20 @@ UiEvent AppUi::onMouseDown(float x, float y, int button) {
                     ev.action = Action::RunNetworkTest;
                     return ev;
                 } else if (i == 24) {
-                    ev.action = Action::SyncTrophies;
+                    if (!settings_.syncTrophies) {
+                        trophyDisclaimerOpen_ = true;
+                        trophyDisclaimerFocus_ = 0;
+                    } else {
+                        settings_.syncTrophies = false;
+                        ev.action = Action::SettingsChanged;
+                        ev.settings = settings_;
+                    }
+                    dirty_ = true;
+                    return ev;
+                } else if (i == 25) {
+                    removeTrophiesConfirmOpen_ = true;
+                    removeTrophiesFocus_ = 1;
+                    dirty_ = true;
                     return ev;
                 } else if (i == 19) {
                     openTester(Tester::Donation);
@@ -960,6 +1013,46 @@ UiEvent AppUi::handle(const NavInput& in) {
             }
             break;
         case Screen::Settings:
+            if (trophyDisclaimerOpen_) {
+                if (in.left || in.right) {
+                    trophyDisclaimerFocus_ ^= 1;
+                    dirty_ = true;
+                } else if (in.back) {
+                    trophyDisclaimerOpen_ = false;
+                    dirty_ = true;
+                } else if (in.accept) {
+                    if (trophyDisclaimerFocus_ == 0) {
+                        settings_.syncTrophies = true;
+                        trophyDisclaimerOpen_ = false;
+                        dirty_ = true;
+                        ev.action = Action::SyncTrophies;
+                        ev.settings = settings_;
+                    } else {
+                        trophyDisclaimerOpen_ = false;
+                        dirty_ = true;
+                    }
+                }
+                break;
+            }
+            if (removeTrophiesConfirmOpen_) {
+                if (in.left || in.right) {
+                    removeTrophiesFocus_ ^= 1;
+                    dirty_ = true;
+                } else if (in.back) {
+                    removeTrophiesConfirmOpen_ = false;
+                    dirty_ = true;
+                } else if (in.accept) {
+                    if (removeTrophiesFocus_ == 0) {
+                        removeTrophiesConfirmOpen_ = false;
+                        dirty_ = true;
+                        ev.action = Action::RemoveTrophies;
+                    } else {
+                        removeTrophiesConfirmOpen_ = false;
+                        dirty_ = true;
+                    }
+                }
+                break;
+            }
             if (pickerOpen_) {
                 handleColourPicker(in);
                 if (!pickerOpen_ && in.accept) {
@@ -1046,14 +1139,14 @@ UiEvent AppUi::handle(const NavInput& in) {
             } else {
                 resetSettingsHoldStart_ = 0;
             }
-            if (in.right && settingsRow_ != 23) {
+            if (in.right && settingsRow_ != 23 && settingsRow_ != 25) {
                 changeSetting(+1);
                 if (settingsRow_ != 8) {
                     ev.action = Action::SettingsChanged;
                     ev.settings = settings_;
                 }
             }
-            if (in.left && settingsRow_ != 23) {
+            if (in.left && settingsRow_ != 23 && settingsRow_ != 25) {
                 changeSetting(-1);
                 if (settingsRow_ != 8) {
                     ev.action = Action::SettingsChanged;
@@ -1075,7 +1168,20 @@ UiEvent AppUi::handle(const NavInput& in) {
                 openTester(Tester::NetworkTest);
                 ev.action = Action::RunNetworkTest;
             } else if (in.accept && settingsRow_ == 24) {
-                ev.action = Action::SyncTrophies;
+                if (!settings_.syncTrophies) {
+                    trophyDisclaimerOpen_ = true;
+                    trophyDisclaimerFocus_ = 0;
+                    dirty_ = true;
+                } else {
+                    settings_.syncTrophies = false;
+                    dirty_ = true;
+                    ev.action = Action::SettingsChanged;
+                    ev.settings = settings_;
+                }
+            } else if (in.accept && settingsRow_ == 25) {
+                removeTrophiesConfirmOpen_ = true;
+                removeTrophiesFocus_ = 1;
+                dirty_ = true;
             } else if (in.accept && settingsRow_ == 19) {
                 openTester(Tester::Donation);
             } else if (in.accept && settingsRow_ == 7) {

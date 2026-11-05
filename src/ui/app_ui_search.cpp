@@ -439,12 +439,12 @@ void AppUi::pressFilter(Filter f) {
 
 bool AppUi::wantsTextInput() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return screen_ == Screen::Home && searching_ && searchOnKeys_ && filterList_ < 0 && keyRow_ <= kKeyRows;
+    return screen_ == Screen::Home && searching_ && filterList_ < 0;
 }
 
 void AppUi::typeText(std::string_view utf8) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!(screen_ == Screen::Home && searching_ && searchOnKeys_)) return;
+    if (!(screen_ == Screen::Home && searching_ && filterList_ < 0)) return;
     bool edited = false;
     for (char ch : utf8) {
         if (ch == '\b') {

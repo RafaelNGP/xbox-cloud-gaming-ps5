@@ -2302,8 +2302,8 @@ static void testVisibleSettingsRows() {
     };
     const ui::UiCaps ps5;
     auto all = ui::visibleSettingsRows(ps5);
-    CHECK((ids(all) == std::vector<int>{0, 2, 8, 17, 18, 24, 1, 20, 9, 10, 14, 12, 3, 15, 4, 21, 5, 6, 16, 22, 19, 7, 23}));
-    CHECK((groups(all) == std::vector<bool>{false, false, false, false, false, false, true, false, false, false, true, false, false, false, false, false, false, false, false, false, true, false, true}));
+    CHECK((ids(all) == std::vector<int>{0, 2, 8, 17, 18, 24, 25, 1, 20, 9, 10, 14, 12, 3, 15, 4, 21, 5, 6, 16, 22, 19, 7, 23}));
+    CHECK((groups(all) == std::vector<bool>{false, false, false, false, false, false, false, true, false, false, false, true, false, false, false, false, false, false, false, false, false, true, false, true}));
     ui::UiCaps pc;
     pc.lightBar = pc.triggerRumble = pc.adaptiveTriggers = pc.gyro = pc.touchpad = false;
     pc.upscalers = pc.sharpen = pc.deband = pc.highRefresh = pc.console = pc.selfUpdate = false;
@@ -2363,13 +2363,14 @@ static void testVisibleSettingsRows() {
     CHECK((groups(game) == std::vector<bool>{false, true, false, false, true, false, false, false}));
     // How far down the autoplay tests walk to each row (autoplay.cpp's downsTo).
     CHECK(ui::settingsRowPosition(ps5, 24) == 5);
-    CHECK(ui::settingsRowPosition(ps5, 1) == 6 && ui::settingsRowPosition(ps5, 3) == 12);
-    CHECK(ui::settingsRowPosition(ps5, 16) == 18);
-    CHECK(ui::settingsRowPosition(ps5, 5) == 16 && ui::settingsRowPosition(ps5, 6) == 17);
-    CHECK(ui::settingsRowPosition(ps5, 12) == 11 && ui::settingsRowPosition(ps5, 14) == 10);
-    CHECK(ui::settingsRowPosition(ps5, 22) == 19);
-    CHECK(ui::settingsRowPosition(ps5, 7) == 21 && ui::settingsRowPosition(ps5, 19) == 20 && ui::settingsRowPosition(ps5, 2) == 1);
-    CHECK(ui::settingsRowPosition(ps5, 21) == 15);
+    CHECK(ui::settingsRowPosition(ps5, 25) == 6);
+    CHECK(ui::settingsRowPosition(ps5, 1) == 7 && ui::settingsRowPosition(ps5, 3) == 13);
+    CHECK(ui::settingsRowPosition(ps5, 16) == 19);
+    CHECK(ui::settingsRowPosition(ps5, 5) == 17 && ui::settingsRowPosition(ps5, 6) == 18);
+    CHECK(ui::settingsRowPosition(ps5, 12) == 12 && ui::settingsRowPosition(ps5, 14) == 11);
+    CHECK(ui::settingsRowPosition(ps5, 22) == 20);
+    CHECK(ui::settingsRowPosition(ps5, 7) == 22 && ui::settingsRowPosition(ps5, 19) == 21 && ui::settingsRowPosition(ps5, 2) == 1);
+    CHECK(ui::settingsRowPosition(ps5, 21) == 16);
     CHECK(ui::settingsRowPosition(pc, 5) == 12 && ui::settingsRowPosition(pc, 6) == -1 && ui::settingsRowPosition(pc, 4) == -1);
 }
 
@@ -7407,6 +7408,11 @@ static void testTrophySystem() {
             }
             return false;
         }
+        bool removeAllTrophies(const std::vector<std::pair<std::string, std::string>>& titles, int& removedCount, std::string& err) override {
+            removedCount = static_cast<int>(unlocked.size() > 0 ? 1 : 0);
+            unlocked.clear();
+            return true;
+        }
         std::string name() const override { return "TestBackend"; }
 
         struct UnlockedItem {
@@ -7493,16 +7499,115 @@ static void testTrophySystem() {
                                           newlyUnlocked, syncErr);
     CHECK(syncOk);
     CHECK(newlyUnlocked == 0); // No duplicate unlocks!
-    CHECK(rawBackend->unlocked.size() == 3);
+    // Verify removeAllTrophies removes disk cache and clears backend
+    int removedCount = 0;
+    std::string rmErr;
+    CHECK(engine.removeAllTrophies(removedCount, rmErr));
+    CHECK(removedCount == 1);
+    CHECK(rawBackend->unlocked.empty());
+    std::string cacheCheck;
+    CHECK(!platform::readFile(cacheFile, cacheCheck));
 
     // Clean up
     net::setTestTransport({});
     ::unlink(cacheFile.c_str());
 }
 
+static void testTrophyModalsAndDesktopInput() {
+    ui::Fonts fonts;
+    ui::ImageCache images([] {});
+    ui::AppUi app(fonts, images);
+
+    ui::UiCaps caps;
+    caps.console = true;
+    app.setCaps(caps);
+
+    app.showHome();
+    ui::NavInput openOpt;
+    openOpt.options = true;
+    app.handle(openOpt);
+    CHECK(app.screen() == ui::Screen::Settings);
+    CHECK(!app.settings().syncTrophies);
+
+    int y24 = 0, y25 = 0;
+    int curY = 184;
+    for (const auto& [r, groupStart] : ui::visibleSettingsRows(caps)) {
+        if (groupStart) curY += 4;
+        if (r == 24) y24 = curY + 10;
+        if (r == 25) y25 = curY + 10;
+        curY += 32;
+    }
+    CHECK(y24 > 0);
+    CHECK(y25 > 0);
+
+    // 1. Click row 24: opens disclaimer modal
+    app.onMouseDown(100.0f, static_cast<float>(y24), 1);
+    ui::Canvas c(1920, 1080);
+    app.render(c, 1000);
+
+    // Press right to move focus to "Cancelar" (focus 1)
+    ui::NavInput navRight;
+    navRight.right = true;
+    app.handle(navRight);
+
+    // Accept "Cancelar": modal closes, syncTrophies remains false
+    ui::NavInput accept;
+    accept.accept = true;
+    app.handle(accept);
+    CHECK(!app.settings().syncTrophies);
+
+    // Click row 24 again: opens modal, focus defaults to "Estou ciente" (focus 0)
+    app.onMouseDown(100.0f, static_cast<float>(y24), 1);
+    ui::UiEvent evAware = app.handle(accept);
+    CHECK(app.settings().syncTrophies);
+    CHECK(evAware.action == ui::Action::SyncTrophies);
+
+    // Click row 24 again: turns it off directly
+    ui::UiEvent evOff = app.onMouseDown(100.0f, static_cast<float>(y24), 1);
+    CHECK(!app.settings().syncTrophies);
+    CHECK(evOff.action == ui::Action::SettingsChanged);
+
+    // 2. Click row 25: opens remove trophies confirm modal
+    app.onMouseDown(100.0f, static_cast<float>(y25), 1);
+    app.render(c, 1000);
+
+    // Default focus is "Cancelar" (focus 1) for safety
+    ui::UiEvent evCancelRm = app.handle(accept);
+    CHECK(evCancelRm.action != ui::Action::RemoveTrophies);
+
+    // Click row 25 again, navigate left to "Remover" (focus 0)
+    app.onMouseDown(100.0f, static_cast<float>(y25), 1);
+    ui::NavInput navLeft;
+    navLeft.left = true;
+    app.handle(navLeft);
+    ui::UiEvent evRm = app.handle(accept);
+    CHECK(evRm.action == ui::Action::RemoveTrophies);
+
+    // 3. Desktop Search & text input
+    app.showHome();
+    ui::NavInput tri;
+    tri.triangle = true;
+    app.handle(tri); // opens search
+    CHECK(app.wantsTextInput());
+
+    app.typeText("Fortnite");
+    CHECK(app.searchQuery() == "Fortnite");
+
+    // Test backspace / delete
+    app.typeText("\b");
+    CHECK(app.searchQuery() == "Fortnit");
+
+    // Close search
+    ui::NavInput back;
+    back.back = true;
+    app.handle(back);
+    CHECK(!app.wantsTextInput());
+}
+
 int main() {
     testPs4VideoPipelineAndSse2Converter();
     testTrophySystem();
+    testTrophyModalsAndDesktopInput();
     testReleaseV155Features();
     testSizedUrl();
     testPhase1BugFixesAndPhase2Optimizations();

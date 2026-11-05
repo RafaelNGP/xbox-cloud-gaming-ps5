@@ -608,6 +608,25 @@ void runTrophySync(auth::AuthManager& am, xcloud::GssvClient& gssv) {
     XC_LOGI("trophy sync finished for Fortnite: %d trophies unlocked", newlyUnlocked);
 }
 
+void runRemoveTrophies() {
+    XC_LOGI("trophy remove: starting removal of all local PSBox trophies...");
+    if (g_ui) g_ui->setLoading(true, 0, 1);
+    int removedCount = 0;
+    std::string err;
+    bool ok = trophy::syncEngine().removeAllTrophies(removedCount, err);
+    if (g_ui) g_ui->setLoading(false, 1, 1);
+    if (!ok) {
+        XC_LOGW("trophy remove failed: %s", err.c_str());
+        std::string failMsg = err.empty() ? "Failed to remove trophies" : err;
+        if (g_ui) g_ui->showToast(failMsg);
+        return;
+    }
+    XC_LOGI("trophy remove finished: removed %d title(s)", removedCount);
+    std::string toast = ui::trf(ui::Str::TrophiesRemovedToast, std::to_string(removedCount));
+    if (g_ui) g_ui->showToast(toast);
+    platform::notify(toast);
+}
+
 void worker() {
     platform::setThreadAffinity(platform::ThreadRole::Worker, "xcloud_worker");
     if (g_autoplay.title == "BENCH") {
@@ -647,6 +666,7 @@ void worker() {
             case kCheckSignIn: runSignInCheck(am, gssv); break;
             case kNetworkTest: runNetworkTest(gssv); break;
             case kSyncTrophies: runTrophySync(am, gssv); break;
+            case kRemoveTrophies: runRemoveTrophies(); break;
             case kReloadLibrary:
                 if (am.signedIn()) loadLibrary(am, gssv, true);
                 else signInAndLoad(am, gssv);

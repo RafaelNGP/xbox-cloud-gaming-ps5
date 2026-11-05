@@ -13,6 +13,7 @@ std::vector<SettingsRowPos> visibleSettingsRows(const UiCaps& caps) {
         case 9: return caps.highRefresh;
         case 13: return caps.desktopWindow;
         case 15: return caps.gyro;
+        case 25: return caps.console;
         default: return true;
         }
     });

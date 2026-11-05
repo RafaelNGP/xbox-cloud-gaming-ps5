@@ -39,7 +39,7 @@ bool allow1440Locked();
 void refreshSettingsUiLocked();
 
 // --- Worker commands (worker.cpp) ----------------------------------------------
-enum Command { kNone, kSignIn, kPlay, kSignOut, kReloadLibrary, kConsoles, kUpdate, kClaimFree, kCheckSignIn, kNetworkTest, kSyncTrophies };
+enum Command { kNone, kSignIn, kPlay, kSignOut, kReloadLibrary, kConsoles, kUpdate, kClaimFree, kCheckSignIn, kNetworkTest, kSyncTrophies, kRemoveTrophies };
 extern std::atomic<int> g_command;
 extern std::atomic<bool> g_cancel;
 extern std::mutex g_argMutex;

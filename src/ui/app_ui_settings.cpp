@@ -466,6 +466,10 @@ std::vector<std::string> AppUi::settingOptions(int row) const {
         out = {tr(Str::Off), tr(Str::SharpLow), tr(Str::SharpMedium), tr(Str::SharpHigh)};
     } else if (row == 23) {
         out = {tr(Str::ResetSettings)};
+    } else if (row == 24) {
+        out = {tr(Str::Deactivated), tr(Str::Activated)};
+    } else if (row == 25) {
+        out = {tr(Str::RemoveTrophiesConfirm)};
     } else if (row == 8) {
         out.push_back(loginCountryOffText());
         for (const char* country : kLoginCountries) out.push_back(loginCountryName(country));
@@ -485,7 +489,7 @@ int AppUi::settingSelected(int row) const {
         for (int i = 0; i < 3; ++i)
             if (kResolutionOrder[i] == settings_.resolution) return i;
     }
-    if (row == 3 || row == 12 || row == 14 || row == 17 || row == 18 || row == 19 || row == 23) return 0;
+    if (row == 3 || row == 12 || row == 14 || row == 17 || row == 18 || row == 19 || row == 23 || row == 25) return 0;
     if (row == 4) return settings_.triggerStrength;
     if (row == 5) return settings_.circleConfirms ? 1 : 0;
     if (row == 6) return settings_.lightBarMode;
@@ -497,6 +501,7 @@ int AppUi::settingSelected(int row) const {
     if (row == 20) return std::clamp(settings_.videoDecoder, 0, 1);
     if (row == 21) return std::clamp(settings_.audioHaptics, 0, 3);
     if (row == 22) return settings_.previewFeatures ? 1 : 0;
+    if (row == 24) return settings_.syncTrophies ? 1 : 0;
     if (row == 10) {
         if (settings_.maxBitrateMbps <= 0) return 0;
         int closest = 1;
@@ -532,8 +537,15 @@ void AppUi::applySetting(int row, int index) {
         setLanguage(static_cast<Language>(index));  // the UI switches right away
     } else if (row == 1) {
         settings_.resolution = kResolutionOrder[index];
-    } else if (row == 3 || row == 12 || row == 14 || row == 17 || row == 18 || row == 23) {
+    } else if (row == 3 || row == 12 || row == 14 || row == 17 || row == 18 || row == 23 || row == 25) {
         (void)index;  // the tester sets each stick's, the keys' and buttons' screens theirs
+    } else if (row == 24) {
+        if (index == 1 && !settings_.syncTrophies) {
+            trophyDisclaimerOpen_ = true;
+            trophyDisclaimerFocus_ = 0;
+        } else if (index == 0) {
+            settings_.syncTrophies = false;
+        }
     } else if (row == 4) {
         settings_.triggerStrength = index;
     } else if (row == 5) {
@@ -880,7 +892,7 @@ void AppUi::drawSettings(Canvas& c) {
                                         tr(Str::Gyro),          tr(Str::QueueReadyNotification),
                                         tr(Str::CheckSignIn),   tr(Str::NetworkTest),   tr(Str::SupportProject),
                                         tr(Str::VideoDecoder),  tr(Str::AudioHaptics),  tr(Str::PreviewFeatures),
-                                        tr(Str::ResetSettings), tr(Str::SyncTrophies)};
+                                        tr(Str::ResetSettings), tr(Str::SyncTrophies),  tr(Str::RemoveTrophies)};
     constexpr int kRowW = 1140, kRowH = 30, kGap = 2, kGroupGap = 4, kRowPx = 22;
     Rect rows[kSettingRows];  // by row id
     int y = 184;
@@ -914,7 +926,7 @@ void AppUi::drawSettings(Canvas& c) {
             if (focused && !dropdownOpen_) c.strokeRect({r.x - 4, r.y - 4, r.w + 8, r.h + 8}, kWhite, 3, 16);
             fonts_.semibold.draw(c, labels[i], r.x + 32, ty, kRowPx, kWhite);
             float cx = static_cast<float>(r.x + r.w - 40), cy = static_cast<float>(r.y + r.h / 2);
-            if (i != 7 && i != 17 && i != 18 && i != 19 && i != 24) {
+            if (i != 7 && i != 17 && i != 18 && i != 19 && i != 25) {
                 c.line(cx - 8, cy - 3, cx, cy + 4, 2.5f, focused ? kWhite : kGray);
                 c.line(cx, cy + 4, cx + 8, cy - 3, 2.5f, focused ? kWhite : kGray);
             }
@@ -929,9 +941,9 @@ void AppUi::drawSettings(Canvas& c) {
                 Color color = !updateAvailable_.empty() && !updateChecking_ ? rgba(120, 220, 120) : focused ? kWhite : kGray;
                 int w = fonts_.regular.measure(value, kRowPx);
                 fonts_.regular.draw(c, value, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx, color);
-            } else if (i == 17 || i == 18 || i == 19 || i == 24) {
-                // Action items (Check sign-in, Network test, Support, Sync Trophies)
-                std::string label = (i == 17) ? tr(Str::RunCheck) : (i == 18) ? tr(Str::RunTest) : (i == 24) ? tr(Str::RunSyncTrophies) : tr(Str::SupportKoFi);
+            } else if (i == 17 || i == 18 || i == 19 || i == 25) {
+                // Action items (Check sign-in, Network test, Support, Remove Trophies)
+                std::string label = (i == 17) ? tr(Str::RunCheck) : (i == 18) ? tr(Str::RunTest) : (i == 25) ? tr(Str::RemoveTrophiesConfirm) : tr(Str::SupportKoFi);
                 int w = fonts_.regular.measure(label, kRowPx);
                 fonts_.regular.draw(c, label, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx,
                                     focused ? kWhite : kGray);
@@ -978,6 +990,7 @@ void AppUi::drawSettings(Canvas& c) {
         Str::SettingDescPreviewFeatures,
         Str::SettingDescResetSettings,
         Str::SettingDescSyncTrophies,
+        Str::SettingDescRemoveTrophies,
     };
     if (settingsRow_ >= 0 && settingsRow_ < kSettingRows) {
         int dy = std::max(y + 6, 922);
@@ -1031,6 +1044,8 @@ void AppUi::drawSettings(Canvas& c) {
         fonts_.semibold.draw(c, qrUrl, pill.x + (pill.w - urlW) / 2, fonts_.semibold.centeredY(pill.y, pill.h, 20), 20, rgba(140, 230, 160));
     }
 
+    if (trophyDisclaimerOpen_) return drawTrophyDisclaimerModal(c);
+    if (removeTrophiesConfirmOpen_) return drawRemoveTrophiesConfirmModal(c);
     if (pickerOpen_) {
         drawColourPicker(c);
         return;
@@ -1547,6 +1562,90 @@ void AppUi::drawDonationModal(Canvas& c) {
 
     c.fillRect({0, kH - 80, kW, 80}, kBg);
     drawHints(c, {{kIconCircle, tr(Str::Back)}});
+}
+
+void AppUi::drawTrophyDisclaimerModal(Canvas& c) {
+    Rect panel = drawModal(c, 1100, 520, tr(Str::TrophiesDisclaimerTitle));
+
+    int textW = panel.w - 112;
+    int textX = panel.x + 56;
+    int textY = panel.y + 110;
+    auto lines = fonts_.regular.wrap(tr(Str::TrophiesDisclaimerBody), 24, textW, 8);
+    constexpr int kLineH = 34;
+    for (const auto& line : lines) {
+        fonts_.regular.draw(c, line, textX, textY, 24, rgba(230, 230, 230));
+        textY += kLineH;
+    }
+
+    constexpr int kBtnW = 260, kBtnH = 58, kBtnGap = 40;
+    int totalBtnsW = 2 * kBtnW + kBtnGap;
+    int btnStartX = panel.x + (panel.w - totalBtnsW) / 2;
+    int btnY = panel.y + panel.h - 90;
+
+    for (int b = 0; b < 2; ++b) {
+        Rect btnRect{btnStartX + b * (kBtnW + kBtnGap), btnY, kBtnW, kBtnH};
+        bool focused = (trophyDisclaimerFocus_ == b);
+
+        Color btnBg = (b == 0)
+            ? (focused ? rgba(34, 197, 94, 255) : rgba(22, 101, 52, 220))
+            : (focused ? rgba(239, 68, 68, 255) : rgba(153, 27, 27, 220));
+
+        c.fillRect(btnRect, btnBg, 14);
+        if (focused) {
+            c.strokeRect({btnRect.x - 3, btnRect.y - 3, btnRect.w + 6, btnRect.h + 6}, kWhite, 3, 16);
+        }
+
+        const char* label = (b == 0) ? tr(Str::TrophiesDisclaimerAware) : tr(Str::TrophiesDisclaimerCancel);
+        int tw = fonts_.bold.measure(label, 24);
+        int tx = btnRect.x + (btnRect.w - tw) / 2;
+        int ty = fonts_.bold.centeredY(btnRect.y, btnRect.h, 24);
+        fonts_.bold.draw(c, label, tx, ty, 24, kWhite);
+    }
+
+    c.fillRect({0, kH - 80, kW, 80}, kBg);
+    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
+}
+
+void AppUi::drawRemoveTrophiesConfirmModal(Canvas& c) {
+    Rect panel = drawModal(c, 1100, 480, tr(Str::RemoveTrophiesConfirmTitle));
+
+    int textW = panel.w - 112;
+    int textX = panel.x + 56;
+    int textY = panel.y + 110;
+    auto lines = fonts_.regular.wrap(tr(Str::RemoveTrophiesConfirmBody), 24, textW, 8);
+    constexpr int kLineH = 34;
+    for (const auto& line : lines) {
+        fonts_.regular.draw(c, line, textX, textY, 24, rgba(230, 230, 230));
+        textY += kLineH;
+    }
+
+    constexpr int kBtnW = 260, kBtnH = 58, kBtnGap = 40;
+    int totalBtnsW = 2 * kBtnW + kBtnGap;
+    int btnStartX = panel.x + (panel.w - totalBtnsW) / 2;
+    int btnY = panel.y + panel.h - 90;
+
+    for (int b = 0; b < 2; ++b) {
+        Rect btnRect{btnStartX + b * (kBtnW + kBtnGap), btnY, kBtnW, kBtnH};
+        bool focused = (removeTrophiesFocus_ == b);
+
+        Color btnBg = (b == 0)
+            ? (focused ? rgba(239, 68, 68, 255) : rgba(153, 27, 27, 220))
+            : (focused ? rgba(255, 255, 255, 45) : rgba(255, 255, 255, 20));
+
+        c.fillRect(btnRect, btnBg, 14);
+        if (focused) {
+            c.strokeRect({btnRect.x - 3, btnRect.y - 3, btnRect.w + 6, btnRect.h + 6}, kWhite, 3, 16);
+        }
+
+        const char* label = (b == 0) ? tr(Str::RemoveTrophiesConfirm) : tr(Str::TrophiesDisclaimerCancel);
+        int tw = fonts_.bold.measure(label, 24);
+        int tx = btnRect.x + (btnRect.w - tw) / 2;
+        int ty = fonts_.bold.centeredY(btnRect.y, btnRect.h, 24);
+        fonts_.bold.draw(c, label, tx, ty, 24, kWhite);
+    }
+
+    c.fillRect({0, kH - 80, kW, 80}, kBg);
+    drawHints(c, {{kIconCross, tr(Str::Select)}, {kIconCircle, tr(Str::Back)}});
 }
 
 void AppUi::drawKeysTester(Canvas& c) {

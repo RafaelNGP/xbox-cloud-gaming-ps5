@@ -95,7 +95,7 @@ bool pumpEvents() {
                 }
                 continue;
             }
-            if (g_textOn && ev.key.key == SDLK_BACKSPACE) g_typed += '\b';  // repeats too
+            if (g_textOn && (ev.key.key == SDLK_BACKSPACE || ev.key.key == SDLK_DELETE)) g_typed += '\b';  // repeats too
             if (g_textOn && !ev.key.repeat && (ev.key.key == SDLK_RETURN || ev.key.key == SDLK_KP_ENTER)) g_typed += '\n';
             break;
         case SDL_EVENT_TEXT_INPUT:

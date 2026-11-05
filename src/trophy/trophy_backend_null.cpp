@@ -48,6 +48,15 @@ public:
         return it->second.count(trophyId) > 0;
     }
 
+    bool removeAllTrophies(const std::vector<std::pair<std::string, std::string>>& titles, int& removedCount, std::string& err) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        removedCount = static_cast<int>(registeredTitles_.size() > 0 ? registeredTitles_.size() : titles.size());
+        registeredTitles_.clear();
+        unlockedTrophies_.clear();
+        XC_LOGI("trophy null backend: removeAllTrophies cleared %d titles", removedCount);
+        return true;
+    }
+
     std::string name() const override {
         return "Null / Mock Backend";
     }

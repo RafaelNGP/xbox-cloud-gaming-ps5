@@ -334,6 +334,77 @@ public:
         return false;
     }
 
+    bool removeAllTrophies(const std::vector<std::pair<std::string, std::string>>& titles, int& removedCount, std::string& err) override {
+        std::lock_guard<std::mutex> lock(mutex_);
+        removedCount = 0;
+
+        triggerSceShellCorePatch();
+        waitForUnjail(8000);
+        cleanupContext();
+
+        for (const auto& [npComm, sonyTitle] : titles) {
+            bool foundAny = false;
+            if (!npComm.empty()) {
+                char dataDir[256];
+                snprintf(dataDir, sizeof(dataDir), "/user/home/%08x/trophy2/nobackup/data/%s", userId_, npComm.c_str());
+                std::string datFile = std::string(dataDir) + "/TRPTITLE.DAT";
+                struct stat st{};
+                if (::stat(datFile.c_str(), &st) == 0) {
+                    ::unlink(datFile.c_str());
+                    ::rmdir(dataDir);
+                    foundAny = true;
+                    XC_LOGI("trophy ps5 remove: deleted %s", datFile.c_str());
+                }
+
+                std::string confDir = "/user/trophy2/nobackup/conf/" + npComm;
+                std::string ucpFile = confDir + "/TROPHY.UCP";
+                if (::stat(ucpFile.c_str(), &st) == 0) {
+                    ::unlink(ucpFile.c_str());
+                    ::rmdir(confDir.c_str());
+                    foundAny = true;
+                    XC_LOGI("trophy ps5 remove: deleted %s", ucpFile.c_str());
+                }
+            }
+
+            if (!sonyTitle.empty()) {
+                if (sonyTitle == "PPSA99810") {
+                    const std::string appMetaDirs[] = {
+                        "/system_data/priv/appmeta/PPSA99810/trophy2",
+                        "/user/appmeta/PPSA99810/trophy2",
+                        "/user/app/PPSA99810/sce_sys/trophy2",
+                        "/data/homebrew/PPSA99810/sce_sys/trophy2",
+                        "/system_data/game/temp/PPSA99810/trophy2"
+                    };
+                    for (const auto& d : appMetaDirs) {
+                        ::unlink((d + "/trophy00.ucp").c_str());
+                        ::unlink((d + "/npbind.dat").c_str());
+                        ::rmdir(d.c_str());
+                    }
+                } else {
+                    const std::string titleDirs[] = {
+                        "/system_data/priv/appmeta/" + sonyTitle,
+                        "/user/appmeta/" + sonyTitle,
+                        "/user/app/" + sonyTitle + "/sce_sys"
+                    };
+                    for (const auto& d : titleDirs) {
+                        ::unlink((d + "/param.json").c_str());
+                        ::unlink((d + "/nptitle.dat").c_str());
+                        ::unlink((d + "/icon0.png").c_str());
+                        ::rmdir(d.c_str());
+                    }
+                }
+            }
+            if (foundAny) removedCount++;
+        }
+
+        unlockedTrophies_.clear();
+        sessionUnlockedTrophies_.clear();
+        registeredTitles_.clear();
+        ::sync();
+        XC_LOGI("trophy ps5 remove: finished, removed %d title(s)", removedCount);
+        return true;
+    }
+
     std::string name() const override {
         return "PlayStation 5 Native (libSceNpTrophy2)";
     }

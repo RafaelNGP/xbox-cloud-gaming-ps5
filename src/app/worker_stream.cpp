@@ -378,15 +378,22 @@ std::string stream(xcloud::GssvClient& gssv, const auth::CloudTimeQuery& cloudQu
             }
             if (tickNow - lastTrophyPollAt >= 20000 && !g_stageXboxTitleId.empty()) {
                 lastTrophyPollAt = tickNow;
-                std::string xblAuth, xuid;
+                bool syncTrophies = false;
                 {
-                    std::lock_guard<std::mutex> lock(g_argMutex);
-                    xblAuth = g_xblAuth;
-                    xuid = g_xuid;
+                    std::lock_guard<std::mutex> lock(g_settingsMutex);
+                    syncTrophies = g_settings.syncTrophies;
                 }
-                if (!xblAuth.empty()) {
-                    trophy::syncEngine().pollActiveStream(xblAuth, xuid, g_stageXboxTitleId,
-                                                          g_stageGameName.empty() ? g_stageTitle : g_stageGameName);
+                if (syncTrophies) {
+                    std::string xblAuth, xuid;
+                    {
+                        std::lock_guard<std::mutex> lock(g_argMutex);
+                        xblAuth = g_xblAuth;
+                        xuid = g_xuid;
+                    }
+                    if (!xblAuth.empty()) {
+                        trophy::syncEngine().pollActiveStream(xblAuth, xuid, g_stageXboxTitleId,
+                                                              g_stageGameName.empty() ? g_stageTitle : g_stageGameName);
+                    }
                 }
             }
             {

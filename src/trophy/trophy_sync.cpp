@@ -12,8 +12,10 @@
 #include "xcloud/achievements.h"
 
 #include <chrono>
+#include <dirent.h>
 #include <set>
 #include <thread>
+#include <unistd.h>
 #include <unordered_set>
 #include <sys/stat.h>
 
@@ -343,6 +345,51 @@ bool TrophySyncEngine::syncAllAccountTrophies(const std::string& xblAuth, const 
     }
 
     XC_LOGI("trophy back-sync: completed. %d titles checked, %d trophies unlocked.", totalTitles, totalTrophies);
+    return true;
+}
+
+bool TrophySyncEngine::removeAllTrophies(int& removedCount, std::string& err) {
+    removedCount = 0;
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    std::set<std::pair<std::string, std::string>> titleSet;
+    titleSet.insert({"NPWR20561_00", "PPSA01922"}); // Fortnite
+    titleSet.insert({"NPWR18283_00", "PPSA03350"}); // Minecraft
+    titleSet.insert({"NPWR17171_00", "PPSA16155"}); // Sea of Thieves
+    titleSet.insert({"NPWR53376_00", "PPSA04400"}); // Resident Evil
+    titleSet.insert({"NPWR17597_00", "PPSA03974"}); // Cyberpunk 2077
+    titleSet.insert({"NPWR36759_00", "PPSA22520"}); // Animal Well
+    titleSet.insert({"NPWR90210_00", "PPSA99810"}); // Selftest
+
+    std::string cacheDir = trophyCacheDir();
+    DIR* d = ::opendir(cacheDir.c_str());
+    if (d) {
+        struct dirent* de;
+        while ((de = ::readdir(d)) != nullptr) {
+            std::string fname = de->d_name;
+            if (fname.size() > 5 && fname.substr(fname.size() - 5) == ".json") {
+                std::string content;
+                if (platform::readFile(cacheDir + "/" + fname, content)) {
+                    if (auto j = json::parse(content); j && j->isObject()) {
+                        std::string np = (*j)["npCommId"].str();
+                        std::string sony = (*j)["sonyTitleId"].str();
+                        if (!np.empty()) titleSet.insert({np, sony});
+                    }
+                }
+                ::unlink((cacheDir + "/" + fname).c_str());
+            }
+        }
+        ::closedir(d);
+    }
+
+    std::vector<std::pair<std::string, std::string>> titles(titleSet.begin(), titleSet.end());
+
+    if (!backend_) backend_.reset(createPlatformTrophyBackend());
+    if (backend_) {
+        backend_->removeAllTrophies(titles, removedCount, err);
+    }
+
+    XC_LOGI("trophy sync engine: removeAllTrophies removed %d titles", removedCount);
     return true;
 }
 
