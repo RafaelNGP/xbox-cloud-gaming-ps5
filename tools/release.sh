@@ -125,6 +125,32 @@ for f in assets/cacert.pem licenses/THIRD_PARTY_NOTICES.md licenses/FFmpeg-LGPL-
 done
 ok "certificates and licenses in place"
 
+echo "== build PS4"
+if [ -z "${OO_PS4_TOOLCHAIN:-}" ] && [ -d "$root/ps4-toolchain" ]; then
+    export OO_PS4_TOOLCHAIN="$root/ps4-toolchain"
+fi
+[[ -d "${OO_PS4_TOOLCHAIN:-}" ]] || fail "PS4 toolchain not found at OO_PS4_TOOLCHAIN or $root/ps4-toolchain"
+ps4_buildlog=$(mktemp)
+cmake --build build-ps4 -j"$(nproc)" >"$ps4_buildlog" 2>&1 || { cat "$ps4_buildlog"; rm -f "$ps4_buildlog"; fail "the PS4 build failed"; }
+rm -f "$ps4_buildlog"
+ps4_ver=$(printf '%02d.%02d' "$major" "$((minor * 10 + patch))")
+ps4_out="$out/ps4_pkg"
+XC_PS4_VERSION="$ps4_ver" tools/ps4/package.sh build-ps4 "$ps4_out" >/dev/null
+
+ps4_pkg_name="PSBoxCloudGaming[PS4]-$tag.pkg"
+mv -f "$ps4_out/PSBox Cloud Gaming - PS4.pkg" "$out/$ps4_pkg_name"
+rm -rf "$ps4_out"
+(cd "$out" && sha256sum "$ps4_pkg_name" > "$ps4_pkg_name.sha256")
+ok "$out/$ps4_pkg_name ($(du -h "$out/$ps4_pkg_name" | cut -f1)), sha256 $(cut -d' ' -f1 "$out/$ps4_pkg_name.sha256")"
+
+echo "== checks in the PS4 package"
+ps4_eboot="$root/build-ps4/pkg_stage/eboot.bin"
+if grep -aqE "$tokens" "$ps4_eboot"; then fail "PS4 eboot.bin holds something like a token"; fi
+ok "PS4 eboot.bin: no token"
+ps4_sfo="$root/build-ps4/pkg_stage/sce_sys/param.sfo"
+grep -aq "$ps4_ver" "$ps4_sfo" || fail "PS4 param.sfo doesn't carry version $ps4_ver"
+ok "PS4 param.sfo: version $ps4_ver confirmed"
+
 linux_assets=""
 if [[ $linux == 1 ]]; then
     echo "== Linux package"
@@ -167,7 +193,18 @@ if [[ $console == 1 ]]; then
 fi
 
 echo "== all checks passed; to publish (with release notes in notes.md):"
-echo "  gh release create $tag \"$zip\" \"$out/PPSA99810.zip.sha256\" \"$out/PPSA99810.zip.sig\"$linux_assets --target $(git rev-parse HEAD) --title \"PSBox Cloud Gaming $tag\" --notes-file notes.md"
+echo "  gh release create $tag \\"
+echo "    \"$zip\" \"$out/PPSA99810.zip.sha256\" \"$out/PPSA99810.zip.sig\" \\"
+echo "    \"$out/PSBoxCloudGaming[[]PS4]-$tag.pkg\" \"$out/PSBoxCloudGaming[[]PS4]-$tag.pkg.sha256\"$linux_assets \\"
+echo "    --target $(git rev-parse HEAD) --title \"PSBox Cloud Gaming $tag\" --notes-file notes.md"
+echo
+echo "== post-release steps (Mandatory Tri-Platform Standard):"
+echo "  1. GitHub Actions will build Linux AppImage via .github/workflows/release-linux.yml."
+echo "  2. Once uploaded by CI, sign it:"
+echo "     tools/desktop/sign-linux-release.sh $tag"
+echo "  3. Verify all 3 platforms (PS5, PS4, Linux AppImage) and signatures:"
+echo "     tools/release-verify.sh $tag --verify-sigs"
+echo
 echo "== catalog record (apps/PPSA99810.json):"
 echo "  \"version\": \"$version\","
 echo "  \"artifact_url\": \"https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/releases/download/$tag/PPSA99810.zip\","
