@@ -107,6 +107,13 @@ ok "$out/PPSA99810.zip ($(du -h "$out/PPSA99810.zip" | cut -f1)), sha256 $sha"
 sign "$out/PPSA99810.zip"
 ok "signed: $out/PPSA99810.zip.sig"
 
+# Standard named package for PlayStation 5
+ps5_named="PSBoxCloudGaming[PS5]-$tag.zip"
+cp -f "$out/PPSA99810.zip" "$out/$ps5_named"
+cp -f "$out/PPSA99810.zip.sig" "$out/$ps5_named.sig"
+(cd "$out" && sha256sum "$ps5_named" > "$ps5_named.sha256")
+ok "$out/$ps5_named ($(du -h "$out/$ps5_named" | cut -f1)), sha256 $(cut -d' ' -f1 "$out/$ps5_named.sha256")"
+
 echo "== checks in the package"
 zip=$out/PPSA99810.zip
 if unzip -Z1 "$zip" | grep -nE "$private|\.elf$"; then fail "a private or symbol file in the zip"; fi
@@ -177,7 +184,10 @@ if [[ $linux == 1 ]]; then
     (cd "$out" && sha256sum "$name" > "$name.sha256")
     sign "$appimage"
     ok "signed: $appimage.sig"
-    linux_assets=" \"$appimage\" \"$appimage.sha256\" \"$appimage.sig\""
+    named_linux="PSBoxCloudGaming[Linux]-$tag.AppImage"
+    cp -f "$appimage" "$out/$named_linux"
+    (cd "$out" && sha256sum "$named_linux" > "$named_linux.sha256")
+    linux_assets=" \"$appimage\" \"$appimage.sha256\" \"$appimage.sig\" \"$out/PSBoxCloudGaming[[]Linux]-$tag.AppImage\" \"$out/PSBoxCloudGaming[[]Linux]-$tag.AppImage.sha256\""
 fi
 
 if [[ $console == 1 ]]; then
@@ -195,6 +205,7 @@ fi
 echo "== all checks passed; to publish (with release notes in notes.md):"
 echo "  gh release create $tag \\"
 echo "    \"$zip\" \"$out/PPSA99810.zip.sha256\" \"$out/PPSA99810.zip.sig\" \\"
+echo "    \"$out/PSBoxCloudGaming[[]PS5]-$tag.zip\" \"$out/PSBoxCloudGaming[[]PS5]-$tag.zip.sha256\" \"$out/PSBoxCloudGaming[[]PS5]-$tag.zip.sig\" \\"
 echo "    \"$out/PSBoxCloudGaming[[]PS4]-$tag.pkg\" \"$out/PSBoxCloudGaming[[]PS4]-$tag.pkg.sha256\"$linux_assets \\"
 echo "    --target $(git rev-parse HEAD) --title \"PSBox Cloud Gaming $tag\" --notes-file notes.md"
 echo

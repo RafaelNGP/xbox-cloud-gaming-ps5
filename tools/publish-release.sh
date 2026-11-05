@@ -99,24 +99,25 @@ git push origin "$tag"
 # Phase 3: GitHub Release Creation (PS5 + PS4)
 echo
 echo -e "${BOLD}Phase 3: Creating GitHub Release $tag with PS5 and PS4 assets...${NC}"
-# Use [[]PS4] escaping to prevent Go filepath.Glob from treating [PS4] as a regex character set
+# Use [[] escaping to prevent Go filepath.Glob from treating [PS5] / [PS4] as regex character sets
+initial_assets=(
+    "$out/PPSA99810.zip"
+    "$out/PPSA99810.zip.sha256"
+    "$out/PPSA99810.zip.sig"
+    "$out/PSBoxCloudGaming[[]PS5]-$tag.zip"
+    "$out/PSBoxCloudGaming[[]PS5]-$tag.zip.sha256"
+    "$out/PSBoxCloudGaming[[]PS5]-$tag.zip.sig"
+    "$out/PSBoxCloudGaming[[]PS4]-$tag.pkg"
+    "$out/PSBoxCloudGaming[[]PS4]-$tag.pkg.sha256"
+)
+
 gh release create "$tag" \
-    "$out/PPSA99810.zip" \
-    "$out/PPSA99810.zip.sha256" \
-    "$out/PPSA99810.zip.sig" \
-    "$out/PSBoxCloudGaming[[]PS4]-$tag.pkg" \
-    "$out/PSBoxCloudGaming[[]PS4]-$tag.pkg.sha256" \
+    "${initial_assets[@]}" \
     --target "$(git rev-parse HEAD)" \
     --title "PSBox Cloud Gaming $tag" \
     --notes-file "$root/notes.md" 2>/dev/null || {
     echo "Release $tag might already exist; updating assets..."
-    gh release upload "$tag" \
-        "$out/PPSA99810.zip" \
-        "$out/PPSA99810.zip.sha256" \
-        "$out/PPSA99810.zip.sig" \
-        "$out/PSBoxCloudGaming[[]PS4]-$tag.pkg" \
-        "$out/PSBoxCloudGaming[[]PS4]-$tag.pkg.sha256" \
-        --clobber
+    gh release upload "$tag" "${initial_assets[@]}" --clobber
     gh release edit "$tag" --notes-file "$root/notes.md"
 }
 
@@ -124,15 +125,16 @@ gh release create "$tag" \
 echo
 echo -e "${BOLD}Phase 4: Waiting for Linux AppImage build (CI: .github/workflows/release-linux.yml)...${NC}"
 linux_name="PSBox-$tag-linux-x86_64.AppImage"
+named_linux="PSBoxCloudGaming[Linux]-$tag.AppImage"
 timeout_secs=900 # 15 minutes max
 elapsed=0
 interval=15
 
 while true; do
     assets_json=$(gh release view "$tag" --json assets 2>/dev/null || echo '{"assets":[]}')
-    has_appimage=$(echo "$assets_json" | jq -r --arg n "$linux_name" '.assets[] | select(.name == $n and .state == "uploaded") | .name')
+    has_appimage=$(echo "$assets_json" | jq -r --arg n "$linux_name" --arg nl "PSBoxCloudGaming.Linux.-$tag.AppImage" '.assets[] | select((.name == $n or .name == $nl) and .state == "uploaded") | .name' | head -1)
     if [[ -n "$has_appimage" ]]; then
-        echo -e "${GREEN}Linux AppImage is uploaded on GitHub: $linux_name${NC}"
+        echo -e "${GREEN}Linux AppImage is uploaded on GitHub: $has_appimage${NC}"
         break
     fi
     
@@ -145,15 +147,25 @@ while true; do
         exit 1
     fi
     
-    echo "Waiting for $linux_name to be uploaded by CI... (${elapsed}s elapsed)"
+    echo "Waiting for Linux AppImage to be uploaded by CI... (${elapsed}s elapsed)"
     sleep "$interval"
     elapsed=$((elapsed + interval))
 done
 
-# Phase 5: Cryptographic Signature of Linux AppImage
+# Phase 5: Cryptographic Signature and Named Linux Asset
 echo
 echo -e "${BOLD}Phase 5: Signing Linux AppImage with local release key...${NC}"
 tools/desktop/sign-linux-release.sh "$tag"
+
+# Download the signed Linux AppImage and upload as PSBoxCloudGaming[Linux]-$tag.AppImage
+work_linux=$(mktemp -d)
+gh release download "$tag" -p "$linux_name" -D "$work_linux" >/dev/null 2>&1
+if [[ -s "$work_linux/$linux_name" ]]; then
+    cp -f "$work_linux/$linux_name" "$work_linux/$named_linux"
+    (cd "$work_linux" && sha256sum "$named_linux" > "$named_linux.sha256")
+    gh release upload "$tag" "$work_linux/PSBoxCloudGaming[[]Linux]-$tag.AppImage" "$work_linux/PSBoxCloudGaming[[]Linux]-$tag.AppImage.sha256" --clobber
+fi
+rm -rf "$work_linux"
 
 # Phase 6: Final Tri-Platform Audit
 echo

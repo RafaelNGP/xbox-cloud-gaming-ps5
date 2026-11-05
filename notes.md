@@ -16,15 +16,37 @@
 - **Universal USB Controller Drivers**: Direct in-app support on PS4 (using `libSceUsbd`) for PS3 (DualShock 3), PS4 (wired/third-party), PS5 (DualSense), Xbox 360, Xbox One / Series X|S (GIP), 8BitDo adapters/controllers, Nintendo Switch Pro & Input-Only, Google Stadia, and generic DirectInput/HID gamepads.
 - **Autonomous & Zero-Dependency**: Works out of the box directly in the application without requiring background daemons or external GoldHEN payloads.
 
----
-**Installation on PS5**:
-- Install directly from **ProsperoStore** or **RecompStore**, or download the signed `PPSA99810.zip` and install manually via Homebrew / FTP.
+### 📦 Attached Files (English)
 
-**Installation on PS4**:
+| File Name | Description |
+|---|---|
+| `PSBoxCloudGaming[PS5]-v1.6.1.zip` | Official standalone ZIP package for PlayStation 5 (manual install or homebrew manager). |
+| `PSBoxCloudGaming[PS5]-v1.6.1.zip.sig` | ECDSA cryptographic digital signature verifying package authenticity on PS5. |
+| `PSBoxCloudGaming[PS5]-v1.6.1.zip.sha256` | SHA256 checksum for the PS5 package. |
+| `PPSA99810.zip` | Canonical PS5 package required by the In-App Updater for consoles updating from previous versions. |
+| `PPSA99810.zip.sig` | Canonical cryptographic signature required by the In-App Updater. |
+| `PPSA99810.zip.sha256` | SHA256 checksum for the canonical PS5 package. |
+| `PSBoxCloudGaming[PS4]-v1.6.1.pkg` | Installable FPKG package for PlayStation 4 (GoldHEN Package Installer). |
+| `PSBoxCloudGaming[PS4]-v1.6.1.pkg.sha256` | SHA256 checksum for the PS4 package. |
+| `PSBoxCloudGaming[Linux]-v1.6.1.AppImage` | Universal portable binary for Linux distributions and Steam Deck (Desktop Mode & Game Mode). |
+| `PSBoxCloudGaming[Linux]-v1.6.1.AppImage.sha256` | SHA256 checksum for the Linux AppImage. |
+
+---
+
+### 🚀 How to Install (English)
+
+#### 🎮 PlayStation 5
+- **Automatic In-App Update**: Open the app's *Settings* menu and choose the built-in update option.
+- **Manual Installation**:
+  1. Download `PSBoxCloudGaming[PS5]-v1.6.1.zip` or `PPSA99810.zip`.
+  2. Extract its contents over FTP to `/data/homebrew/PPSA99810/` on your jailbroken PS5.
+  3. Ensure all files and folders have `0777` permissions.
+
+#### 🎮 PlayStation 4
 - Download `PSBoxCloudGaming[PS4]-v1.6.1.pkg`, copy it to the root of a USB drive (exFAT/FAT32), and install via *Settings > GoldHEN > Package Installer*.
 
-**Installation on Linux**:
-- Download `PSBox-v1.6.1-linux-x86_64.AppImage`, make it executable (`chmod +x`) and run it. It also works on the Steam Deck, in Desktop and Game modes.
+#### 🐧 Linux Desktop & Steam Deck
+- Download `PSBoxCloudGaming[Linux]-v1.6.1.AppImage`, make it executable (`chmod +x`) and run it. Works directly in Desktop Mode and Steam Game Mode.
 
 <!-- LANG:PT -->
 # PSBox Cloud Gaming v1.6.1 (Português)
@@ -45,11 +67,35 @@
 - **Autônomo e Sem Dependências Externas**: Funciona imediatamente dentro do próprio aplicativo sem necessidade de daemons ou payloads externos do GoldHEN em segundo plano.
 
 ---
-**Instalação no PS5**:
-- Instale diretamente pela **ProsperoStore** ou **RecompStore**, ou baixe o pacote assinado `PPSA99810.zip` e instale manualmente via Homebrew / FTP.
 
-**Instalação no PS4**:
+### 📦 Arquivos Anexados (Português)
+
+| Nome do Arquivo | Descrição |
+|---|---|
+| `PSBoxCloudGaming[PS5]-v1.6.1.zip` | Pacote ZIP oficial para PlayStation 5 (instalação manual ou via gerenciadores homebrew). |
+| `PSBoxCloudGaming[PS5]-v1.6.1.zip.sig` | Assinatura digital ECDSA para verificação de integridade e autenticidade no PS5. |
+| `PSBoxCloudGaming[PS5]-v1.6.1.zip.sha256` | Checksum SHA256 do pacote de PS5. |
+| `PPSA99810.zip` | Pacote canônico de PS5 obrigatório para o atualizador automático in-app (consoles rodando v1.5.4 ou anterior). |
+| `PPSA99810.zip.sig` | Assinatura canônica obrigatória para validação do in-app updater. |
+| `PPSA99810.zip.sha256` | Checksum SHA256 do pacote canônico de PS5. |
+| `PSBoxCloudGaming[PS4]-v1.6.1.pkg` | Pacote FPKG instalável para PlayStation 4 (compatível com GoldHEN Package Installer). |
+| `PSBoxCloudGaming[PS4]-v1.6.1.pkg.sha256` | Checksum SHA256 do pacote de PS4. |
+| `PSBoxCloudGaming[Linux]-v1.6.1.AppImage` | Pacote executável universal para distribuições Linux e Steam Deck (Desktop Mode e Game Mode). |
+| `PSBoxCloudGaming[Linux]-v1.6.1.AppImage.sha256` | Checksum SHA256 do pacote AppImage Linux. |
+
+---
+
+### 🚀 Como Instalar (Português)
+
+#### 🎮 PlayStation 5
+- **Atualização Automática**: Abra as *Configurações* no próprio app e utilize a opção de atualização automática integrada.
+- **Instalação Manual**:
+  1. Baixe `PSBoxCloudGaming[PS5]-v1.6.1.zip` ou `PPSA99810.zip`.
+  2. Extraia o conteúdo para `/data/homebrew/PPSA99810/` no seu PS5 via FTP.
+  3. Garanta permissões `0777` em todas as pastas e arquivos extraídos.
+
+#### 🎮 PlayStation 4
 - Baixe `PSBoxCloudGaming[PS4]-v1.6.1.pkg`, copie para a raiz de um pendrive (exFAT/FAT32) e instale via *Configurações > GoldHEN > Instalador de Pacotes*.
 
-**Instalação no Linux**:
-- Baixe `PSBox-v1.6.1-linux-x86_64.AppImage`, dê permissão de execução (`chmod +x`) e execute. Compatível com Steam Deck em modo Desktop e Game.
+#### 🐧 Linux Desktop & Steam Deck
+- Baixe `PSBoxCloudGaming[Linux]-v1.6.1.AppImage`, dê permissão de execução (`chmod +x`) e execute. Compatível com Steam Deck em modo Desktop e Game Mode.

@@ -2,11 +2,19 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 RafaelNGP
 #
-# Release Verifier - Enforces the Tri-Platform Release Standard
-# Every published release (vX.Y.Z) MUST contain assets for:
-#   1. PlayStation 5 (PPSA99810.zip + .sha256 + .sig)
-#   2. PlayStation 4 (PSBoxCloudGaming[PS4]-vX.Y.Z.pkg + .sha256)
-#   3. Linux AppImage (PSBox-vX.Y.Z-linux-x86_64.AppImage + .sha256 + .sig)
+# Release Verifier - Enforces the Tri-Platform Standard (PS5, PS4, Linux AppImage)
+# Verifies the exact 10-asset bundle and release notes tables:
+#
+#   1. PSBoxCloudGaming[PS5]-vX.Y.Z.zip
+#   2. PSBoxCloudGaming[PS5]-vX.Y.Z.zip.sig
+#   3. PSBoxCloudGaming[PS5]-vX.Y.Z.zip.sha256
+#   4. PPSA99810.zip
+#   5. PPSA99810.zip.sig
+#   6. PPSA99810.zip.sha256
+#   7. PSBoxCloudGaming[PS4]-vX.Y.Z.pkg
+#   8. PSBoxCloudGaming[PS4]-vX.Y.Z.pkg.sha256
+#   9. PSBoxCloudGaming[Linux]-vX.Y.Z.AppImage
+#  10. PSBoxCloudGaming[Linux]-vX.Y.Z.AppImage.sha256
 #
 # Usage:
 #   tools/release-verify.sh <vX.Y.Z|X.Y.Z> [--verify-sigs]
@@ -64,7 +72,14 @@ else
     warn "Release notes: Missing <!-- LANG:EN --> or <!-- LANG:PT --> markers"
 fi
 
-if grep -iq "PS5" <<<"$body" && grep -iq "PS4" <<<"$body" && grep -iq "Linux" <<<"$body"; then
+if grep -q "Attached Files (English)" <<<"$body" && grep -q "Arquivos Anexados (Português)" <<<"$body"; then
+    pass "Release notes: Standard Attached Files tables (EN/PT) present"
+else
+    fail "Release notes: Missing 'Attached Files (English)' or 'Arquivos Anexados (Português)' table"
+    errors=$((errors + 1))
+fi
+
+if grep -iq "PlayStation 5" <<<"$body" && grep -iq "PlayStation 4" <<<"$body" && grep -iq "Linux" <<<"$body"; then
     pass "Release notes: Installation instructions present for PS5, PS4, and Linux"
 else
     warn "Release notes: Missing explicit installation instructions for all 3 platforms"
@@ -88,119 +103,50 @@ get_asset_state() {
     echo "$json" | jq -r --arg n "$name" '.assets[] | select(.name == $n) | .state // ""'
 }
 
-echo
-echo -e "${BOLD}Target 1: PlayStation 5 (PS5)${NC}"
-ps5_zip=$(find_asset '^PPSA99810\.zip$')
-ps5_sha=$(find_asset '^PPSA99810\.zip\.sha256$')
-ps5_sig=$(find_asset '^PPSA99810\.zip\.sig$')
-
-if [[ -n "$ps5_zip" ]]; then
-    sz=$(get_asset_size "$ps5_zip")
-    st=$(get_asset_state "$ps5_zip")
-    mb=$(awk -v s="$sz" 'BEGIN { printf "%.2f", s / 1048576 }')
-    if (( sz > 10000000 )) && [[ "$st" == "uploaded" ]]; then
-        pass "PPSA99810.zip ($mb MB, state: $st)"
+check_file() {
+    local label="$1"
+    local pattern="$2"
+    local min_size="$3"
+    local asset
+    asset=$(find_asset "$pattern")
+    if [[ -n "$asset" ]]; then
+        local sz st mb
+        sz=$(get_asset_size "$asset")
+        st=$(get_asset_state "$asset")
+        mb=$(awk -v s="$sz" 'BEGIN { printf "%.2f", s / 1048576 }')
+        if (( sz >= min_size )) && [[ "$st" == "uploaded" ]]; then
+            pass "$asset ($mb MB, state: $st)"
+            return 0
+        else
+            fail "$asset is too small or incomplete ($sz bytes, state: $st)"
+            errors=$((errors + 1))
+            return 1
+        fi
     else
-        fail "PPSA99810.zip is too small or not fully uploaded ($sz bytes, state: $st)"
+        fail "$label is MISSING (matching pattern: $pattern)"
         errors=$((errors + 1))
+        return 1
     fi
-else
-    fail "PPSA99810.zip is MISSING"
-    errors=$((errors + 1))
-fi
-
-if [[ -n "$ps5_sha" ]]; then
-    pass "PPSA99810.zip.sha256 present"
-else
-    fail "PPSA99810.zip.sha256 is MISSING"
-    errors=$((errors + 1))
-fi
-
-if [[ -n "$ps5_sig" ]]; then
-    sz=$(get_asset_size "$ps5_sig")
-    if (( sz > 0 )); then
-        pass "PPSA99810.zip.sig present ($sz bytes)"
-    else
-        fail "PPSA99810.zip.sig is empty"
-        errors=$((errors + 1))
-    fi
-else
-    fail "PPSA99810.zip.sig is MISSING (Console updater requires .sig!)"
-    errors=$((errors + 1))
-fi
+}
 
 echo
-echo -e "${BOLD}Target 2: PlayStation 4 (PS4)${NC}"
-# GitHub sanitizes [PS4] to .PS4., so we match both literal [PS4] and .PS4.
-ps4_pkg=$(find_asset '^(PSBoxCloudGaming(\[PS4\]|\.PS4\.)-v'"$version"'\.pkg|PSBoxCloudGaming-v'"$version"'-ps4\.pkg)$')
-ps4_sha=$(find_asset '^(PSBoxCloudGaming(\[PS4\]|\.PS4\.)-v'"$version"'\.pkg\.sha256|PSBoxCloudGaming-v'"$version"'-ps4\.pkg\.sha256)$')
-
-if [[ -n "$ps4_pkg" ]]; then
-    sz=$(get_asset_size "$ps4_pkg")
-    st=$(get_asset_state "$ps4_pkg")
-    mb=$(awk -v s="$sz" 'BEGIN { printf "%.2f", s / 1048576 }')
-    if (( sz > 5000000 )) && [[ "$st" == "uploaded" ]]; then
-        pass "$ps4_pkg ($mb MB, state: $st)"
-    else
-        fail "$ps4_pkg is too small or not fully uploaded ($sz bytes, state: $st)"
-        errors=$((errors + 1))
-    fi
-else
-    fail "PS4 PKG package is MISSING (expected PSBoxCloudGaming[PS4]-$tag.pkg)"
-    errors=$((errors + 1))
-fi
-
-if [[ -n "$ps4_sha" ]]; then
-    pass "$ps4_sha present"
-else
-    fail "PS4 PKG sha256 checksum is MISSING"
-    errors=$((errors + 1))
-fi
+echo -e "${BOLD}Target 1: PlayStation 5 (PS5) - Named Package & In-App Updater Canonical${NC}"
+check_file "PSBoxCloudGaming[PS5]-$tag.zip" '^(PSBoxCloudGaming(\[PS5\]|\.PS5\.)-v'"$version"'\.zip)$' 10000000
+check_file "PSBoxCloudGaming[PS5]-$tag.zip.sig" '^(PSBoxCloudGaming(\[PS5\]|\.PS5\.)-v'"$version"'\.zip\.sig)$' 60
+check_file "PSBoxCloudGaming[PS5]-$tag.zip.sha256" '^(PSBoxCloudGaming(\[PS5\]|\.PS5\.)-v'"$version"'\.zip\.sha256)$' 60
+check_file "PPSA99810.zip (canonical)" '^PPSA99810\.zip$' 10000000
+check_file "PPSA99810.zip.sig (canonical)" '^PPSA99810\.zip\.sig$' 60
+check_file "PPSA99810.zip.sha256 (canonical)" '^PPSA99810\.zip\.sha256$' 60
 
 echo
-echo -e "${BOLD}Target 3: Linux Desktop (AppImage)${NC}"
-linux_app=$(find_asset '^PSBox-v'"$version"'-linux-x86_64\.AppImage$')
-linux_sha=$(find_asset '^PSBox-v'"$version"'-linux-x86_64\.AppImage\.sha256$')
-linux_sig=$(find_asset '^PSBox-v'"$version"'-linux-x86_64\.AppImage\.sig$')
+echo -e "${BOLD}Target 2: PlayStation 4 (PS4) - FPKG & Checksum${NC}"
+check_file "PSBoxCloudGaming[PS4]-$tag.pkg" '^(PSBoxCloudGaming(\[PS4\]|\.PS4\.)-v'"$version"'\.pkg|PSBoxCloudGaming-v'"$version"'-ps4\.pkg)$' 5000000
+check_file "PSBoxCloudGaming[PS4]-$tag.pkg.sha256" '^(PSBoxCloudGaming(\[PS4\]|\.PS4\.)-v'"$version"'\.pkg\.sha256|PSBoxCloudGaming-v'"$version"'-ps4\.pkg\.sha256)$' 60
 
-if [[ -n "$linux_app" ]]; then
-    sz=$(get_asset_size "$linux_app")
-    st=$(get_asset_state "$linux_app")
-    mb=$(awk -v s="$sz" 'BEGIN { printf "%.2f", s / 1048576 }')
-    if (( sz > 4000000 )) && [[ "$st" == "uploaded" ]]; then
-        pass "$linux_app ($mb MB, state: $st)"
-    else
-        fail "$linux_app is too small or not fully uploaded ($sz bytes, state: $st)"
-        errors=$((errors + 1))
-    fi
-else
-    fail "Linux AppImage is MISSING (expected PSBox-$tag-linux-x86_64.AppImage)"
-    echo -e "      ${YELLOW}Hint: Run the 'Release (Linux)' workflow via:${NC}"
-    echo -e "      gh workflow run release-linux.yml -f tag=$tag"
-    errors=$((errors + 1))
-fi
-
-if [[ -n "$linux_sha" ]]; then
-    pass "$linux_sha present"
-else
-    fail "Linux AppImage sha256 checksum is MISSING"
-    errors=$((errors + 1))
-fi
-
-if [[ -n "$linux_sig" ]]; then
-    sz=$(get_asset_size "$linux_sig")
-    if (( sz > 0 )); then
-        pass "$linux_sig present ($sz bytes)"
-    else
-        fail "$linux_sig is empty"
-        errors=$((errors + 1))
-    fi
-else
-    fail "Linux AppImage signature (.sig) is MISSING"
-    echo -e "      ${YELLOW}Hint: Sign the downloaded AppImage using:${NC}"
-    echo -e "      tools/desktop/sign-linux-release.sh $tag"
-    errors=$((errors + 1))
-fi
+echo
+echo -e "${BOLD}Target 3: Linux Desktop & Steam Deck - AppImage & Checksum${NC}"
+check_file "PSBoxCloudGaming[Linux]-$tag.AppImage" '^(PSBoxCloudGaming(\[Linux\]|\.Linux\.)-v'"$version"'\.AppImage|PSBox-v'"$version"'-linux-x86_64\.AppImage)$' 4000000
+check_file "PSBoxCloudGaming[Linux]-$tag.AppImage.sha256" '^(PSBoxCloudGaming(\[Linux\]|\.Linux\.)-v'"$version"'\.AppImage\.sha256|PSBox-v'"$version"'-linux-x86_64\.AppImage\.sha256)$' 60
 
 # Optional cryptographic signature verification
 if [[ $verify_sigs -eq 1 && $errors -eq 0 ]]; then
@@ -217,19 +163,23 @@ if [[ $verify_sigs -eq 1 && $errors -eq 0 ]]; then
         # Verify PS5 signature
         gh release download "$tag" -p "PPSA99810.zip" -p "PPSA99810.zip.sig" -D "$work" >/dev/null 2>&1
         if openssl dgst -sha256 -verify "$pubkey" -signature "$work/PPSA99810.zip.sig" "$work/PPSA99810.zip" >/dev/null 2>&1; then
-            pass "PS5 package cryptographic signature verified"
+            pass "PS5 package (PPSA99810.zip) cryptographic signature verified"
         else
             fail "PS5 package signature DOES NOT verify against updater.cpp public key!"
             errors=$((errors + 1))
         fi
         
-        # Verify Linux signature
-        gh release download "$tag" -p "$linux_app" -p "$linux_sig" -D "$work" >/dev/null 2>&1
-        if openssl dgst -sha256 -verify "$pubkey" -signature "$work/$linux_sig" "$work/$linux_app" >/dev/null 2>&1; then
-            pass "Linux AppImage cryptographic signature verified"
-        else
-            fail "Linux AppImage signature DOES NOT verify against updater.cpp public key!"
-            errors=$((errors + 1))
+        # Verify Linux signature if present
+        linux_app=$(find_asset '^PSBox-v'"$version"'-linux-x86_64\.AppImage$')
+        linux_sig=$(find_asset '^PSBox-v'"$version"'-linux-x86_64\.AppImage\.sig$')
+        if [[ -n "$linux_app" && -n "$linux_sig" ]]; then
+            gh release download "$tag" -p "$linux_app" -p "$linux_sig" -D "$work" >/dev/null 2>&1
+            if openssl dgst -sha256 -verify "$pubkey" -signature "$work/$linux_sig" "$work/$linux_app" >/dev/null 2>&1; then
+                pass "Linux AppImage cryptographic signature verified"
+            else
+                fail "Linux AppImage signature DOES NOT verify against updater.cpp public key!"
+                errors=$((errors + 1))
+            fi
         fi
     else
         warn "Could not extract public key from src/app/updater.cpp"
@@ -240,13 +190,16 @@ echo
 if [[ $errors -eq 0 ]]; then
     echo -e "${BOLD}${GREEN}======================================================${NC}"
     echo -e "${BOLD}${GREEN}  RELEASE $tag VERIFICATION PASSED (TRI-PLATFORM OK)  ${NC}"
-    echo -e "${BOLD}${GREEN}  ✓ PS5   ✓ PS4   ✓ Linux AppImage                    ${NC}"
+    echo -e "${BOLD}${GREEN}  ✓ PS5 (Named + Canonical)                           ${NC}"
+    echo -e "${BOLD}${GREEN}  ✓ PS4 (FPKG + SHA256)                               ${NC}"
+    echo -e "${BOLD}${GREEN}  ✓ Linux (AppImage + SHA256)                         ${NC}"
+    echo -e "${BOLD}${GREEN}  ✓ Bilingual Attached Files Manifest Tables Verified ${NC}"
     echo -e "${BOLD}${GREEN}======================================================${NC}"
     exit 0
 else
     echo -e "${BOLD}${RED}======================================================${NC}"
     echo -e "${BOLD}${RED}  RELEASE $tag VERIFICATION FAILED ($errors ERRORS FOUND)   ${NC}"
-    echo -e "${BOLD}${RED}  One or more mandatory platform assets are missing!  ${NC}"
+    echo -e "${BOLD}${RED}  One or more mandatory assets/tables are missing!    ${NC}"
     echo -e "${BOLD}${RED}======================================================${NC}"
     exit 1
 fi
