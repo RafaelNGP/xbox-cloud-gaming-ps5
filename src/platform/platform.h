@@ -74,6 +74,13 @@ void setThreadAffinity(ThreadRole role, const char* name = nullptr);
 void setNoThreadPinning(bool on);
 void setThreadRealtimePriority();
 
+// A handheld PC to spare (the handheld profile: app/app_core.cpp): the Steam
+// Deck, by its DMI strings or Steam's SteamDeck=1; PSBOX_HANDHELD=1 or 0
+// decides for any other machine. Always false on the consoles.
+bool isHandheld();
+// Tests: decides isHandheld() from now on (autoplay "handheld").
+void forceHandheld(bool on);
+
 // Short on-screen message: the PS5's system notification; in the desktop
 // app a toast in the window (platform/toasts.h); stdout for the tools.
 void notify(const std::string& text);

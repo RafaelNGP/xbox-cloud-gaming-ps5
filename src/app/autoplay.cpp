@@ -110,8 +110,10 @@ void loadAutoplay() {
         if (opt == "imgtest") g_autoplay.imgTest = true;
         if (opt == "cloudtimetest") g_autoplay.cloudTimeTest = true;
         if (opt.rfind("cloudleft=", 0) == 0) g_autoplay.cloudLeft = std::atoll(opt.c_str() + 10);
+        if (opt.rfind("abcycle=", 0) == 0) g_autoplay.abCycleSec = std::atoi(opt.c_str() + 8);
         // Threads pinned by role (platform.h), to measure it again.
         if (opt == "pin") platform::setNoThreadPinning(false);
+        if (opt == "handheld") platform::forceHandheld(true);  // the handheld profile on this machine (A/B)
         if (opt == "rumbletest") input::setRumble(200, 200, 1500);
         if (opt == "triggertest") input::setTriggerRumble(255, 128, 3000);
         if (opt == "queuetest" || opt == "padspktest") g_autoplay.padSpkTest = true;
@@ -132,6 +134,7 @@ void loadAutoplay() {
         if (opt == "restore") g_autoplay.restore = true;
         if (opt.rfind("swap=", 0) == 0) display::setSwapImages(std::atoi(opt.c_str() + 5));
         if (opt == "nopace") display::setPresentWait(false);
+        if (opt == "fifo") display::setLowLatencyPresent(false);  // the desktop's old FIFO presenting (A/B)
         if (opt == "detailtest" || opt == "detailstest") g_autoplay.detailTest = true;
         if (opt == "pad") g_autoplay.pad = true;
         if (opt == "consoles") g_autoplay.consoles = true;

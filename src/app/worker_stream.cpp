@@ -6,6 +6,7 @@
 #include "app/crash_guard.h"
 #include "app/shell.h"
 #include "app/stream_player.h"
+#include "display/display.h"
 #include "input/controller.h"
 #include "media/audio_out.h"
 #include "media/audio_queue.h"
@@ -21,6 +22,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <iterator>
 #include <vector>
 
 namespace xc::app {
@@ -242,9 +244,33 @@ std::string stream(xcloud::GssvClient& gssv, const auth::CloudTimeQuery& cloudQu
         watch.step = step;
         watch.beatMs = platform::nowMs();
     };
+    // A/B tests in one stream (autoplay "abcycle=N"): every N s the next
+    // condition, so all of them share the queue wait, the game and the network.
+    struct AbCondition {
+        const char* name;
+        bool mailbox, hardware, restore;
+    };
+    static constexpr AbCondition kAb[] = {{"new", true, true, true},
+                                          {"fifo", false, true, true},
+                                          {"sw", true, false, true},
+                                          {"old", false, false, true},
+                                          {"norestore", true, true, false}};
+    int abIndex = -1;
+    bool abHardware = true;
+    uint64_t abNext = started + 20000;
     while (player.running() && !g_cancel) {
         beat("loop");
         uint64_t elapsed = platform::nowMs() - started;
+        if (g_autoplay.abCycleSec > 0 && started + elapsed >= abNext) {
+            abIndex = (abIndex + 1) % static_cast<int>(std::size(kAb));
+            const AbCondition& c = kAb[abIndex];
+            display::setLowLatencyPresent(c.mailbox);
+            display::setRestore(c.restore);
+            if (c.hardware != abHardware || abIndex == 0) player.switchDecoder(c.hardware);
+            abHardware = c.hardware;
+            abNext = started + elapsed + static_cast<uint64_t>(g_autoplay.abCycleSec) * 1000u;
+            XC_LOGI("AUTOPLAY AB: condition %s", c.name);
+        }
         beat("the cloud time");
         cloudTimeStep(started + elapsed);
         if (!g_autoplay.title.empty()) {

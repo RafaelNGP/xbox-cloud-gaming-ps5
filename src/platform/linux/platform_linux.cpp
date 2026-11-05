@@ -5,10 +5,12 @@
 // executable, and notifications as toasts inside the desktop app (or on
 // stdout for the tools).
 #include "platform/platform.h"
+#include "platform/handheld.h"
 
 #include "platform/toasts.h"
 #include "util/log.h"
 
+#include <atomic>
 #include <cerrno>
 #include <csignal>
 #include <cstdio>
@@ -172,12 +174,21 @@ std::string diagnostics() { return {}; }
 std::string platformName() { return "Linux"; }
 size_t imageCacheBudget() { return 160u << 20; }
 
-void setNoThreadPinning(bool) {}
+// Threads keep the scheduler's choice unless setNoThreadPinning(false), as
+// on the PS5 (pinning by role made its sound run dry more often): pinned,
+// FFmpeg's decode threads all sat on the video thread's one CPU, and on SMT
+// machines (the Steam Deck) the workers shared that core's sibling.
+namespace {
+std::atomic<bool> g_noThreadPinning{true};
+}  // namespace
+
+void setNoThreadPinning(bool on) { g_noThreadPinning = on; }
 
 void setThreadAffinity(ThreadRole role, const char* name) {
     if (name && *name) {
         pthread_setname_np(pthread_self(), name);
     }
+    if (g_noThreadPinning) return;
     long numCores = sysconf(_SC_NPROCESSORS_ONLN);
     if (numCores < 4) return;  // Do not restrict on systems with few cores
 
@@ -203,6 +214,22 @@ void setThreadAffinity(ThreadRole role, const char* name) {
     }
     pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &mask);
 }
+
+namespace {
+int g_handheldForced = -1;  // forceHandheld(): -1 not forced
+}  // namespace
+
+bool isHandheld() {
+    if (g_handheldForced >= 0) return g_handheldForced == 1;
+    if (const char* env = std::getenv("PSBOX_HANDHELD"); env && *env) return std::strcmp(env, "0") != 0;
+    if (const char* env = std::getenv("SteamDeck"); env && std::strcmp(env, "1") == 0) return true;
+    std::string vendor, product;
+    readFile("/sys/class/dmi/id/sys_vendor", vendor);
+    readFile("/sys/class/dmi/id/product_name", product);
+    return steamDeckDmi(vendor, product);
+}
+
+void forceHandheld(bool on) { g_handheldForced = on ? 1 : 0; }
 
 void setThreadRealtimePriority() {
     struct sched_param param{};

@@ -61,8 +61,13 @@ void setRestore(bool on);
 bool setHighRefresh(bool on);
 // Whether setHighRefresh() can work at all (the patched RADV).
 bool canSwitchRefresh();
-// Before init(): swapchain images (2 = lowest latency, the default).
+// Before init(): swapchain images (3 by default; Wayland's minimum is 3).
 void setSwapImages(int count);
+// The desktop's choice (before init(), or later from any thread: the next
+// frame rebuilds the swapchain): MAILBOX when the surface offers it, so a
+// new frame replaces one still waiting and nothing blocks; FIFO otherwise,
+// and always when off (the default: the PS5's).
+void setMailbox(bool on);
 // Before init(): waiting for each frame to reach the screen before the next
 // (VK_KHR_present_wait, on by default). Off, the display time is still
 // measured, by polling.

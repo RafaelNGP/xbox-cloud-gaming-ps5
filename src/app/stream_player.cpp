@@ -135,6 +135,7 @@ struct StreamPlayer::Impl {
     media::AudioEncoder audioEncoder;
     std::atomic<bool> highRefreshOutput{false};  // setHighRefreshOutput()
     std::atomic<bool> legacy{false};             // setLegacyTuning()
+    std::atomic<int> decoderSwitch{-1};          // switchDecoder(): 0 software, 1 hardware
     std::atomic<bool> micEnabled{true};
     std::atomic<bool> micMuted{false};
     std::atomic<float> micGain{1.0f};
@@ -550,12 +551,12 @@ struct StreamPlayer::Impl {
 
     void videoLoop() {
         platform::setThreadAffinity(platform::ThreadRole::VideoDecode, "xcloud_vdec");
-        media::VideoDecoder decoder;
-        if (!decoder.init(decodeThreads, preferHwDecode)) {
+        auto decoder = std::make_unique<media::VideoDecoder>();
+        if (!decoder->init(decodeThreads, preferHwDecode)) {
             end("could not start the H.264 decoder");
             return;
         }
-        isHwDecode = decoder.isHardware();
+        isHwDecode = decoder->isHardware();
         const bool useAsyncPresent = display::caps().asyncPresent;
         platform::Thread presentThread;
         if (useAsyncPresent) {
@@ -587,8 +588,8 @@ struct StreamPlayer::Impl {
         // pictures can come out later than their input.
         std::deque<stream::FrameMetadata> inFlight;
         media::HwDecoder hw;
-        bool hwOk = hwProbe && !decoder.isHardware() && hw.init(1920, 1088);
-        if (hwProbe && !decoder.isHardware()) XC_LOGI("hwdec: probe %s", hwOk ? "running" : "failed to start");
+        bool hwOk = hwProbe && !decoder->isHardware() && hw.init(1920, 1088);
+        if (hwProbe && !decoder->isHardware()) XC_LOGI("hwdec: probe %s", hwOk ? "running" : "failed to start");
         uint64_t hwUs = 0, hwMaxUs = 0, hwPictures = 0, hwCalls = 0, hwLogAt = platform::nowMs() + 1000;
         constexpr uint64_t kShownRing = 8;
         struct OnItsWay {
@@ -691,9 +692,20 @@ struct StreamPlayer::Impl {
             meta.submittedMs = stream::clockMs();
             inFlight.push_back(meta);
             if (inFlight.size() > 16) inFlight.pop_front();
+            // A/B tests: another decoder while streaming, from the next key
+            // frame (autoplay "abcycle").
+            if (int want = decoderSwitch.exchange(-1); want >= 0) {
+                auto next = std::make_unique<media::VideoDecoder>();
+                if (next->init(decodeThreads, want == 1)) {
+                    decoder = std::move(next);
+                    keyframeWanted = true;
+                    requestKeyframeIfWanted();
+                    XC_LOGI("stream: decoder switched to %s", decoder->isHardware() ? "hardware" : "software");
+                }
+            }
             uint64_t t0 = platform::nowUs();
-            bool ok = decoder.decode(au.data(), au.size(), pic, frame.rtpTimestamp);
-            isHwDecode = decoder.isHardware();
+            bool ok = decoder->decode(au.data(), au.size(), pic, frame.rtpTimestamp);
+            isHwDecode = decoder->isHardware();
             uint64_t t1 = platform::nowUs();
             bool known = false;
             if (ok) {
@@ -713,15 +725,15 @@ struct StreamPlayer::Impl {
                 loggedFirstDecode = true;
                 XC_LOGI("first video decode done: ok=%d", ok);
             }
-            if (decoder.needsKeyframe()) keyframeWanted = true;
+            if (decoder->needsKeyframe()) keyframeWanted = true;
             requestKeyframeIfWanted();
             if (!ok) {
-                if (!decoder.pending()) ++decodeFailures;
+                if (!decoder->pending()) ++decodeFailures;
                 continue;
             }
             ++decodedFrames;
-            if (decoder.lastQp() >= 0) {
-                qpSumX100 += static_cast<uint64_t>(decoder.lastQp() * 100);
+            if (decoder->lastQp() >= 0) {
+                qpSumX100 += static_cast<uint64_t>(decoder->lastQp() * 100);
                 ++qpCount;
             }
             pictureSize = (static_cast<uint32_t>(pic.width) << 16) | static_cast<uint32_t>(pic.height);
@@ -734,7 +746,7 @@ struct StreamPlayer::Impl {
                     latestPic.pic = pic;
                     latestPic.meta = meta;
                     latestPic.known = known;
-                    latestPic.isHw = decoder.isHardware();
+                    latestPic.isHw = decoder->isHardware();
                     latestPic.arrivalUs = frame.arrivalUs;
                     ++latestPic.seq;
                     if (!latestPic.isHw) {
@@ -776,7 +788,7 @@ struct StreamPlayer::Impl {
             if (decodedFrames == 1) {
                 XC_LOGI("first draw %dx%d (%s, %s)", pic.width, pic.height,
                         pic.format == media::Picture::Format::Nv12 ? "NV12" : "YUV420P",
-                        decoder.isHardware() ? "hardware" : "software");
+                        decoder->isHardware() ? "hardware" : "software");
             }
             uint64_t t2 = platform::nowUs();
             // Try acquire with zero wait first; if not ready, wait for swapchain image.
@@ -1377,6 +1389,8 @@ StreamPlayer::Stats StreamPlayer::stats() const {
     }
     return st;
 }
+
+void StreamPlayer::switchDecoder(bool hardware) { impl_->decoderSwitch = hardware ? 1 : 0; }
 
 void StreamPlayer::setLegacyTuning(bool on) {
     impl_->legacy = on;

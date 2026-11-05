@@ -149,6 +149,9 @@ bool VideoDecoder::init(int threads, bool preferHw) {
             enum AVHWDeviceType devType;
             enum AVPixelFormat pixFmt;
         } kHwConfigs[] = {
+            // Vulkan Video first: the desktop build's FFmpeg has it (libvulkan
+            // opened at run time); the others only where a build adds them.
+            {AV_HWDEVICE_TYPE_VULKAN, AV_PIX_FMT_VULKAN},
             {AV_HWDEVICE_TYPE_VAAPI, AV_PIX_FMT_VAAPI},
             {AV_HWDEVICE_TYPE_CUDA,  AV_PIX_FMT_CUDA},
             {AV_HWDEVICE_TYPE_VDPAU, AV_PIX_FMT_VDPAU},

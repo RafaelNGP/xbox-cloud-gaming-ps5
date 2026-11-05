@@ -144,6 +144,9 @@ struct Settings {
     // A desktop app: its window fullscreen (the desktop's own mode) or not.
     // Unused on the PS5.
     bool desktopFullscreen = true;  // streams that showed the touchpad gestures' hint (three do)
+    // The handheld profile was applied (once, app_core.cpp): not again, so
+    // the user's later choices stay.
+    bool handheldProfile = false;
 
     // Per-game profiles overriding the general settings (productId or titleId -> profile).
     std::map<std::string, GameProfile> perGame;

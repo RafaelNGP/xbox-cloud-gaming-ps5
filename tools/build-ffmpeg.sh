@@ -77,7 +77,25 @@ elif [[ $target == ps4 ]]; then
         --extra-cflags="$flags" --extra-ldflags="" \
         --disable-pthreads --enable-pthreads
 else
-    "$src/configure" "${common[@]}" --cc=clang
+    # Hardware H.264 decoding through Vulkan Video (FFmpeg opens libvulkan at
+    # run time: no new dependency for the AppImage). Its configure wants
+    # Vulkan headers 1.3.277 or newer: a pinned copy when the system's are
+    # older (ubuntu-24.04 has 1.3.275), header files only.
+    vkcheck='#include <vulkan/vulkan.h>
+#if !(defined(VK_VERSION_1_4) || (defined(VK_VERSION_1_3) && VK_HEADER_VERSION >= 277))
+#error old
+#endif'
+    vkflags=()
+    if ! clang -E -x c - <<<"$vkcheck" >/dev/null 2>&1; then
+        vkhdr=${XDG_CACHE_HOME:-$HOME/.cache}/xcloud-ps5/vulkan-headers-1.4.309
+        if [[ ! -f $vkhdr/include/vulkan/vulkan.h ]]; then
+            mkdir -p "$vkhdr"
+            curl -sSLf https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.309.tar.gz |
+                tar xz -C "$vkhdr" --strip-components=1
+        fi
+        vkflags=(--extra-cflags="-I$vkhdr/include")
+    fi
+    "$src/configure" "${common[@]}" --cc=clang --enable-vulkan --enable-hwaccel=h264_vulkan "${vkflags[@]}"
 fi
 make -j"$(nproc)" >/dev/null
 make install >/dev/null

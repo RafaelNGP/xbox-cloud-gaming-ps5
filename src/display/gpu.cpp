@@ -172,6 +172,8 @@ std::atomic<int> g_upscaler{0};  // 0 FSR (EASU), 1 Anime4K
 std::atomic<bool> g_restore{false};  // Anime4K Restore before the upscale
 uint32_t g_frame = 0;
 uint32_t g_swapImages = 3;
+std::atomic<bool> g_mailbox{false};  // setMailbox(): any thread; the next frame rebuilds the swapchain
+bool g_mailboxBuilt = false;         // what the swapchain was built with
 bool g_noPresentWait = true;
 // The longest a frame waits for the GPU or a free swapchain image (250 ms).
 constexpr uint64_t kGpuWaitNs = 250'000'000ull;
@@ -463,6 +465,17 @@ bool buildSwapchain(bool first) {
                             : caps.currentTransform;
     info.compositeAlpha = alpha;
     info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    const bool mailboxWanted = g_mailbox;
+    if (mailboxWanted) {
+        VkPresentModeKHR modes[8];
+        uint32_t count = 8;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(g.physical, g.surface, &count, modes);
+        for (uint32_t i = 0; i < count; ++i)
+            if (modes[i] == VK_PRESENT_MODE_MAILBOX_KHR) info.presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+    }
+    if (first || mailboxWanted != g_mailboxBuilt)
+        XC_LOGI("gpu: present mode %s", info.presentMode == VK_PRESENT_MODE_MAILBOX_KHR ? "mailbox" : "fifo");
+    g_mailboxBuilt = mailboxWanted;
     info.clipped = VK_TRUE;
     VkResult r = vkCreateSwapchainKHR(g.device, &info, nullptr, &g.swapchain);
     if (r != VK_SUCCESS) return fail("vkCreateSwapchainKHR", r);
@@ -945,6 +958,7 @@ bool beginFrame(bool wait) {
         if (w == 0 || h == 0) return false;
         if (w != g.extent.width || h != g.extent.height) g.needSwapchain = true;
     }
+    if (g_mailbox != g_mailboxBuilt) g.needSwapchain = true;  // setMailbox() changed it
     if (g.needSwapchain && !recreateSwapchain()) return false;
     if (g.presentWait && g.presented) {
         if (!g_noPresentWait) {
@@ -1326,6 +1340,8 @@ bool setHighRefresh(bool on) {
 bool canSwitchRefresh() { return wsi_videoout_set_high_refresh != nullptr; }
 
 void setSwapImages(int count) { g_swapImages = static_cast<uint32_t>(std::clamp(count, 2, 5)); }
+
+void setMailbox(bool on) { g_mailbox = on; }
 
 bool readBack(std::vector<uint8_t>& rgb, int& width, int& height) {
     if (!g.ready || g.lastPresented == UINT32_MAX) return false;

@@ -1129,6 +1129,8 @@ void notify(const std::string& text, const std::string& forLog) {
 }
 
 void setNoThreadPinning(bool) {}
+bool isHandheld() { return false; }
+void forceHandheld(bool) {}
 
 void setThreadAffinity(ThreadRole role, const char* name) {
     if (name && *name) {

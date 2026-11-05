@@ -24,6 +24,7 @@
 #include "net/http.h"
 #include "platform/platform.h"
 #include "platform/toasts.h"
+#include "platform/handheld.h"
 #include "stream/input_packet.h"
 #include "stream/stream_session.h"
 #include "ui/app_ui.h"
@@ -539,6 +540,15 @@ static std::string pbProduct(const std::string& id, const std::string& puid, int
     if (max >= 0) streaming += pbInt(4, static_cast<uint64_t>(max));
     std::string access = pbInt(1, 1) + pbInt(2, 1788310800u) + pbMsg(11, streaming);  // aggregate types: a big bit mask
     return pbMsg(2, pbMsg(1, id) + pbMsg(2, pbMsg(2, pbMsg(1, puid) + pbMsg(2, access))));
+}
+
+static void testSteamDeckDmi() {
+    using xc::platform::steamDeckDmi;
+    CHECK(steamDeckDmi("Valve\n", "Jupiter\n"));
+    CHECK(steamDeckDmi("Valve", "Galileo"));
+    CHECK(!steamDeckDmi("Valve\n", "Index\n"));
+    CHECK(!steamDeckDmi("ASUSTeK COMPUTER INC.\n", "ROG Ally RC71L_RC71L\n"));
+    CHECK(!steamDeckDmi("", ""));
 }
 
 static void testCloudTimeClock() {
@@ -7179,6 +7189,7 @@ int main() {
     testPerGameSettings();
     testPlaytimeLimit();
     testCloudTimeClock();
+    testSteamDeckDmi();
     testStrings();
     testRegions();
     testPrices();

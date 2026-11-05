@@ -25,6 +25,7 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <utility>
 
 namespace xc::display {
@@ -38,6 +39,7 @@ struct Frame {
     Kind kind = Kind::None;
     std::vector<uint32_t> rgba;    // Menu: kWidth x kHeight, 0xAABBGGRR
     std::vector<uint8_t> y, u, v;  // Video: the planes, rows packed
+    bool nv12 = false;             // Video: u holds the interleaved UV plane (the Vulkan path)
     int width = 0, height = 0;     // Video
     uint64_t id = 0;               // present()'s count when handed over
 };
@@ -62,6 +64,16 @@ SDL_ThreadID g_mainThread = 0;
 bool g_startFullscreen = true;  // the setting's default
 bool g_startForced = false;     // the command line chose
 bool g_shown = false;  // the window shows from its first picture on
+std::atomic<bool> g_lowLatencyPresent{true};  // setLowLatencyPresent(): MAILBOX when offered
+
+// Video frames handed to the GPU, by present id, until the screen shows them
+// (VK_KHR_present_wait, polled without waiting in every pump()): each frame
+// gets the time it reached the screen itself, not the one an earlier present
+// got there at. Main thread only.
+struct PendingShow {
+    uint64_t presentId, frameId;
+};
+std::deque<PendingShow> g_pendingShows;
 Frame g_front;         // the picture on screen
 Overlay g_overlayShown;
 bool g_frontPending = false, g_overlayPending = false;  // not uploaded yet
@@ -166,14 +178,32 @@ void renderScene() {
     }
 }
 
+// The newest handed frame the GPU says is on the screen, with that time.
+void pollShown() {
+    if (g_pendingShows.empty()) return;
+    uint64_t gpuId = 0, atUs = 0;
+    if (!gpu::lastShown(gpuId, atUs)) return;
+    uint64_t frame = 0;
+    while (!g_pendingShows.empty() && g_pendingShows.front().presentId <= gpuId) {
+        frame = g_pendingShows.front().frameId;
+        g_pendingShows.pop_front();
+    }
+    if (!frame) return;
+    std::lock_guard<std::mutex> lock(g_shownMutex);
+    g_shownId = frame;
+    g_shownAtUs = atUs;
+}
+
 bool drawGpuFront() {
     if (g_front.kind == Kind::Menu) {
         gpu::drawRgba(g_front.rgba.data());
     } else if (g_front.kind == Kind::Video) {
         int cw = (g_front.width + 1) / 2;
-        if (!gpu::drawYuv420(g_front.y.data(), g_front.u.data(), g_front.v.data(), g_front.width, cw, cw,
-                             g_front.width, g_front.height, true))
-            return false;
+        bool drawn = g_front.nv12 ? gpu::drawNv12(g_front.y.data(), g_front.u.data(), g_front.width, cw * 2,
+                                                  g_front.width, g_front.height, true)
+                                  : gpu::drawYuv420(g_front.y.data(), g_front.u.data(), g_front.v.data(), g_front.width,
+                                                    cw, cw, g_front.width, g_front.height, true);
+        if (!drawn) return false;
     } else {
         return false;
     }
@@ -185,11 +215,10 @@ bool drawGpuFront() {
     }
     gpu::present();
     if (g_front.kind == Kind::Video) {
-        std::lock_guard<std::mutex> lock(g_shownMutex);
-        g_shownId = g_front.id;
-        uint64_t gpuId = 0, gpuAtUs = 0;
-        g_shownAtUs = gpu::lastShown(gpuId, gpuAtUs) ? gpuAtUs : platform::nowUs();
+        g_pendingShows.push_back({gpu::lastPresentId(), g_front.id});
+        if (g_pendingShows.size() > 16) g_pendingShows.pop_front();  // never shown (hidden window)
     }
+    pollShown();
     return true;
 }
 
@@ -253,6 +282,7 @@ bool init(bool preferGpu) {
             };
             // Poll present completion without blocking the main thread's event loop.
             gpu::setPresentWait(false);
+            gpu::setMailbox(g_lowLatencyPresent);
             if (wsi.getInstanceProcAddr && exts && gpu::init(wsi)) {
                 XC_LOGI("display: SDL %d.%d.%d, video driver %s, renderer vulkan%s",
                         SDL_VERSIONNUM_MAJOR(SDL_GetVersion()), SDL_VERSIONNUM_MINOR(SDL_GetVersion()),
@@ -325,10 +355,19 @@ bool drawNv12(const uint8_t* y, const uint8_t* uv, int strideY, int strideUV,
     g_back.kind = Kind::Video;
     g_back.width = width, g_back.height = height;
     g_back.y.resize(static_cast<size_t>(width) * height);
-    g_back.u.resize(static_cast<size_t>(cw) * ch);
-    g_back.v.resize(static_cast<size_t>(cw) * ch);
     for (int r = 0; r < height; ++r)
         std::memcpy(&g_back.y[static_cast<size_t>(r) * width], y + static_cast<size_t>(r) * strideY, width);
+    // The Vulkan path takes the UV plane as it is (a hardware decoder's
+    // NV12); SDL_Renderer's IYUV texture needs it split.
+    g_back.nv12 = gpu::ready();
+    if (g_back.nv12) {
+        const size_t row = static_cast<size_t>(cw) * 2;
+        g_back.u.resize(row * ch);
+        for (int r = 0; r < ch; ++r) std::memcpy(&g_back.u[r * row], uv + static_cast<size_t>(r) * strideUV, row);
+        return true;
+    }
+    g_back.u.resize(static_cast<size_t>(cw) * ch);
+    g_back.v.resize(static_cast<size_t>(cw) * ch);
     for (int r = 0; r < ch; ++r) {
         const uint8_t* src = uv + static_cast<size_t>(r) * strideUV;
         uint8_t* du = &g_back.u[static_cast<size_t>(r) * cw];
@@ -347,6 +386,7 @@ bool drawYuv420(const uint8_t* y, const uint8_t* u, const uint8_t* v, int stride
     if (width <= 0 || height <= 0) return false;
     const int cw = (width + 1) / 2, ch = (height + 1) / 2;
     g_back.kind = Kind::Video;
+    g_back.nv12 = false;
     g_back.width = width, g_back.height = height;
     g_back.y.resize(static_cast<size_t>(width) * height);
     g_back.u.resize(static_cast<size_t>(cw) * ch);
@@ -392,6 +432,7 @@ void serveReadBack() {
 
 void pump() {
     if ((!g_renderer && !gpu::ready()) || !onMainThread()) return;
+    if (gpu::ready()) pollShown();
     {
         std::lock_guard<std::mutex> lock(g_mailboxMutex);
         if (g_mailboxFull) {
@@ -476,6 +517,10 @@ DisplayCaps caps() {
     return c;
 }
 void setSwapImages(int count) { gpu::setSwapImages(count); }
+void setLowLatencyPresent(bool on) {
+    g_lowLatencyPresent = on;
+    gpu::setMailbox(on);
+}
 void setPresentWait(bool on) { gpu::setPresentWait(on); }
 bool setHighRefresh(bool) { return false; }
 bool canSwitchRefresh() { return false; }

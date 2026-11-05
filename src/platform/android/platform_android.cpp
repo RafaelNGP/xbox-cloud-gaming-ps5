@@ -121,6 +121,8 @@ std::string platformName() { return "Android"; }
 size_t imageCacheBudget() { return 96u << 20; }
 
 void setNoThreadPinning(bool) {}
+bool isHandheld() { return false; }
+void forceHandheld(bool) {}
 
 void setThreadAffinity(ThreadRole, const char*) {}
 void setThreadRealtimePriority() {}

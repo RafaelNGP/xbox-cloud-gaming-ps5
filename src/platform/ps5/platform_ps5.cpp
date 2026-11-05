@@ -279,6 +279,8 @@ std::atomic<bool> g_noThreadPinning{true};
 }  // namespace
 
 void setNoThreadPinning(bool on) { g_noThreadPinning = on; }
+bool isHandheld() { return false; }
+void forceHandheld(bool) {}
 
 void setThreadAffinity(ThreadRole role, const char* name) {
     if (name && *name) {

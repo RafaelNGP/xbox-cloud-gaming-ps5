@@ -273,6 +273,8 @@ void Thread::join() {
 }
 
 void setNoThreadPinning(bool) {}
+bool isHandheld() { return false; }
+void forceHandheld(bool) {}
 
 void setThreadAffinity(ThreadRole role, const char* name) {
 #if defined(_WIN32) || defined(__CYGWIN__)

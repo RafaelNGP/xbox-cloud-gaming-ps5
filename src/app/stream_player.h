@@ -68,6 +68,9 @@ public:
     // The screen shows this stream at 119.88 Hz: a couple of frames that
     // came at once are shown instead of skipped (a refresh drains them).
     void setHighRefreshOutput(bool on);
+    // Measurements only (autoplay "abcycle"): the hardware or the software
+    // decoder from the next frame on, while streaming.
+    void switchDecoder(bool hardware);
     void setMicEnabled(bool enabled);
     bool micEnabled() const;
     void setMicMuted(bool muted);

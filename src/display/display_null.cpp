@@ -34,6 +34,7 @@ void setUpscaler(int) {}
 void setRestore(bool) {}
 DisplayCaps caps() { return {}; }
 void setSwapImages(int) {}
+void setLowLatencyPresent(bool) {}
 void setPresentWait(bool) {}
 bool setHighRefresh(bool) { return false; }
 bool canSwitchRefresh() { return false; }

@@ -962,6 +962,7 @@ DisplayCaps caps() {
     return c;
 }
 void setSwapImages(int) {}
+void setLowLatencyPresent(bool) {}
 void setPresentWait(bool) {}
 bool canSwitchRefresh() { return false; }
 bool setHighRefresh(bool) { return false; }

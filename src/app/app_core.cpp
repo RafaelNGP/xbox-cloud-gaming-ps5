@@ -288,6 +288,19 @@ bool coreStartup() {
         std::rename(settingsPath().c_str(), bad.c_str());
         XC_LOGW("settings: %s could not be read; defaults used, the file kept as %s", settingsPath().c_str(), bad.c_str());
     }
+    // The handheld profile (the Steam Deck), once: 720p, which its 1280x800
+    // screen shows nearly 1:1 (1080p is 2.25 times the pixels to decode, only
+    // to be shrunk), and FSR without Anime4K Restore (its passes run at the
+    // picture's size; only over the default upscaler). Both stay in Settings,
+    // where the user can change them back, and are never changed again.
+    if (platform::isHandheld() && !g_settings.handheldProfile) {
+        g_settings.handheldProfile = true;
+        // "1080p" and "best" (up to 1440p) both exceed what the screen shows.
+        if (g_settings.resolution != "720p") g_settings.resolution = "720p";
+        if (g_settings.upscaler == 2) g_settings.upscaler = 0;
+        g_settings.save(settingsPath());
+        XC_LOGI("settings: handheld profile applied (%s, upscaler %d)", g_settings.resolution.c_str(), g_settings.upscaler);
+    }
     ui::setLanguage(ui::languageFromCode(g_settings.language));
     media::setPadSpeakerVolume(g_settings.padSpeakerVolume);
     XC_LOGI("settings: language %s, %s, region %s", g_settings.language.c_str(), g_settings.resolution.c_str(),

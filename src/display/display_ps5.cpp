@@ -533,6 +533,7 @@ DisplayCaps caps() {
 
 // Straight to the GPU, whether it came up or not, as these always went.
 void setSwapImages(int count) { gpu::setSwapImages(count); }
+void setLowLatencyPresent(bool) {}  // the PS5 keeps FIFO and its pacing
 void setPresentWait(bool on) { gpu::setPresentWait(on); }
 bool setHighRefresh(bool on) { return gpu::setHighRefresh(on); }
 bool canSwitchRefresh() { return gpu::canSwitchRefresh(); }

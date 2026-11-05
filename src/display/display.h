@@ -79,8 +79,12 @@ struct DisplayCaps {
 };
 DisplayCaps caps();
 
-// Before init(): swapchain images (GPU only; 2 = lowest latency, the default).
+// Before init(): swapchain images (GPU only; 3 by default).
 void setSwapImages(int count);
+// The desktop's low-latency presenting (on by default there: MAILBOX when
+// the window system offers it); before init() or while streaming (A/B
+// tests). Off: FIFO, as before. The consoles keep their own: a no-op there.
+void setLowLatencyPresent(bool on);
 // Before init(): wait for each frame to reach the screen before the next
 // (GPU only, on by default).
 void setPresentWait(bool on);
