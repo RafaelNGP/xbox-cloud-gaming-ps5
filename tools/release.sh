@@ -205,8 +205,11 @@ fi
 echo "== all checks passed; to publish (with release notes in notes.md):"
 echo "  gh release create $tag \\"
 echo "    \"$zip\" \"$out/PPSA99810.zip.sha256\" \"$out/PPSA99810.zip.sig\" \\"
-echo "    \"$out/PSBoxCloudGaming[[]PS5]-$tag.zip\" \"$out/PSBoxCloudGaming[[]PS5]-$tag.zip.sha256\" \"$out/PSBoxCloudGaming[[]PS5]-$tag.zip.sig\" \\"
-echo "    \"$out/PSBoxCloudGaming[[]PS4]-$tag.pkg\" \"$out/PSBoxCloudGaming[[]PS4]-$tag.pkg.sha256\"$linux_assets \\"
+echo "    \"$out/PSBoxCloudGaming[[]PS5]-$tag.zip#PSBoxCloudGaming[PS5]-$tag.zip\" \\"
+echo "    \"$out/PSBoxCloudGaming[[]PS5]-$tag.zip.sha256#PSBoxCloudGaming[PS5]-$tag.zip.sha256\" \\"
+echo "    \"$out/PSBoxCloudGaming[[]PS5]-$tag.zip.sig#PSBoxCloudGaming[PS5]-$tag.zip.sig\" \\"
+echo "    \"$out/PSBoxCloudGaming[[]PS4]-$tag.pkg#PSBoxCloudGaming[PS4]-$tag.pkg\" \\"
+echo "    \"$out/PSBoxCloudGaming[[]PS4]-$tag.pkg.sha256#PSBoxCloudGaming[PS4]-$tag.pkg.sha256\"$linux_assets \\"
 echo "    --target $(git rev-parse HEAD) --title \"PSBox Cloud Gaming $tag\" --notes-file notes.md"
 echo
 echo "== post-release steps (Mandatory Tri-Platform Standard):"

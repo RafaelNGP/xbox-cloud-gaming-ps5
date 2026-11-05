@@ -99,16 +99,16 @@ git push origin "$tag"
 # Phase 3: GitHub Release Creation (PS5 + PS4)
 echo
 echo -e "${BOLD}Phase 3: Creating GitHub Release $tag with PS5 and PS4 assets...${NC}"
-# Use [[] escaping to prevent Go filepath.Glob from treating [PS5] / [PS4] as regex character sets
+# Use [[] escaping for globbing and #label for display names with literal brackets []
 initial_assets=(
     "$out/PPSA99810.zip"
     "$out/PPSA99810.zip.sha256"
     "$out/PPSA99810.zip.sig"
-    "$out/PSBoxCloudGaming[[]PS5]-$tag.zip"
-    "$out/PSBoxCloudGaming[[]PS5]-$tag.zip.sha256"
-    "$out/PSBoxCloudGaming[[]PS5]-$tag.zip.sig"
-    "$out/PSBoxCloudGaming[[]PS4]-$tag.pkg"
-    "$out/PSBoxCloudGaming[[]PS4]-$tag.pkg.sha256"
+    "$out/PSBoxCloudGaming[[]PS5]-$tag.zip#PSBoxCloudGaming[PS5]-$tag.zip"
+    "$out/PSBoxCloudGaming[[]PS5]-$tag.zip.sha256#PSBoxCloudGaming[PS5]-$tag.zip.sha256"
+    "$out/PSBoxCloudGaming[[]PS5]-$tag.zip.sig#PSBoxCloudGaming[PS5]-$tag.zip.sig"
+    "$out/PSBoxCloudGaming[[]PS4]-$tag.pkg#PSBoxCloudGaming[PS4]-$tag.pkg"
+    "$out/PSBoxCloudGaming[[]PS4]-$tag.pkg.sha256#PSBoxCloudGaming[PS4]-$tag.pkg.sha256"
 )
 
 gh release create "$tag" \
@@ -154,16 +154,24 @@ done
 
 # Phase 5: Cryptographic Signature and Named Linux Asset
 echo
-echo -e "${BOLD}Phase 5: Signing Linux AppImage with local release key...${NC}"
+echo -e "${BOLD}Phase 5: Signing Linux AppImage with local release key and setting label...${NC}"
 tools/desktop/sign-linux-release.sh "$tag"
 
-# Download the signed Linux AppImage and upload as PSBoxCloudGaming[Linux]-$tag.AppImage
+# Download the signed Linux AppImage and upload as PSBoxCloudGaming[Linux]-$tag.AppImage with label
 work_linux=$(mktemp -d)
 gh release download "$tag" -p "$linux_name" -D "$work_linux" >/dev/null 2>&1
 if [[ -s "$work_linux/$linux_name" ]]; then
     cp -f "$work_linux/$linux_name" "$work_linux/$named_linux"
     (cd "$work_linux" && sha256sum "$named_linux" > "$named_linux.sha256")
-    gh release upload "$tag" "$work_linux/PSBoxCloudGaming[[]Linux]-$tag.AppImage" "$work_linux/PSBoxCloudGaming[[]Linux]-$tag.AppImage.sha256" --clobber
+    gh release upload "$tag" \
+        "$work_linux/PSBoxCloudGaming[[]Linux]-$tag.AppImage#PSBoxCloudGaming[Linux]-$tag.AppImage" \
+        "$work_linux/PSBoxCloudGaming[[]Linux]-$tag.AppImage.sha256#PSBoxCloudGaming[Linux]-$tag.AppImage.sha256" \
+        --clobber
+    
+    # Remove the intermediate un-named CI assets so Linux is not duplicated
+    gh release delete-asset "$tag" "$linux_name" -y 2>/dev/null || true
+    gh release delete-asset "$tag" "$linux_name.sha256" -y 2>/dev/null || true
+    gh release delete-asset "$tag" "$linux_name.sig" -y 2>/dev/null || true
 fi
 rm -rf "$work_linux"
 
