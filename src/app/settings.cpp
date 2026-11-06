@@ -135,6 +135,7 @@ bool Settings::load(const std::string& path) {
     queueReadyAlert = (*j)["queueReadyAlert"].asBool(queueReadyAlert);
     previewFeatures = (*j)["previewFeatures"].asBool(previewFeatures);
     syncTrophies = (*j)["syncTrophies"].asBool(syncTrophies);
+    usbControllers = (*j)["usbControllers"].asBool((*j)["usb_controllers"].asBool((*j)["enable_onefamily"].asBool(usbControllers)));
     titlePlaytime.clear();
     for (const auto& [id, sec] : (*j)["titlePlaytime"].members())
         if (sec.asInt() > 0) titlePlaytime[id] = static_cast<uint64_t>(sec.asInt());
@@ -279,6 +280,7 @@ bool Settings::save(const std::string& path) const {
     v.set("queueReadyAlert", queueReadyAlert);
     v.set("previewFeatures", previewFeatures);
     v.set("syncTrophies", syncTrophies);
+    v.set("usbControllers", usbControllers);
     json::Value pt = json::Value::object();
     for (const auto& [id, sec] : titlePlaytime)
         if (sec > 0) pt.set(id, static_cast<int64_t>(sec));

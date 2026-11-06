@@ -5,6 +5,7 @@
 // Ported and adapted from OneFamily (ChiricoG/OneFamily, MIT) and OmniPad CE.
 #include "input/pad_usb.h"
 #include "input/pad_usb_hid.h"
+#include "platform/platform.h"
 #include "util/log.h"
 
 #include <stdint.h>
@@ -367,10 +368,12 @@ bool identifyController(libusb_device* dev, const struct libusb_device_descripto
     if (vid == XBOX_VID) {
         if (pid == XBOX360_PID) {
             out.protocol = UsbPadProtocol::XInput;
-            out.interfaceNum = 0;
-            out.epIn = 0x81;
-            out.epOut = 0x01;
             out.name = "Xbox 360 Controller";
+            if (!detectXboxByDescriptor(dev, out)) {
+                out.interfaceNum = 0;
+                out.epIn = 0x81;
+                out.epOut = 0x02;
+            }
             return true;
         }
         if (isXboxOnePid(pid)) {
@@ -463,6 +466,8 @@ struct Device {
     bool hidConfigured = false;
     GenericHidContext hidCtx{};
     int disconnectErrors = 0;
+    std::atomic<uint32_t> pendingRumble{0};
+    std::atomic<bool> hasPendingRumble{false};
     std::atomic<bool> stop{false};
     std::atomic<bool> dead{false};
     std::atomic<bool> attached{false};
@@ -593,19 +598,104 @@ void sendInitHandshake(Device& d) {
     }
 }
 
+void sendDeviceRumble(Device& d, uint8_t large, uint8_t small) {
+    if (!d.handle) return;
+    if (d.protocol == UsbPadProtocol::XInput) {
+        if (d.epOut && p_sceUsbdInterruptTransfer) {
+            uint8_t pkt[8] = {0x00, 0x08, 0x00, large, small, 0x00, 0x00, 0x00};
+            int transferred = 0;
+            p_sceUsbdInterruptTransfer(d.handle, d.epOut, pkt, sizeof(pkt), &transferred, 50);
+        }
+    } else if (d.protocol == UsbPadProtocol::Gip) {
+        if (d.epOut && p_sceUsbdInterruptTransfer) {
+            static uint8_t s_rumbleSeq = 1;
+            uint8_t pkt[13] = {
+                0x09, 0x00, s_rumbleSeq++, 0x09, 0x00,
+                0x0F,
+                0x00, 0x00,
+                large, small,
+                0xFF, 0x00, 0xFF
+            };
+            int transferred = 0;
+            p_sceUsbdInterruptTransfer(d.handle, d.epOut, pkt, sizeof(pkt), &transferred, 50);
+        }
+    } else if (d.protocol == UsbPadProtocol::DualShock4) {
+        if (d.epOut && p_sceUsbdInterruptTransfer) {
+            uint8_t pkt[32] = {};
+            pkt[0] = 0x05;
+            pkt[1] = 0xFF;
+            pkt[2] = 0x04;
+            pkt[4] = small;
+            pkt[5] = large;
+            int transferred = 0;
+            p_sceUsbdInterruptTransfer(d.handle, d.epOut, pkt, sizeof(pkt), &transferred, 50);
+        }
+    } else if (d.protocol == UsbPadProtocol::DualSense) {
+        if (d.epOut && p_sceUsbdInterruptTransfer) {
+            uint8_t pkt[48] = {};
+            pkt[0] = 0x02;
+            pkt[1] = 0x03;
+            pkt[2] = 0x14;
+            pkt[3] = small;
+            pkt[4] = large;
+            int transferred = 0;
+            p_sceUsbdInterruptTransfer(d.handle, d.epOut, pkt, sizeof(pkt), &transferred, 50);
+        }
+    } else if (d.protocol == UsbPadProtocol::DualShock3) {
+        if (p_sceUsbdControlTransfer) {
+            uint8_t pkt[49] = {};
+            pkt[0] = 0x01;
+            pkt[1] = 0x00;
+            pkt[2] = small ? 0x01 : 0x00;
+            pkt[3] = 0x00;
+            pkt[4] = large;
+            p_sceUsbdControlTransfer(d.handle, 0x21, 0x09, 0x0201, d.interfaceNum, pkt, sizeof(pkt), 50);
+        }
+    } else if (d.protocol == UsbPadProtocol::SwitchPro) {
+        if (d.epOut && p_sceUsbdInterruptTransfer) {
+            static uint8_t s_proSeq = 0;
+            uint8_t pkt[49] = {};
+            pkt[0] = 0x10;
+            pkt[1] = (s_proSeq++) & 0x0F;
+            if (large > 0 || small > 0) {
+                pkt[2] = 0x28; pkt[3] = 0x88; pkt[4] = 0x60; pkt[5] = 0x61;
+                pkt[6] = 0x28; pkt[7] = 0x88; pkt[8] = 0x60; pkt[9] = 0x61;
+            } else {
+                pkt[2] = 0x00; pkt[3] = 0x01; pkt[4] = 0x40; pkt[5] = 0x40;
+                pkt[6] = 0x00; pkt[7] = 0x01; pkt[8] = 0x40; pkt[9] = 0x40;
+            }
+            int transferred = 0;
+            p_sceUsbdInterruptTransfer(d.handle, d.epOut, pkt, sizeof(pkt), &transferred, 50);
+        }
+    }
+}
+
 void readLoop(Device* d) {
+    std::string tname = "ps4_usb_" + std::to_string(d->slot);
+    platform::setThreadAffinity(platform::ThreadRole::Worker, tname.c_str());
     XC_LOGI("usb pad %d: read thread started for %s (%04x:%04x, %s)", d->slot, d->name.c_str(), d->vid, d->pid,
             usbPadProtocolName(d->protocol));
     usbPadAttached(d->slot, d->name);
     d->attached = true;
     sendInitHandshake(*d);
 
+    auto checkRumble = [&]() {
+        if (d->hasPendingRumble.exchange(false, std::memory_order_acq_rel)) {
+            uint32_t val = d->pendingRumble.load(std::memory_order_relaxed);
+            uint8_t large = static_cast<uint8_t>(val >> 8);
+            uint8_t small = static_cast<uint8_t>(val & 0xFF);
+            sendDeviceRumble(*d, large, small);
+        }
+    };
+
     ControllerState state;
     uint8_t buf[256];
     int errors = 0;
     while (!d->stop) {
+        checkRumble();
         int transferred = 0;
         int rc = p_sceUsbdInterruptTransfer(d->handle, d->epIn, buf, sizeof(buf), &transferred, 20);
+        checkRumble();
         bool isTimeout = (rc == -7 || rc == static_cast<int>(0x80240007));
         if (rc != 0 || transferred <= 0) {
             if (rc != 0 && !isTimeout) {
@@ -644,6 +734,7 @@ void readLoop(Device* d) {
         }
     }
 
+    sendDeviceRumble(*d, 0, 0);
     d->dead = true;
     XC_LOGI("usb pad %d: read thread finished", d->slot);
 }
@@ -668,6 +759,11 @@ void closeDevice(Device& d) {
 
 void scan() {
     std::lock_guard<std::mutex> lock(g_mutex);
+    if (!usbPadsEnabled()) {
+        for (auto& d : g_devices) closeDevice(*d);
+        g_devices.clear();
+        return;
+    }
 
     // 1. Remove disconnected / dead devices
     for (auto it = g_devices.begin(); it != g_devices.end();) {
@@ -776,6 +872,7 @@ void scan() {
 }
 
 void scanLoop() {
+    platform::setThreadAffinity(platform::ThreadRole::Worker, "ps4_usb_scan");
     XC_LOGI("usb pad: starting PS4 USB scan loop");
     while (g_running) {
         scan();
@@ -791,7 +888,23 @@ void scanLoop() {
 
 }  // namespace
 
+void setUsbPadSlotRumble(int slot, uint8_t large, uint8_t small) {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    for (auto& d : g_devices) {
+        if (d->slot == slot) {
+            uint32_t val = (static_cast<uint32_t>(large) << 8) | small;
+            d->pendingRumble.store(val, std::memory_order_relaxed);
+            d->hasPendingRumble.store(true, std::memory_order_release);
+            break;
+        }
+    }
+}
+
 void usbPadsStart() {
+    if (!usbPadsEnabled()) {
+        XC_LOGI("usb pad: USB controllers driver disabled in settings");
+        return;
+    }
     if (g_running.exchange(true)) return;
     if (!loadUsbd()) {
         g_running = false;

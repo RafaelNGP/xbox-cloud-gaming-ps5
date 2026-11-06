@@ -322,7 +322,7 @@ void shutdown() {
 bool poll(ControllerState& out) {
     if (pollPad(0, out)) return true;
     for (int i = 1; i < 4; ++i) {
-        if (g_slots[i].handle >= 0 && pollPad(i, out)) return true;
+        if (pollPad(i, out)) return true;
     }
     return false;
 }

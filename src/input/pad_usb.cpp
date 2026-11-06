@@ -12,13 +12,17 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <mutex>
 
 namespace xc::input {
 
 namespace {
 
+std::atomic<bool> g_usbPadsEnabled{true};
+
 int16_t le16(const uint8_t* p) { return static_cast<int16_t>(p[0] | (p[1] << 8)); }
+
 
 float stick(int16_t v) { return std::clamp(static_cast<float>(v) / 32767.0f, -1.0f, 1.0f); }
 
@@ -90,6 +94,7 @@ void movePlayer(Slot& s, int slot, int player) {
 // let go too); otherwise those playing as it, but `except`.
 bool pollWhere(int player, int except, ControllerState& out) {
     out = ControllerState{};
+    if (!g_usbPadsEnabled.load(std::memory_order_relaxed)) return false;
     bool any = false;
     std::lock_guard<std::mutex> lock(g_mutex);
     assignPlayers();
@@ -715,5 +720,49 @@ uint64_t usbPadActiveAt(int player) {
         if (s.attached && s.player == player && player >= 0) at = std::max(at, s.activeAt);
     return at;
 }
+
+void setUsbPadsEnabled(bool enabled) {
+    bool was = g_usbPadsEnabled.exchange(enabled);
+    if (was && !enabled) {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        for (int s = 0; s < kMaxUsbPads; ++s) {
+            Slot& slot = g_slots[s];
+            if (slot.attached) {
+                if (slot.player >= 0) {
+                    g_events.push_back({UsbPadEvent::Kind::Disconnected, slot.player, slot.name, s});
+                }
+                slot = Slot{};
+            }
+        }
+        usbPadsStop();
+    } else if (!was && enabled) {
+        usbPadsStart();
+    }
+}
+
+bool usbPadsEnabled() {
+    return g_usbPadsEnabled.load(std::memory_order_relaxed);
+}
+
+void setUsbPadRumble(int player, uint8_t large, uint8_t small) {
+    if (player < 0 || player >= kMaxPads) return;
+    int slot = -1;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        for (int s = 0; s < kMaxUsbPads; ++s) {
+            if (g_slots[s].attached && g_slots[s].player == player) {
+                slot = s;
+                break;
+            }
+        }
+    }
+    if (slot >= 0) {
+        setUsbPadSlotRumble(slot, large, small);
+    }
+}
+
+void __attribute__((weak)) usbPadsStart() {}
+void __attribute__((weak)) usbPadsStop() {}
+void __attribute__((weak)) setUsbPadSlotRumble(int /*slot*/, uint8_t /*large*/, uint8_t /*small*/) {}
 
 }  // namespace xc::input

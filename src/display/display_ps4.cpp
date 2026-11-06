@@ -658,7 +658,7 @@ void present() {
     int64_t marker = ++g_flipMarker;
     uint64_t subProcUs = sceKernelGetProcessTime();
     uint64_t subUs = platform::nowUs();
-    const int flipMode = g_videoFlip ? ORBIS_VIDEO_OUT_FLIP_HSYNC : ORBIS_VIDEO_OUT_FLIP_VSYNC;
+    const int flipMode = ORBIS_VIDEO_OUT_FLIP_VSYNC;
     int rc = sceVideoOutSubmitFlip(g_videoHandle, g_currentBuffer, flipMode, marker);
     if (rc != 0) {
         XC_LOGW("display: submit flip: 0x%08x", static_cast<unsigned>(rc));

@@ -372,6 +372,20 @@ int socket(int domain, int type, int protocol) {
     if ((type & SOCK_NONBLOCK) || (type & 04000) || (type & 0x800) || (type & 0x4000) || (type & 0x20000000)) {
         setSocketNonBlock(s, 1);
     }
+    if (baseType == SOCK_DGRAM) {
+        const int rcvCandidates[] = { 2097152, 1048576, 524288, 262144, 131072 };
+        for (int sz : rcvCandidates) {
+            if (sceNetSetsockopt(s, 0xffff /*SOL_SOCKET*/, 0x1002 /*SO_RCVBUF*/, &sz, sizeof(sz)) >= 0) {
+                break;
+            }
+        }
+        const int sndCandidates[] = { 1048576, 524288, 262144, 131072 };
+        for (int sz : sndCandidates) {
+            if (sceNetSetsockopt(s, 0xffff /*SOL_SOCKET*/, 0x1001 /*SO_SNDBUF*/, &sz, sizeof(sz)) >= 0) {
+                break;
+            }
+        }
+    }
     return s;
 }
 
@@ -585,8 +599,43 @@ int accept(int fd, struct sockaddr* addr, socklen_t* addrlen) {
     return ret;
 }
 
+static inline void translateSockOpt(int& level, int& optname) {
+    if (level == 1) { // Linux SOL_SOCKET
+        level = 0xffff; // FreeBSD / Orbis SOL_SOCKET
+        switch (optname) {
+            case 1:  optname = 0x0001; break; // SO_DEBUG
+            case 2:  optname = 0x0004; break; // SO_REUSEADDR
+            case 3:  optname = 0x1008; break; // SO_TYPE
+            case 4:  optname = 0x1007; break; // SO_ERROR
+            case 5:  optname = 0x0010; break; // SO_DONTROUTE
+            case 6:  optname = 0x0020; break; // SO_BROADCAST
+            case 7:  optname = 0x1001; break; // SO_SNDBUF
+            case 8:  optname = 0x1002; break; // SO_RCVBUF
+            case 9:  optname = 0x0008; break; // SO_KEEPALIVE
+            case 10: optname = 0x0100; break; // SO_OOBINLINE
+            case 13: optname = 0x0080; break; // SO_LINGER
+            case 15: optname = 0x0200; break; // SO_REUSEPORT
+            case 18: optname = 0x1004; break; // SO_RCVLOWAT
+            case 19: optname = 0x1003; break; // SO_SNDLOWAT
+            case 20: optname = 0x1006; break; // SO_RCVTIMEO
+            case 21: optname = 0x1005; break; // SO_SNDTIMEO
+            default: break;
+        }
+    }
+}
+
 int setsockopt(int fd, int level, int optname, const void* optval, socklen_t optlen) {
+    translateSockOpt(level, optname);
     int ret = sceNetSetsockopt(fd, level, optname, optval, optlen);
+    if (ret < 0 && level == 0xffff && (optname == 0x1002 || optname == 0x1001) && optval && optlen == sizeof(int)) {
+        int req = *reinterpret_cast<const int*>(optval);
+        int step = req / 2;
+        while (step >= 65536) {
+            ret = sceNetSetsockopt(fd, level, optname, &step, sizeof(step));
+            if (ret >= 0) break;
+            step /= 2;
+        }
+    }
     if (ret < 0) {
         errno = getNetErrno(ret);
         return -1;
@@ -595,6 +644,7 @@ int setsockopt(int fd, int level, int optname, const void* optval, socklen_t opt
 }
 
 int getsockopt(int fd, int level, int optname, void* optval, socklen_t* optlen) {
+    translateSockOpt(level, optname);
     unsigned int olen = optlen ? static_cast<unsigned int>(*optlen) : 0;
     int ret = sceNetGetsockopt(fd, level, optname, optval, optlen ? &olen : nullptr);
     if (ret < 0) {

@@ -744,6 +744,14 @@ input:checked + .slider-sw:before { transform: translateX(20px); }
         </label>
       </div>
 
+      <div class="toggle-row">
+        <span class="toggle-label">Controles USB (Driver OneFamily integrado)</span>
+        <label class="switch">
+          <input type="checkbox" id="checkUsbControllers" onchange="markSettingsChanged()">
+          <span class="slider-sw"></span>
+        </label>
+      </div>
+
       <div class="map-item" style="margin-top: 10px;">
         <label>Decodificador de Vídeo</label>
         <select id="selectVideoDecoder" onchange="markSettingsChanged()">
@@ -1635,6 +1643,7 @@ function saveGeneralSettings() {
     lightBarMode: parseInt(document.getElementById('selectLightBarMode').value, 10),
     lightBarColour: document.getElementById('inputLightBarColor').value,
     queueReadyAlert: document.getElementById('checkQueueAlert').checked,
+    usbControllers: document.getElementById('checkUsbControllers') ? document.getElementById('checkUsbControllers').checked : true,
     videoDecoder: parseInt(document.getElementById('selectVideoDecoder').value, 10),
     voiceRouting: parseInt(document.getElementById('selectVoiceRouting').value, 10)
   };
@@ -2001,6 +2010,10 @@ function applyLoadedSettings(s) {
   if (s.queueReadyAlert !== undefined) {
     const el = document.getElementById('checkQueueAlert');
     if (el) el.checked = !!s.queueReadyAlert;
+  }
+  if (s.usbControllers !== undefined) {
+    const el = document.getElementById('checkUsbControllers');
+    if (el) el.checked = !!s.usbControllers;
   }
   if (s.videoDecoder !== undefined) {
     const el = document.getElementById('selectVideoDecoder');

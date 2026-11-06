@@ -4697,6 +4697,18 @@ static void testUsbPadSlots() {
     input::usbPadState(2, bitdo);  // a slot that was never attached
     CHECK(!input::pollUsbPad(out) && input::usbPadPlayer(2) == -1);
     input::usbPadState(9, bitdo);  // out of range: ignored
+
+    // USB Pads Enabled toggle and rumble
+    CHECK(input::usbPadsEnabled());
+    input::usbPadAttached(0, "Test Pad");
+    input::setUsbPadRumble(0, 128, 64);
+    input::setUsbPadRumble(5, 128, 64);  // out of bounds
+    input::setUsbPadsEnabled(false);
+    CHECK(!input::usbPadsEnabled());
+    CHECK(input::usbPadCount() == 0);
+    input::setUsbPadsEnabled(true);
+    CHECK(input::usbPadsEnabled());
+    input::takeUsbPadEvents();
 }
 
 static void testDesktopMouseNav() {

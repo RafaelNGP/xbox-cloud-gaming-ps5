@@ -106,6 +106,7 @@ void applyControllerSettings() {
     input::setTriggerFeel(g_settings.triggerStrength, g_settings.triggerHz, g_settings.triggerResistance, g_settings.triggerPulses);
     input::setCircleConfirms(g_settings.circleConfirms);
     media::setAudioHapticsLevel(g_settings.audioHaptics);
+    input::setUsbPadsEnabled(g_settings.usbControllers);
     if (g_ui) g_ui->setCircleConfirms(g_settings.circleConfirms);
 }
 
@@ -356,6 +357,7 @@ bool coreStartup() {
             root.set("audioHaptics", g_settings.audioHaptics);
             root.set("queueReadyAlert", g_settings.queueReadyAlert);
             root.set("previewFeatures", g_settings.previewFeatures);
+            root.set("usbControllers", g_settings.usbControllers);
             root.set("videoDecoder", g_settings.videoDecoder);
             root.set("voiceRouting", g_settings.voiceRouting);
             root.set("padSpeakerVolume", g_settings.padSpeakerVolume);
@@ -428,6 +430,14 @@ bool coreStartup() {
                 }
                 if (root.has("previewFeatures")) {
                     g_settings.previewFeatures = root["previewFeatures"].asBool(g_settings.previewFeatures);
+                    changed = true;
+                }
+                if (root.has("usbControllers") || root.has("usb_controllers") || root.has("enable_onefamily")) {
+                    bool val = root.has("usbControllers") ? root["usbControllers"].asBool(g_settings.usbControllers)
+                             : root.has("usb_controllers") ? root["usb_controllers"].asBool(g_settings.usbControllers)
+                             : root["enable_onefamily"].asBool(g_settings.usbControllers);
+                    g_settings.usbControllers = val;
+                    input::setUsbPadsEnabled(val);
                     changed = true;
                 }
                 if (root.has("videoDecoder")) {

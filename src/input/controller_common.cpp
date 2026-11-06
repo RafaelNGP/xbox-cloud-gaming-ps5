@@ -10,6 +10,7 @@
 #include "input/controller.h"
 #include "input/controller_backend.h"
 #include "input/gyro.h"
+#include "input/pad_usb.h"
 #include "input/tuning.h"
 #include "platform/platform.h"
 #include "util/log.h"
@@ -132,8 +133,13 @@ void applyTriggerMotors(int index, Pad& pad) {
 
 void applyRumble(int index, Pad& pad) {
     uint32_t v;
-    if (pad.motors.due(v))
-        backend::setMotors(index, static_cast<uint8_t>(v >> 8), static_cast<uint8_t>(v), v ? pad.motors.remainingMs() : 0);
+    if (pad.motors.due(v)) {
+        uint8_t large = static_cast<uint8_t>(v >> 8);
+        uint8_t small = static_cast<uint8_t>(v);
+        if (backend::padOpen(index))
+            backend::setMotors(index, large, small, v ? pad.motors.remainingMs() : 0);
+        setUsbPadRumble(index, large, small);
+    }
     TriggerStyle style = backend::triggerStyle(index);
     if (style == TriggerStyle::Motors) return applyTriggerMotors(index, pad);
     if (style != TriggerStyle::Adaptive) return;
@@ -264,9 +270,10 @@ void applyPadSettings(ControllerState& s) {
 
 bool pollPad(int index, ControllerState& out) {
     out = {};
-    if (index < 0 || index >= kMaxPads || !backend::padOpen(index)) return false;
+    if (index < 0 || index >= kMaxPads) return false;
     Pad& slot = g_pads[index];
     applyRumble(index, slot);
+    if (!backend::padOpen(index)) return false;
     applyLightBar(index, slot);
     RawPad pad;
     slot.connected = backend::readPad(index, pad);

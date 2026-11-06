@@ -111,9 +111,14 @@ void usbPadsWaitRelease();
 std::string usbPadNameFor(int player);
 uint64_t usbPadActiveAt(int player);
 
-// PS5: starts and stops looking for USB pads (pad_usb_ps5.cpp; called by
-// controller_ps5.cpp). Not defined on the other platforms.
+void setUsbPadsEnabled(bool enabled);
+bool usbPadsEnabled();
+void setUsbPadRumble(int player, uint8_t large, uint8_t small);
+void setUsbPadSlotRumble(int slot, uint8_t large, uint8_t small);
+
+// PS4 & PS5: starts and stops looking for USB pads. Not defined on the other platforms.
 void usbPadsStart();
 void usbPadsStop();
 
 }  // namespace xc::input
+
