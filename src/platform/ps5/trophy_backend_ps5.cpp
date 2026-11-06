@@ -2,6 +2,7 @@
 // Copyright (C) 2026 RafaelNGP
 #include "trophy/trophy_backend.h"
 #include "trophy/trophy_builder.h"
+#include "trophy/trophy_db.h"
 #include "trophy/trophy_rules.h"
 #include "platform/platform.h"
 #include "util/log.h"
@@ -19,26 +20,12 @@
 #include <unistd.h>
 #include <vector>
 
-struct SceNpTrophy2DebugUnlockParam {
-    uint32_t mode;     // 1 = all, 2 = specific trophyId (1..N)
-    int32_t trophyId;  // 1-based trophy id, or -1
-};
-
 extern "C" {
 int sceKernelLoadStartModule(const char* path, size_t argc, const void* argv, uint32_t flags, void* opt, int* res);
 const char* sceKernelGetFsSandboxRandomWord(void);
 int sceUserServiceInitialize(const void* param);
 int sceUserServiceGetInitialUser(int32_t* userId);
 int sceUserServiceGetUserName(int32_t userId, char* name, size_t size);
-
-int32_t sceNpTrophy2CreateContext(int32_t *context, int32_t userId, uint32_t serviceLabel, uint64_t options);
-int32_t sceNpTrophy2DestroyContext(int32_t context);
-int32_t sceNpTrophy2CreateHandle(int32_t *handle);
-int32_t sceNpTrophy2DestroyHandle(int32_t handle);
-int32_t sceNpTrophy2AbortHandle(int32_t handle);
-int32_t sceNpTrophy2RegisterContext(int32_t context, int32_t handle, uint64_t options);
-int32_t sceNpTrophy2SystemDebugUnlockTrophy(int32_t handle, int32_t context, const SceNpTrophy2DebugUnlockParam *param);
-int32_t sceNpTrophy2ShowTrophyList(int32_t handle, uint64_t options);
 }
 
 namespace xc::trophy {
@@ -165,11 +152,10 @@ public:
         sceUserServiceGetUserName(static_cast<int32_t>(userId_), userName, sizeof(userName));
         XC_LOGI("trophy ps5: initialized for user 0x%08x (%s)", userId_, userName[0] ? userName : "devRafaelNGP");
 
-        // Load libSceNpTrophy2 module first so it is present in memory for patching
-        loadNpTrophyModule();
-
-        // Ensure SceShellCore patches are active, unjail eboot, and patch libSceNpTrophy2
+        // Ensure unjail eboot so /system_data and /user are writable
         triggerSceShellCorePatch();
+        waitForUnjail(8000);
+
         initialized_ = true;
         return true;
     }
@@ -178,7 +164,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         if (!initialized_) init(0);
 
-        if (currentNpCommId_ != set.npCommId || context_ < 0) {
+        if (currentNpCommId_ != set.npCommId) {
             cleanupContext();
             currentNpCommId_ = set.npCommId;
 
@@ -208,55 +194,11 @@ public:
                 ::close(fd);
             }
 
-            // Generate UCP package and npbind.dat, deploy to system folders.
-            // Wait for the async unjail first, or every write below hits ENOENT.
+            // Generate UCP package, TRPTITLE.DAT, npbind.dat, and system DB registrations
             waitForUnjail(8000);
             deployTrophyPack(set, userId_);
             std::vector<uint8_t> dummyUcp;
             buildUcp(set, dummyUcp, &ucpSha1_);
-
-            // Re-trigger patch to guarantee client-side libSceNpTrophy2 and SceShellCore are patched
-            triggerSceShellCorePatch();
-
-            if (trophyModule_ < 0) loadNpTrophyModule();
-            if (trophyModule_ < 0) {
-                XC_LOGW("trophy ps5: cannot register title: libSceNpTrophy2.sprx not loaded");
-                return false;
-            }
-
-            int rc = sceNpTrophy2CreateContext(&context_, static_cast<int32_t>(userId_), 1, 0);
-            XC_LOGI("trophy ps5: sceNpTrophy2CreateContext(user=0x%08x, serviceLabel=1) -> rc=0x%08x, context=%d",
-                    userId_, static_cast<unsigned>(rc), context_);
-            if (rc == 0 && handle_ < 0) {
-                rc = sceNpTrophy2CreateHandle(&handle_);
-                XC_LOGI("trophy ps5: sceNpTrophy2CreateHandle -> rc=0x%08x, handle=%d",
-                        static_cast<unsigned>(rc), handle_);
-            }
-            if (context_ >= 0 && handle_ >= 0) {
-                ::usleep(500000); // 500ms for SceShellCore CreateContextJob to settle and register context
-                for (int retry = 0; retry < 6; ++retry) {
-                    rc = sceNpTrophy2RegisterContext(context_, handle_, 0);
-                    if (rc == 0 || static_cast<uint32_t>(rc) == 0x80553921) {
-                        XC_LOGI("trophy ps5: sceNpTrophy2RegisterContext(ctx=%d, hdl=%d) -> rc=0x%08x (attempt %d)",
-                                context_, handle_, static_cast<unsigned>(rc), retry + 1);
-                        break;
-                    }
-                    if ((static_cast<uint32_t>(rc) == 0x80553909 ||
-                         static_cast<uint32_t>(rc) == 0x80020023 ||
-                         static_cast<uint32_t>(rc) == 0x80553908) && retry < 5) {
-                        XC_LOGI("trophy ps5: RegisterContext context %d not ready yet (rc=0x%08x), retrying in 800ms (%d/6)",
-                                context_, static_cast<unsigned>(rc), retry + 1);
-                        if (retry == 1) {
-                            triggerSceShellCorePatch();
-                        }
-                        ::usleep(800000);
-                        continue;
-                    }
-                    XC_LOGW("trophy ps5: sceNpTrophy2RegisterContext failed with rc=0x%08x", static_cast<unsigned>(rc));
-                    break;
-                }
-                ::usleep(500000); // 500ms settle for SceShellCore async pack load
-            }
         }
 
         registeredTitles_[set.npCommId] = set;
@@ -275,52 +217,10 @@ public:
         if (grade == TrophyGrade::Platinum || trophyId == kPlatinumTrophyId) {
             XC_LOGI("trophy ps5: Platinum trophy awarded for %s (%s) upon 100%% completion",
                     npCommId.c_str(), trophyName.c_str());
-            sessionUnlockedTrophies_[npCommId].insert(trophyId);
-            unlockedTrophies_[npCommId].insert(trophyId);
-            return true;
-        }
-
-        int rc = -1;
-        if (context_ >= 0 && handle_ >= 0) {
-            SceNpTrophy2DebugUnlockParam param{};
-            param.mode = 1; // Mode 1: specific trophy_id
-            param.trophyId = trophyId;
-
-            for (int retry = 0; retry < 10; ++retry) {
-                rc = sceNpTrophy2SystemDebugUnlockTrophy(handle_, context_, &param);
-                if (rc == 0 || static_cast<uint32_t>(rc) == 0x80553998) {
-                    rc = 0;
-                    break;
-                }
-                if ((static_cast<uint32_t>(rc) == 0x80553909 ||
-                     static_cast<uint32_t>(rc) == 0x80020023 ||
-                     static_cast<uint32_t>(rc) == 0x80553908) && retry < 9) {
-                    ::usleep(100000);
-                    continue;
-                }
-                // Fallback to mode 2
-                param.mode = 2;
-                int dbg2 = sceNpTrophy2SystemDebugUnlockTrophy(handle_, context_, &param);
-                if (dbg2 == 0 || static_cast<uint32_t>(dbg2) == 0x80553998) {
-                    rc = 0;
-                    break;
-                }
-                break;
-            }
-            XC_LOGI("trophy ps5: sceNpTrophy2SystemDebugUnlockTrophy(%s, trophyId=%d, grade=%s) -> rc=0x%08x",
-                    npCommId.c_str(), trophyId, gradeToString(grade), static_cast<unsigned>(rc));
-        } else {
-            XC_LOGW("trophy ps5: context or handle invalid (ctx=%d, hdl=%d)", context_, handle_);
-        }
-
-        if (rc != 0) {
-            XC_LOGW("trophy ps5: sceNpTrophy2SystemDebugUnlockTrophy rc=0x%08x; recording direct TRPTITLE.DAT unlock for %s trophyId=%d",
-                    static_cast<unsigned>(rc), npCommId.c_str(), trophyId);
         }
 
         sessionUnlockedTrophies_[npCommId].insert(trophyId);
         unlockedTrophies_[npCommId].insert(trophyId);
-        ::usleep(40000); // 40ms pacing
         return true;
     }
 
@@ -403,6 +303,9 @@ public:
             }
 
             if (!sonyTitle.empty()) {
+                if (sonyTitle == "PPSA22520") {
+                    continue; // Safeguard: never delete the retail model game
+                }
                 if (sonyTitle == "PPSA99810") {
                     const std::string appMetaDirs[] = {
                         "/system_data/priv/appmeta/PPSA99810/trophy2",
@@ -437,6 +340,10 @@ public:
                             foundAny = true;
                         }
                     }
+                    if (removeTitleFromDatabase(sonyTitle)) {
+                        foundAny = true;
+                        XC_LOGI("trophy ps5 remove: purged database rows for %s", sonyTitle.c_str());
+                    }
                 }
             }
             if (foundAny) removedCount++;
@@ -451,47 +358,17 @@ public:
     }
 
     std::string name() const override {
-        return "PlayStation 5 Native (libSceNpTrophy2)";
+        return "PlayStation 5 Native (RecompTrophy/Triad Engine)";
     }
 
 private:
-    void loadNpTrophyModule() {
-        if (trophyModule_ >= 0) return;
-        int res = 0;
-        trophyModule_ = sceKernelLoadStartModule(systemLib("libSceNpTrophy2.sprx").c_str(), 0, nullptr, 0, nullptr, &res);
-        if (trophyModule_ < 0) {
-            const char* paths[] = {
-                "/system/common/lib/libSceNpTrophy2.sprx",
-                "/common/lib/libSceNpTrophy2.sprx",
-                "libSceNpTrophy2.sprx"
-            };
-            for (const char* p : paths) {
-                trophyModule_ = sceKernelLoadStartModule(p, 0, nullptr, 0, nullptr, &res);
-                if (trophyModule_ >= 0) break;
-            }
-        }
-        XC_LOGI("trophy ps5: load libSceNpTrophy2.sprx -> 0x%08x (res=%d)", static_cast<unsigned>(trophyModule_), res);
-        int modMgr = sceKernelLoadStartModule("/system/common/lib/libSceNpManager.sprx", 0, nullptr, 0, nullptr, &res);
-        if (modMgr < 0) {
-            modMgr = sceKernelLoadStartModule(systemLib("libSceNpManager.sprx").c_str(), 0, nullptr, 0, nullptr, &res);
-        }
-        XC_LOGI("trophy ps5: load libSceNpManager.sprx -> 0x%08x (res=%d)", static_cast<unsigned>(modMgr), res);
-    }
-
     void cleanupContext() {
-        if (handle_ >= 0) {
-            sceNpTrophy2DestroyHandle(handle_);
-            handle_ = -1;
-        }
-        if (context_ >= 0) {
-            sceNpTrophy2DestroyContext(context_);
-            context_ = -1;
-        }
+        context_ = -1;
+        handle_ = -1;
         sessionUnlockedTrophies_.clear();
     }
 
     bool initialized_ = false;
-    int trophyModule_ = -1;
     uint32_t userId_ = 0x1ea2f4da;
     int32_t context_ = -1;
     int32_t handle_ = -1;
@@ -536,14 +413,6 @@ void runPsboxNativeSelfTest() {
     { int32_t u = -1; if (sceUserServiceGetInitialUser(&u) == 0 && u > 0) uid = static_cast<uint32_t>(u); }
     XC_LOGI("psbox selftest: user=0x%08x, title=%s, npComm=%s", uid, kTitle, kNpComm);
 
-    // Load the Trophy2 module FIRST, while still sandboxed — the "/<word>/common/
-    // lib/" path only resolves before the unjail changes our fs root. This binds
-    // the sceNpTrophy2* imports so the calls below are safe.
-    int res = 0;
-    int mod = sceKernelLoadStartModule(systemLib("libSceNpTrophy2.sprx").c_str(), 0, nullptr, 0, nullptr, &res);
-    if (mod < 0) mod = sceKernelLoadStartModule("libSceNpTrophy2.sprx", 0, nullptr, 0, nullptr, &res);
-    XC_LOGI("psbox selftest: load libSceNpTrophy2.sprx -> 0x%08x (res=%d)", static_cast<unsigned>(mod), res);
-
     // Need root to write under /system_data and /user/trophy2.
     triggerSceShellCorePatch();
     waitForUnjail(8000);
@@ -577,32 +446,6 @@ void runPsboxNativeSelfTest() {
     mkpath(dataDir);
     writeBuf(std::string(dataDir) + "/TRPTITLE.DAT", dat);
 
-    // NORMAL Trophy2 flow (like a real game): CreateContext -> CreateHandle ->
-    // RegisterContext -> UnlockTrophy (NOT the debug unlock). serviceLabel=1.
-    triggerSceShellCorePatch();
-    int32_t ctx = -1, handle = -1;
-    int rc = sceNpTrophy2CreateContext(&ctx, static_cast<int32_t>(uid), 1, 0);
-    XC_LOGI("psbox selftest: CreateContext -> rc=0x%08x ctx=%d", static_cast<unsigned>(rc), ctx);
-    rc = sceNpTrophy2CreateHandle(&handle);
-    XC_LOGI("psbox selftest: CreateHandle -> rc=0x%08x handle=%d", static_cast<unsigned>(rc), handle);
-    ::usleep(300000);
-    for (int retry = 0; retry < 15; ++retry) {
-        rc = sceNpTrophy2RegisterContext(ctx, handle, 0);
-        if (rc == 0 || static_cast<uint32_t>(rc) == 0x80553921) break;
-        ::usleep(100000);
-    }
-    XC_LOGI("psbox selftest: RegisterContext -> rc=0x%08x", static_cast<unsigned>(rc));
-    ::usleep(250000);
-    for (int id = 1; id <= 2; ++id) {
-        SceNpTrophy2DebugUnlockParam param{};
-        param.mode = 1;
-        param.trophyId = id;
-        rc = sceNpTrophy2SystemDebugUnlockTrophy(handle, ctx, &param);
-        XC_LOGI("psbox selftest: sceNpTrophy2SystemDebugUnlockTrophy(id=%d) -> rc=0x%08x", id, static_cast<unsigned>(rc));
-        ::usleep(300000);
-    }
-    if (handle >= 0) sceNpTrophy2DestroyHandle(handle);
-    if (ctx >= 0) sceNpTrophy2DestroyContext(ctx);
     XC_LOGI("psbox selftest: done (check console profile for 'PSBox Cloud Gaming' trophies)");
 }
 

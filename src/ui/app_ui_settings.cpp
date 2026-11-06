@@ -1110,6 +1110,12 @@ void AppUi::drawSettings(Canvas& c) {
             drawHints(c, {{kIconCross, tr(Str::HoldToReset)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
         } else if (settingsRow_ == 16) {
             drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconSquare, tr(Str::TestSound)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
+        } else if (settingsRow_ == 24) {
+            if (settings_.syncTrophies) {
+                drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconSquare, tr(Str::RunSyncTrophies)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
+            } else {
+                drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
+            }
         } else if (settingsRow_ == 10) {
             drawHints(c, {{kIconDpadLR, tr(Str::Adjust)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
         } else {

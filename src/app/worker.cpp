@@ -591,20 +591,36 @@ void runTrophySync(auth::AuthManager& am, xcloud::GssvClient& gssv) {
         return;
     }
 
-    XC_LOGI("trophy sync: starting single-title test for Fortnite (267695549)...");
-    if (g_ui) g_ui->setLoading(true, 0, 1);
-
-    int newlyUnlocked = 0;
-    std::string syncErr;
-    bool ok = trophy::syncEngine().syncTitleAchievements(xblAuth, xuid, "267695549", "Fortnite",
-                                                         newlyUnlocked, syncErr);
-    if (g_ui) g_ui->setLoading(false, 1, 1);
-    if (!ok) {
-        XC_LOGW("trophy sync failed for Fortnite: %s", syncErr.c_str());
-        return;
+    std::vector<ui::GameTile> ownedGames;
+    {
+        std::lock_guard<std::mutex> lock(s_libraryMutex);
+        if (s_library) {
+            ownedGames = s_library->owned();
+        }
     }
 
-    XC_LOGI("trophy sync finished for Fortnite: %d trophies unlocked", newlyUnlocked);
+    XC_LOGI("trophy sync: starting account achievement synchronization...");
+    if (g_ui) g_ui->setLoading(true, 0, 1);
+
+    int totalTitles = 0;
+    int totalTrophies = 0;
+    std::string syncErr;
+    auto cancelCheck = []() -> bool {
+        return g_cancel.load();
+    };
+    auto progressCb = [](int done, int total) {
+        if (g_ui) g_ui->setLoading(true, done, total);
+    };
+
+    bool ok = trophy::syncEngine().syncAllAccountTrophies(xblAuth, xuid, ownedGames,
+                                                          totalTitles, totalTrophies, syncErr,
+                                                          cancelCheck, progressCb);
+    if (g_ui) g_ui->setLoading(false, totalTitles, totalTitles);
+    if (!ok && !syncErr.empty()) {
+        XC_LOGW("trophy sync warning: %s", syncErr.c_str());
+    }
+
+    XC_LOGI("trophy sync finished: %d titles synced, %d trophies unlocked", totalTitles, totalTrophies);
 }
 
 void runRemoveTrophies() {
@@ -658,7 +674,17 @@ void worker() {
         switch (cmd) {
             case kSignIn:
                 signInAndLoad(am, gssv);
-                if (!g_quit && am.signedIn()) loadConsoles(am, home);
+                if (!g_quit && am.signedIn()) {
+                    loadConsoles(am, home);
+                    bool syncTrophies = false;
+                    {
+                        std::lock_guard<std::mutex> lock(g_settingsMutex);
+                        syncTrophies = g_settings.syncTrophies;
+                    }
+                    if (syncTrophies && !g_cancel && !g_quit) {
+                        runTrophySync(am, gssv);
+                    }
+                }
                 break;
             case kConsoles: loadConsoles(am, home); break;
             case kUpdate: runUpdate(); break;

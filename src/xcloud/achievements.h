@@ -4,6 +4,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace xc::xcloud {
@@ -36,5 +37,28 @@ struct TitleAchievements {
 bool fetchTitleAchievements(const std::string& xblAuth, const std::string& xuid,
                             const std::string& xboxTitleId, TitleAchievements& out,
                             std::string& err, const std::string& language = "en-US");
+
+struct AchievementTitleHistoryItem {
+    std::string titleId;
+    std::string name;
+    std::string titleType;
+    std::string platform;
+    int earnedAchievements = 0;
+    int currentGamerscore = 0;
+    int maxGamerscore = 0;
+    std::string lastUnlock;
+    std::string displayImage;
+};
+
+// Fetches user's achievement title history across all pages from achievements.xboxlive.com.
+bool fetchAchievementHistoryTitles(const std::string& xblAuth, const std::string& xuid,
+                                   std::vector<AchievementTitleHistoryItem>& outTitles,
+                                   std::string& err, const std::string& language = "en-US");
+
+// Fetches display images for a list of title IDs via TitleHub batch decoration.
+bool fetchTitleHubBatchImages(const std::string& xblAuth,
+                              const std::vector<std::string>& titleIds,
+                              std::unordered_map<std::string, std::string>& outImages,
+                              std::string& err, const std::string& language = "en-US");
 
 }  // namespace xc::xcloud

@@ -91,6 +91,7 @@ std::string g_stageTitle;
 std::string g_stageGameName;
 std::string g_stageProduct;
 std::string g_stageXboxTitleId;
+std::string g_stageTileUrl;
 
 std::string stream(xcloud::GssvClient& gssv, const auth::CloudTimeQuery& cloudQuery) {
     crash::setStage(gssv.isHome() ? "streaming own Xbox" : ("streaming " + g_stageTitle).c_str());
@@ -392,7 +393,8 @@ std::string stream(xcloud::GssvClient& gssv, const auth::CloudTimeQuery& cloudQu
                     }
                     if (!xblAuth.empty()) {
                         trophy::syncEngine().pollActiveStream(xblAuth, xuid, g_stageXboxTitleId,
-                                                              g_stageGameName.empty() ? g_stageTitle : g_stageGameName);
+                                                              g_stageGameName.empty() ? g_stageTitle : g_stageGameName,
+                                                              g_stageTileUrl);
                     }
                 }
             }
@@ -608,6 +610,7 @@ std::string play(auth::AuthManager& am, xcloud::GssvClient& gssv, const ui::Game
     g_stageGameName = game.name;
     g_stageProduct = game.productId;
     g_stageXboxTitleId = game.xboxTitleId;
+    g_stageTileUrl = game.tileUrl;
     if (g_stageXboxTitleId.empty() && !game.productId.empty()) {
         if (const auto* m = trophy::findKnownTitle("", game.productId)) {
             g_stageXboxTitleId = m->xboxTitleId;

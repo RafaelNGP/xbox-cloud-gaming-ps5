@@ -1160,6 +1160,16 @@ UiEvent AppUi::handle(const NavInput& in) {
             if (in.square && settingsRow_ == 16) {
                 ev.action = Action::TestQueueAlert;
             }
+            if (in.square && settingsRow_ == 24) {
+                if (settings_.syncTrophies) {
+                    ev.action = Action::SyncTrophies;
+                    ev.settings = settings_;
+                } else {
+                    trophyDisclaimerOpen_ = true;
+                    trophyDisclaimerFocus_ = 0;
+                    dirty_ = true;
+                }
+            }
             if (in.accept && settingsRow_ == 14) {
                 openPadTester();  // controller buttons: their own screen
             } else if (in.accept && (settingsRow_ == 3 || settingsRow_ == 4 || settingsRow_ == 12)) {

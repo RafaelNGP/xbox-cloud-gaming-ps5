@@ -61,6 +61,8 @@
 #include "trophy/trophy_backend.h"
 #include "trophy/trophy_sync.h"
 #include "trophy/trophy_builder.h"
+#include "trophy/trophy_db.h"
+#include <sqlite3.h>
 
 #include <algorithm>
 #include <atomic>
@@ -7826,6 +7828,339 @@ static void testTrophySystem() {
     // Clean up
     net::setTestTransport({});
     ::unlink(cacheFile.c_str());
+
+    // 5b. Test Achievement History & TitleHub Batch Images Discovery
+    net::setTestTransport([&](const net::Request& req) -> net::Response {
+        net::Response res;
+        if (req.url.find("history/titles") != std::string::npos) {
+            res.status = 200;
+            if (req.url.find("continuationToken=page2") == std::string::npos) {
+                // Page 1
+                res.body = R"({
+                    "titles": [
+                        {
+                            "titleId": 5433956,
+                            "name": "Dead Island",
+                            "titleType": "Game",
+                            "platform": "XboxOne",
+                            "earnedAchievements": 19,
+                            "currentGamerscore": 268,
+                            "maxGamerscore": 1000
+                        },
+                        {
+                            "titleId": 122001257,
+                            "name": "YouTube",
+                            "titleType": "LiveApp",
+                            "platform": "XboxOne",
+                            "earnedAchievements": 2,
+                            "currentGamerscore": 0,
+                            "maxGamerscore": 0
+                        }
+                    ],
+                    "pagingInfo": {"continuationToken": "page2"}
+                })";
+            } else {
+                // Page 2
+                res.body = R"({
+                    "titles": [
+                        {
+                            "titleId": 222473492,
+                            "name": "Cyberpunk 2077",
+                            "titleType": "Game",
+                            "platform": "XboxOne",
+                            "earnedAchievements": 18,
+                            "currentGamerscore": 375,
+                            "maxGamerscore": 1000
+                        }
+                    ],
+                    "pagingInfo": {}
+                })";
+            }
+            return res;
+        }
+        if (req.url.find("titlehub.xboxlive.com/titles/batch") != std::string::npos) {
+            res.status = 200;
+            res.body = R"({
+                "titles": [
+                    {
+                        "titleId": 5433956,
+                        "displayImage": "https://img/deadisland.png"
+                    },
+                    {
+                        "titleId": 222473492,
+                        "displayImage": "https://img/cp2077.png"
+                    }
+                ]
+            })";
+            return res;
+        }
+        if (req.url.find("achievements.xboxlive.com") != std::string::npos) {
+            res.status = 200;
+            res.body = R"({
+                "achievements": [
+                    {
+                        "id": "1",
+                        "name": "Ach 1",
+                        "description": "Desc 1",
+                        "progressState": "Achieved",
+                        "rewards": [{"type": "Gamerscore", "value": "20"}]
+                    }
+                ]
+            })";
+            return res;
+        }
+        res.status = 404;
+        return res;
+    });
+
+    std::vector<xcloud::AchievementTitleHistoryItem> histOut;
+    std::string hErr;
+    CHECK(xcloud::fetchAchievementHistoryTitles("Bearer token", "12345", histOut, hErr));
+    // LiveApp "YouTube" should be filtered out, leaving 2 games: Dead Island and Cyberpunk 2077
+    CHECK(histOut.size() == 2);
+    CHECK(histOut[0].titleId == "5433956");
+    CHECK(histOut[0].name == "Dead Island");
+    CHECK(histOut[0].earnedAchievements == 19);
+    CHECK(histOut[1].titleId == "222473492");
+    CHECK(histOut[1].name == "Cyberpunk 2077");
+
+    std::unordered_map<std::string, std::string> batchImgs;
+    std::string bErr;
+    CHECK(xcloud::fetchTitleHubBatchImages("Bearer token", {"5433956", "222473492"}, batchImgs, bErr));
+    CHECK(batchImgs["5433956"] == "https://img/deadisland.png");
+    CHECK(batchImgs["222473492"] == "https://img/cp2077.png");
+
+    // Test syncAllAccountTrophies discovering and processing history titles
+    int syncTitles = 0;
+    int syncTrophies = 0;
+    std::string backErr;
+    auto mockBackend2 = std::make_unique<TestBackend>();
+    TestBackend* rawBackend2 = mockBackend2.get();
+    TrophySyncEngine engine2(std::move(mockBackend2));
+    engine2.init(0x1ea2f4da);
+    std::vector<ui::GameTile> emptyOwned;
+    bool backOk = engine2.syncAllAccountTrophies("Bearer token", "12345", emptyOwned,
+                                                syncTitles, syncTrophies, backErr);
+    CHECK(backOk);
+    CHECK(syncTitles >= 2);
+    CHECK(rawBackend2->unlocked.size() >= 2);
+
+    net::setTestTransport({});
+    ::unlink(((platform::dataDir().empty() ? std::string(".") : platform::dataDir()) + "/trophies/5433956.json").c_str());
+    ::unlink(((platform::dataDir().empty() ? std::string(".") : platform::dataDir()) + "/trophies/222473492.json").c_str());
+
+    // 5c. Test fetchTitleAchievements with continuationToken pagination (> 100 achievements)
+    net::setTestTransport([&](const net::Request& req) -> net::Response {
+        net::Response res;
+        res.status = 200;
+        if (req.url.find("continuationToken=ach_page2") == std::string::npos) {
+            // Page 1: returns 2 achievements and continuation token
+            res.body = R"({
+                "achievements": [
+                    {"id": "1", "name": "Ach 1", "progressState": "Achieved", "rewards": [{"type": "Gamerscore", "value": "10"}]},
+                    {"id": "2", "name": "Ach 2", "progressState": "NotStarted", "rewards": [{"type": "Gamerscore", "value": "15"}]}
+                ],
+                "pagingInfo": {"continuationToken": "ach_page2"}
+            })";
+        } else {
+            // Page 2: returns 1 achievement and empty continuation token
+            res.body = R"({
+                "achievements": [
+                    {"id": "3", "name": "Ach 3", "progressState": "Achieved", "rewards": [{"type": "Gamerscore", "value": "25"}]}
+                ],
+                "pagingInfo": {}
+            })";
+        }
+        return res;
+    });
+
+    xcloud::TitleAchievements multiAch;
+    std::string mErr;
+    CHECK(xcloud::fetchTitleAchievements("Bearer token", "12345", "99999", multiAch, mErr));
+    CHECK(multiAch.totalCount == 3);
+    CHECK(multiAch.unlockedCount == 2);
+    CHECK(multiAch.totalGamerscore == 50);
+    CHECK(multiAch.unlockedGamerscore == 35);
+    net::setTestTransport({});
+
+    // 6. Test Trophy Database Registration (autonomous SQLite provisioning)
+    TitleDbInfo info = makeTitleDbInfo("PPSA81234", "Sea of Stars");
+    CHECK(info.titleId == "PPSA81234");
+    CHECK(info.titleName == "Sea of Stars");
+    CHECK(info.conceptId > 0);
+    CHECK(info.contentId == "UP0001-PPSA81234_00-0000000000000000");
+
+    TitleDbInfo fnInfo = makeTitleDbInfo("PPSA01922", "Fortnite");
+    CHECK(fnInfo.titleId == "PPSA01922");
+    CHECK(fnInfo.conceptId == 210118);
+    CHECK(fnInfo.contentId == "UP1477-PPSA01922_00-FORTNITECORE0001");
+
+    std::string testAppDb = "/tmp/test_trophy_app.db";
+    std::string testAppInfoDb = "/tmp/test_trophy_appinfo.db";
+    ::unlink(testAppDb.c_str());
+    ::unlink((testAppDb + ".bak").c_str());
+    ::unlink(testAppInfoDb.c_str());
+    ::unlink((testAppInfoDb + ".bak").c_str());
+
+    sqlite3* testDb = nullptr;
+    CHECK(sqlite3_open(testAppDb.c_str(), &testDb) == SQLITE_OK);
+    const char* schemaApp =
+        "CREATE TABLE tbl_contentinfo (titleId TEXT PRIMARY KEY, titleName TEXT, contentId TEXT, conceptId INTEGER, localConceptId TEXT, dispLocation INTEGER, appType INTEGER, uiCategory TEXT, metaDataPath TEXT, icon0Info TEXT, pic0Info TEXT, snd0Info TEXT, pprDeeplinkUri TEXT, pprHubAppUri TEXT, AppInfoJson TEXT);"
+        "INSERT INTO tbl_contentinfo VALUES ('PPSA22520', 'Model App', 'UP9000-PPSA22520_00-0000000000000000', 999999, 'cid:scp:0000000000000001', 0, 1, 'game', '/system_data/priv/appmeta/PPSA22520', '/user/app/PPSA22520/sce_sys/icon0.png', '/user/app/PPSA22520/sce_sys/pic0.png', '/user/app/PPSA22520/sce_sys/snd0.at9', 'psgm:play?id=PPSA22520', 'pshome:gamehub?titleId=PPSA22520', '{\"TITLE_ID\":\"PPSA22520\",\"TITLE\":\"Model App\",\"CONTENT_ID\":\"UP9000-PPSA22520_00-0000000000000000\",\"CONCEPT_ID\":999999,\"DISPLAYLOCATION\":0}');"
+        "CREATE TABLE tbl_iconinfo_10000000 (titleId TEXT PRIMARY KEY, titleName TEXT, contentId TEXT, conceptId INTEGER, localConceptId TEXT, visible INTEGER, installStatus INTEGER, appDrmType INTEGER, deeplinkUri TEXT, hubAppUri TEXT);"
+        "INSERT INTO tbl_iconinfo_10000000 VALUES ('PPSA22520', 'Model App', 'UP9000-PPSA22520_00-0000000000000000', 999999, 'cid:scp:0000000000000001', 0, 2, 5, 'psgm:play?id=PPSA22520', 'pshome:gamehub?titleId=PPSA22520');"
+        "CREATE TABLE tbl_concepticoninfo_10000000 (localConceptId TEXT, conceptId INTEGER, conceptName TEXT, primaryTitleId TEXT, primaryTitleName TEXT, deeplinkUri TEXT, hubAppUri TEXT, metaDataPath TEXT, icon0Info TEXT, pic0Info TEXT, snd0Info TEXT);"
+        "INSERT INTO tbl_concepticoninfo_10000000 VALUES ('cid:scp:0000000000000001', 999999, 'Model App', 'PPSA22520', 'Model App', 'psgm:play?id=PPSA22520', 'pshome:gamehub?titleId=PPSA22520', '/system_data/priv/appmeta/PPSA22520', '/user/app/PPSA22520/sce_sys/icon0.png', '/user/app/PPSA22520/sce_sys/pic0.png', '/user/app/PPSA22520/sce_sys/snd0.at9');";
+    CHECK(sqlite3_exec(testDb, schemaApp, nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(testDb);
+
+    sqlite3* testInfoDb = nullptr;
+    CHECK(sqlite3_open(testAppInfoDb.c_str(), &testInfoDb) == SQLITE_OK);
+    const char* schemaInfo =
+        "CREATE TABLE tbl_appinfo (titleId TEXT, metaDataId INTEGER, key TEXT, val TEXT, PRIMARY KEY (titleId, metaDataId, key));"
+        "INSERT INTO tbl_appinfo VALUES ('PPSA22520', 0, 'TITLE_ID', 'PPSA22520');"
+        "INSERT INTO tbl_appinfo VALUES ('PPSA22520', 0, 'TITLE', 'Model App');"
+        "INSERT INTO tbl_appinfo VALUES ('PPSA22520', 0, 'CONTENT_ID', 'UP9000-PPSA22520_00-0000000000000000');"
+        "INSERT INTO tbl_appinfo VALUES ('PPSA22520', 0, 'CONCEPT_ID', '999999');"
+        "INSERT INTO tbl_appinfo VALUES ('PPSA22520', 0, 'DISPLAYLOCATION', '0');";
+    CHECK(sqlite3_exec(testInfoDb, schemaInfo, nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(testInfoDb);
+
+    // Initial autonomous registration
+    CHECK(registerTitleInDatabase(info, testAppDb, testAppInfoDb));
+
+    // Verify app.db rows
+    CHECK(sqlite3_open(testAppDb.c_str(), &testDb) == SQLITE_OK);
+    sqlite3_stmt* testStmt = nullptr;
+    CHECK(sqlite3_prepare_v2(testDb, "SELECT dispLocation, uiCategory, contentId FROM tbl_contentinfo WHERE titleId = 'PPSA81234';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW);
+    CHECK(sqlite3_column_int(testStmt, 0) == 0); // dispLocation = 0 (hidden from Game Library)
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(testStmt, 1))) == "game");
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(testStmt, 2))) == "UP0001-PPSA81234_00-0000000000000000");
+    sqlite3_finalize(testStmt);
+
+    CHECK(sqlite3_prepare_v2(testDb, "SELECT visible, installStatus FROM tbl_iconinfo_10000000 WHERE titleId = 'PPSA81234';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW);
+    CHECK(sqlite3_column_int(testStmt, 0) == 0); // visible = 0
+    CHECK(sqlite3_column_int(testStmt, 1) == 2); // installStatus = 2
+    sqlite3_finalize(testStmt);
+
+    CHECK(sqlite3_prepare_v2(testDb, "SELECT primaryTitleName FROM tbl_concepticoninfo_10000000 WHERE primaryTitleId = 'PPSA81234';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW);
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(testStmt, 0))) == "Sea of Stars");
+    sqlite3_finalize(testStmt);
+
+    CHECK(sqlite3_prepare_v2(testDb, "SELECT AppInfoJson FROM tbl_contentinfo WHERE titleId = 'PPSA81234';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW);
+    std::string appInfoJson = reinterpret_cast<const char*>(sqlite3_column_text(testStmt, 0));
+    sqlite3_finalize(testStmt);
+    sqlite3_close(testDb);
+    auto parsedAppInfo = json::parse(appInfoJson);
+    CHECK(parsedAppInfo && parsedAppInfo->isObject());
+    CHECK((*parsedAppInfo)["TITLE_ID"].str() == "PPSA81234");
+    CHECK((*parsedAppInfo)["TITLE"].str() == "Sea of Stars");
+    CHECK((*parsedAppInfo)["DISPLAYLOCATION"].asInt() == 0);
+
+    // Verify appinfo.db rows
+    CHECK(sqlite3_open(testAppInfoDb.c_str(), &testInfoDb) == SQLITE_OK);
+    CHECK(sqlite3_prepare_v2(testInfoDb, "SELECT val FROM tbl_appinfo WHERE titleId = 'PPSA81234' AND key = 'TITLE';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW);
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(testStmt, 0))) == "Sea of Stars");
+    sqlite3_finalize(testStmt);
+    CHECK(sqlite3_prepare_v2(testInfoDb, "SELECT val FROM tbl_appinfo WHERE titleId = 'PPSA81234' AND key = 'DISPLAYLOCATION';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW);
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(testStmt, 0))) == "0");
+    sqlite3_finalize(testStmt);
+    sqlite3_close(testInfoDb);
+
+    // Test idempotent re-registration / update
+    info.titleName = "Sea of Stars Definitive";
+    CHECK(registerTitleInDatabase(info, testAppDb, testAppInfoDb));
+    CHECK(sqlite3_open(testAppDb.c_str(), &testDb) == SQLITE_OK);
+    CHECK(sqlite3_prepare_v2(testDb, "SELECT titleName FROM tbl_contentinfo WHERE titleId = 'PPSA81234';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW);
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(testStmt, 0))) == "Sea of Stars Definitive");
+    sqlite3_finalize(testStmt);
+    sqlite3_close(testDb);
+
+    // Verify protection of critical models: PPSA22520 and PPSA99810 cannot be removed
+    CHECK(!removeTitleFromDatabase("PPSA22520", testAppDb, testAppInfoDb));
+    CHECK(!removeTitleFromDatabase("PPSA99810", testAppDb, testAppInfoDb));
+
+    // Test autonomous removal of dynamic title
+    CHECK(removeTitleFromDatabase("PPSA81234", testAppDb, testAppInfoDb));
+
+    CHECK(sqlite3_open(testAppDb.c_str(), &testDb) == SQLITE_OK);
+    CHECK(sqlite3_prepare_v2(testDb, "SELECT 1 FROM tbl_contentinfo WHERE titleId = 'PPSA81234';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_DONE); // Deleted!
+    sqlite3_finalize(testStmt);
+
+    // Model row PPSA22520 must still be present!
+    CHECK(sqlite3_prepare_v2(testDb, "SELECT 1 FROM tbl_contentinfo WHERE titleId = 'PPSA22520';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW);
+    sqlite3_finalize(testStmt);
+    sqlite3_close(testDb);
+
+    CHECK(sqlite3_open(testAppInfoDb.c_str(), &testInfoDb) == SQLITE_OK);
+    CHECK(sqlite3_prepare_v2(testInfoDb, "SELECT 1 FROM tbl_appinfo WHERE titleId = 'PPSA81234';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_DONE); // Deleted!
+    sqlite3_finalize(testStmt);
+    CHECK(sqlite3_prepare_v2(testInfoDb, "SELECT 1 FROM tbl_appinfo WHERE titleId = 'PPSA22520';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW); // Model intact!
+    sqlite3_finalize(testStmt);
+    sqlite3_close(testInfoDb);
+
+    // Test registration into empty databases (testing synthetic fallbacks when no model exists)
+    std::string emptyAppDb = "/tmp/test_empty_app.db";
+    std::string emptyAppInfoDb = "/tmp/test_empty_appinfo.db";
+    ::unlink(emptyAppDb.c_str());
+    ::unlink((emptyAppDb + ".bak").c_str());
+    ::unlink(emptyAppInfoDb.c_str());
+    ::unlink((emptyAppInfoDb + ".bak").c_str());
+
+    sqlite3* eApp = nullptr;
+    CHECK(sqlite3_open(emptyAppDb.c_str(), &eApp) == SQLITE_OK);
+    CHECK(sqlite3_exec(eApp, "CREATE TABLE tbl_contentinfo (titleId TEXT PRIMARY KEY, titleName TEXT, contentId TEXT, conceptId INTEGER, localConceptId TEXT, dispLocation INTEGER, appType INTEGER, uiCategory TEXT, metaDataPath TEXT, icon0Info TEXT, pic0Info TEXT, snd0Info TEXT, pprDeeplinkUri TEXT, pprHubAppUri TEXT, AppInfoJson TEXT);", nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(eApp);
+
+    sqlite3* eInfo = nullptr;
+    CHECK(sqlite3_open(emptyAppInfoDb.c_str(), &eInfo) == SQLITE_OK);
+    CHECK(sqlite3_exec(eInfo, "CREATE TABLE tbl_appinfo (titleId TEXT, metaDataId INTEGER, key TEXT, val TEXT, PRIMARY KEY (titleId, metaDataId, key));", nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(eInfo);
+
+    TitleDbInfo dynInfo = makeTitleDbInfo("PPSA89999", "Synthetic Cloud Game");
+    CHECK(registerTitleInDatabase(dynInfo, emptyAppDb, emptyAppInfoDb));
+
+    CHECK(sqlite3_open(emptyAppDb.c_str(), &eApp) == SQLITE_OK);
+    CHECK(sqlite3_prepare_v2(eApp, "SELECT titleName, dispLocation FROM tbl_contentinfo WHERE titleId = 'PPSA89999';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW);
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(testStmt, 0))) == "Synthetic Cloud Game");
+    CHECK(sqlite3_column_int(testStmt, 1) == 0);
+    sqlite3_finalize(testStmt);
+    sqlite3_close(eApp);
+
+    CHECK(sqlite3_open(emptyAppInfoDb.c_str(), &eInfo) == SQLITE_OK);
+    CHECK(sqlite3_prepare_v2(eInfo, "SELECT val FROM tbl_appinfo WHERE titleId = 'PPSA89999' AND key = '_metadata_path';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW);
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(testStmt, 0))) == "/user/app/PPSA89999/sce_sys");
+    sqlite3_finalize(testStmt);
+
+    CHECK(sqlite3_prepare_v2(eInfo, "SELECT val FROM tbl_appinfo WHERE titleId = 'PPSA89999' AND key = 'TITLE_EN';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW);
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(testStmt, 0))) == "Synthetic Cloud Game");
+    sqlite3_finalize(testStmt);
+    sqlite3_close(eInfo);
+
+    ::unlink(emptyAppDb.c_str());
+    ::unlink((emptyAppDb + ".bak").c_str());
+    ::unlink(emptyAppInfoDb.c_str());
+    ::unlink((emptyAppInfoDb + ".bak").c_str());
+
+    // Clean up mock database files
+    ::unlink(testAppDb.c_str());
+    ::unlink((testAppDb + ".bak").c_str());
+    ::unlink(testAppInfoDb.c_str());
+    ::unlink((testAppInfoDb + ".bak").c_str());
 }
 
 static void testTrophyModalsAndDesktopInput() {

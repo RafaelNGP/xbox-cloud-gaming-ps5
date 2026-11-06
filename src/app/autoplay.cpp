@@ -147,6 +147,7 @@ void loadAutoplay() {
         if (opt == "freetest") g_autoplay.freeTest = true;
         if (opt == "settingstest") g_autoplay.settingsTest = true;
         if (opt == "trophytest") g_autoplay.trophyTest = true;
+        if (opt == "trophysynctest") g_autoplay.trophySyncTest = true;
         if (opt == "psboxself") g_autoplay.psboxSelfTest = true;
         if (opt == "keystest") g_autoplay.keysTest = true;
         if (opt == "padmaptest") g_autoplay.padMapTest = true;
@@ -887,7 +888,14 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
     if (g_autoplay.trophyTest && uiSaved) {
         static uint64_t since = 0;
         static int step = 0;
-        if (!since) since = now;
+        if (!since) {
+            since = now;
+            if (g_ui->settings().syncTrophies) {
+                auto s = g_ui->settings();
+                s.syncTrophies = false;
+                g_ui->setSettings(s);
+            }
+        }
         static SettingsWalk walk;
         static SettingsWalk walk2;
         if (step == 0 && now - since >= 500) {
@@ -942,6 +950,55 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
             g_ui->showHome();
             g_autoplay.trophyTest = false;
             XC_LOGI("AUTOPLAY END: trophy test passed 100%%");
+            step++;
+        }
+    }
+
+    if (g_autoplay.trophySyncTest && uiSaved) {
+        static uint64_t since = 0;
+        static int step = 0;
+        if (!since) {
+            since = now;
+            if (g_ui->settings().syncTrophies) {
+                auto s = g_ui->settings();
+                s.syncTrophies = false;
+                g_ui->setSettings(s);
+            }
+        }
+        static SettingsWalk walk;
+        if (step == 0 && now - since >= 500) {
+            nav.options = true; // Open Settings
+            step++;
+        } else if (step == 1 && now - since >= 1500) {
+            if (walk.step(nav, downsTo(24))) step++;
+        } else if (step == 2 && now - since >= 3000) {
+            if (onSettingsRow(24, "trophy sync test")) {
+                trophySettingsShot = true;
+                step++;
+            } else {
+                g_autoplay.trophySyncTest = false;
+                g_ui->showHome();
+            }
+        } else if (step == 3 && now - since >= 4500) {
+            nav.accept = true; // Open disclaimer modal
+            step++;
+        } else if (step == 4 && now - since >= 6000) {
+            trophyDisclaimerShot = true; // Capture disclaimer modal
+            step++;
+        } else if (step == 5 && now - since >= 7500) {
+            nav.accept = true; // Confirm disclaimer ("Estou ciente")
+            step++;
+        } else if (step == 6 && now - since >= 9000) {
+            trophyEnabledShot = true; // Capture toggled ON
+            step++;
+        } else if (step == 7 && now - since >= 22000) {
+            trophySyncedShot = true; // Capture during/after sync
+            step++;
+        } else if (step == 8 && now - since >= 24000) {
+            nav.back = true;
+            g_ui->showHome();
+            g_autoplay.trophySyncTest = false;
+            XC_LOGI("AUTOPLAY END: trophy sync test passed 100%%");
             step++;
         }
     }

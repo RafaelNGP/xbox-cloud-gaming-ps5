@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 RafaelNGP
 #include "trophy/trophy_builder.h"
+#include "trophy/trophy_db.h"
 #include "platform/platform.h"
 #include "util/json.h"
 #include "util/log.h"
@@ -213,7 +214,7 @@ bool unlockInStream(uint8_t* s, size_t sSize, uint32_t tid, uint64_t whenTicks) 
     return true;
 }
 
-bool writeRawFile(const std::string& path, const void* data, size_t size, mode_t mode = 0770) {
+bool writeRawFile(const std::string& path, const void* data, size_t size, mode_t mode = 0666) {
     int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, mode);
     if (fd < 0) {
         XC_LOGW("trophy builder: failed to open '%s' for write: errno=%d", path.c_str(), errno);
@@ -225,7 +226,7 @@ bool writeRawFile(const std::string& path, const void* data, size_t size, mode_t
     return (written == static_cast<ssize_t>(size));
 }
 
-void ensureDir(const std::string& dir, mode_t mode = 0770) {
+void ensureDir(const std::string& dir, mode_t mode = 0777) {
     std::string s;
     for (char c : dir) {
         s += c;
@@ -946,24 +947,16 @@ bool buildTrpTitleDat(const TitleTrophySet& set, uint32_t userId, std::vector<ui
 }
 
 std::string buildParamJson(const std::string& titleId, const std::string& titleName) {
-    std::string contentId;
-    std::string conceptId;
-    if (titleId == "PPSA01922") {
-        contentId = "UP1477-PPSA01922_00-FORTNITECORE0001";
-        conceptId = "210118";
-    } else {
-        contentId = "UP0001-" + titleId + "_00-0000000000000000";
-        conceptId = "10004542";
-    }
-    std::string name = titleName.empty() ? "Fortnite" : titleName;
+    TitleDbInfo dbInfo = makeTitleDbInfo(titleId, titleName);
+    std::string contentId = dbInfo.contentId;
+    std::string conceptId = std::to_string(dbInfo.conceptId);
+    std::string name = titleName.empty() ? ("Game " + titleId) : titleName;
     std::string escapedName;
     for (char c : name) {
         if (c == '"') escapedName += "\\\"";
         else escapedName += c;
     }
-    char buf[2048];
-    snprintf(buf, sizeof(buf),
-        "{\n"
+    return "{\n"
         "  \"ageLevel\": {\n"
         "    \"default\": 12\n"
         "  },\n"
@@ -973,9 +966,9 @@ std::string buildParamJson(const std::string& titleId, const std::string& titleN
         "  \"attribute\": 0,\n"
         "  \"attribute2\": 0,\n"
         "  \"attribute3\": 1835012,\n"
-        "  \"conceptId\": \"%s\",\n"
+        "  \"conceptId\": \"" + conceptId + "\",\n"
         "  \"contentBadgeType\": 1,\n"
-        "  \"contentId\": \"%s\",\n"
+        "  \"contentId\": \"" + contentId + "\",\n"
         "  \"contentVersion\": \"01.000.000\",\n"
         "  \"downloadDataSize\": 0,\n"
         "  \"gameIntent\": {\n"
@@ -988,10 +981,10 @@ std::string buildParamJson(const std::string& titleId, const std::string& titleN
         "  \"localizedParameters\": {\n"
         "    \"defaultLanguage\": \"en-US\",\n"
         "    \"en-US\": {\n"
-        "      \"titleName\": \"%s\"\n"
+        "      \"titleName\": \"" + escapedName + "\"\n"
         "    },\n"
         "    \"pt-BR\": {\n"
-        "      \"titleName\": \"%s\"\n"
+        "      \"titleName\": \"" + escapedName + "\"\n"
         "    }\n"
         "  },\n"
         "  \"masterVersion\": \"01.00\",\n"
@@ -1002,11 +995,9 @@ std::string buildParamJson(const std::string& titleId, const std::string& titleN
         "  },\n"
         "  \"requiredSystemSoftwareVersion\": \"0x1220000000000000\",\n"
         "  \"sdkVersion\": \"0x1000000000000000\",\n"
-        "  \"titleId\": \"%s\",\n"
+        "  \"titleId\": \"" + titleId + "\",\n"
         "  \"versionFileUri\": \"\"\n"
-        "}\n",
-        conceptId.c_str(), contentId.c_str(), escapedName.c_str(), escapedName.c_str(), titleId.c_str());
-    return std::string(buf);
+        "}\n";
 }
 
 bool deployTrophyPack(const TitleTrophySet& set, uint32_t userId) {
@@ -1066,48 +1057,55 @@ bool deployTrophyPack(const TitleTrophySet& set, uint32_t userId) {
         writeRawFile("/system_data/game/temp/PPSA99810/trophy2/trophy00.ucp", ucpBytes.data(), ucpBytes.size());
     }
 
-    // 4. Game Title appmeta dirs (PPSA01922 and set.sonyTitleId)
-    std::vector<std::string> gameTitles;
-    std::string targetTitle = set.sonyTitleId.empty() ? "PPSA01922" : set.sonyTitleId;
+    // 4. Game Title appmeta dirs
+    std::string targetTitle = set.sonyTitleId;
     if (!targetTitle.empty() && targetTitle != "PPSA99810") {
-        gameTitles.push_back(targetTitle);
-    }
-    if (std::find(gameTitles.begin(), gameTitles.end(), "PPSA01922") == gameTitles.end()) {
-        gameTitles.push_back("PPSA01922");
-    }
-
-    for (const auto& tid : gameTitles) {
-        std::string pJson = buildParamJson(tid, (tid == targetTitle) ? set.titleName : "Fortnite");
+        std::string pJson = buildParamJson(targetTitle, set.titleName);
         std::vector<uint8_t> npTitleBytes;
-        buildNpTitleDat(tid, npTitleBytes);
+        buildNpTitleDat(targetTitle, npTitleBytes);
+
+        // Load 512x512 icon0 from cache if present across candidate paths
+        std::string cachedIconPaths[] = {
+            platform::dataDir() + "/trophies/icons/" + set.npCommId + "/icon0.png",
+            "/data/psbox/trophies/icons/" + set.npCommId + "/icon0.png",
+            "/data/homebrew/PPSA99810/trophies/icons/" + set.npCommId + "/icon0.png",
+            "/system_data/priv/appmeta/" + targetTitle + "/icon0.png",
+            "/user/appmeta/" + targetTitle + "/icon0.png",
+            "/user/app/" + targetTitle + "/sce_sys/icon0.png"
+        };
+        std::string iconData;
+        bool hasCachedIcon = false;
+        for (const auto& cip : cachedIconPaths) {
+            if (platform::readFile(cip, iconData) && !iconData.empty()) {
+                hasCachedIcon = true;
+                break;
+            }
+        }
 
         const std::string titleDirs[] = {
-            "/system_data/priv/appmeta/" + tid,
-            "/user/appmeta/" + tid,
-            "/user/app/" + tid + "/sce_sys"
+            "/system_data/priv/appmeta/" + targetTitle,
+            "/user/appmeta/" + targetTitle,
+            "/user/app/" + targetTitle + "/sce_sys"
         };
         for (const auto& d : titleDirs) {
             ensureDir(d);
             // param.json
             writeRawFile(d + "/param.json", pJson.data(), pJson.size());
-            // nptitle.dat (160 bytes, Magic NPTD, Title ID <tid>_00)
+            // nptitle.dat (160 bytes, Magic NPTD, Title ID <targetTitle>_00)
             writeRawFile(d + "/nptitle.dat", npTitleBytes.data(), npTitleBytes.size());
-            // icon0.png
+            // icon0.png and pic0.png
             std::string iconPath = d + "/icon0.png";
-            struct stat st{};
-            if (::stat(iconPath.c_str(), &st) != 0 || st.st_size == 0) {
-                int srcFd = ::open("/tmp/fortnite_icon0.png", O_RDONLY);
-                if (srcFd >= 0) {
-                    std::vector<uint8_t> buf(200000);
-                    ssize_t n = ::read(srcFd, buf.data(), buf.size());
-                    ::close(srcFd);
-                    if (n > 0) {
-                        writeRawFile(iconPath, buf.data(), static_cast<size_t>(n));
-                    } else {
-                        writeRawFile(iconPath, kDefaultIconPng, sizeof(kDefaultIconPng));
-                    }
-                } else {
+            std::string picPath = d + "/pic0.png";
+            if (hasCachedIcon) {
+                writeRawFile(iconPath, iconData.data(), iconData.size());
+                writeRawFile(picPath, iconData.data(), iconData.size());
+            } else {
+                struct stat st{};
+                if (::stat(iconPath.c_str(), &st) != 0 || st.st_size == 0) {
                     writeRawFile(iconPath, kDefaultIconPng, sizeof(kDefaultIconPng));
+                }
+                if (::stat(picPath.c_str(), &st) != 0 || st.st_size == 0) {
+                    writeRawFile(picPath, kDefaultIconPng, sizeof(kDefaultIconPng));
                 }
             }
             // Canonical bare npbind.dat (legacy path)
@@ -1127,17 +1125,25 @@ bool deployTrophyPack(const TitleTrophySet& set, uint32_t userId) {
         }
 
         // Cronos /system_data/game/temp dirs for this title (PS5 10.00+ and 13.60)
-        ensureDir("/system_data/game/temp/" + tid);
-        ensureDir("/system_data/game/temp/" + tid + "/trophy2");
-        writeRawFile("/system_data/game/temp/" + tid + "/npbind.dat", npBindBytes.data(), npBindBytes.size());
-        writeRawFile("/system_data/game/temp/" + tid + "/trophy2/npbind.dat", npBindBytes.data(), npBindBytes.size());
-        writeRawFile("/system_data/game/temp/" + tid + "/trophy2/trophy00.ucp", ucpBytes.data(), ucpBytes.size());
+        ensureDir("/system_data/game/temp/" + targetTitle);
+        ensureDir("/system_data/game/temp/" + targetTitle + "/trophy2");
+        writeRawFile("/system_data/game/temp/" + targetTitle + "/npbind.dat", npBindBytes.data(), npBindBytes.size());
+        writeRawFile("/system_data/game/temp/" + targetTitle + "/trophy2/npbind.dat", npBindBytes.data(), npBindBytes.size());
+        writeRawFile("/system_data/game/temp/" + targetTitle + "/trophy2/trophy00.ucp", ucpBytes.data(), ucpBytes.size());
+
+        ensureDir("/user/app/" + targetTitle);
     }
 
     // 5. UDS conf dir: /user/np_uds/nobackup/conf/<NPWR>/uds.ucp
     std::string udsConfDir = "/user/np_uds/nobackup/conf/" + set.npCommId;
     ensureDir(udsConfDir);
     writeRawFile(udsConfDir + "/uds.ucp", udsBytes.data(), udsBytes.size());
+
+    // 6. Register title into PS5 system databases (app.db and appinfo.db) autonomously
+    if (!targetTitle.empty() && targetTitle != "PPSA99810") {
+        TitleDbInfo dbInfo = makeTitleDbInfo(targetTitle, set.titleName);
+        registerTitleInDatabase(dbInfo);
+    }
 
     ::sync();
     ::usleep(100000); // 100ms settle for kernel filesystem caches
@@ -1146,5 +1152,5 @@ bool deployTrophyPack(const TitleTrophySet& set, uint32_t userId) {
     return true;
 }
 
-
 }  // namespace xc::trophy
+

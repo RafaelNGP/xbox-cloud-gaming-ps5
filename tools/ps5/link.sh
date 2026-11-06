@@ -24,16 +24,17 @@ cc -std=c++20 -O2 -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections 
 
 # System modules the SDK has no stub library for: link-time names only.
 stubs=()
-stub() {  # stub <library> <source>
+stub() {  # stub <library> <source> [ext]
+    local ext="${3:-sprx}"
     cc -std=c11 -O2 -fPIC -c "$2" -o "$work/obj/$1_stub.o"
-    "$sdk/bin/prospero-lld" --shared -soname "$1.prx" -o "$work/stubs/$1.so" "$work/obj/$1_stub.o"
+    "$sdk/bin/prospero-lld" --shared -soname "$1.$ext" -o "$work/stubs/$1.so" "$work/obj/$1_stub.o"
     stubs+=("$work/stubs/$1.so")
 }
-stub libSceAgc "$vk/vendor/ps5/sdk/stubs/agc_canary_link_stub.c"
-stub libSceAgcDriver "$vk/vendor/ps5/sdk/stubs/agc_driver_canary_link_stub.c"
+stub libSceAgc "$vk/vendor/ps5/sdk/stubs/agc_canary_link_stub.c" prx
+stub libSceAgcDriver "$vk/vendor/ps5/sdk/stubs/agc_driver_canary_link_stub.c" prx
 for source in "$root"/ps5/stubs/*.c; do
     name=$(basename "$source" .c)
-    stub "$name" "$source"
+    stub "$name" "$source" sprx
 done
 
 # shellcheck source=/dev/null

@@ -57,10 +57,16 @@ add_library(xcloud_core STATIC
     src/trophy/trophy_registry.cpp
     src/trophy/trophy_builder.cpp
     src/trophy/trophy_sync.cpp
+    src/trophy/trophy_db.cpp
+    extern/sqlite3/sqlite3.c
     src/platform/toasts.cpp
     src/input/gyro.cpp
 )
-target_include_directories(xcloud_core PUBLIC src extern/stb)
+target_include_directories(xcloud_core PUBLIC src extern/stb extern/sqlite3)
+set_source_files_properties(extern/sqlite3/sqlite3.c PROPERTIES COMPILE_DEFINITIONS "SQLITE_THREADSAFE=1;SQLITE_OMIT_LOAD_EXTENSION=1;SQLITE_DEFAULT_MEMSTATUS=0;SQLITE_OS_UNIX=1;SQLITE_TEMP_STORE=3")
+if(NOT MSVC)
+    set_source_files_properties(extern/sqlite3/sqlite3.c PROPERTIES COMPILE_FLAGS "-Wno-unused-parameter -Wno-sign-compare")
+endif()
 if(NOT MSVC)
     target_compile_options(xcloud_core PUBLIC -g1 -fno-omit-frame-pointer PRIVATE -Wall -Wextra -Wno-unused-parameter)
 endif()

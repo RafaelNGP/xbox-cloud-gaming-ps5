@@ -27,11 +27,14 @@ public:
     // Sync achievements for a single title against Xbox Live and PlayStation backend
     bool syncTitleAchievements(const std::string& xblAuth, const std::string& xuid,
                                const std::string& xboxTitleId, const std::string& titleName,
-                               int& newlyUnlocked, std::string& err);
+                               int& newlyUnlocked, std::string& err,
+                               const std::string& tileUrl = "",
+                               bool fetchTrophyIcons = false);
 
     // Called every 20s during active stream (non-blocking async dispatch)
     bool pollActiveStream(const std::string& xblAuth, const std::string& xuid,
-                          const std::string& xboxTitleId, const std::string& titleName);
+                          const std::string& xboxTitleId, const std::string& titleName,
+                          const std::string& tileUrl = "");
 
     // Retro-synchronization (Back-Sync) for all titles in the user's account
     bool syncAllAccountTrophies(const std::string& xblAuth, const std::string& xuid,
