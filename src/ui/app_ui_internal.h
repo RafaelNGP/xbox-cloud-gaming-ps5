@@ -72,10 +72,11 @@ constexpr bool kSettingsGroupStart[kSettingsCount] = {false, false, false, false
 // The game settings' rows on screen (ids: 0 profile, 1 upscaler, 2
 // sharpness, 3 block smoothing, 4 resolution, 5 dead zone, 6 triggers, 7
 // confirm, 8 120 Hz, 9 keyboard keys, 10 back to the default, 11 controller
-// buttons, 12 gyro aiming, 13 touchpad as mouse, 14 game language, 15 video decoder, 16 audio-to-haptics).
-constexpr int kGameRowCount = 17;
-constexpr int kGameRowOrder[kGameRowCount] = {0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 16, 7, 12, 11, 13, 9, 10};
-constexpr bool kGameGroupStart[kGameRowCount] = {false, true, false, false, false, true, false, false, true, false, false, false, false, false, false, false, true};
+// buttons, 12 gyro aiming, 13 touchpad as mouse, 14 game language, 15 video decoder,
+// 16 audio-to-haptics, 17 touchpad shortcuts, 18 trophy sync).
+constexpr int kGameRowCount = 18;
+constexpr int kGameRowOrder[kGameRowCount] = {0, 4, 8, 15, 14, 18, 1, 2, 3, 5, 6, 16, 7, 12, 11, 13, 9, 10};
+constexpr bool kGameGroupStart[kGameRowCount] = {false, true, false, false, false, false, true, false, false, true, false, false, false, false, false, false, false, true};
 // The keyboard keys' screen: two columns of inputs, then "Reset to default".
 constexpr int kKeysPerColumn = input::kKeyActions / 2;
 // Updates on a desktop: the newest release's page (the app doesn't install it there).

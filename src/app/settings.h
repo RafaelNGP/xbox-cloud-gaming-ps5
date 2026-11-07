@@ -51,6 +51,11 @@ struct GameProfile {
     input::TouchpadShortcuts touchpadShortcuts = input::defaultTouchpadShortcuts();
     // Per-game audio/subtitle language: "" = system default, else e.g. "en-US", "pt-BR"
     std::string locale;
+    // Per-game trophy synchronization: true by default; when false, skips trophy sync for this game
+    bool syncTrophies = true;
+    // Optional title metadata persisted for background trophy sync filtering
+    std::string xboxTitleId;
+    std::string gameName;
 };
 
 // Key to identify a game profile: productId first, else titleId.

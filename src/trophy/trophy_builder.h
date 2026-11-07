@@ -50,8 +50,14 @@ bool buildTrpTitleDat(const TitleTrophySet& set, uint32_t userId, std::vector<ui
 // Builds a valid PlayStation 5 param.json metadata buffer for the given titleId and titleName.
 std::string buildParamJson(const std::string& titleId, const std::string& titleName);
 
+// Returns true if sonyTitleId belongs to a locally installed retail/PSN PS5 game.
+bool isRetailInstalledGame(const std::string& sonyTitleId);
+
 // Deploys the generated TROPHY.UCP, npbind.dat, TRPTITLE.DAT, and param.json to all required system directories on PS5.
 bool deployTrophyPack(const TitleTrophySet& set, uint32_t userId = 0x1ea2f4da);
+
+constexpr size_t kDefaultIconPngSize = 2937;
+constexpr size_t kDefaultTropPngSize = 3608;
 
 }  // namespace xc::trophy
 

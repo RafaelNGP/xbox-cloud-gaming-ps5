@@ -669,7 +669,7 @@ bool Library::loadCache(bool withLayout) {
     auto j = json::parse(text);
     if (!j) return false;
     int ver = (*j)["version"].asInt();
-    if (ver != 2 && ver != kCacheVersion) return false;
+    if (ver != 2 && ver != 3 && ver != kCacheVersion) return false;
     if (market_.empty()) market_ = (*j)["market"].str();
     else if ((*j)["market"].str() != market_) return false;
     if (language_.empty()) language_ = (*j)["language"].str();
@@ -682,6 +682,9 @@ bool Library::loadCache(bool withLayout) {
         if (!id.empty()) knownProducts_.insert(id);
         if (!products_.count(id)) {
             products_[id] = productFromJson(id, v);
+            if (ver < 3 && products_[id].description.size() < 80) {
+                products_[id].detailed = false;
+            }
             if (products_[id].xcloudTitleId.empty() || products_[id].xcloudTitleId == "None") {
                 auto ct = cloudTitleOf_.find(id);
                 if (ct != cloudTitleOf_.end()) products_[id].xcloudTitleId = ct->second;

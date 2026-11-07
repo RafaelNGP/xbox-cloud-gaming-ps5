@@ -4,13 +4,13 @@ endif
 
 include $(PS5_PAYLOAD_SDK)/toolchain/prospero.mk
 
-CFLAGS := -std=c11 -O2 -g -Wall -Wextra
+CFLAGS := -std=c11 -O2 -Wall -Wextra
 LDLIBS := -lkernel -lSceSystemService -lSceUserService -lpthread
 
-all: patch_test.elf
+all: PSBox_Trophies.elf
 
-patch_test.elf: main.c
+PSBox_Trophies.elf: main.c
 	$(CC) $(CFLAGS) -o $@ main.c $(LDLIBS)
 
 clean:
-	rm -f patch_test.elf
+	rm -f PSBox_Trophies.elf patch_test.elf

@@ -351,6 +351,18 @@ constexpr Column kSpanish = {
     "Activa salida de vídeo a 120 Hz en Configuración para menor latencia y respuesta más fluida", // Tip120HzVideo
     "Calibra la zona muerta de los sticks en Configuración para eliminar deriva y mejorar la precisión", // TipAnalogDeadzone
     "Usa el micrófono integrado del DualSense para chat de voz en grupos y partidas multijugador", // TipDualSenseMic
+    "En juegos con soporte de ratón, usa la superficie del touchpad del DualSense como ratón", // TipTouchpadMouse
+    "Activa el apuntado por giroscopio en Configuración para apuntar con los sensores de movimiento", // TipGyroAiming
+    "El reescalado espacial FSR y el filtro de nitidez mejoran la claridad y detalle del stream", // TipFSRUpscaling
+    "Ajusta el límite de tasa de bits en Configuración hasta 45 Mbps para máxima calidad visual", // TipCustomBitrate
+    "Los logros de Xbox se desbloquean automáticamente como trofeos nativos de PlayStation 5", // TipNativeTrophies
+    "Activa o desactiva los trofeos de forma individual desde la pantalla de detalles del juego", // TipPerGameTrophies
+    "Abre http://[ip-de-consola]:8080 en tu móvil o PC para gestionar ajustes con SmartGlass WebUI", // TipSmartGlassWebUI
+    "Reclama juegos gratis y demos en 1 clic directamente sin tener que salir de la aplicación", // TipClaimFreeStore
+    "Personaliza y reasigna los botones del mando individualmente por juego en Configuración", // TipButtonRemap
+    "Tu biblioteca se carga al instante desde la caché local persistente al abrir la aplicación", // TipInstantResume
+    "Desliza hacia abajo en el touchpad durante la partida para ajustar volumen y bitrate", // TipInGameMenu
+    "La sincronización en segundo plano mantiene tu catálogo y estantes siempre actualizados", // TipBackgroundSync
     // Settings descriptions
     "Cambia el idioma de la interfaz de la aplicación y la preferencia de audio y subtítulos en juegos en la nube", // SettingDescLanguage
     "Establece la resolución máxima del stream de vídeo (1080p, 720p o Mejor disponible). Se aplica en el próximo juego", // SettingDescResolution
@@ -436,4 +448,5 @@ constexpr Column kSpanish = {
     "Esto borrará los paquetes locales de trofeos de PSBox para este perfil. Tus logros permanecen seguros en tu cuenta Microsoft/Xbox.", // RemoveTrophiesConfirmBody
     "Eliminar",                                       // RemoveTrophiesConfirm
     "Se han eliminado %s título(s) de trofeos de este perfil.", // TrophiesRemovedToast
+    "Sincronizando logros...",                        // SyncingTrophies
 };

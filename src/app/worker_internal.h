@@ -41,7 +41,7 @@ void runUpdate();
 void skipOfferedUpdate();
 void runSignInCheck(auth::AuthManager& am, xcloud::GssvClient& gssv);
 void runNetworkTest(xcloud::GssvClient& gssv);
-void runTrophySync(auth::AuthManager& am, xcloud::GssvClient& gssv);
+void runTrophySync(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceFetchIcons = false);
 void runRemoveTrophies();
 
 }  // namespace xc::app

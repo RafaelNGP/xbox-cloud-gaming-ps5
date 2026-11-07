@@ -383,6 +383,13 @@ std::string stream(xcloud::GssvClient& gssv, const auth::CloudTimeQuery& cloudQu
                 {
                     std::lock_guard<std::mutex> lock(g_settingsMutex);
                     syncTrophies = g_settings.syncTrophies;
+                    if (syncTrophies) {
+                        bool hasCustom = false;
+                        GameProfile prof = g_settings.profileForGame(g_stageProduct, g_stageTitle, &hasCustom);
+                        if (hasCustom && !prof.syncTrophies) {
+                            syncTrophies = false;
+                        }
+                    }
                 }
                 if (syncTrophies) {
                     std::string xblAuth, xuid;
@@ -392,9 +399,9 @@ std::string stream(xcloud::GssvClient& gssv, const auth::CloudTimeQuery& cloudQu
                         xuid = g_xuid;
                     }
                     if (!xblAuth.empty()) {
-                        trophy::syncEngine().pollActiveStream(xblAuth, xuid, g_stageXboxTitleId,
-                                                              g_stageGameName.empty() ? g_stageTitle : g_stageGameName,
-                                                              g_stageTileUrl);
+                        trophy::dispatchStreamPoll(xblAuth, xuid, g_stageXboxTitleId,
+                                                   g_stageGameName.empty() ? g_stageTitle : g_stageGameName,
+                                                   g_stageTileUrl);
                     }
                 }
             }

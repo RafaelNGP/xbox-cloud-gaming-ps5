@@ -440,6 +440,10 @@ void StreamScreen::update(const input::ControllerState& pad, ui::NavInput nav, b
                     p.highRefresh = had != g_settings.perGame.end() ? had->second.highRefresh : g_settings.highRefresh;
                     p.keyMap = had != g_settings.perGame.end() ? had->second.keyMap : g_settings.keyMap;
                     p.padMap = had != g_settings.perGame.end() ? had->second.padMap : g_settings.padMap;
+                    p.locale = had != g_settings.perGame.end() ? had->second.locale : std::string();
+                    p.syncTrophies = had != g_settings.perGame.end() ? had->second.syncTrophies : true;
+                    p.xboxTitleId = had != g_settings.perGame.end() ? had->second.xboxTitleId : std::string();
+                    p.gameName = had != g_settings.perGame.end() ? had->second.gameName : std::string();
                     p.touchpadShortcuts = touchpadShortcuts_;
                     p.touchpadMouse = touchpadMouse_;
                     p.gyroMode = gyroMode_;

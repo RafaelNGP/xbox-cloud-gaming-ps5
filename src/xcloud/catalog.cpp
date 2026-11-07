@@ -121,8 +121,8 @@ bool fetchProducts(const std::vector<std::string>& ids, const std::string& marke
             prod.xboxTitleId = p["XboxTitleId"].str();
             if (prod.xboxTitleId.empty()) prod.xboxTitleId = p["ChildXboxTitleIds"][0].str();
             prod.publisher = p["PublisherName"].str();
-            prod.description = p["ProductDescriptionShort"].str();
-            if (prod.description.empty()) prod.description = p["ProductDescription"].str();
+            prod.description = p["ProductDescription"].str();
+            if (prod.description.empty()) prod.description = p["ProductDescriptionShort"].str();
             prod.tileUrl = imageUrl(p["Image_Tile"]);
             prod.posterUrl = imageUrl(p["Image_Poster"]);
             prod.heroUrl = imageUrl(p["Image_Hero"]);

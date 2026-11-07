@@ -351,6 +351,18 @@ constexpr Column kEnglish = {
     "Enable 120 Hz display output in Settings for reduced frame latency and smoother response", // Tip120HzVideo
     "Calibrate DualSense stick dead zones in Settings to eliminate stick drift and improve precision", // TipAnalogDeadzone
     "Use the DualSense built-in microphone for party and multiplayer game voice chat", // TipDualSenseMic
+    "In keyboard and mouse supported games, use the DualSense touchpad surface as a mouse pointer", // TipTouchpadMouse
+    "Enable gyro aiming in Settings to fine-tune your weapon aim with DualSense motion sensors", // TipGyroAiming
+    "AMD FSR upscaling and sharpness filters enhance visual clarity and details during streaming", // TipFSRUpscaling
+    "Adjust the streaming bitrate cap in Settings up to 45 Mbps for pristine visual quality", // TipCustomBitrate
+    "Xbox achievements unlock automatically as native PlayStation 5 trophies while you play", // TipNativeTrophies
+    "Toggle native trophy tracking on or off per game from the game details screen", // TipPerGameTrophies
+    "Open your phone or PC browser to http://[console-ip]:8080 to access the SmartGlass WebUI", // TipSmartGlassWebUI
+    "Claim free game licenses and demos directly in 1 click without leaving the application", // TipClaimFreeStore
+    "Customize and remap controller buttons individually per game in the Settings menu", // TipButtonRemap
+    "Your library loads instantly from persistent local cache without boot loading screens", // TipInstantResume
+    "Swipe down on the touchpad during gameplay to adjust volume, bitrate, and stream settings", // TipInGameMenu
+    "Background delta sync keeps your catalog and shelf lists updated automatically", // TipBackgroundSync
     // Settings descriptions
     "Changes the language of the application interface and the preferred audio and subtitles in cloud games", // SettingDescLanguage
     "Sets the maximum streaming video resolution (1080p, 720p, or Best available). Takes effect on the next launch", // SettingDescResolution
@@ -436,4 +448,5 @@ constexpr Column kEnglish = {
     "This will delete local trophy packages added by PSBox for this profile. Your achievements remain safe on your Microsoft/Xbox account.", // RemoveTrophiesConfirmBody
     "Remove",                                         // RemoveTrophiesConfirm
     "Removed %s trophy title(s) from this profile.",  // TrophiesRemovedToast
+    "Syncing achievements...",                        // SyncingTrophies
 };

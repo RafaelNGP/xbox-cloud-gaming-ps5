@@ -249,7 +249,6 @@ void AppUi::drawSpinner(Canvas& c, float cx, float cy, float r, uint64_t nowMs) 
 }
 
 void AppUi::drawToast(Canvas& c, uint64_t nowMs) {
-    if (caps_.console) return;
     if (toast_.empty()) return;
     if (toastUntil_ == 0) toastUntil_ = nowMs + 3500;
     if (nowMs >= toastUntil_) {
@@ -260,6 +259,7 @@ void AppUi::drawToast(Canvas& c, uint64_t nowMs) {
     Rect r{(kW - w) / 2, kH - 150, w, 56};
     c.fillRect(r, rgba(40, 40, 40, 235), 28);
     fonts_.semibold.draw(c, toast_, r.x + 32, r.y + 14, 24, kWhite);
+    animating_ = true;
 }
 
 bool AppUi::drawHero(Canvas& c, uint64_t nowMs, const std::string& url, bool details) {
@@ -810,6 +810,11 @@ void AppUi::drawConsoles(Canvas& c, uint64_t nowMs) {
     drawBackground(c);
     drawTopBar(c);
     drawTabs(c);
+    {
+        constexpr int kGridW = kLibraryCols * kCardPitch - kCardGap;
+        const int left = (kW - kGridW) / 2;
+        drawLoadingBar(c, left, 112, 420, nowMs);
+    }
     fonts_.bold.draw(c, tr(Str::TabConsoles), kMargin, 170, 52, kWhite);
     fonts_.regular.draw(c, tr(Str::ConsolesHint), kMargin, 240, 26, kGray);
     if (consoles_.empty()) {
@@ -887,6 +892,7 @@ void AppUi::drawConsoles(Canvas& c, uint64_t nowMs) {
                   {kIconOptions, tr(Str::Settings)},
                   {kIconTouchpad, tr(Str::HoldSignOut)}});
     drawPads(c);
+    drawToast(c, nowMs);
 }
 
 void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
@@ -959,6 +965,11 @@ void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
         c.gradientV({0, 140, kW, 16}, kBg, withAlpha(kBg, 0));
         drawTopBar(c);
         drawTabs(c);
+        {
+            constexpr int kGridW = kLibraryCols * kCardPitch - kCardGap;
+            const int left = (kW - kGridW) / 2;
+            drawLoadingBar(c, left, 112, 420, nowMs);
+        }
         return;
     }
 
@@ -1050,6 +1061,11 @@ void AppUi::drawHome(Canvas& c, uint64_t nowMs) {
 
     drawTopBar(c);
     drawTabs(c);
+    {
+        constexpr int kGridW = kLibraryCols * kCardPitch - kCardGap;
+        const int left = (kW - kGridW) / 2;
+        drawLoadingBar(c, left, 112, 420, nowMs);
+    }
 
     // Fade the rows out under the button hints.
     c.gradientV({0, kH - 190, kW, 110}, withAlpha(kBg, 0), withAlpha(kBg, 245));
@@ -1358,7 +1374,7 @@ void AppUi::drawLaunching(Canvas& c, uint64_t nowMs) {
     drawCentered(c, fonts_.bold, launching_.name, 500, 48, kWhite);
     drawCentered(c, fonts_.semibold, tr(Str::GettingReady), 576, 30, kGray);
     drawCentered(c, fonts_.regular, status_, 630, 26, kDim);
-    // Helpful tips rotating every ~10 seconds from when the launching screen opened.
+    // Helpful tips rotating every ~7 seconds from when the launching screen opened.
     static constexpr Str kTips[] = {
         Str::TipTouchpadMenu,
         Str::TipKeyboardMouse,
@@ -1368,11 +1384,30 @@ void AppUi::drawLaunching(Canvas& c, uint64_t nowMs) {
         Str::Tip120HzVideo,
         Str::TipAnalogDeadzone,
         Str::TipDualSenseMic,
+        Str::TipTouchpadMouse,
+        Str::TipGyroAiming,
+        Str::TipFSRUpscaling,
+        Str::TipCustomBitrate,
+        Str::TipNativeTrophies,
+        Str::TipPerGameTrophies,
+        Str::TipSmartGlassWebUI,
+        Str::TipClaimFreeStore,
+        Str::TipButtonRemap,
+        Str::TipInstantResume,
+        Str::TipInGameMenu,
+        Str::TipBackgroundSync,
     };
     constexpr size_t kTipCount = sizeof(kTips) / sizeof(kTips[0]);
-    if (!launchingStartMs_) launchingStartMs_ = nowMs;
+    if (!launchingStartMs_) {
+        launchingStartMs_ = nowMs;
+        uint32_t titleHash = 2166136261u;
+        for (char ch : launching_.name) {
+            titleHash = (titleHash ^ static_cast<uint8_t>(ch)) * 16777619u;
+        }
+        launchingSeed_ = static_cast<size_t>(nowMs ^ titleHash);
+    }
     uint64_t elapsedMs = nowMs >= launchingStartMs_ ? (nowMs - launchingStartMs_) : 0;
-    size_t tipIndex = (elapsedMs / 10000) % kTipCount;
+    size_t tipIndex = (launchingSeed_ + (elapsedMs / 7000)) % kTipCount;
     drawCentered(c, fonts_.regular, tr(kTips[tipIndex]), 900, 22, kDim);
     drawHints(c, {{kIconCircle, tr(Str::Cancel)}});
 }

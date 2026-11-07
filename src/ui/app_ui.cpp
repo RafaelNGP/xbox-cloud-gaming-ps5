@@ -254,9 +254,11 @@ void AppUi::setCatalogState(std::vector<GameRow> rows, std::vector<GameTile> own
     }
     gamePassPool_ = std::move(gpPool);
     libraryPool_ = std::move(libPool);
-    loading_ = loadingActive;
-    loadingDone_ = loadingDone;
-    loadingTotal_ = loadingTotal;
+    if (!trophySyncing_) {
+        loading_ = loadingActive;
+        loadingDone_ = loadingDone;
+        loadingTotal_ = loadingTotal;
+    }
     rebuild(true);
 }
 
@@ -412,21 +414,29 @@ void AppUi::setConsoles(std::vector<ConsoleTile> consoles, bool known) {
     dirty_ = true;
 }
 
-void AppUi::setLoading(bool active, size_t done, size_t total) {
+void AppUi::setLoading(bool active, size_t done, size_t total, const std::string& customLabel) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (active == loading_ && done == loadingDone_ && total == loadingTotal_) return;
+    if (trophySyncing_ && customLabel.empty()) return;
+    if (active == loading_ && done == loadingDone_ && total == loadingTotal_ && customLabel == loadingLabel_) return;
     loading_ = active;
     loadingDone_ = done;
     loadingTotal_ = total;
+    loadingLabel_ = customLabel;
     dirty_ = true;
 }
 
 void AppUi::drawLoadingBar(Canvas& c, int x, int y, int w, uint64_t nowMs) {
-    // "Updating the game list..." over a thin bar: the share done, or a
+    // "Updating the game list..." or custom status over a thin bar: the share done, or a
     // sliding segment while there's no measure yet.
     if (!loading_) return;
-    std::string text = tr(Str::UpdatingList);
-    if (loadingTotal_) text += "  " + std::to_string(loadingDone_ * 100 / loadingTotal_) + "%";
+    std::string text = loadingLabel_.empty() ? tr(Str::UpdatingList) : loadingLabel_;
+    if (loadingLabel_.empty() && loadingTotal_) text += "  " + std::to_string(loadingDone_ * 100 / loadingTotal_) + "%";
+    if (w > 40 && fonts_.semibold.measure(text, 20) > w) {
+        while (!text.empty() && fonts_.semibold.measure(text + "...", 20) > w) {
+            text.pop_back();
+        }
+        text += "...";
+    }
     fonts_.semibold.draw(c, text, x, y, 20, kGray);
     Rect track{x, y + 32, w, 6};
     c.fillRect(track, rgba(255, 255, 255, 40), 3);
@@ -457,6 +467,18 @@ void AppUi::setPlaytime(int64_t remainingSeconds, int64_t maxSeconds, bool unlim
     playtimeMax_ = unlimited ? -1 : maxSeconds;
     playtimeUnlimited_ = unlimited;
     dirty_ = true;
+}
+
+void AppUi::setTrophySyncing(bool active) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (trophySyncing_ == active) return;
+    trophySyncing_ = active;
+    dirty_ = true;
+}
+
+bool AppUi::trophySyncing() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return trophySyncing_;
 }
 
 void AppUi::prefsEvent(UiEvent& ev) const {
@@ -1066,7 +1088,6 @@ void AppUi::showHome(const std::string& toast) {
 }
 
 void AppUi::showToast(const std::string& toast) {
-    if (caps_.console) return;
     std::lock_guard<std::mutex> lock(mutex_);
     if (!toast.empty()) {
         toast_ = toast;
@@ -1163,6 +1184,7 @@ void AppUi::showLaunching(const GameTile& game, const std::string& status) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (screen_ != Screen::Launching) {
         launchingStartMs_ = 0;
+        launchingSeed_ = 0;
     }
     screen_ = Screen::Launching;
     launching_ = game;

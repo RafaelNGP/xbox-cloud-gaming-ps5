@@ -116,7 +116,7 @@ ok "$out/$ps5_named ($(du -h "$out/$ps5_named" | cut -f1)), sha256 $(cut -d' ' -
 
 echo "== checks in the package"
 zip=$out/PPSA99810.zip
-if unzip -Z1 "$zip" | grep -nE "$private|\.elf$"; then fail "a private or symbol file in the zip"; fi
+if unzip -Z1 "$zip" | grep -vx 'PPSA99810/assets/PSBox_Trophies.elf' | grep -nE "$private|\.elf$"; then fail "a private or symbol file in the zip"; fi
 if zipinfo "$zip" | grep -E '^[-d]' | grep -v '^.rwxrwxrwx'; then fail "files in the zip without mode 0777"; fi
 ok "every entry mode 0777"
 ok "no private file ($(unzip -Z1 "$zip" | grep -vc '/$') files)"
@@ -127,10 +127,10 @@ eboot=$out/PPSA99810/eboot.bin
 if grep -aqE "$tokens" "$eboot"; then fail "eboot.bin holds something like a token"; fi
 grep -aq "$version" "$eboot" || fail "eboot.bin doesn't carry version $version (stale build?)"
 ok "eboot.bin: no token, version $version compiled in"
-for f in assets/cacert.pem licenses/THIRD_PARTY_NOTICES.md licenses/FFmpeg-LGPL-2.1.txt licenses/Anime4K-MIT.txt LICENSE; do
+for f in assets/cacert.pem assets/PSBox_Trophies.elf licenses/THIRD_PARTY_NOTICES.md licenses/FFmpeg-LGPL-2.1.txt licenses/Anime4K-MIT.txt LICENSE; do
     unzip -Z1 "$zip" | grep -qx "PPSA99810/$f" || fail "missing PPSA99810/$f"
 done
-ok "certificates and licenses in place"
+ok "certificates, trophy payload and licenses in place"
 
 echo "== build PS4"
 if [ -z "${OO_PS4_TOOLCHAIN:-}" ] && [ -d "$root/ps4-toolchain" ]; then

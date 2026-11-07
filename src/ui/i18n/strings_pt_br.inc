@@ -351,6 +351,18 @@ constexpr Column kPortugueseBR = {
     "Ative a saída de vídeo em 120 Hz nas Configurações para menor latência e resposta mais rápida", // Tip120HzVideo
     "Ajuste a zona morta dos analógicos do DualSense nas Configurações para eliminar drift", // TipAnalogDeadzone
     "Use o microfone integrado do DualSense para bate-papo de voz em grupos e jogos multijogador", // TipDualSenseMic
+    "Em jogos com suporte a mouse, use a superfície do touchpad do DualSense como ponteiro do mouse", // TipTouchpadMouse
+    "Ative a mira por giroscópio nas Configurações para ajustar a mira movendo o DualSense", // TipGyroAiming
+    "O upscaler espacial FSR e filtro de nitidez aumentam a clareza e detalhes da transmissão", // TipFSRUpscaling
+    "Ajuste o limite de bitrate nas Configurações até 45 Mbps para máxima fidelidade visual", // TipCustomBitrate
+    "Conquistas do Xbox desbloqueiam automaticamente como troféus nativos do PlayStation 5", // TipNativeTrophies
+    "Ative ou desative o registro de troféus individualmente na tela de detalhes do jogo", // TipPerGameTrophies
+    "Acesse http://[ip-do-console]:8080 no celular ou PC para gerenciar ajustes pelo SmartGlass", // TipSmartGlassWebUI
+    "Resgate jogos gratuitos e demonstrações em 1 clique sem precisar sair do aplicativo", // TipClaimFreeStore
+    "Personalize e remapeie os botões do controle individualmente por jogo nas Configurações", // TipButtonRemap
+    "Sua biblioteca carrega instantaneamente do cache local persistente ao iniciar o app", // TipInstantResume
+    "Deslize para baixo no Touchpad durante a partida para ajustar volume, bitrate e stream", // TipInGameMenu
+    "A sincronização em segundo plano mantém seu catálogo e estantes sempre atualizados", // TipBackgroundSync
     // Settings descriptions
     "Altera o idioma da interface do aplicativo e a preferência de áudio e legendas nos jogos da nuvem", // SettingDescLanguage
     "Define a resolução máxima do fluxo de vídeo transmitido (1080p, 720p ou Melhor). Vale a partir do próximo jogo", // SettingDescResolution
@@ -436,4 +448,5 @@ constexpr Column kPortugueseBR = {
     "Isso apagará os pacotes locais de troféus adicionados pelo PSBox para este perfil. Suas conquistas continuam salvas na sua conta Microsoft/Xbox.", // RemoveTrophiesConfirmBody
     "Remover",                                        // RemoveTrophiesConfirm
     "Removido(s) %s título(s) de troféus deste perfil.", // TrophiesRemovedToast
+    "Sincronizando conquistas...",                    // SyncingTrophies
 };

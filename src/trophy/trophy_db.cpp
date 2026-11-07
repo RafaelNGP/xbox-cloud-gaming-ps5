@@ -87,22 +87,6 @@ inline void updateCol(std::map<std::string, ColumnVal>& row, const std::string& 
     }
 }
 
-bool checkDbIntegrity(sqlite3* db, const std::string& dbName) {
-    sqlite3_stmt* stmt = nullptr;
-    bool ok = false;
-    if (sqlite3_prepare_v2(db, "PRAGMA integrity_check;", -1, &stmt, nullptr) == SQLITE_OK) {
-        if (sqlite3_step(stmt) == SQLITE_ROW) {
-            const char* res = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-            if (res && std::string(res) == "ok") {
-                ok = true;
-            } else {
-                XC_LOGW("trophy db: integrity check failed for %s: %s", dbName.c_str(), res ? res : "null");
-            }
-        }
-        sqlite3_finalize(stmt);
-    }
-    return ok;
-}
 
 void setupDbPragmas(sqlite3* db) {
     if (!db) return;
@@ -219,11 +203,30 @@ TitleDbInfo makeTitleDbInfo(const std::string& titleId, const std::string& title
     return info;
 }
 
+bool isRetailInstalledOnConsole(const std::string& sonyTitleId) {
+    if (sonyTitleId.empty() || sonyTitleId == "PPSA99810" || sonyTitleId == "PPSA22520") return true;
+    struct stat st{};
+    if (::stat(("/user/app/" + sonyTitleId + "/app.pkg").c_str(), &st) == 0) return true;
+    if (::stat(("/mnt/ext0/user/app/" + sonyTitleId + "/app.pkg").c_str(), &st) == 0) return true;
+    if (::stat(("/mnt/ext1/user/app/" + sonyTitleId + "/app.pkg").c_str(), &st) == 0) return true;
+    std::string paramJson;
+    if (platform::readFile("/system_data/priv/appmeta/" + sonyTitleId + "/param.json", paramJson) && !paramJson.empty()) {
+        if (paramJson.find("2026-10-31 00:00:00") == std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool registerTitleInDatabase(const TitleDbInfo& info,
                              const std::string& appDbPath,
                              const std::string& appinfoDbPath) {
     if (info.titleId.empty() || info.titleId == "PPSA99810") {
         return false;
+    }
+    if (appDbPath.empty() && isRetailInstalledOnConsole(info.titleId)) {
+        XC_LOGI("trophy db: preserving retail installed title %s in app.db", info.titleId.c_str());
+        return true;
     }
 
     std::string appDb = appDbPath.empty() ? "/system_data/priv/mms/app.db" : appDbPath;
@@ -254,15 +257,24 @@ bool registerTitleInDatabase(const TitleDbInfo& info,
 
     // 1a. tbl_contentinfo
     bool contentExists = false;
+    int existingDispLocation = 0;
     {
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, "SELECT 1 FROM tbl_contentinfo WHERE titleId = ?;", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_prepare_v2(db, "SELECT dispLocation FROM tbl_contentinfo WHERE titleId = ?;", -1, &stmt, nullptr) == SQLITE_OK) {
             sqlite3_bind_text(stmt, 1, info.titleId.c_str(), -1, SQLITE_TRANSIENT);
             if (sqlite3_step(stmt) == SQLITE_ROW) {
                 contentExists = true;
+                existingDispLocation = sqlite3_column_int(stmt, 0);
             }
             sqlite3_finalize(stmt);
         }
+    }
+    if (contentExists && existingDispLocation != 0) {
+        sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+        sqlite3_close(db);
+        XC_LOGI("trophy db: preserving retail installed title %s (dispLocation=%d) in app.db",
+                info.titleId.c_str(), existingDispLocation);
+        return true;
     }
 
     if (!contentExists) {
@@ -471,7 +483,6 @@ bool registerTitleInDatabase(const TitleDbInfo& info,
         }
     }
 
-    checkDbIntegrity(db, "app.db");
     sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
     sqlite3_wal_checkpoint_v2(db, nullptr, SQLITE_CHECKPOINT_PASSIVE, nullptr, nullptr);
     sqlite3_close(db);
@@ -662,7 +673,6 @@ bool registerTitleInDatabase(const TitleDbInfo& info,
                 }
             }
 
-            checkDbIntegrity(infoDb, "appinfo.db");
             sqlite3_exec(infoDb, "COMMIT;", nullptr, nullptr, nullptr);
             sqlite3_wal_checkpoint_v2(infoDb, nullptr, SQLITE_CHECKPOINT_PASSIVE, nullptr, nullptr);
             sqlite3_close(infoDb);
@@ -677,6 +687,10 @@ bool removeTitleFromDatabase(const std::string& titleId,
                              const std::string& appDbPath,
                              const std::string& appinfoDbPath) {
     if (titleId.empty() || titleId == "PPSA99810" || titleId == "PPSA22520") {
+        return false;
+    }
+    if (appDbPath.empty() && isRetailInstalledOnConsole(titleId)) {
+        XC_LOGI("trophy db: preserving retail installed title %s during remove", titleId.c_str());
         return false;
     }
 
@@ -700,8 +714,25 @@ bool removeTitleFromDatabase(const std::string& titleId,
             return false;
         }
 
-        // tbl_contentinfo
+        // Never delete a retail installed game (dispLocation != 0)
         sqlite3_stmt* stmt = nullptr;
+        int existingDispLocation = 0;
+        if (sqlite3_prepare_v2(db, "SELECT dispLocation FROM tbl_contentinfo WHERE titleId = ?;", -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, titleId.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                existingDispLocation = sqlite3_column_int(stmt, 0);
+            }
+            sqlite3_finalize(stmt);
+        }
+        if (existingDispLocation != 0) {
+            sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+            sqlite3_close(db);
+            XC_LOGI("trophy db: refusing to remove retail installed title %s (dispLocation=%d)",
+                    titleId.c_str(), existingDispLocation);
+            return true;
+        }
+
+        // tbl_contentinfo
         if (sqlite3_prepare_v2(db, "DELETE FROM tbl_contentinfo WHERE titleId = ?;", -1, &stmt, nullptr) == SQLITE_OK) {
             sqlite3_bind_text(stmt, 1, titleId.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_step(stmt);
@@ -744,7 +775,6 @@ bool removeTitleFromDatabase(const std::string& titleId,
             }
         }
 
-        checkDbIntegrity(db, "app.db");
         sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
         sqlite3_wal_checkpoint_v2(db, nullptr, SQLITE_CHECKPOINT_PASSIVE, nullptr, nullptr);
         sqlite3_close(db);
@@ -767,7 +797,6 @@ bool removeTitleFromDatabase(const std::string& titleId,
                 sqlite3_step(stmt);
                 sqlite3_finalize(stmt);
             }
-            checkDbIntegrity(infoDb, "appinfo.db");
             sqlite3_exec(infoDb, "COMMIT;", nullptr, nullptr, nullptr);
             sqlite3_wal_checkpoint_v2(infoDb, nullptr, SQLITE_CHECKPOINT_PASSIVE, nullptr, nullptr);
             sqlite3_close(infoDb);

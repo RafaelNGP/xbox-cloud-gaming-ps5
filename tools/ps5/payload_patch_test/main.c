@@ -196,6 +196,8 @@ int main(void) {
     }
 
     // 2. Trophy directory permissions
+    mkdir("/data/psbox", 0777);
+    chmod("/data/psbox", 0777);
     chmod("/user/trophy2", 0777);
     chmod("/user/trophy2/nobackup", 0777);
     chmod("/user/trophy2/nobackup/conf", 0777);
@@ -207,6 +209,10 @@ int main(void) {
     chmod("/user/home/1ea2f4da/trophy2/nobackup/data", 0777);
     chmod("/user/home/1ea2f4da/trophy2/nobackup/data/NPWR20561_00", 0777);
     chmod("/user/home/1ea2f4da/trophy2/nobackup/data/NPWR20561_00/TRPTITLE.DAT", 0666);
+    chmod("/system_data/priv/mms", 0777);
+    chmod("/system_data/priv/mms/app.db", 0666);
+    chmod("/system_data/priv/mms/app.db-wal", 0666);
+    chmod("/system_data/priv/mms/app.db-shm", 0666);
 
     pid_t pid = find_process_by_name("SceShellCore");
     intptr_t mapbase = get_process_mapbase(pid);
@@ -432,6 +438,13 @@ int main(void) {
     chmod("/system_data/game/temp/PPSA01922/npbind.dat", 0666);
     chmod("/system_data/game/temp/PPSA01922/trophy2/npbind.dat", 0666);
     chmod("/system_data/game/temp/PPSA01922/trophy2/trophy00.ucp", 0666);
+
+    FILE* done_log = fopen("/data/trophy_patch_log.txt", "w");
+    if (done_log) {
+        fprintf(done_log, "PSBox_Trophies DONE\n");
+        fclose(done_log);
+        chmod("/data/trophy_patch_log.txt", 0666);
+    }
 
     return 0;
 }

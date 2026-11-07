@@ -28,6 +28,10 @@ for f in pic0.dds pic1.dds snd0.at9; do
 done
 cp "$vk/runtime/libc.prx" "$app/sce_module/libc.prx"
 cp -r "$root/assets/." "$app/assets/"
+trophy_elf="$root/tools/ps5/payload_patch_test/PSBox_Trophies.elf"
+[[ -f "$trophy_elf" ]] || { echo "missing $trophy_elf" >&2; exit 2; }
+cp "$trophy_elf" "$app/assets/PSBox_Trophies.elf"
+chmod 0777 "$app/assets/PSBox_Trophies.elf"
 
 # README.txt for users, LICENSE, and the license texts of everything in the
 # package (see THIRD_PARTY_NOTICES.md). XC_VERSION names the release.

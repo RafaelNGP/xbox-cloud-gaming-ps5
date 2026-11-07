@@ -351,6 +351,18 @@ constexpr Column kGerman = {
     "120-Hz-Videoausgabe in den Einstellungen für geringere Anzeigelatenz und flüssigere Steuerung aktivieren", // Tip120HzVideo
     "Stick-Totzone in den Einstellungen kalibrieren, um Stick-Drift zu verhindern und Präzision zu verbessern", // TipAnalogDeadzone
     "Integriertes DualSense-Mikrofon für Party- und Multiplayer-Sprachchat verwenden", // TipDualSenseMic
+    "In Spielen mit Mausunterstützung das DualSense-Touchpad als Mauszeiger verwenden", // TipTouchpadMouse
+    "Gyroskop-Zielen in den Einstellungen aktivieren, um mit Bewegungssensoren präzise zu zielen", // TipGyroAiming
+    "AMD FSR-Upscaling und Schärfefilter verbessern Bildschärfe und Details beim Streaming", // TipFSRUpscaling
+    "Streaming-Bitrate in den Einstellungen auf bis zu 45 Mbit/s für maximale Qualität anpassen", // TipCustomBitrate
+    "Xbox-Erfolge werden beim Spielen automatisch als native PlayStation 5-Trophäen freigeschaltet", // TipNativeTrophies
+    "Trophäen-Tracking für einzelne Spiele direkt auf der Spieledetailseite ein- oder ausschalten", // TipPerGameTrophies
+    "Öffnen Sie http://[konsolen-ip]:8080 im Browser für Zugriff auf die SmartGlass WebUI", // TipSmartGlassWebUI
+    "Kostenlose Spiele und Demos mit nur einem Klick direkt in der Anwendung sichern", // TipClaimFreeStore
+    "Tastenbelegung für jedes Spiel individuell im Einstellungsmenü anpassen", // TipButtonRemap
+    "Ihre Spielebibliothek lädt sofort aus dem lokalen Cache ohne Wartezeiten beim Start", // TipInstantResume
+    "Beim Spielen auf dem Touchpad nach unten wischen, um Lautstärke und Bitrate anzupassen", // TipInGameMenu
+    "Hintergrund-Delta-Sync hält Katalog und Regallisten automatisch auf dem neuesten Stand", // TipBackgroundSync
     // Settings descriptions
     "Ändert die Sprache der Benutzeroberfläche sowie die bevorzugte Audio- und Untertitelsprache in Cloud-Spielen", // SettingDescLanguage
     "Legt die maximale Streaming-Auflösung fest (1080p, 720p oder Beste). Wird beim nächsten Spielstart wirksam", // SettingDescResolution
@@ -436,4 +448,5 @@ constexpr Column kGerman = {
     "Dies löscht die lokalen Trophäenpakete von PSBox für dieses Profil. Ihre Erfolge bleiben auf Ihrem Microsoft/Xbox-Konto sicher gespeichert.", // RemoveTrophiesConfirmBody
     "Entfernen",                                      // RemoveTrophiesConfirm
     "%s Trophäen-Titel aus diesem Profil entfernt.",  // TrophiesRemovedToast
+    "Erfolge werden synchronisiert...",               // SyncingTrophies
 };

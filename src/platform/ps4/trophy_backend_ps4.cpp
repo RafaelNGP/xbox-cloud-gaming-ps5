@@ -90,6 +90,8 @@ public:
     }
 
     bool unlockTrophy(const std::string& npCommId, int trophyId, TrophyGrade grade, const std::string& trophyName) override {
+        (void)grade;
+        (void)trophyName;
         std::lock_guard<std::mutex> lock(mutex_);
         if (isTrophyUnlockedLocked(npCommId, trophyId)) return true;
 
@@ -100,9 +102,6 @@ public:
             XC_LOGI("trophy ps4: sceNpTrophyUnlockTrophy(%s, id=%d) -> 0x%08x (plat=%d)",
                     npCommId.c_str(), trophyId, static_cast<unsigned>(rc), platId);
         }
-
-        std::string toast = "🏆 " + std::string(gradeToString(grade)) + ": " + (trophyName.empty() ? ("Trophy #" + std::to_string(trophyId)) : trophyName);
-        platform::notify(toast);
 
         unlockedTrophies_[npCommId].insert(trophyId);
         if (platId == kPlatinumTrophyId && trophyId != kPlatinumTrophyId) {

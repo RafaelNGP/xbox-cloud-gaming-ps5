@@ -256,6 +256,11 @@ size_t Library::syncDelta(xcloud::GssvClient& gssv, const Changed& changed, std:
 
     for (const auto& pid : allGames_) knownGamePass_.insert(pid);
     for (const auto& [pid, _] : products_) knownProducts_.insert(pid);
+    for (auto& [pid, p] : products_) {
+        if (p.description.size() < 80) {
+            p.detailed = false;
+        }
+    }
 
     loadOwned(gssv, changed, nullptr, &titles);
     loadCatalogNames(changed, nullptr);
@@ -746,7 +751,8 @@ bool Library::fetchFull(const std::vector<std::string>& ids, const Changed& chan
     std::set<std::string> queued;
     for (const auto& id : ids) {
         auto it = products_.find(id);
-        bool needFull = (it == products_.end() || !it->second.detailed || it->second.description.empty());
+        bool needFull = (it == products_.end() || !it->second.detailed || it->second.description.empty() ||
+                         it->second.description.size() < 80);
         if (needFull && queued.insert(id).second)
             order.push_back(id);
     }

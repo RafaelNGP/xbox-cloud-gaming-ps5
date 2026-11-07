@@ -45,6 +45,26 @@ std::string systemLib(const char* name) {
     return std::string("/common/lib/") + name;
 }
 
+void triggerPayloadPath8084(const char* payloadPath) {
+    int s = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return;
+    struct sockaddr_in sin{};
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons(8084);
+    sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK); // 127.0.0.1
+    struct timeval tv{0, 400000};
+    ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    ::setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    if (::connect(s, reinterpret_cast<struct sockaddr*>(&sin), sizeof(sin)) == 0) {
+        std::string req = std::string("GET /loadpayload:") + payloadPath +
+                          " HTTP/1.1\r\nHost: 127.0.0.1:8084\r\nConnection: close\r\n\r\n";
+        ::send(s, req.data(), req.size(), 0);
+        char buf[256];
+        ::recv(s, buf, sizeof(buf), 0);
+    }
+    ::close(s);
+}
+
 void triggerSceShellCorePatch() {
     pid_t myPid = ::getpid();
     int fd = ::open("/data/psbox/eboot_pid.txt", O_WRONLY | O_CREAT | O_TRUNC, 0666);
@@ -55,23 +75,35 @@ void triggerSceShellCorePatch() {
         ::close(fd);
     }
 
-    int s = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (s < 0) return;
-    struct sockaddr_in sin{};
-    sin.sin_family = AF_INET;
-    sin.sin_port = htons(8084);
-    sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK); // 127.0.0.1
-    struct timeval tv{1, 0};
-    ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    ::setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    if (::connect(s, reinterpret_cast<struct sockaddr*>(&sin), sizeof(sin)) == 0) {
-        const char req[] = "GET /loadpayload:/data/pldmgr/payloads/patch_test/patch_test.elf HTTP/1.1\r\nHost: 127.0.0.1:8084\r\nConnection: close\r\n\r\n";
-        ::send(s, req, sizeof(req) - 1, 0);
-        char buf[256];
-        ::recv(s, buf, sizeof(buf), 0);
-        XC_LOGI("trophy ps5: SceShellCore patch & unjail payload triggered via 127.0.0.1:8084 (pid=%d)", myPid);
+    // Ensure /data/psbox/PSBox_Trophies.elf is staged from bundled assets
+    std::string elfBytes;
+    if (platform::readFile("/app0/assets/PSBox_Trophies.elf", elfBytes) ||
+        platform::readFile("/data/homebrew/PPSA99810/assets/PSBox_Trophies.elf", elfBytes)) {
+        std::string cur;
+        if (!platform::readFile("/data/psbox/PSBox_Trophies.elf", cur) || cur != elfBytes) {
+            platform::writeFileAtomic("/data/psbox/PSBox_Trophies.elf", elfBytes);
+            ::chmod("/data/psbox/PSBox_Trophies.elf", 0777);
+        }
     }
-    ::close(s);
+    ::unlink("/data/pldmgr/payloads/patch_test/patch_test.elf");
+    ::rmdir("/data/pldmgr/payloads/patch_test");
+
+    struct stat stAppDb{};
+    std::string patchLog;
+    if (::stat("/system_data/priv/mms/app.db", &stAppDb) == 0 &&
+        platform::readFile("/data/trophy_patch_log.txt", patchLog) &&
+        patchLog.find("PSBox_Trophies DONE") != std::string::npos) {
+        XC_LOGI("trophy ps5: unjail & SceShellCore patch already active (pid=%d)", myPid);
+        return;
+    }
+
+    struct stat stInternalElf{};
+    if (::stat("/data/psbox/PSBox_Trophies.elf", &stInternalElf) == 0) {
+        triggerPayloadPath8084("/data/psbox/PSBox_Trophies.elf");
+    } else {
+        triggerPayloadPath8084("/data/homebrew/PPSA99810/assets/PSBox_Trophies.elf");
+    }
+    XC_LOGI("trophy ps5: PSBox_Trophies.elf triggered via 127.0.0.1:8084 (pid=%d)", myPid);
     ::usleep(30000); // 30ms settle for kernel credential update
 }
 
@@ -167,6 +199,7 @@ public:
         if (currentNpCommId_ != set.npCommId) {
             cleanupContext();
             currentNpCommId_ = set.npCommId;
+            unlockedTrophies_[set.npCommId].clear();
 
             // Load existing unlocked trophies from disk TRPTITLE.DAT into unlockedTrophies_
             char dataPath[256];
@@ -181,24 +214,22 @@ public:
                     if (n > 0) {
                         std::map<uint32_t, ExistingTrophyRecord> existingTrophies;
                         if (parseTrpTitleDat(diskBuf.data(), static_cast<size_t>(n), existingTrophies)) {
-                            for (const auto& [tid, rec] : existingTrophies) {
-                                if (rec.state == 1) {
-                                    unlockedTrophies_[set.npCommId].insert(tid);
+                            const bool isSyntheticSlot = (set.npCommId.rfind("NPWR8", 0) == 0 || set.npCommId.rfind("NPWR9", 0) == 0) &&
+                                                         !isRetailInstalledGame(set.sonyTitleId);
+                            if (!isSyntheticSlot || existingTrophies.size() == set.items.size() + 1) {
+                                for (const auto& [tid, rec] : existingTrophies) {
+                                    if (rec.state == 1) {
+                                        unlockedTrophies_[set.npCommId].insert(static_cast<int>(tid));
+                                    }
                                 }
+                                XC_LOGI("trophy ps5: loaded %zu existing unlocked trophies from %s",
+                                        unlockedTrophies_[set.npCommId].size(), dataPath);
                             }
-                            XC_LOGI("trophy ps5: loaded %zu existing unlocked trophies from %s",
-                                    unlockedTrophies_[set.npCommId].size(), dataPath);
                         }
                     }
                 }
                 ::close(fd);
             }
-
-            // Generate UCP package, TRPTITLE.DAT, npbind.dat, and system DB registrations
-            waitForUnjail(8000);
-            deployTrophyPack(set, userId_);
-            std::vector<uint8_t> dummyUcp;
-            buildUcp(set, dummyUcp, &ucpSha1_);
         }
 
         registeredTitles_[set.npCommId] = set;
@@ -233,35 +264,18 @@ public:
                 const auto& unlockedSet = unlockedTrophies_[currentNpCommId_];
                 int unlockedCount = 0;
                 for (auto& item : updatedSet.items) {
-                    if (unlockedSet.count(item.trophyId) > 0) {
+                    if (unlockedSet.count(item.trophyId) > 0 || item.unlocked) {
                         item.unlocked = true;
                         unlockedCount++;
                     }
                 }
                 updatedSet.unlockedCount = unlockedCount;
-                std::vector<uint8_t> datBytes;
-                if (buildTrpTitleDat(updatedSet, userId_, datBytes, ucpSha1_.empty() ? nullptr : ucpSha1_.data())) {
-                    char path[256];
-                    snprintf(path, sizeof(path), "/user/home/%08x/trophy2/nobackup/data/%s/TRPTITLE.DAT",
-                             userId_, currentNpCommId_.c_str());
-                    int fd = ::open(path, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-                    if (fd >= 0) {
-                        ::write(fd, datBytes.data(), datBytes.size());
-                        ::close(fd);
-                        ::chmod(path, 0666);
-                        ::sync();
-                        XC_LOGI("trophy ps5: flushed updated TRPTITLE.DAT to %s (%zu bytes, %d unlocked)",
-                                path, datBytes.size(), unlockedCount);
-                    }
-                }
+                waitForUnjail(8000);
+                deployTrophyPack(updatedSet, userId_);
             }
         }
         cleanupContext();
         currentNpCommId_.clear();
-        // NOTE: destroying the context does NOT commit anything to the OS trophy
-    // index. TRPTITLE.DAT is written above, but the service-side durable
-    // publish (what the system Trophy collection reads) is NOT confirmed here.
-    XC_LOGI("trophy ps5: context destroyed; TRPTITLE.DAT written (service-side durable publish NOT confirmed)");
     }
 
     bool isTrophyUnlocked(const std::string& npCommId, int trophyId) override {
@@ -275,6 +289,7 @@ public:
 
     bool removeAllTrophies(const std::vector<std::pair<std::string, std::string>>& titles, int& removedCount, std::string& err) override {
         std::lock_guard<std::mutex> lock(mutex_);
+        (void)err;
         if (!initialized_) init(0);
         removedCount = 0;
 
@@ -282,7 +297,18 @@ public:
         waitForUnjail(8000);
         cleanupContext();
 
+        // Also clean up any legacy /system_data/game/temp PPSA directories created by older builds
+        rmTree("/system_data/game/temp");
+        ::mkdir("/system_data/game/temp", 0777);
+        ::chmod("/system_data/game/temp", 0777);
+
         for (const auto& [npComm, sonyTitle] : titles) {
+            // Never delete trophies or metadata of a locally installed retail PS5 game!
+            if (!sonyTitle.empty() && sonyTitle != "PPSA99810" && isRetailInstalledGame(sonyTitle)) {
+                XC_LOGI("trophy ps5 remove: preserving retail installed title %s (%s)", sonyTitle.c_str(), npComm.c_str());
+                continue;
+            }
+
             bool foundAny = false;
             if (!npComm.empty()) {
                 char dataDir[256];
@@ -303,17 +329,12 @@ public:
             }
 
             if (!sonyTitle.empty()) {
-                if (sonyTitle == "PPSA22520") {
-                    continue; // Safeguard: never delete the retail model game
-                }
                 if (sonyTitle == "PPSA99810") {
                     const std::string appMetaDirs[] = {
                         "/system_data/priv/appmeta/PPSA99810/trophy2",
                         "/user/appmeta/PPSA99810/trophy2",
                         "/user/app/PPSA99810/sce_sys/trophy2",
-                        "/data/homebrew/PPSA99810/sce_sys/trophy2",
-                        "/system_data/game/temp/PPSA99810/trophy2",
-                        "/system_data/game/temp/PPSA99810"
+                        "/data/homebrew/PPSA99810/sce_sys/trophy2"
                     };
                     for (const auto& d : appMetaDirs) {
                         struct stat st{};
@@ -324,14 +345,12 @@ public:
                     }
                     ::unlink("/system_data/priv/appmeta/PPSA99810/npbind.dat");
                     ::unlink("/user/appmeta/PPSA99810/npbind.dat");
-                    ::unlink("/system_data/game/temp/PPSA99810/npbind.dat");
                 } else {
                     const std::string titleDirs[] = {
                         "/system_data/priv/appmeta/" + sonyTitle,
                         "/user/appmeta/" + sonyTitle,
                         "/user/app/" + sonyTitle + "/sce_sys",
-                        "/user/app/" + sonyTitle,
-                        "/system_data/game/temp/" + sonyTitle
+                        "/user/app/" + sonyTitle
                     };
                     for (const auto& d : titleDirs) {
                         struct stat st{};

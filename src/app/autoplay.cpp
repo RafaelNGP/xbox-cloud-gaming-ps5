@@ -40,7 +40,7 @@ bool donationShot = false;  // "donationtest": save the screen now
 bool reportShot = false;    // "reporttest": save report.ppm now
 const char* cloudTimeShot = nullptr;  // "cloudtimetest": save this capture now
 bool signInCheckShot = false; // "checksignintest": save the screen now
-bool trophySettingsShot = false, trophySyncedShot = false; // "trophytest": save screenshots
+bool trophySettingsShot = false, trophySyncedShot = false, trophySyncingShot = false, homeSyncingShot = false; // "trophytest": save screenshots
 bool trophyDisclaimerShot = false, trophyEnabledShot = false, trophyRemoveConfirmShot = false, trophyRemovedToastShot = false;
 bool freeUiShot = false, freeDetailsShot = false; // "freetest": save free account screenshots
 const char* keysShot = nullptr;  // "keystest": the screen to save now
@@ -991,12 +991,23 @@ void autoplayNav(ui::NavInput& nav, bool& menuCombo, uint64_t now) {
         } else if (step == 6 && now - since >= 9000) {
             trophyEnabledShot = true; // Capture toggled ON
             step++;
-        } else if (step == 7 && now - since >= 22000) {
+        } else if (step == 7 && now - since >= 11000) {
+            nav.square = true; // Trigger forced manual sync with Square
+            step++;
+        } else if (step == 8 && now - since >= 13500) {
+            trophySyncingShot = true; // Capture in-progress visual sync feedback in Settings
+            step++;
+        } else if (step == 9 && now - since >= 15500) {
+            nav.back = true; // Go back to Home
+            g_ui->showHome();
+            step++;
+        } else if (step == 10 && now - since >= 18000) {
+            homeSyncingShot = true; // Capture in-progress visual sync feedback on Home screen
+            step++;
+        } else if (step == 11 && now - since >= 32000) {
             trophySyncedShot = true; // Capture during/after sync
             step++;
-        } else if (step == 8 && now - since >= 24000) {
-            nav.back = true;
-            g_ui->showHome();
+        } else if (step == 12 && now - since >= 34000) {
             g_autoplay.trophySyncTest = false;
             XC_LOGI("AUTOPLAY END: trophy sync test passed 100%%");
             step++;
@@ -1466,6 +1477,16 @@ void autoplayScreens(const ui::Canvas& canvas, uint64_t now) {
         trophyRemovedToastShot = false;
         saveCanvas("trophy_removed_toast.ppm");
         XC_LOGI("AUTOPLAY: saved trophy_removed_toast.ppm");
+    }
+    if (trophySyncingShot) {
+        trophySyncingShot = false;
+        saveCanvas("trophy_syncing.ppm");
+        XC_LOGI("AUTOPLAY: saved trophy_syncing.ppm");
+    }
+    if (homeSyncingShot) {
+        homeSyncingShot = false;
+        saveCanvas("home_syncing.ppm");
+        XC_LOGI("AUTOPLAY: saved home_syncing.ppm");
     }
     if (trophySyncedShot) {
         trophySyncedShot = false;

@@ -279,6 +279,7 @@ bool keepAliveAfter(int status, bool http10, const std::string& connection, long
 void setTestTransport(std::function<Response(const Request&)> transport) { g_testTransport = std::move(transport); }
 
 bool HostPacer::paced(const std::string& host) {
+    if (host == "images-eds-ssl.xboxlive.com" || host == "images-eds.xboxlive.com") return false;
     auto endsWith = [&](const char* tail) {
         size_t n = std::strlen(tail);
         return host.size() >= n && host.compare(host.size() - n, n, tail) == 0;

@@ -4,7 +4,7 @@ Planejamento e visão de futuro do projeto **PSBox Cloud Gaming**, priorizado po
 
 Status: **Em andamento (next)**, **Planejado (planned)**, **Futuro (later)**, **Descartado (dropped)**.
 
-> **Última atualização:** 04/11/2026 (release estável **v1.6.0** / suporte a controles USB nativos e cotas de nuvem).
+> **Última atualização:** 07/11/2026 (release estável **v1.6.3** / correções de engasgos de streaming no PS5, cache v3, 20 dicas de launching e diagnósticos reativos).
 
 ---
 
@@ -34,6 +34,27 @@ Status: **Em andamento (next)**, **Planejado (planned)**, **Futuro (later)**, **
 ### 6. Cotas de Tempo de Nuvem e Avisos em Jogo — *done (v1.6.0)* (#342)
 - **Implementação**: Suporte a limites de tempo mensal de nuvem (parser de horas restantes e totais, exibição na barra superior centralizada, avisos a 15m/5m e tela amigável com QR Code).
 
+### 7. Diagnóstico "Verificar meu login" Inoperante (Modal Aberto sem Execução) — *done (v1.6.3)*
+- **Sintoma Resolvido**: Modal abria em branco sem disparar os testes nem renderizar o feedback de progresso dos estágios de validação.
+- **Implementação**:
+  - Inicialização reativa imediata dos 6 estágios de validação (`signInCheck_.stages`) com spinners de carregamento em `openTester()`.
+  - Fila não-bloqueante à prova de descartes com retry loop em `app_core.cpp` para o comando `kCheckSignIn`.
+  - Preservação estrita de 100% da lógica e apresentação originais em `worker_diagnostics.cpp` e `app_ui_settings.cpp`.
+
+### 8. Diagnóstico "Teste de rede" Inoperante (Modal Estático em "UDP / STUN (NAT)") — *done (v1.6.3)*
+- **Sintoma Resolvido**: Modal abria estático exibindo apenas o cabeçalho UDP/STUN sem realizar medições de RTT e jitter para as regiões dos datacenters.
+- **Implementação**:
+  - Inicialização reativa imediata das regiões (`networkTest_.regions`) com indicadores de sondagem ativa (`...`).
+  - Retry loop seguro para o comando `kNetworkTest` em `app_core.cpp` eliminando descartes durante transições do worker.
+  - Sondas STUN RFC 5389 operando com total integridade e reportando latências instantaneamente à UI.
+
+### 9. Problemas de Mapeamento de Input OneFamily no PS4 nas Opções 2, 3 e 4 (#369) — *investigating (prioridade máxima)*
+- **Sintoma Reportado**: Feedback de usuários na build de PS4 (issue #369) reportando falhas com o driver OneFamily integrado: quando o controle está configurado como **Opção 1**, tudo opera perfeitamente. No entanto, ao selecionar as **Opções 2, 3 ou 4**, alguns jogos apresentam anomalias e perda de reconhecimento de inputs/botões (comprovado em testes com *Remnant II*). Ao retornar para a Opção 1, o controle volta ao funcionamento normal.
+- **Investigação & Correção**:
+  - Auditar as rotinas de multiplexação de portas, índices de dispositivos e tabelas de mapeamento HID em `src/input/pad_usb_ps4.cpp`, `src/input/pad_usb.cpp` e `src/input/pad_usb_hid.cpp`.
+  - Verificar se as configurações das opções 2, 3 e 4 introduzem divergências no parsing de relatórios de entrada (input reports), no tratamento de botões compartilhados ou na leitura de múltiplos slots via `libSceUsbd`.
+  - Corrigir o tratamento de estados e validar a consistência de leitura de botões e eixos em todos os modos suportados.
+
 ---
 
 ## 🚀 Em Andamento e Próximos Passos (Now & Next)
@@ -59,21 +80,32 @@ Expansão do servidor local integrado (porta 8080) para multiplayer cooperativo 
 - **Suporte a até 4 Smartphones Simultâneos**: Seleção dinâmica de slot (`P1`, `P2`, `P3`, `P4`) via `/gamepad`, heartbeat automático de desconexão e transmissão binária via WebSocket (`/ws`) com latência < 5 ms.
 - **PSBox Layout Studio**: Editor visual de controles na WebUI com pré-visualização WYSIWYG, ajuste de botões analógicos e gatilhos para telas de toque, salvamento de perfis (`portrait`/`landscape`) e persistência imediata.
 
+### 4. SmartGlass QR Code no In-Game Menu (Overlay) — *next (v1.7.0)*
+Acesso instantâneo e sem digitação manual ao controle virtual via smartphone durante a transmissão:
+- **Exibição Dinâmica no Overlay**: Renderização de código QR vetorial de alta definição diretamente na interface do menu in-game (`stream_menu.cpp`).
+- **Resolução Automática de IP Local**: Aponta dinamicamente para o endereço local da porta 8080 (`http://<ip_ps5>:8080/gamepad`), permitindo que qualquer smartphone conectado à rede Wi-Fi pareie instantaneamente como controle complementar ou principal (P1..P4).
+- **Toggle de Exibição Rápida**: Opção dedicada no menu in-game (<kbd>TOUCHPAD</kbd> + <kbd>OPTIONS</kbd>) para exibir e ocultar o QR Code com 1 clique sem interromper a transmissão.
+
 ---
 
 ## 📋 Planejado para o Futuro (Planned & Later)
 
-### 1. Sincronização de Conquistas Xbox para Troféus PlayStation (PS5/PS4) — *planned*
-Espelhamento contínuo das conquistas obtidas no Xbox Cloud Gaming para o subsistema local de troféus da conta PlayStation:
-- **Loop de Monitoramento Ativo (`worker_stream.cpp`)**: A cada 20 segundos de gameplay ativo, consulta a API Xbox Live (`fetchTitleAchievements(xboxTitleId, xuid)`) e compara os status com snapshot mantido em disco e memória.
-- **Mapeamento de Gamerscore para Graus de Troféus**:
-  - `5G` a `15G` ──► Troféu **Bronze**
-  - `20G` a `45G` ──► Troféu **Prata**
-  - `50G` a `100G` ──► Troféu **Ouro**
-  - `100% dos Achievements` do jogo obtidos ──► Troféu **Platina**
-- **HUD & Notificação em Tempo Real**: Banner translúcido animado exibido no topo da tela com o ícone original da conquista, nome, descrição, pontuação Gamerscore e reprodução do áudio característico de desbloqueio de troféu.
-- **Integração com Subsistema Local PlayStation**: Gravação dos registros no banco local do console (`/user/home/<id>/trophy/db/trophy_local.db`) ou chamadas `sceNpTrophy` no console desbloqueado.
-- **Retro-Sincronização (Back-Sync)**: Botão dedicado na tela de detalhes do título para sincronizar retroativamente todas as conquistas já obtidas na conta para a base de troféus do console.
+### 1. Sincronização de Conquistas Xbox para Troféus PlayStation (PS5 Entregue / Pop-in Nativo & PS4 Planejados) — *em evolução*
+Espelhamento contínuo e estritamente aditivo das conquistas obtidas no Xbox Cloud Gaming para o subsistema local de troféus da conta PlayStation:
+- **Entregue no PS5 (`PSBox_Trophies.elf` + Provisionamento Nativo)**:
+  - **Automação 100% Transparente**: Payload interno (`assets/PSBox_Trophies.elf` estagiado em `/data/psbox/PSBox_Trophies.elf`) enviado automaticamente na inicialização sem exigir configuração manual pelo usuário.
+  - **Sincronização Estritamente Aditiva e Proteção de Jogos Locais**: Preserva integralmente quaisquer troféus e timestamps já conquistados localmente no console (`TRPTITLE.DAT` e pacotes `TROPHY.UCP` de jogos instalados em disco/PSN nunca são sobrescritos ou zerados; conquistas de nuvem apenas somam novos troféus ao progresso existente).
+  - **Controle Individual por Jogo**: Opção nas configurações individuais de cada jogo (<kbd>OPTIONS</kbd> na tela de detalhes) para desativar a sincronização de troféus de títulos específicos mantendo a sincronização global ativa para o restante da biblioteca.
+  - **Zero Toasts do Aplicativo em Gameplay**: Como o próprio stream de vídeo do Xbox já exibe a notificação da conquista em tela, o aplicativo não exibe toasts próprios ao desbloquear troféus.
+- **Exploração Futura — Pop-in Nativo do Sistema PlayStation Durante a Gameplay (`planned`)**:
+  - Investigar o acionamento direto do pop-in nativo de troféu do sistema operacional do PS5 (`SceNotification` / canal `Trophies` com template `InteractiveToastTrophy` ou gatilho de transição `0 -> 1` via `sceNpTrophy2UnlockTrophy` com contexto ativo do `NPWR` dinâmico) durante a transmissão para exibir o banner oficial do PS5 sem sobrepor toasts customizados do app.
+- **Plano Técnico para Suporte Nativo de Troféus no PlayStation 4 (`planned`)**:
+  - Atualmente no PS4, `libSceNpTrophy` (`sceNpTrophyRegisterContext` / `sceNpTrophyUnlockTrophy`) exige um pacote `TROPHY.TRP` assinado pela chave oficial da Sony em `/app0/sce_sys/trophy/trophy00.trp` e vinculado ao `NPWR` fixo do pacote FPKG, não permitindo registrar múltiplos jogos de nuvem dinamicamente via API padrão.
+  - **Referência de Implementação**: [Atlas Trophy Tool (Pauloxzak)](https://github.com/Pauloxzak/atlas-trophy-tool) — projeto de referência da comunidade para manipulação, extração, reconstrução de pacotes `TROPHY.TRP` (com `TROPCONF.SFM` e ícones) e injeção direta no banco `trophy_local.db` do PlayStation 4.
+  - **Arquitetura Planejada para PS4**:
+    1. **Construtor de Pacotes `TRP` (v1/v2)**: Implementar gerador de arquivos `TROPHY.TRP` (formato de arquivo Orbis OS contendo `TROPCONF.SFM` XML + `ICON0.PNG` + `TROP000.PNG..TROP127.PNG` sem criptografia em ambiente GoldHEN/desbloqueado) em `/user/home/<uid>/trophy/conf/<NPWR>/TROPHY.TRP`.
+    2. **Provisionamento Direto no SQLite do Orbis OS (`trophy_local.db`)**: Popular de forma aditiva as tabelas `tbl_trophy_title` (resumo de progresso, `np_comm_id`, título, contadores de bronze/prata/ouro/platina) e `tbl_trophy_flag` (estado `unlocked`, `time_unlocked` em ticks RTC, `grade`, `visible`) diretamente em `/user/home/<uid>/trophy/db/trophy_local.db`, preservando troféus locais existentes.
+    3. **Metadados de Reconhecimento no `/system_data/priv/mms/app.db` (PS4)**: Inserir entradas sintéticas de catálogo para que a tela nativa de Troféus do PS4 exiba os ícones e listas sem exigir FPKGs individuais instalados para cada jogo da nuvem.
 
 ### 2. Auto-Update para PlayStation 4 via GoldHEN Package Installer API — *planned*
 Superar a limitação de partição somente-leitura (`/user/app/`) do Orbis OS permitindo atualizações diretas no PS4 sem depender de pendrive ou computador:
@@ -87,6 +119,25 @@ Superar a limitação de partição somente-leitura (`/user/app/`) do Orbis OS p
 
 ### 4. Atalhos Diretos na Tela Inicial do PS5 (Home-Screen Forwarders) — *later*
 - Criação de atalhos individuais na dashboard principal do PS5 para iniciar títulos específicos em nuvem diretamente, utilizando o formato ProsperoLight forwarder.
+
+### 5. Suporte Completo a Teclado e Mouse no PlayStation 4 — *planned*
+Paridade total no suporte a periféricos USB entre as versões de PS5 e PS4:
+- **Camada de Entrada Nativa**: Habilitar a inicialização e polling contínuo via `libSceKeyboard` e `libSceMouse` (`src/input/kbm_ps4.cpp`) conectado diretamente ao loop de eventos global (`src/app/app_core.cpp`).
+- **Identificação Visual Dinâmica**: Exibição do ícone do periférico em uso (`kIconKeyboardMouse` / `U+F8FE`) nos indicadores da UI, barra superior e menu in-game (`stream_menu.cpp`).
+- **Navegação e Jogabilidade Transparente**:
+  - Emulação de gamepad para controle da dashboard e jogabilidade direta em qualquer jogo da nuvem (inclusive títulos que não aceitam KBM nativo no stream).
+  - Encaminhamento direto de eventos de mouse e teclado nos títulos com suporte nativo KBM.
+  - Captura e liberação suave do cursor do mouse em transições de menus e overlays.
+
+### 6. Calibração de Giroscópio e Ajuste Fino de Mira In-Game (RFC / Discussão Prévia) — *planned*
+Recurso solicitado pela comunidade para jogos de tiro e mira precisa (ex: *Call of Duty: Warzone*, *Remnant II*, *Halo Infinite*):
+- **Objetivo**: Permitir calibração dinâmica dos sensores de movimento (giroscópio/acelerômetro) do DualSense (PS5) e DualShock 4 (PS4) durante a sessão ativa na nuvem através do menu in-game (overlay).
+- **Escopo e Planejamento Técnico**:
+  - **Compensação de Desvio Estático (Zero-Drift Bias)**: Rotina de calibração rápida no menu in-game (ex: 2 a 3 segundos com o controle em repouso) para calcular a média de erro dos eixos angulares e zerar o drift estático.
+  - **Ajustes de Sensibilidade e Zona Morta (Deadzone)**: Configurações análogas à calibração de sticks analógicos, incluindo deadzone angular para amortecer micro-tremores involuntários e multiplicadores de sensibilidade separados para eixos horizontal (yaw) e vertical (pitch).
+  - **Menu de Calibração In-Game**: Interface acessível diretamente durante o streaming (<kbd>OPTIONS</kbd> + <kbd>TOUCHPAD</kbd>), possibilitando testar e refinar a precisão em tempo real.
+  - **Persistência por Jogo**: Armazenamento dos parâmetros no perfil do título (`activeGameProfile_` em `settings.json`).
+  - *Processo*: Requisitos e comportamento de UI/UX serão conversados e alinhados detalhadamente antes de qualquer implementação de código.
 
 ---
 
@@ -105,7 +156,13 @@ Superar a limitação de partição somente-leitura (`/user/app/`) do Orbis OS p
 
 Para o histórico completo e detalhado de todas as versões anteriores (v0.3.0 até v1.4.0), consulte as [Releases Oficiais no GitHub](https://github.com/RafaelNGP/xbox-cloud-gaming-ps5/releases).
 
-- **v1.6.0** *(Atual)*:
+- **v1.6.3** *(Atual)*:
+  - **Eliminação de Engasgos de Streaming no PS5**: Pausa automática e completa do processamento da fila em lote de troféus (`TaskType::BatchTitle`) em `g_trophyThread` durante gameplay ativo (`isStreaming()`), eliminando micro-travamentos e contenção de CPU; checagem em tempo real (`TaskType::RealtimePoll`) mantida com prioridade máxima e retomada suave pós-sessão.
+  - **Restauração de Descrições Completas & Cache v3**: Inversão de precedência para priorizar descrições longas (`ProductDescription`) sobre slogans curtos (`ProductDescriptionShort`); migração automática para `kCacheVersion = 3` com reidratação de textos curtos via API `RemoteHighSapphire0`.
+  - **20 Dicas Dinâmicas na Tela de Launching**: Expansão de 8 para 20 dicas cobrindo todas as novidades recentes (DualSense haptics/triggers, mouse no touchpad, WebUI SmartGlass, troféus, controles USB e áudio), rotacionando a cada 7 segundos com semente pseudo-aleatória por sessão e localização completa em 6 idiomas (EN, PT-BR, ES, DE, FR, IT).
+  - **Restauração Reativa dos Diagnósticos**: Telas "Verificar meu login" e "Teste de rede" inicializadas reativamente com spinners e sondagem instantânea de estágios e regiões; retry loop em `app_core.cpp` prevenindo descartes de comandos durante transições do worker.
+  - **Lançamento Tri-Plataforma Triplo**: Pacotes completos e verificados para PlayStation 5 (Standalone + Atualizador In-App PPSA99810), PlayStation 4 (FPKG GoldHEN) e Linux Desktop / Steam Deck (AppImage).
+- **v1.6.0**:
   - **Controles USB no PS5**: Xbox Series no cabo e controles/dongles XInput (8BitDo Ultimate 2.4G), cada um como seu próprio jogador.
   - **Horas de jogo na nuvem** (#342): tempo restante na barra superior, avisos aos 15 e 5 minutos, e tela explicativa com QR quando o tempo acaba.
   - **Microfone em pacotes de 10 ms** (#187): latência de codificação de ~21 para ~10,5 ms.

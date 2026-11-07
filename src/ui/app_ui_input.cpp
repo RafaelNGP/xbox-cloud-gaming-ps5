@@ -332,7 +332,7 @@ UiEvent AppUi::onMouseMove(float x, float y) {
         }
         if (gameSettingsOpen_) {
             constexpr int kModalW = 1140, kModalH = 960;
-            constexpr int kRowH = 40, kGap = 4, kGroupGap = 7;
+            constexpr int kRowH = 38, kGap = 4, kGroupGap = 7;
             const auto rows = visibleGameSettingsRows(caps_, activeGameHasCustom_, activeGameMouseSupported_);
             const auto most = visibleGameSettingsRows(caps_, true, activeGameMouseSupported_), all = visibleGameSettingsRows(UiCaps{}, true, true);
             auto groups = [](const std::vector<SettingsRowPos>& v) {
@@ -585,7 +585,7 @@ UiEvent AppUi::onMouseDown(float x, float y, int button) {
     } else if (screen_ == Screen::Details) {
         if (gameSettingsOpen_) {
             constexpr int kModalW = 1140, kModalH = 960;
-            constexpr int kRowH = 40, kGap = 4, kGroupGap = 7;
+            constexpr int kRowH = 38, kGap = 4, kGroupGap = 7;
             const auto rows = visibleGameSettingsRows(caps_, activeGameHasCustom_, activeGameMouseSupported_);
             const auto most = visibleGameSettingsRows(caps_, true, activeGameMouseSupported_), all = visibleGameSettingsRows(UiCaps{}, true, true);
             auto groups = [](const std::vector<SettingsRowPos>& v) {
@@ -1070,6 +1070,16 @@ UiEvent AppUi::handle(const NavInput& in) {
                     tester_ = Tester::None;
                     dirty_ = true;
                 } else if (in.accept && !signInCheck_.running) {
+                    signInCheck_.running = true;
+                    signInCheck_.stages = {
+                        {"1. Account Storage", false, true, "Checking..."},
+                        {"2. Microsoft OAuth (MSA)", false, true, "Waiting..."},
+                        {"3. Xbox Live User Token", false, true, "Waiting..."},
+                        {"4. XSTS Security Token", false, true, "Waiting..."},
+                        {"5. xCloud Offering (xgpuweb)", false, true, "Waiting..."},
+                        {"6. Recursos Preview (xCloud & Ads)", false, true, "Waiting..."},
+                    };
+                    dirty_ = true;
                     ev.action = Action::CheckSignIn;
                 }
                 break;
@@ -1079,6 +1089,13 @@ UiEvent AppUi::handle(const NavInput& in) {
                     tester_ = Tester::None;
                     dirty_ = true;
                 } else if (in.accept && !networkTest_.running) {
+                    networkTest_.running = true;
+                    networkTest_.natStatus = "Probing UDP STUN...";
+                    for (auto& reg : networkTest_.regions) {
+                        reg.rttMs = -1;
+                        reg.jitterMs = -1;
+                    }
+                    dirty_ = true;
                     ev.action = Action::RunNetworkTest;
                 }
                 break;
@@ -1161,7 +1178,9 @@ UiEvent AppUi::handle(const NavInput& in) {
                 ev.action = Action::TestQueueAlert;
             }
             if (in.square && settingsRow_ == 24) {
-                if (settings_.syncTrophies) {
+                if (trophySyncing_) {
+                    // Sync already in progress; ignore repeated triggers
+                } else if (settings_.syncTrophies) {
                     ev.action = Action::SyncTrophies;
                     ev.settings = settings_;
                 } else {

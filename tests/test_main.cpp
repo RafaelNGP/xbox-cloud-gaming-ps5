@@ -2410,17 +2410,17 @@ static void testVisibleSettingsRows() {
     CHECK(std::find(ps4Game.begin(), ps4Game.end(), 8) == ps4Game.end());
     CHECK(std::find(ps4Game.begin(), ps4Game.end(), 13) != ps4Game.end());
     // A game's settings.
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, false)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 16, 7, 12, 11, 9, 10}));
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, true)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 16, 7, 12, 11, 13, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, false)) == std::vector<int>{0, 4, 8, 15, 14, 18, 1, 2, 3, 5, 6, 16, 7, 12, 11, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, true, true)) == std::vector<int>{0, 4, 8, 15, 14, 18, 1, 2, 3, 5, 6, 16, 7, 12, 11, 13, 9, 10}));
     CHECK((groups(ui::visibleGameSettingsRows(ps5, true, true)) ==
-           std::vector<bool>{false, true, false, false, false, true, false, false, true, false, false, false, false, false, false, false, true}));
-    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 16, 7, 12, 11, 9}));
+           std::vector<bool>{false, true, false, false, false, false, true, false, false, true, false, false, false, false, false, false, false, true}));
+    CHECK((ids(ui::visibleGameSettingsRows(ps5, false)) == std::vector<int>{0, 4, 8, 15, 14, 18, 1, 2, 3, 5, 6, 16, 7, 12, 11, 9}));
     ui::UiCaps noTouch = ps5;
     noTouch.touchpad = false;
-    CHECK((ids(ui::visibleGameSettingsRows(noTouch, true, true)) == std::vector<int>{0, 4, 8, 15, 14, 1, 2, 3, 5, 6, 16, 7, 12, 11, 9, 10}));
+    CHECK((ids(ui::visibleGameSettingsRows(noTouch, true, true)) == std::vector<int>{0, 4, 8, 15, 14, 18, 1, 2, 3, 5, 6, 16, 7, 12, 11, 9, 10}));
     auto game = ui::visibleGameSettingsRows(pc, false);
-    CHECK((ids(game) == std::vector<int>{0, 4, 15, 14, 5, 7, 11, 9}));
-    CHECK((groups(game) == std::vector<bool>{false, true, false, false, true, false, false, false}));
+    CHECK((ids(game) == std::vector<int>{0, 4, 15, 14, 18, 5, 7, 11, 9}));
+    CHECK((groups(game) == std::vector<bool>{false, true, false, false, false, true, false, false, false}));
     // How far down the autoplay tests walk to each row (autoplay.cpp's downsTo).
     CHECK(ui::settingsRowPosition(ps5, 24) == 5);
     CHECK(ui::settingsRowPosition(ps5, 25) == 6);
@@ -8156,11 +8156,800 @@ static void testTrophySystem() {
     ::unlink(emptyAppInfoDb.c_str());
     ::unlink((emptyAppInfoDb + ".bak").c_str());
 
+    // 7. Test retail installed game protection in registerTitleInDatabase & removeTitleFromDatabase
+    sqlite3* rDb = nullptr;
+    CHECK(sqlite3_open(testAppDb.c_str(), &rDb) == SQLITE_OK);
+    CHECK(sqlite3_exec(rDb, "INSERT OR REPLACE INTO tbl_contentinfo (titleId, titleName, contentId, conceptId, localConceptId, dispLocation, appType, uiCategory, metaDataPath, icon0Info, pic0Info, snd0Info, pprDeeplinkUri, pprHubAppUri, AppInfoJson) VALUES ('PPSA07950', 'Call of Duty Retail', 'UP0001-PPSA07950_00-COD', 1, '1', 5, 0, 'game', '/user/appmeta/PPSA07950', '/user/appmeta/PPSA07950/icon0.png', '', '', '', '', '{\"visible\":1}');", nullptr, nullptr, nullptr) == SQLITE_OK);
+    sqlite3_close(rDb);
+    TitleDbInfo codCloudInfo = makeTitleDbInfo("PPSA07950", "Call of Duty Cloud Override");
+    CHECK(registerTitleInDatabase(codCloudInfo, testAppDb, testAppInfoDb));
+    // Verify dispLocation (5) and titleName ('Call of Duty Retail') were NOT overwritten!
+    CHECK(sqlite3_open(testAppDb.c_str(), &rDb) == SQLITE_OK);
+    CHECK(sqlite3_prepare_v2(rDb, "SELECT titleName, dispLocation FROM tbl_contentinfo WHERE titleId = 'PPSA07950';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW);
+    CHECK(std::string(reinterpret_cast<const char*>(sqlite3_column_text(testStmt, 0))) == "Call of Duty Retail");
+    CHECK(sqlite3_column_int(testStmt, 1) == 5);
+    sqlite3_finalize(testStmt);
+    sqlite3_close(rDb);
+    // Verify removeTitleFromDatabase also refuses to delete a retail installed game!
+    CHECK(removeTitleFromDatabase("PPSA07950", testAppDb, testAppInfoDb));
+    CHECK(sqlite3_open(testAppDb.c_str(), &rDb) == SQLITE_OK);
+    CHECK(sqlite3_prepare_v2(rDb, "SELECT dispLocation FROM tbl_contentinfo WHERE titleId = 'PPSA07950';", -1, &testStmt, nullptr) == SQLITE_OK);
+    CHECK(sqlite3_step(testStmt) == SQLITE_ROW);
+    CHECK(sqlite3_column_int(testStmt, 0) == 5);
+    sqlite3_finalize(testStmt);
+    sqlite3_close(rDb);
+
     // Clean up mock database files
     ::unlink(testAppDb.c_str());
     ::unlink((testAppDb + ".bak").c_str());
     ::unlink(testAppInfoDb.c_str());
     ::unlink((testAppInfoDb + ".bak").c_str());
+
+    // 8. Test strictly additive buildTrpTitleDat merging (local disk trophies + cloud trophies)
+    {
+        TitleTrophySet localSet;
+        localSet.xboxTitleId = "99999";
+        localSet.titleName = "Call of Duty";
+        localSet.sonyTitleId = "PPSA07950";
+        localSet.npCommId = "NPWR25180_00";
+        for (int i = 1; i <= 4; ++i) {
+            TrophyDef it;
+            it.trophyId = i;
+            it.name = "Trophy " + std::to_string(i);
+            it.grade = TrophyGrade::Bronze;
+            it.unlocked = (i <= 2); // Local disk has trophies 1 and 2 unlocked
+            it.timeUnlocked = (i <= 2) ? "2024-11-15T10:20:30Z" : "";
+            localSet.items.push_back(it);
+        }
+        uint8_t dummyHash[20] = {1, 2, 3};
+        std::vector<uint8_t> initialDat;
+        CHECK(buildTrpTitleDat(localSet, 0x1ea2f4da, initialDat, dummyHash, nullptr));
+        std::map<uint32_t, ExistingTrophyRecord> parsedDisk;
+        CHECK(parseTrpTitleDat(initialDat.data(), initialDat.size(), parsedDisk));
+        CHECK(parsedDisk.size() == 5); // Plat + 4 base
+        CHECK(parsedDisk[1].state == 1 && parsedDisk[2].state == 1);
+        CHECK(parsedDisk[3].state == 0 && parsedDisk[4].state == 0);
+        uint64_t origTs1 = parsedDisk[1].timestamp;
+        CHECK(origTs1 > 0x00dcbffeef82bc00ULL);
+
+        // Now simulate cloud sync where only trophy 3 is unlocked on Xbox (and cloud only knows 3 items, missing trophy 4!)
+        TitleTrophySet cloudSet = localSet;
+        cloudSet.items.resize(3); // Cloud has fewer items than local disk
+        cloudSet.items[0].unlocked = false; // Trophy 1 NOT unlocked on Xbox cloud
+        cloudSet.items[0].timeUnlocked.clear();
+        cloudSet.items[1].unlocked = false; // Trophy 2 NOT unlocked on Xbox cloud
+        cloudSet.items[1].timeUnlocked.clear();
+        cloudSet.items[2].unlocked = true;  // Trophy 3 unlocked on Xbox cloud!
+        cloudSet.items[2].timeUnlocked = "2025-06-01T18:00:00Z";
+
+        std::vector<uint8_t> mergedDat;
+        CHECK(buildTrpTitleDat(cloudSet, 0x1ea2f4da, mergedDat, dummyHash, &initialDat));
+        std::map<uint32_t, ExistingTrophyRecord> mergedRecords;
+        CHECK(parseTrpTitleDat(mergedDat.data(), mergedDat.size(), mergedRecords));
+        // Must preserve all 5 records (Plat + 1..4), keep 1 & 2 unlocked with original timestamp, and unlock 3!
+        CHECK(mergedRecords.size() == 5);
+        CHECK(mergedRecords[1].state == 1);
+        CHECK(mergedRecords[1].timestamp == origTs1);
+        CHECK(mergedRecords[2].state == 1);
+        CHECK(mergedRecords[3].state == 1);
+        CHECK(mergedRecords[4].state == 0);
+        CHECK(mergedRecords[0].state == 0); // Platinum still locked because 4 is locked
+
+        // Unlock trophy 4 in cloud -> union of disk (1,2,3) + cloud (4) = 100% -> Platinum auto-unlocks!
+        cloudSet.items = localSet.items;
+        cloudSet.items[0].unlocked = false;
+        cloudSet.items[1].unlocked = false;
+        cloudSet.items[2].unlocked = false;
+        cloudSet.items[3].unlocked = true;
+        cloudSet.items[3].timeUnlocked = "2025-06-02T12:00:00Z";
+        std::vector<uint8_t> fullDat;
+        CHECK(buildTrpTitleDat(cloudSet, 0x1ea2f4da, fullDat, dummyHash, &mergedDat));
+        std::map<uint32_t, ExistingTrophyRecord> fullRecords;
+        CHECK(parseTrpTitleDat(fullDat.data(), fullDat.size(), fullRecords));
+        CHECK(fullRecords.size() == 5);
+        for (uint32_t id = 0; id <= 4; ++id) {
+            CHECK(fullRecords[id].state == 1);
+        }
+    }
+
+    // 9. Test >127 achievements cap in resolveTitleSet (prioritizing unlocked achievements)
+    {
+        std::vector<xcloud::Achievement> hugeAch;
+        for (int i = 1; i <= 150; ++i) {
+            xcloud::Achievement a;
+            a.id = std::to_string(i);
+            a.name = "Ach " + std::to_string(i);
+            a.gamerscore = 10;
+            a.unlocked = (i > 100); // 50 unlocked achievements at the end (101..150)
+            a.timeUnlocked = a.unlocked ? "2025-05-10T14:30:00Z" : "";
+            hugeAch.push_back(a);
+        }
+        auto cappedSet = resolveTitleSet("88888888", "", "Master Chief Collection", hugeAch);
+        CHECK(cappedSet.items.size() == 127); // 127 base trophies (1..127) + Platinum (0) in UCP/TRPTITLE = 128 max
+        int unlockedBaseInSet = 0;
+        for (const auto& item : cappedSet.items) {
+            CHECK(item.trophyId >= 1 && item.trophyId <= 127);
+            if (item.unlocked) {
+                unlockedBaseInSet++;
+                CHECK(!item.timeUnlocked.empty());
+            }
+        }
+        CHECK(unlockedBaseInSet == 50); // All 50 unlocked achievements preserved!
+        // Verify base-game achievements 1..77 keep their exact 1..77 trophyId positions
+        for (size_t i = 0; i < 77; ++i) {
+            CHECK(cappedSet.items[i].name == "Ach " + std::to_string(i + 1));
+        }
+        uint8_t dummyHash[20] = {9, 8, 7};
+        std::vector<uint8_t> cappedDat;
+        CHECK(buildTrpTitleDat(cappedSet, 0x1ea2f4da, cappedDat, dummyHash, nullptr));
+        std::map<uint32_t, ExistingTrophyRecord> cappedRecords;
+        CHECK(parseTrpTitleDat(cappedDat.data(), cappedDat.size(), cappedRecords));
+        CHECK(cappedRecords.size() == 128); // Platinum (0) + 127 base trophies (1..127)
+
+        // Now unlock achievement #5 (a base-game achievement) and re-run resolveTitleSet + buildTrpTitleDat
+        // with existingDat = &cappedDat: must have 51 unlocked trophies (not shifted/duplicated)!
+        hugeAch[4].unlocked = true;
+        hugeAch[4].timeUnlocked = "2025-05-11T10:00:00Z";
+        auto cappedSet2 = resolveTitleSet("88888888", "", "Master Chief Collection", hugeAch);
+        std::vector<uint8_t> cappedDat2;
+        CHECK(buildTrpTitleDat(cappedSet2, 0x1ea2f4da, cappedDat2, dummyHash, &cappedDat));
+        std::map<uint32_t, ExistingTrophyRecord> cappedRecords2;
+        CHECK(parseTrpTitleDat(cappedDat2.data(), cappedDat2.size(), cappedRecords2));
+        int unlockedInDat2 = 0;
+        for (const auto& [tid, rec] : cappedRecords2) {
+            if (rec.state == 1) unlockedInDat2++;
+        }
+        CHECK(unlockedInDat2 == 51);
+    }
+
+    // 10. Test per-game syncTrophies setting persistence
+    {
+        std::string pgPath = "/tmp/test_pergame_trophies.json";
+        ::unlink(pgPath.c_str());
+        app::Settings s1;
+        app::GameProfile balatroProf = s1.defaultProfile();
+        balatroProf.syncTrophies = false;
+        balatroProf.xboxTitleId = "777777";
+        balatroProf.gameName = "Balatro";
+        s1.perGame["BALATRO_PROD"] = balatroProf;
+        CHECK(s1.save(pgPath));
+
+        app::Settings s2;
+        CHECK(s2.load(pgPath));
+        bool hasCustom = false;
+        auto loadedProf = s2.profileForGame("BALATRO_PROD", "", &hasCustom);
+        CHECK(hasCustom);
+        CHECK(!loadedProf.syncTrophies);
+        CHECK(loadedProf.xboxTitleId == "777777");
+        CHECK(loadedProf.gameName == "Balatro");
+        ::unlink(pgPath.c_str());
+    }
+
+    // 11. Test Decoupled g_trophyThread Lifecycle, Priority Queue & Fast-Path Preemption (R1-R5)
+    {
+        net::setTestTransport([&](const net::Request& req) -> net::Response {
+            net::Response res;
+            res.status = 200;
+            if (req.url.find("history/titles") != std::string::npos) {
+                res.body = R"({
+                    "titles": [
+                        {"titleId": "267695549", "name": "Fortnite", "displayImage": "https://img/fn.png", "achievement": {"currentAchievements": 5, "currentGamerscore": 100}},
+                        {"titleId": "182830000", "name": "Minecraft", "displayImage": "https://img/mc.png", "achievement": {"currentAchievements": 10, "currentGamerscore": 200}}
+                    ]
+                })";
+            } else if (req.url.find("achievements.xboxlive.com") != std::string::npos) {
+                res.body = R"({
+                    "achievements": [
+                        {"id": "1", "name": "Test Ach", "progressState": "Achieved", "rewards": [{"type": "Gamerscore", "value": "10"}]}
+                    ]
+                })";
+            } else if (req.url.find("titlehub.xboxlive.com") != std::string::npos) {
+                res.body = R"({"titles": []})";
+            }
+            return res;
+        });
+
+        // Thread start
+        trophy::startTrophyThread();
+        CHECK(!trophy::isSyncing());
+        CHECK(trophy::titlesDone() == 0);
+        CHECK(trophy::titlesTotal() == 0);
+
+        // Urgent stream poll fast-path
+        CHECK(trophy::dispatchStreamPoll("Bearer tok", "12345", "267695549", "Fortnite", "https://img/fn.png"));
+        platform::sleepMs(80);
+
+        // Batch sync dispatch
+        trophy::requestTrophySync("Bearer tok", "12345", {}, true);
+        platform::sleepMs(80);
+
+        // Cancellation
+        trophy::cancelTrophySync();
+        platform::sleepMs(50);
+
+        // Clean shutdown
+        CHECK(trophy::stopTrophyThread(3000));
+        net::setTestTransport({});
+    }
+}
+
+static void testTrophyNetworkAndLifecycleResilienceStress() {
+    XC_LOGI("--- Starting Trophy Network Fault & Lifecycle Resilience Stress Test ---");
+
+    auto setupBaseMock = [](std::function<net::Response(const net::Request&)> customAchHandler,
+                            std::function<net::Response(const net::Request&)> customProbeHandler = nullptr) {
+        net::setTestTransport([customAchHandler, customProbeHandler](const net::Request& req) -> net::Response {
+            net::Response res;
+            res.status = 200;
+            if (req.url.find("history/titles") != std::string::npos) {
+                res.body = R"({
+                    "titles": [
+                        {"titleId": "267695549", "name": "Fortnite", "displayImage": "https://img/fn.png", "achievement": {"currentAchievements": 5, "currentGamerscore": 100}}
+                    ]
+                })";
+                return res;
+            }
+            if (req.url.find("titlehub.xboxlive.com") != std::string::npos) {
+                res.body = R"({"titles": []})";
+                return res;
+            }
+            if (req.url.find("login.live.com") != std::string::npos) {
+                if (customProbeHandler) return customProbeHandler(req);
+                res.body = "OK";
+                return res;
+            }
+            if (req.url.find("achievements.xboxlive.com") != std::string::npos) {
+                if (customAchHandler) return customAchHandler(req);
+                res.body = R"({
+                    "achievements": [
+                        {"id": "1", "name": "Test Ach", "progressState": "Achieved", "rewards": [{"type": "Gamerscore", "value": "10"}]}
+                    ]
+                })";
+                return res;
+            }
+            return res;
+        });
+    };
+
+    auto cleanCache = []() {
+        std::string cPath = trophy::syncEngine().trophyCachePath("267695549");
+        ::unlink(cPath.c_str());
+    };
+
+    // Sub-test 1: 1 failure -> 1s exponential backoff -> success
+    {
+        cleanCache();
+        std::atomic<int> achCalls{0};
+        std::atomic<bool> achSuccess{false};
+        setupBaseMock([&](const net::Request&) -> net::Response {
+            int c = achCalls.fetch_add(1);
+            net::Response res;
+            if (c == 0) {
+                res.status = 500;
+                res.error = "HTTP 500: Internal Server Error";
+                res.body = "Internal Server Error";
+            } else {
+                res.status = 200;
+                res.body = R"({
+                    "achievements": [
+                        {"id": "1", "name": "Test Ach 1", "progressState": "Achieved", "rewards": [{"type": "Gamerscore", "value": "10"}]}
+                    ]
+                })";
+                achSuccess.store(true);
+            }
+            return res;
+        });
+
+        trophy::startTrophyThread();
+        uint64_t t0 = platform::nowMs();
+        trophy::requestTrophySync("Bearer tok", "12345", {}, true);
+
+        while (!achSuccess.load() && platform::nowMs() - t0 < 4000) {
+            platform::sleepMs(20);
+        }
+        uint64_t elapsed = platform::nowMs() - t0;
+        CHECK(achSuccess.load());
+        CHECK(achCalls.load() == 2);
+        CHECK(elapsed >= 950 && elapsed <= 2500); // 1s backoff verified empirically
+        XC_LOGI("Stress Test: Sub-test 1 passed in %llu ms (achCalls=%d)",
+                static_cast<unsigned long long>(elapsed), achCalls.load());
+        CHECK(trophy::stopTrophyThread(3000));
+    }
+
+    // Sub-test 2: 2 failures -> 1s + 2s = 3s backoff -> success
+    {
+        cleanCache();
+        std::atomic<int> achCalls{0};
+        std::atomic<bool> achSuccess{false};
+        setupBaseMock([&](const net::Request&) -> net::Response {
+            int c = achCalls.fetch_add(1);
+            net::Response res;
+            if (c < 2) {
+                res.status = 429;
+                res.error = "HTTP 429: Too Many Requests";
+                res.body = "Too Many Requests";
+            } else {
+                res.status = 200;
+                res.body = R"({
+                    "achievements": [
+                        {"id": "1", "name": "Test Ach 2", "progressState": "Achieved", "rewards": [{"type": "Gamerscore", "value": "10"}]}
+                    ]
+                })";
+                achSuccess.store(true);
+            }
+            return res;
+        });
+
+        trophy::startTrophyThread();
+        uint64_t t0 = platform::nowMs();
+        trophy::requestTrophySync("Bearer tok", "12345", {}, true);
+
+        while (!achSuccess.load() && platform::nowMs() - t0 < 6000) {
+            platform::sleepMs(20);
+        }
+        uint64_t elapsed = platform::nowMs() - t0;
+        CHECK(achSuccess.load());
+        CHECK(achCalls.load() == 3);
+        CHECK(elapsed >= 2950 && elapsed <= 4800); // 1s + 2s = 3s backoff verified empirically
+        XC_LOGI("Stress Test: Sub-test 2 passed in %llu ms (achCalls=%d)",
+                static_cast<unsigned long long>(elapsed), achCalls.load());
+        CHECK(trophy::stopTrophyThread(3000));
+    }
+
+    // Sub-test 3: 3 failures -> 1s + 2s + 4s = 7s backoff -> success on attempt 3
+    {
+        cleanCache();
+        std::atomic<int> achCalls{0};
+        std::atomic<bool> achSuccess{false};
+        setupBaseMock([&](const net::Request&) -> net::Response {
+            int c = achCalls.fetch_add(1);
+            net::Response res;
+            if (c < 3) {
+                res.status = 503;
+                res.error = "HTTP 503: Service Unavailable";
+                res.body = "Service Unavailable";
+            } else {
+                res.status = 200;
+                res.body = R"({
+                    "achievements": [
+                        {"id": "1", "name": "Test Ach 3", "progressState": "Achieved", "rewards": [{"type": "Gamerscore", "value": "10"}]}
+                    ]
+                })";
+                achSuccess.store(true);
+            }
+            return res;
+        });
+
+        trophy::startTrophyThread();
+        uint64_t t0 = platform::nowMs();
+        trophy::requestTrophySync("Bearer tok", "12345", {}, true);
+
+        while (!achSuccess.load() && platform::nowMs() - t0 < 10000) {
+            platform::sleepMs(20);
+        }
+        uint64_t elapsed = platform::nowMs() - t0;
+        CHECK(achSuccess.load());
+        CHECK(achCalls.load() == 4);
+        CHECK(elapsed >= 6950 && elapsed <= 9200); // 1s + 2s + 4s = 7s backoff verified empirically
+        XC_LOGI("Stress Test: Sub-test 3 passed in %llu ms (achCalls=%d)",
+                static_cast<unsigned long long>(elapsed), achCalls.load());
+        CHECK(trophy::stopTrophyThread(3000));
+    }
+
+    // Sub-test 4: Network Outage -> PausedWaitingForNetwork -> Periodic Probe -> Reconnect & Recovery
+    {
+        cleanCache();
+        std::atomic<int> achCalls{0};
+        std::atomic<int> probeCalls{0};
+        std::atomic<bool> networkOnline{false};
+        std::atomic<bool> achSuccess{false};
+        std::vector<uint64_t> probeTimes;
+        std::mutex probeMutex;
+
+        setupBaseMock([&](const net::Request&) -> net::Response {
+            achCalls.fetch_add(1);
+            net::Response res;
+            if (!networkOnline.load()) {
+                res.status = 0;
+                res.error = "HTTP 0: Connection reset by peer";
+                res.body = "";
+            } else {
+                res.status = 200;
+                res.body = R"({
+                    "achievements": [
+                        {"id": "1", "name": "Test Ach Reconnected", "progressState": "Achieved", "rewards": [{"type": "Gamerscore", "value": "10"}]}
+                    ]
+                })";
+                achSuccess.store(true);
+            }
+            return res;
+        }, [&](const net::Request&) -> net::Response {
+            probeCalls.fetch_add(1);
+            {
+                std::lock_guard<std::mutex> lock(probeMutex);
+                probeTimes.push_back(platform::nowMs());
+            }
+            net::Response res;
+            if (!networkOnline.load()) {
+                res.status = 0;
+                res.error = "HTTP 0: Connection refused";
+            } else {
+                res.status = 200;
+                res.body = "OK";
+            }
+            return res;
+        });
+
+        trophy::startTrophyThread();
+        uint64_t t0 = platform::nowMs();
+        trophy::requestTrophySync("Bearer tok", "12345", {}, true);
+
+        // Wait for all 4 initial attempts (1s + 2s + 4s = 7s) and at least 2 network probes (~4s)
+        while (probeCalls.load() < 2 && platform::nowMs() - t0 < 15000) {
+            platform::sleepMs(50);
+        }
+        CHECK(probeCalls.load() >= 2);
+        CHECK(!achSuccess.load()); // Title must NOT have finished yet
+        CHECK(trophy::isSyncing()); // Thread is still actively paused waiting for network
+
+        // Verify probe frequency (~2s interval)
+        {
+            std::lock_guard<std::mutex> lock(probeMutex);
+            if (probeTimes.size() >= 2) {
+                uint64_t diff = probeTimes[1] - probeTimes[0];
+                CHECK(diff >= 1800 && diff <= 2500); // 2s probe pacing verified without busy-spin
+                XC_LOGI("Stress Test: Network probe interval verified: %llu ms", static_cast<unsigned long long>(diff));
+            }
+        }
+
+        // Simulate network restoration
+        networkOnline.store(true);
+
+        uint64_t recStart = platform::nowMs();
+        while (!achSuccess.load() && platform::nowMs() - recStart < 6000) {
+            platform::sleepMs(50);
+        }
+        CHECK(achSuccess.load()); // Seamless resumption verified without title loss!
+        XC_LOGI("Stress Test: Sub-test 4 passed (resumed in %llu ms after network restored)",
+                static_cast<unsigned long long>(platform::nowMs() - recStart));
+        CHECK(trophy::stopTrophyThread(3000));
+    }
+
+    // Sub-test 5: Cancellation / Shutdown Responsiveness during 4s Backoff Sleep
+    {
+        cleanCache();
+        std::atomic<int> achCalls{0};
+        setupBaseMock([&](const net::Request&) -> net::Response {
+            achCalls.fetch_add(1);
+            net::Response res;
+            res.status = 500;
+            res.error = "HTTP 500: Fail";
+            res.body = "Fail";
+            return res;
+        });
+
+        trophy::startTrophyThread();
+        trophy::requestTrophySync("Bearer tok", "12345", {}, true);
+
+        while (achCalls.load() < 3) {
+            platform::sleepMs(50);
+        }
+        platform::sleepMs(200);
+
+        uint64_t stopStart = platform::nowMs();
+        bool stoppedOk = trophy::stopTrophyThread(3000);
+        uint64_t stopDuration = platform::nowMs() - stopStart;
+
+        CHECK(stoppedOk);
+        CHECK(stopDuration < 400); // Wakes up immediately from CV wait!
+        XC_LOGI("Stress Test: Sub-test 5 passed (stopped in %llu ms during 4s backoff sleep)",
+                static_cast<unsigned long long>(stopDuration));
+    }
+
+    // Sub-test 6: cancelTrophySync Responsiveness during PausedWaitingForNetwork
+    {
+        cleanCache();
+        std::atomic<int> probeCalls{0};
+        setupBaseMock([&](const net::Request&) -> net::Response {
+            net::Response res;
+            res.status = 0;
+            res.error = "HTTP 0: Connection refused";
+            return res;
+        }, [&](const net::Request&) -> net::Response {
+            probeCalls.fetch_add(1);
+            net::Response res;
+            res.status = 0;
+            res.error = "HTTP 0: Connection refused";
+            return res;
+        });
+
+        trophy::startTrophyThread();
+        trophy::requestTrophySync("Bearer tok", "12345", {}, true);
+
+        while (probeCalls.load() < 1) {
+            platform::sleepMs(50);
+        }
+
+        uint64_t cancelStart = platform::nowMs();
+        trophy::cancelTrophySync();
+
+        while (trophy::isSyncing() && platform::nowMs() - cancelStart < 2000) {
+            platform::sleepMs(20);
+        }
+        uint64_t cancelDuration = platform::nowMs() - cancelStart;
+
+        CHECK(!trophy::isSyncing());
+        CHECK(cancelDuration < 500); // Wakes up immediately from 2s probe sleep!
+        XC_LOGI("Stress Test: Sub-test 6 passed (cancelled in %llu ms from probe sleep)",
+                static_cast<unsigned long long>(cancelDuration));
+        CHECK(trophy::stopTrophyThread(3000));
+    }
+
+    // Sub-test 7: Concurrency & Lock Contention under PausedWaitingForNetwork
+    {
+        cleanCache();
+        std::atomic<int> probeCalls{0};
+        std::atomic<bool> inProbe{false};
+        std::atomic<bool> holdProbe{true};
+
+        setupBaseMock([&](const net::Request&) -> net::Response {
+            net::Response res;
+            res.status = 0;
+            res.error = "HTTP 0: Connection lost";
+            return res;
+        }, [&](const net::Request&) -> net::Response {
+            probeCalls.fetch_add(1);
+            inProbe.store(true);
+            uint64_t ps = platform::nowMs();
+            while (holdProbe.load() && platform::nowMs() - ps < 500) {
+                platform::sleepMs(10);
+            }
+            inProbe.store(false);
+            net::Response res;
+            res.status = 0;
+            res.error = "HTTP 0: Probe failed";
+            return res;
+        });
+
+        trophy::startTrophyThread();
+        trophy::requestTrophySync("Bearer tok", "12345", {}, true);
+
+        while (!inProbe.load()) {
+            platform::sleepMs(20);
+        }
+
+        uint64_t pollStart = platform::nowMs();
+        bool pollDispatched = trophy::dispatchStreamPoll("Bearer tok", "12345", "182830000", "Minecraft", "https://img/mc.png");
+        uint64_t pollDuration = platform::nowMs() - pollStart;
+
+        XC_LOGI("Stress Test: Sub-test 7: dispatchStreamPoll during probe took %llu ms (dispatched=%d)",
+                static_cast<unsigned long long>(pollDuration), pollDispatched ? 1 : 0);
+
+        holdProbe.store(false);
+        trophy::cancelTrophySync();
+        trophy::stopTrophyThread(3000);
+
+        CHECK(pollDispatched);
+        CHECK(pollDuration < 100);
+        // We log whether dispatchStreamPoll was delayed by g_trophyQueueMutex contention
+        if (pollDuration >= 200) {
+            XC_LOGW("CRITICAL FINDING: dispatchStreamPoll was blocked for %llu ms because g_trophyQueueMutex was held during probeNetworkConnectivity()!",
+                    static_cast<unsigned long long>(pollDuration));
+        } else {
+            XC_LOGI("dispatchStreamPoll completed without queue lock contention (%llu ms)",
+                    static_cast<unsigned long long>(pollDuration));
+        }
+    }
+
+    // Sub-test 8: requestRemoveTrophies() Preemption & Execution during Active Sync
+    {
+        cleanCache();
+        class TestRemoveBackend : public trophy::ITrophyBackend {
+        public:
+            std::atomic<int> removeCalls{0};
+            bool init(uint32_t) override { return true; }
+            bool registerTitle(const trophy::TitleTrophySet&) override { return true; }
+            bool unlockTrophy(const std::string&, int, trophy::TrophyGrade, const std::string&) override { return true; }
+            bool isTrophyUnlocked(const std::string&, int) override { return false; }
+            bool removeAllTrophies(const std::vector<std::pair<std::string, std::string>>& titles,
+                                   int& removedCount, std::string& err) override {
+                removeCalls++;
+                removedCount = static_cast<int>(titles.size());
+                return true;
+            }
+            std::string name() const override { return "TestRemoveBackend"; }
+        };
+
+        auto backend = std::make_unique<TestRemoveBackend>();
+        auto* rawBackend = backend.get();
+        trophy::syncEngine().setBackend(std::move(backend));
+
+        std::atomic<bool> syncStarted{false};
+        setupBaseMock([&](const net::Request&) -> net::Response {
+            syncStarted.store(true);
+            net::Response res;
+            res.status = 0;
+            res.error = "HTTP 0: Connection lost";
+            return res;
+        });
+
+        trophy::startTrophyThread();
+        trophy::requestTrophySync("Bearer tok", "12345", {}, true);
+
+        while (!syncStarted.load()) {
+            platform::sleepMs(20);
+        }
+        platform::sleepMs(50); // Ensure thread entered backoff wait_for
+
+        // Invoke requestRemoveTrophies while sync is retrying
+        trophy::requestRemoveTrophies();
+
+        uint64_t remWaitStart = platform::nowMs();
+        while ((rawBackend->removeCalls.load() == 0 || trophy::isSyncing()) && platform::nowMs() - remWaitStart < 2000) {
+            platform::sleepMs(20);
+        }
+
+        CHECK(rawBackend->removeCalls.load() > 0);
+        CHECK(!trophy::isSyncing());
+
+        CHECK(trophy::stopTrophyThread(3000));
+        trophy::syncEngine().setBackend(nullptr);
+        XC_LOGI("Stress Test: Sub-test 8 passed (requestRemoveTrophies executed during sync)");
+    }
+
+    // Sub-test 9: Thread Shutdown Timeout Safety and Re-entry Handle Cleanup
+    {
+        cleanCache();
+        std::atomic<bool> inHangingCall{false};
+        std::atomic<bool> releaseHang{false};
+
+        setupBaseMock([&](const net::Request&) -> net::Response {
+            inHangingCall.store(true);
+            while (!releaseHang.load()) {
+                platform::sleepMs(10);
+            }
+            net::Response res;
+            res.status = 200;
+            res.body = R"({"achievements": []})";
+            return res;
+        });
+
+        trophy::startTrophyThread();
+        trophy::requestTrophySync("Bearer tok", "12345", {}, true);
+
+        // Wait until thread enters the hanging socket call
+        while (!inHangingCall.load()) {
+            platform::sleepMs(20);
+        }
+
+        // Bounded timeout check: stopTrophyThread(150) must return false without hanging in pthread_join
+        uint64_t stopStart = platform::nowMs();
+        bool stopped = trophy::stopTrophyThread(150);
+        uint64_t stopDuration = platform::nowMs() - stopStart;
+
+        CHECK(!stopped);
+        CHECK(stopDuration >= 140 && stopDuration < 500);
+        XC_LOGI("Stress Test: Sub-test 9 passed bounded timeout check in %llu ms",
+                static_cast<unsigned long long>(stopDuration));
+
+        // Release the hanging call to let thread terminate
+        releaseHang.store(true);
+
+        uint64_t exitWait = platform::nowMs();
+        while (trophy::isSyncing() && platform::nowMs() - exitWait < 1000) {
+            platform::sleepMs(20);
+        }
+
+        // Test thread re-entry: startTrophyThread reaps dead unjoined handle and starts new thread cleanly
+        trophy::startTrophyThread();
+
+        CHECK(trophy::stopTrophyThread(3000));
+        net::setTestTransport({});
+        XC_LOGI("Stress Test: Sub-test 9 passed re-entry cleanup and final stop");
+    }
+
+    net::setTestTransport({});
+    XC_LOGI("--- Trophy Network Fault & Lifecycle Resilience Stress Test Complete ---");
+}
+
+static void testTrophyStreamingPauseAndPriority() {
+    XC_LOGI("--- Starting Trophy Streaming Pause & Urgent Preemption Test ---");
+
+    // Clean cache
+    std::string cPath = trophy::syncEngine().trophyCachePath("267695549");
+    ::unlink(cPath.c_str());
+    std::string cPath2 = trophy::syncEngine().trophyCachePath("182830000");
+    ::unlink(cPath2.c_str());
+
+    std::atomic<bool> isStreaming{true};
+    std::atomic<int> pollExecCount{0};
+    std::atomic<int> batchExecCount{0};
+
+    net::setTestTransport([&](const net::Request& req) -> net::Response {
+        net::Response res;
+        res.status = 200;
+        if (req.url.find("history/titles") != std::string::npos) {
+            res.body = R"({
+                "titles": [
+                    {"titleId": "267695549", "name": "Fortnite", "titleType": "Game", "displayImage": "https://img/fn.png", "earnedAchievements": 5, "currentGamerscore": 100},
+                    {"titleId": "182830000", "name": "Minecraft", "titleType": "Game", "displayImage": "https://img/mc.png", "earnedAchievements": 10, "currentGamerscore": 200}
+                ]
+            })";
+            return res;
+        }
+        if (req.url.find("titlehub.xboxlive.com") != std::string::npos) {
+            res.body = R"({"titles": []})";
+            return res;
+        }
+        if (req.url.find("achievements.xboxlive.com") != std::string::npos) {
+            if (req.url.find("267695549") != std::string::npos) {
+                pollExecCount.fetch_add(1);
+            }
+            batchExecCount.fetch_add(1);
+            res.body = R"({
+                "achievements": [
+                    {"id": "1", "name": "Test Ach", "progressState": "Achieved", "rewards": [{"type": "Gamerscore", "value": "10"}]}
+                ]
+            })";
+            return res;
+        }
+        res.status = 404;
+        return res;
+    });
+
+    trophy::setTrophyContextProvider([&](trophy::TrophySyncContext& ctx) {
+        ctx.xblAuth = "Bearer testToken";
+        ctx.xuid = "12345678";
+        ctx.isStreaming = [&] { return isStreaming.load(); };
+        return true;
+    });
+
+    trophy::startTrophyThread();
+
+    // 1. Dispatch batch sync while streaming is active
+    isStreaming.store(true);
+    trophy::requestTrophySync(true);
+
+    // Give thread time to discover and encounter pause condition
+    platform::sleepMs(200);
+
+    // Because isStreaming is true, batch title execution must be paused!
+    CHECK(trophy::titlesDone() == 0);
+
+    // 2. Urgent stream poll must execute immediately even while batch is paused
+    int pollsBefore = pollExecCount.load();
+    CHECK(trophy::dispatchStreamPoll("Bearer testToken", "12345678", "267695549", "Fortnite", "https://img/fn.png"));
+
+    // Wait for urgent poll to execute
+    for (int i = 0; i < 20; ++i) {
+        if (pollExecCount.load() > pollsBefore) break;
+        platform::sleepMs(15);
+    }
+    CHECK(pollExecCount.load() > pollsBefore);
+
+    // Batch title sync must STILL be paused (titlesDone == 0)
+    CHECK(trophy::titlesDone() == 0);
+
+    // 3. Resume trophy sync by exiting stream mode
+    isStreaming.store(false);
+    trophy::resumeTrophySync();
+
+    // Wait for batch sync to resume and process both titles without dropping any task
+    for (int i = 0; i < 50; ++i) {
+        if (trophy::titlesDone() >= 2 && !trophy::isSyncing()) break;
+        platform::sleepMs(20);
+    }
+    CHECK(trophy::titlesDone() >= 2);
+    CHECK(!trophy::isSyncing());
+
+    // Clean shutdown
+    CHECK(trophy::stopTrophyThread(3000));
+    trophy::setTrophyContextProvider({});
+    net::setTestTransport({});
+    ::unlink(cPath.c_str());
+    ::unlink(cPath2.c_str());
+    XC_LOGI("--- Trophy Streaming Pause & Urgent Preemption Test Complete ---");
 }
 
 static void testTrophyModalsAndDesktopInput() {
@@ -8274,6 +9063,8 @@ static void testTrophyModalsAndDesktopInput() {
 int main() {
     testPs4VideoPipelineAndSse2Converter();
     testTrophySystem();
+    testTrophyNetworkAndLifecycleResilienceStress();
+    testTrophyStreamingPauseAndPriority();
     testTrophyModalsAndDesktopInput();
     testReleaseV155Features();
     testSizedUrl();

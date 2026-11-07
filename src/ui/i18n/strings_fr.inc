@@ -351,6 +351,18 @@ constexpr Column kFrench = {
     "Activez la sortie vidéo 120 Hz dans les Paramètres pour réduire la latence d'affichage et de contrôle", // Tip120HzVideo
     "Calibrez la zone morte des sticks dans les Paramètres pour éliminer le drift et améliorer la précision", // TipAnalogDeadzone
     "Utilisez le microphone intégré de la DualSense pour le chat vocal dans les groupes et jeux multijoueurs", // TipDualSenseMic
+    "Dans les jeux compatibles souris, utilisez la surface du pavé tactile DualSense comme souris", // TipTouchpadMouse
+    "Activez la visée gyroscopique dans les Paramètres pour viser avec les capteurs de mouvement", // TipGyroAiming
+    "La mise à l'échelle FSR et le filtre de netteté améliorent les détails de la diffusion", // TipFSRUpscaling
+    "Ajustez la limite de débit dans les Paramètres jusqu'à 45 Mbit/s pour une fidélité maximale", // TipCustomBitrate
+    "Les succès Xbox se débloquent automatiquement comme trophées PlayStation 5 natifs", // TipNativeTrophies
+    "Activez ou désactivez le suivi des trophées par jeu depuis l'écran de détails du jeu", // TipPerGameTrophies
+    "Ouvrez http://[ip-console]:8080 sur votre mobile ou PC pour accéder à la WebUI SmartGlass", // TipSmartGlassWebUI
+    "Obtenez des jeux gratuits et des démos en 1 clic directement sans quitter l'application", // TipClaimFreeStore
+    "Personnalisez et réassignez les boutons de la manette par jeu dans les Paramètres", // TipButtonRemap
+    "Votre bibliothèque se charge instantanément depuis le cache local sans écran d'attente", // TipInstantResume
+    "Glissez vers le bas sur le pavé tactile en jeu pour ajuster volume, débit et diffusion", // TipInGameMenu
+    "La synchronisation en arrière-plan maintient votre catalogue et vos listes à jour", // TipBackgroundSync
     // Settings descriptions
     "Modifie la langue de l'interface de l'application et les préférences audio et sous-titres dans les jeux du cloud", // SettingDescLanguage
     "Définit la résolution vidéo maximale (1080p, 720p ou Meilleure disponible). Prend effet au prochain lancement", // SettingDescResolution
@@ -436,4 +448,5 @@ constexpr Column kFrench = {
     "Cela supprimera les packs de trophées locaux de PSBox pour ce profil. Vos succès restent enregistrés sur votre compte Microsoft/Xbox.", // RemoveTrophiesConfirmBody
     "Supprimer",                                      // RemoveTrophiesConfirm
     "%s titre(s) de trophées supprimé(s) de ce profil.", // TrophiesRemovedToast
+    "Synchronisation des succès...",                  // SyncingTrophies
 };

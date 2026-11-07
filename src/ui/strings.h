@@ -360,6 +360,18 @@ enum class Str {
     Tip120HzVideo,
     TipAnalogDeadzone,
     TipDualSenseMic,
+    TipTouchpadMouse,
+    TipGyroAiming,
+    TipFSRUpscaling,
+    TipCustomBitrate,
+    TipNativeTrophies,
+    TipPerGameTrophies,
+    TipSmartGlassWebUI,
+    TipClaimFreeStore,
+    TipButtonRemap,
+    TipInstantResume,
+    TipInGameMenu,
+    TipBackgroundSync,
     // Settings descriptions
     SettingDescLanguage,
     SettingDescResolution,
@@ -445,6 +457,7 @@ enum class Str {
     RemoveTrophiesConfirmBody,
     RemoveTrophiesConfirm,
     TrophiesRemovedToast,
+    SyncingTrophies,
     Count
 };
 

@@ -320,7 +320,7 @@ public:
     void setConsoles(std::vector<ConsoleTile> consoles, bool known);
     // The lists' background refresh: shown as a bar in "Your games" and the
     // search; `total` 0 = running, no measure yet.
-    void setLoading(bool active, size_t done, size_t total);
+    void setLoading(bool active, size_t done, size_t total, const std::string& customLabel = "");
     // What each tab's search looks through.
     void setSearchPools(std::vector<GameTile> gamePass, std::vector<GameTile> library);
     // Measured round trip to each region, ms (shown in Settings).
@@ -328,6 +328,8 @@ public:
     // The account's cloud time: remaining and max in seconds (-1 unknown), or
     // `unlimited`. Purely informative; never blocks launch or gameplay.
     void setPlaytime(int64_t remainingSeconds, int64_t maxSeconds, bool unlimited = false);
+    void setTrophySyncing(bool active);
+    bool trophySyncing() const;
     // Store prices, formatted: productId -> {now, regular (empty unless on sale)}.
     void setPrices(const std::map<std::string, PriceInfo>& prices);
     // Saved preferences: hidden games, the "Your games" order, favorites, and wishlist.
@@ -666,6 +668,7 @@ private:
     std::set<std::string> hidden_, favorites_;
     bool loading_ = false;
     size_t loadingDone_ = 0, loadingTotal_ = 0;
+    std::string loadingLabel_;
     void drawLoadingBar(Canvas& c, int x, int y, int w, uint64_t nowMs);
     LibrarySort librarySort_ = LibrarySort::Recent;
     // Search filters (the row of buttons under the keys).
@@ -693,6 +696,7 @@ private:
     GameTile detail_;  // the game the details page shows
     GameTile launching_;
     uint64_t launchingStartMs_ = 0;
+    size_t launchingSeed_ = 0;
     std::string error_;
     std::string errorUrl_;
     GameTile errorGame_;  // showPlayError()'s game; empty for other errors
@@ -791,6 +795,7 @@ private:
     int trophyDisclaimerFocus_ = 0; // 0 = Estou ciente, 1 = Cancelar
     bool removeTrophiesConfirmOpen_ = false;
     int removeTrophiesFocus_ = 1;   // 0 = Remover, 1 = Cancelar
+    bool trophySyncing_ = false;
     void drawSignOutHold(Canvas& c, uint64_t nowMs);
     std::string toast_;
     uint64_t toastUntil_ = 0;

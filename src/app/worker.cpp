@@ -17,9 +17,12 @@
 #include "xcloud/catalog.h"
 #include "xcloud/purchase.h"
 #include "xcloud/regions.h"
+#include "trophy/trophy_registry.h"
+#include "trophy/trophy_rules.h"
 #include "trophy/trophy_sync.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
@@ -27,6 +30,7 @@
 #include <memory>
 #include <thread>
 #include <unistd.h>
+#include <unordered_set>
 #include <vector>
 
 namespace xc::app {
@@ -567,79 +571,14 @@ bool waitForWorker(uint32_t ms) {
     return done;
 }
 
-void runTrophySync(auth::AuthManager& am, xcloud::GssvClient& gssv) {
-    std::string err;
-    if (!keepSignedIn(am, gssv, err)) {
-        XC_LOGW("trophy sync: keepSignedIn failed: %s", err.c_str());
-        std::string failMsg = err.empty() ? "Sign-in required" : err;
-        if (!shell::caps().console) g_ui->showToast(failMsg);
-        platform::notify(failMsg);
-        return;
-    }
-    std::string xblAuth, xuid;
-    {
-        std::lock_guard<std::mutex> lock(g_argMutex);
-        xblAuth = g_xblAuth;
-        xuid = g_xuid;
-    }
-    if (xblAuth.empty()) {
-        xblAuth = am.profile().xblAuthorization;
-        xuid = am.profile().xuid;
-    }
-    if (xblAuth.empty()) {
-        XC_LOGW("trophy sync: sign-in required");
-        return;
-    }
-
-    std::vector<ui::GameTile> ownedGames;
-    {
-        std::lock_guard<std::mutex> lock(s_libraryMutex);
-        if (s_library) {
-            ownedGames = s_library->owned();
-        }
-    }
-
-    XC_LOGI("trophy sync: starting account achievement synchronization...");
-    if (g_ui) g_ui->setLoading(true, 0, 1);
-
-    int totalTitles = 0;
-    int totalTrophies = 0;
-    std::string syncErr;
-    auto cancelCheck = []() -> bool {
-        return g_cancel.load();
-    };
-    auto progressCb = [](int done, int total) {
-        if (g_ui) g_ui->setLoading(true, done, total);
-    };
-
-    bool ok = trophy::syncEngine().syncAllAccountTrophies(xblAuth, xuid, ownedGames,
-                                                          totalTitles, totalTrophies, syncErr,
-                                                          cancelCheck, progressCb);
-    if (g_ui) g_ui->setLoading(false, totalTitles, totalTitles);
-    if (!ok && !syncErr.empty()) {
-        XC_LOGW("trophy sync warning: %s", syncErr.c_str());
-    }
-
-    XC_LOGI("trophy sync finished: %d titles synced, %d trophies unlocked", totalTitles, totalTrophies);
+void runTrophySync(auth::AuthManager& am, xcloud::GssvClient& gssv, bool forceFetchIcons) {
+    (void)am;
+    (void)gssv;
+    trophy::requestTrophySync(forceFetchIcons);
 }
 
 void runRemoveTrophies() {
-    XC_LOGI("trophy remove: starting removal of all local PSBox trophies...");
-    if (g_ui) g_ui->setLoading(true, 0, 1);
-    int removedCount = 0;
-    std::string err;
-    bool ok = trophy::syncEngine().removeAllTrophies(removedCount, err);
-    if (g_ui) g_ui->setLoading(false, 1, 1);
-    if (!ok) {
-        XC_LOGW("trophy remove failed: %s", err.c_str());
-        std::string failMsg = err.empty() ? "Failed to remove trophies" : err;
-        if (g_ui) g_ui->showToast(failMsg);
-        return;
-    }
-    XC_LOGI("trophy remove finished: removed %d title(s)", removedCount);
-    std::string toast = ui::trf(ui::Str::TrophiesRemovedToast, std::to_string(removedCount));
-    if (g_ui) g_ui->showToast(toast);
-    platform::notify(toast);
+    trophy::requestRemoveTrophies();
 }
 
 void worker() {
@@ -682,7 +621,7 @@ void worker() {
                         syncTrophies = g_settings.syncTrophies;
                     }
                     if (syncTrophies && !g_cancel && !g_quit) {
-                        runTrophySync(am, gssv);
+                        trophy::requestTrophySync(true);
                     }
                 }
                 break;
@@ -690,8 +629,8 @@ void worker() {
             case kUpdate: runUpdate(); break;
             case kCheckSignIn: runSignInCheck(am, gssv); break;
             case kNetworkTest: runNetworkTest(gssv); break;
-            case kSyncTrophies: runTrophySync(am, gssv); break;
-            case kRemoveTrophies: runRemoveTrophies(); break;
+            case kSyncTrophies: trophy::requestTrophySync(true); break;
+            case kRemoveTrophies: trophy::requestRemoveTrophies(); break;
             case kReloadLibrary:
                 if (am.signedIn()) loadLibrary(am, gssv, true);
                 else signInAndLoad(am, gssv);
@@ -699,6 +638,7 @@ void worker() {
             case kSignOut:
                 // Nothing of this account stays for the next one: its library
                 // stops loading, its cache goes, the lists empty.
+                trophy::cancelTrophySync();
                 stopHydration();
                 setQueueClient(nullptr);
                 am.signOut();
@@ -774,6 +714,7 @@ void worker() {
                         g_ui->showHome(endedToast(result));
                     g_playingHome = false;
                     autoplayFinished(result);
+                    trophy::resumeTrophySync();
                     if (!g_quit && am.signedIn()) loadConsoles(am, home);  // its state changed
                     break;
                 }
@@ -877,6 +818,7 @@ void worker() {
                 else
                     g_ui->showHome(endedToast(result));
                 autoplayFinished(result);
+                trophy::resumeTrophySync();
                 break;
             }
             case kClaimFree: {

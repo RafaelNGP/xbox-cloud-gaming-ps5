@@ -2,12 +2,17 @@
 // Copyright (C) 2026 RafaelNGP
 #include "trophy/trophy_registry.h"
 #include "trophy/trophy_rules.h"
+#include "platform/platform.h"
+#include "util/json.h"
 
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <iomanip>
+#include <map>
+#include <mutex>
 #include <sstream>
+#include <sys/stat.h>
 
 namespace xc::trophy {
 
@@ -38,6 +43,63 @@ uint32_t fnv1a(const std::string& str) {
     return hash;
 }
 
+std::mutex s_slotMutex;
+bool s_slotMapLoaded = false;
+std::map<std::string, uint32_t> s_seedToSlot;
+std::map<uint32_t, std::string> s_slotToSeed;
+
+void loadSlotMapLocked() {
+    if (s_slotMapLoaded) return;
+    s_slotMapLoaded = true;
+    std::string raw;
+    std::string path = platform::dataDir() + "/trophies/id_map.json";
+    if (!platform::readFile(path, raw) || raw.empty()) return;
+    auto parsed = json::parse(raw);
+    if (!parsed || !parsed->isObject()) return;
+    for (const auto& [seed, val] : parsed->members()) {
+        uint32_t slot = static_cast<uint32_t>(val.asInt(0));
+        if (slot >= 80000 && slot <= 99799 && s_slotToSeed.count(slot) == 0) {
+            s_seedToSlot[seed] = slot;
+            s_slotToSeed[slot] = seed;
+        }
+    }
+}
+
+void saveSlotMapLocked() {
+    std::string dir = platform::dataDir() + "/trophies";
+    ::mkdir(dir.c_str(), 0777);
+    json::Value obj = json::Value::object();
+    for (const auto& [seed, slot] : s_seedToSlot) {
+        obj.set(seed, static_cast<int64_t>(slot));
+    }
+    platform::writeFileAtomic(dir + "/id_map.json", obj.dump());
+}
+
+uint32_t allocateUniqueSlot(const std::string& seed) {
+    if (seed.empty()) return 80000;
+    std::lock_guard<std::mutex> lock(s_slotMutex);
+    loadSlotMapLocked();
+    auto it = s_seedToSlot.find(seed);
+    if (it != s_seedToSlot.end()) {
+        return it->second;
+    }
+    uint32_t base = 80000 + (fnv1a(seed) % 10000);
+    uint32_t slot = base;
+    for (uint32_t step = 0; step < 19800; ++step) {
+        uint32_t cand = 80000 + ((base - 80000 + step) % 19800);
+        if (cand == 99810) continue; // Reserved for PSBox runner PPSA99810
+        auto sit = s_slotToSeed.find(cand);
+        if (sit == s_slotToSeed.end() || sit->second == seed) {
+            slot = cand;
+            break;
+        }
+    }
+    s_seedToSlot[seed] = slot;
+    s_slotToSeed[slot] = seed;
+    saveSlotMapLocked();
+    return slot;
+}
+
 }  // namespace
 
 const KnownTitleMapping* findKnownTitle(const std::string& xboxTitleId, const std::string& productId) {
@@ -49,16 +111,14 @@ const KnownTitleMapping* findKnownTitle(const std::string& xboxTitleId, const st
 }
 
 std::string generateNpCommId(const std::string& xboxTitleId) {
-    uint32_t h = fnv1a(xboxTitleId);
-    uint32_t num = 80000 + (h % 10000); // NPWR80000_00 .. NPWR89999_00
+    uint32_t num = allocateUniqueSlot(xboxTitleId);
     char buf[16];
     snprintf(buf, sizeof(buf), "NPWR%05u_00", num);
     return std::string(buf);
 }
 
 std::string generateSonyTitleId(const std::string& xboxTitleId) {
-    uint32_t h = fnv1a(xboxTitleId);
-    uint32_t num = 80000 + (h % 10000);
+    uint32_t num = allocateUniqueSlot(xboxTitleId);
     char buf[16];
     snprintf(buf, sizeof(buf), "PPSA%05u", num);
     return std::string(buf);
@@ -170,17 +230,46 @@ TitleTrophySet resolveTitleSet(const std::string& xboxTitleId, const std::string
 
     bool isFortnite = isFortniteTitle(xboxTitleId, productId, set.npCommId, set.titleName);
 
-    set.items.reserve(achievements.size());
-    for (size_t i = 0; i < achievements.size(); ++i) {
-        const auto& ach = achievements[i];
+    // Sony Trophy 2 allows at most 128 trophies per pack (Platinum 0 + 127 base trophies 1..127).
+    // Keep achievements 0..126 in their exact original order so trophyId 1..127 stays stable across
+    // syncs; only if there are unlocked achievements at index >= 127, swap them into the last
+    // locked slots at the tail of 0..126.
+    static constexpr size_t kMaxTrophiesPerPack = 127;
+    std::vector<const xcloud::Achievement*> selected;
+    selected.reserve(std::min(achievements.size(), kMaxTrophiesPerPack));
+    if (achievements.size() <= kMaxTrophiesPerPack) {
+        for (const auto& ach : achievements) {
+            selected.push_back(&ach);
+        }
+    } else {
+        for (size_t i = 0; i < kMaxTrophiesPerPack; ++i) {
+            selected.push_back(&achievements[i]);
+        }
+        size_t replaceIdx = kMaxTrophiesPerPack;
+        for (size_t i = kMaxTrophiesPerPack; i < achievements.size(); ++i) {
+            if (!achievements[i].unlocked) continue;
+            while (replaceIdx > 0) {
+                --replaceIdx;
+                if (!selected[replaceIdx]->unlocked) {
+                    selected[replaceIdx] = &achievements[i];
+                    break;
+                }
+            }
+            if (replaceIdx == 0) break;
+        }
+    }
+
+    set.items.reserve(selected.size());
+    for (size_t i = 0; i < selected.size(); ++i) {
+        const auto& ach = *selected[i];
         TrophyDef def;
-        def.trophyId = static_cast<int>(i + 1); // 1-based trophy id
+        def.trophyId = static_cast<int>(i + 1); // 1-based trophy id (1..127)
         def.name = ach.name;
         def.description = ach.description.empty() ? ach.lockedDescription : ach.description;
         def.iconUrl = ach.iconUrl;
         def.gamerscore = ach.gamerscore;
         if (isFortnite) {
-            def.grade = resolveFortniteGrade(def.trophyId, def.name, ach.gamerscore, achievements.size());
+            def.grade = resolveFortniteGrade(def.trophyId, def.name, ach.gamerscore, selected.size());
         } else {
             def.grade = scoreToGrade(ach.gamerscore);
         }

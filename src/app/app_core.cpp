@@ -38,6 +38,9 @@
 #include "ui/app_ui.h"
 #include "ui/strings.h"
 #include "util/log.h"
+#include "trophy/trophy_sync.h"
+#include "trophy/trophy_registry.h"
+#include "trophy/trophy_rules.h"
 
 #include <algorithm>
 #include <cmath>
@@ -49,6 +52,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 
 namespace xc::app {
@@ -338,6 +342,110 @@ bool coreStartup() {
     g_ui = std::make_unique<ui::AppUi>(fonts, *g_images);
     g_ui->showSplash(ui::tr(ui::Str::SigningIn));
     startPriceLoop();
+    trophy::setTrophyContextProvider([](trophy::TrophySyncContext& ctx) -> bool {
+        {
+            std::lock_guard<std::mutex> lock(g_argMutex);
+            ctx.xblAuth = g_xblAuth;
+            ctx.xuid = g_xuid;
+        }
+        if (ctx.xblAuth.empty()) {
+            auth::AuthManager am(platform::dataDir() + "/account.json");
+            if (am.signedIn()) {
+                ctx.xblAuth = am.profile().xblAuthorization;
+                ctx.xuid = am.profile().xuid;
+            }
+        }
+        if (ctx.xblAuth.empty()) return false;
+
+        auto lib = currentLibrary();
+        if (lib) {
+            std::unordered_set<std::string> seenKeys;
+            auto addTile = [&](const ui::GameTile& t) {
+                std::string k = !t.productId.empty() ? t.productId : (!t.xboxTitleId.empty() ? t.xboxTitleId : t.name);
+                if (!k.empty() && seenKeys.insert(k).second) {
+                    ctx.ownedGames.push_back(t);
+                }
+            };
+            for (const auto& t : lib->owned()) addTile(t);
+            for (const auto& t : lib->gamePassSearchPool()) addTile(t);
+            for (const auto& t : lib->librarySearchPool()) addTile(t);
+            for (const auto& r : lib->rows()) {
+                for (const auto& t : r.tiles) addTile(t);
+            }
+        }
+
+        std::unordered_set<std::string> disabledXboxIds;
+        std::unordered_set<std::string> disabledNames;
+        {
+            std::lock_guard<std::mutex> lock(g_settingsMutex);
+            for (const auto& [key, prof] : g_settings.perGame) {
+                if (!prof.syncTrophies) {
+                    if (!key.empty()) disabledXboxIds.insert(key);
+                    if (!prof.xboxTitleId.empty()) disabledXboxIds.insert(prof.xboxTitleId);
+                    if (!prof.gameName.empty()) disabledNames.insert(trophy::normalizeTrophyName(prof.gameName));
+                    if (const auto* k = trophy::findKnownTitle(prof.xboxTitleId, key)) {
+                        if (!k->xboxTitleId.empty()) disabledXboxIds.insert(k->xboxTitleId);
+                        if (!k->titleName.empty()) disabledNames.insert(trophy::normalizeTrophyName(k->titleName));
+                    }
+                    for (const auto& og : ctx.ownedGames) {
+                        if (og.productId == key || og.titleId == key || (!prof.xboxTitleId.empty() && og.xboxTitleId == prof.xboxTitleId)) {
+                            if (!og.xboxTitleId.empty()) disabledXboxIds.insert(og.xboxTitleId);
+                            if (!og.name.empty()) disabledNames.insert(trophy::normalizeTrophyName(og.name));
+                        }
+                    }
+                }
+            }
+        }
+        ctx.isTitleEnabled = [disabledXboxIds, disabledNames](const std::string& xid, const std::string& name) -> bool {
+            if (!xid.empty() && disabledXboxIds.count(xid) > 0) return false;
+            if (!name.empty()) {
+                std::string norm = trophy::normalizeTrophyName(name);
+                if (!norm.empty() && disabledNames.count(norm) > 0) return false;
+            }
+            return true;
+        };
+
+        ctx.isStreaming = []() -> bool {
+            return g_ui && (g_ui->screen() == ui::Screen::Streaming || g_ui->screen() == ui::Screen::Launching);
+        };
+
+        ctx.progressCb = [](bool loading, int done, int total, const std::string& title) {
+            if (g_ui) {
+                if (g_ui->screen() == ui::Screen::Streaming || g_ui->screen() == ui::Screen::Launching) {
+                    g_ui->setTrophySyncing(false);
+                    return;
+                }
+                g_ui->setTrophySyncing(loading);
+                std::string label = ui::tr(ui::Str::SyncingTrophies);
+                if (total > 0) label += " (" + std::to_string(done) + "/" + std::to_string(total) + ")";
+                if (!title.empty()) label += " - " + title;
+                g_ui->setLoading(loading, done, total, label);
+            }
+        };
+
+        ctx.completeCb = [](int totalTitles, int totalTrophies, const std::string& err) {
+            if (g_ui) {
+                g_ui->setTrophySyncing(false);
+                if (g_ui->screen() != ui::Screen::Streaming && g_ui->screen() != ui::Screen::Launching) {
+                    g_ui->setLoading(false, totalTitles, totalTitles);
+                    if (!err.empty()) {
+                        std::string failMsg = "Trophy sync error: " + err;
+                        g_ui->showToast(failMsg);
+                    } else {
+                        std::string toast = ui::trf(ui::Str::TrophiesSyncedToast, std::to_string(totalTrophies), std::to_string(totalTitles));
+                        g_ui->showToast(toast);
+                        platform::notify(toast);
+                    }
+                } else {
+                    XC_LOGI("trophy sync complete in background during stream: %d titles, %d trophies",
+                            totalTitles, totalTrophies);
+                }
+            }
+        };
+
+        return true;
+    });
+    trophy::startTrophyThread();
     setWebServerHooks({
         /*getSettings=*/[](json::Value& root) {
             std::lock_guard<std::mutex> lock(g_settingsMutex);
@@ -843,27 +951,48 @@ void Core::dispatchUiAction(const ui::UiEvent& ev) {
         }
         case ui::Action::CheckSignIn: {
             XC_LOGI("sign-in check: requested from Settings");
-            int idle = kNone;
-            if (!g_command.compare_exchange_strong(idle, kCheckSignIn)) XC_LOGW("sign-in check: worker is busy");
+            bool sent = false;
+            for (int i = 0; i < 20; ++i) {
+                int idle = kNone;
+                if (g_command.compare_exchange_strong(idle, kCheckSignIn)) {
+                    sent = true;
+                    break;
+                }
+                platform::sleepMs(5);
+            }
+            if (!sent) {
+                XC_LOGW("sign-in check: worker was busy, overwriting command queue");
+                g_command.store(kCheckSignIn);
+            }
             break;
         }
         case ui::Action::RunNetworkTest: {
             XC_LOGI("network test: requested from Settings");
-            int idle = kNone;
-            if (!g_command.compare_exchange_strong(idle, kNetworkTest)) XC_LOGW("network test: worker is busy");
+            bool sent = false;
+            for (int i = 0; i < 20; ++i) {
+                int idle = kNone;
+                if (g_command.compare_exchange_strong(idle, kNetworkTest)) {
+                    sent = true;
+                    break;
+                }
+                platform::sleepMs(5);
+            }
+            if (!sent) {
+                XC_LOGW("network test: worker was busy, overwriting command queue");
+                g_command.store(kNetworkTest);
+            }
             break;
         }
         case ui::Action::SyncTrophies: {
             saveSettings(ev.settings);
             XC_LOGI("trophy sync: requested from Settings (saved syncTrophies=%d)", g_settings.syncTrophies ? 1 : 0);
-            int idle = kNone;
-            if (!g_command.compare_exchange_strong(idle, kSyncTrophies)) XC_LOGW("trophy sync: worker is busy");
+            trophy::requestTrophySync(true);
             break;
         }
         case ui::Action::RemoveTrophies: {
             saveSettings(ev.settings);
             XC_LOGI("trophy remove: requested from Settings (saved syncTrophies=%d)", g_settings.syncTrophies ? 1 : 0);
-            std::thread([]() { runRemoveTrophies(); }).detach();
+            trophy::requestRemoveTrophies();
             break;
         }
         case ui::Action::TestQueueAlert: {
@@ -1364,6 +1493,7 @@ void coreShutdown() {
     stopWebServer();
     const uint64_t start = platform::nowMs();
     requestQuit();
+    trophy::stopTrophyThread(3000);
     bool workerDone = waitForWorker(5000);
     uint64_t spent = platform::nowMs() - start;
     bool pricesDone = stopPriceLoop(spent < 5000 ? static_cast<uint32_t>(5000 - spent) : 200);

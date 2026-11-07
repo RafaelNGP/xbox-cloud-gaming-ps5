@@ -121,44 +121,107 @@ void migrateLegacy() {
     if (moved) g_dataNote = "moved " + std::to_string(moved) + " file(s) from " + legacy + " to " + data;
 }
 
+void triggerPayloadVia8084(const char* payloadPath) {
+    int s = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return;
+    struct sockaddr_in sin{};
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons(8084);
+    sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    struct timeval tv{0, 250000}; // 250ms
+    ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    ::setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    if (::connect(s, reinterpret_cast<struct sockaddr*>(&sin), sizeof(sin)) == 0) {
+        std::string req = std::string("GET /loadpayload:") + payloadPath +
+                          " HTTP/1.1\r\nHost: 127.0.0.1:8084\r\nConnection: close\r\n\r\n";
+        ::send(s, req.data(), req.size(), 0);
+        char buf[128];
+        ::recv(s, buf, sizeof(buf), 0);
+    }
+    ::close(s);
+}
+
+bool streamPayloadVia9021(const char* localElfPath) {
+    std::string elfBytes;
+    if (!readFile(localElfPath, elfBytes) || elfBytes.empty()) return false;
+    int s = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return false;
+    struct sockaddr_in sin{};
+    sin.sin_family = AF_INET;
+    sin.sin_port = htons(9021);
+    sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    struct timeval tv{1, 0};
+    ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    ::setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    bool sent = false;
+    if (::connect(s, reinterpret_cast<struct sockaddr*>(&sin), sizeof(sin)) == 0) {
+        size_t off = 0;
+        while (off < elfBytes.size()) {
+            ssize_t n = ::send(s, elfBytes.data() + off, elfBytes.size() - off, 0);
+            if (n <= 0) break;
+            off += static_cast<size_t>(n);
+        }
+        sent = (off == elfBytes.size());
+    }
+    ::close(s);
+    return sent;
+}
+
+void stageInternalTrophyPayload() {
+    const char* dstPath = "/data/psbox/PSBox_Trophies.elf";
+    std::string srcBytes;
+    const char* candidates[] = {
+        "/app0/assets/PSBox_Trophies.elf",
+        "/data/homebrew/PPSA99810/assets/PSBox_Trophies.elf"
+    };
+    for (const char* src : candidates) {
+        if (readFile(src, srcBytes) && !srcBytes.empty()) break;
+    }
+    if (!srcBytes.empty()) {
+        std::string existing;
+        if (!readFile(dstPath, existing) || existing != srcBytes) {
+            writeFileAtomic(dstPath, srcBytes);
+            ::chmod(dstPath, 0777);
+        }
+    }
+    // Clean up legacy payload manager path so users never see patch_test in pldmgr
+    ::unlink("/data/pldmgr/payloads/patch_test/patch_test.elf");
+    ::rmdir("/data/pldmgr/payloads/patch_test");
+}
+
 bool init() {
-    // 1. Initialize networking early so we can trigger early unjail via localhost (127.0.0.1:8084)
+    // 1. Initialize networking early so we can trigger early unjail via localhost
     int rc = sceNetInit();
     if (rc < 0) XC_LOGW("sceNetInit: 0x%08x", static_cast<unsigned>(rc));
     int pool = sceNetPoolCreate("xcloud", 32 * 1024, 0);
     if (pool < 0) XC_LOGE("sceNetPoolCreate: 0x%08x (host names will not resolve)", static_cast<unsigned>(pool));
     g_netPool = pool;
 
-    // 2. Trigger early unjail via elfldr / payload manager (127.0.0.1:8084)
-    int s = ::socket(AF_INET, SOCK_STREAM, 0);
-    if (s >= 0) {
-        struct sockaddr_in sin{};
-        sin.sin_family = AF_INET;
-        sin.sin_port = htons(8084);
-        sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        struct timeval tv{0, 250000}; // 250ms
-        ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-        ::setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-        if (::connect(s, reinterpret_cast<struct sockaddr*>(&sin), sizeof(sin)) == 0) {
-            const char req[] = "GET /loadpayload:/data/pldmgr/payloads/patch_test/patch_test.elf HTTP/1.1\r\nHost: 127.0.0.1:8084\r\nConnection: close\r\n\r\n";
-            ::send(s, req, sizeof(req) - 1, 0);
-            char buf[128];
-            ::recv(s, buf, sizeof(buf), 0);
-        }
-        ::close(s);
-        ::usleep(150000); // 150ms for payload to unjail PID
-    }
+    // 2. Trigger early unjail via internal PSBox_Trophies.elf payload
+    triggerPayloadVia8084("/data/psbox/PSBox_Trophies.elf");
+    ::usleep(150000); // 150ms for payload to unjail PID
 
     int errPsbox = 0;
     int errLegacy = 0;
     bool ok = false;
+    bool tried9021 = false;
     for (int retry = 0; retry < 30; ++retry) {
         if (writable(kDataDir, errPsbox)) {
             g_dataDir = kDataDir;
             g_dataDirWritable = true;
             migrateLegacy();
+            stageInternalTrophyPayload();
             ok = true;
             break;
+        }
+        if (retry == 1) {
+            triggerPayloadVia8084("/data/homebrew/PPSA99810/assets/PSBox_Trophies.elf");
+        }
+        if (retry == 3 && !tried9021) {
+            tried9021 = true;
+            if (!streamPayloadVia9021("/app0/assets/PSBox_Trophies.elf")) {
+                streamPayloadVia9021("/data/homebrew/PPSA99810/assets/PSBox_Trophies.elf");
+            }
         }
         ::usleep(100000); // 100ms * 30 = up to 3s wait for unjail
     }

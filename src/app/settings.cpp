@@ -165,6 +165,9 @@ bool Settings::load(const std::string& path) {
         p.touchpadMouse = obj["touchpadMouse"].asBool(touchpadMouse);
         p.touchpadShortcuts = readTouchpadShortcutsOr(obj["touchpadShortcuts"], touchpadShortcuts);
         p.locale = obj["locale"].str();
+        p.syncTrophies = obj["syncTrophies"].asBool(true);
+        p.xboxTitleId = obj["xboxTitleId"].str();
+        p.gameName = obj["gameName"].str();
         perGame[id] = p;
     }
     return true;
@@ -315,6 +318,9 @@ bool Settings::save(const std::string& path) const {
         obj.set("touchpadMouse", p.touchpadMouse);
         obj.set("touchpadShortcuts", input::touchpadShortcutsJson(p.touchpadShortcuts));
         if (!p.locale.empty()) obj.set("locale", p.locale);
+        obj.set("syncTrophies", p.syncTrophies);
+        if (!p.xboxTitleId.empty()) obj.set("xboxTitleId", p.xboxTitleId);
+        if (!p.gameName.empty()) obj.set("gameName", p.gameName);
         pg.set(id, obj);
     }
     v.set("perGame", pg);

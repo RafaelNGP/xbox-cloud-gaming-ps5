@@ -40,6 +40,35 @@ void AppUi::openTester(Tester t) {
     keysRow_ = keysCol_ = 0;
     captureSince_ = 0;
     keyRefused_ = 0;
+    if (t == Tester::SignInCheck) {
+        signInCheck_.running = true;
+        signInCheck_.stages = {
+            {"1. Account Storage", false, true, "Checking..."},
+            {"2. Microsoft OAuth (MSA)", false, true, "Waiting..."},
+            {"3. Xbox Live User Token", false, true, "Waiting..."},
+            {"4. XSTS Security Token", false, true, "Waiting..."},
+            {"5. xCloud Offering (xgpuweb)", false, true, "Waiting..."},
+            {"6. Recursos Preview (xCloud & Ads)", false, true, "Waiting..."},
+        };
+    } else if (t == Tester::NetworkTest) {
+        networkTest_.running = true;
+        networkTest_.natStatus = "Probing UDP STUN...";
+        networkTest_.regions.clear();
+        if (!regions_.empty()) {
+            for (const auto& r : regions_) {
+                networkTest_.regions.push_back({r, -1, -1});
+            }
+        } else {
+            networkTest_.regions = {
+                {"BrazilSouth", -1, -1},
+                {"EastUS", -1, -1},
+                {"EastUS2", -1, -1},
+                {"SouthCentralUS", -1, -1},
+                {"WestUS2", -1, -1},
+                {"WestEurope", -1, -1},
+            };
+        }
+    }
     dirty_ = true;
 }
 
@@ -378,6 +407,7 @@ void AppUi::openGameSettings() {
         activeGameProfile_.sharpness = settings_.sharpness;
         activeGameProfile_.deband = settings_.deband;
         activeGameProfile_.upscaler = settings_.upscaler;
+        activeGameProfile_.videoDecoder = settings_.videoDecoder;
         activeGameProfile_.resolution = settings_.resolution;
         activeGameProfile_.deadzoneLeft = settings_.deadzone[0];
         activeGameProfile_.deadzoneRight = settings_.deadzone[1];
@@ -394,7 +424,11 @@ void AppUi::openGameSettings() {
         activeGameProfile_.gyroLevel = gyroLevel_;
         activeGameProfile_.touchpadMouse = settings_.touchpadMouse;
         activeGameProfile_.touchpadShortcuts = settings_.touchpadShortcuts;
+        activeGameProfile_.locale.clear();
+        activeGameProfile_.syncTrophies = true;
     }
+    if (!detail_.xboxTitleId.empty()) activeGameProfile_.xboxTitleId = detail_.xboxTitleId;
+    if (!detail_.name.empty()) activeGameProfile_.gameName = detail_.name;
 }
 
 void AppUi::closeGameSettings() {
@@ -712,6 +746,11 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             activeGameHasCustom_ = true;
             dirty_ = true;
             break;
+        case 18: // Per-game Trophy Synchronization
+            activeGameProfile_.syncTrophies = !activeGameProfile_.syncTrophies;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
         default: break;
         }
     }
@@ -813,6 +852,11 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
             activeGameHasCustom_ = true;
             dirty_ = true;
             break;
+        case 18:
+            activeGameProfile_.syncTrophies = !activeGameProfile_.syncTrophies;
+            activeGameHasCustom_ = true;
+            dirty_ = true;
+            break;
         case 9: // Keyboard keys: their own screen, on this game's
             openTester(Tester::Keys);
             settings_.keyMap = activeGameProfile_.keyMap;
@@ -826,12 +870,14 @@ void AppUi::handleGameSettings(const NavInput& in, UiEvent& ev) {
         case 10: // Reset to default
             activeGameHasCustom_ = false;
             activeGameProfile_.locale.clear();
+            activeGameProfile_.syncTrophies = true;
             activeGameProfile_.keyMap = settings_.keyMap;
             activeGameProfile_.padMap = settings_.padMap;
             activeGameProfile_.touchpadShortcuts = settings_.touchpadShortcuts;
             activeGameProfile_.sharpness = settings_.sharpness;
             activeGameProfile_.deband = settings_.deband;
             activeGameProfile_.upscaler = settings_.upscaler;
+            activeGameProfile_.videoDecoder = settings_.videoDecoder;
             activeGameProfile_.resolution = settings_.resolution;
             activeGameProfile_.deadzoneLeft = settings_.deadzone[0];
             activeGameProfile_.deadzoneRight = settings_.deadzone[1];
@@ -884,6 +930,9 @@ void AppUi::drawSettings(Canvas& c) {
     drawBackground(c);
     drawTopBar(c);
     fonts_.bold.draw(c, tr(Str::Settings), kMargin, 116, 46, kWhite);
+    if (loading_) {
+        drawLoadingBar(c, kW - kMargin - 480, 100, 480, lastRender_);
+    }
     const char* labels[kSettingRows] = {tr(Str::Language),      tr(Str::Resolution),    tr(Str::Region),
                                         tr(Str::Deadzone),      tr(Str::TriggerRumble), tr(Str::ConfirmButton),
                                         tr(Str::LightBar),      tr(Str::Updates),       tr(Str::LoginCountry),
@@ -950,6 +999,15 @@ void AppUi::drawSettings(Canvas& c) {
             } else if (i == 5) {
                 // The confirm button, as the button itself.
                 drawFaceButton(c, fonts_.bold, settings_.circleConfirms ? kIconCircle : kIconCross, vx - 16.0f, cy, 16);
+            } else if (i == 24 && (trophySyncing_ || (loading_ && !loadingLabel_.empty()))) {
+                std::string value = tr(Str::SyncingTrophies);
+                if (loadingTotal_ > 0) {
+                    value += " " + std::to_string(loadingDone_) + "/" + std::to_string(loadingTotal_);
+                }
+                int w = fonts_.regular.measure(value, kRowPx);
+                fonts_.regular.draw(c, value, vx - w, fonts_.regular.centeredY(r.y, r.h, kRowPx), kRowPx, rgba(120, 220, 120));
+                drawSpinner(c, vx - w - 20.0f, cy, 8, lastRender_);
+                animating_ = true;
             } else {
                 auto options = settingOptions(i);
                 int sel = settingSelected(i);
@@ -1111,7 +1169,9 @@ void AppUi::drawSettings(Canvas& c) {
         } else if (settingsRow_ == 16) {
             drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconSquare, tr(Str::TestSound)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
         } else if (settingsRow_ == 24) {
-            if (settings_.syncTrophies) {
+            if (trophySyncing_ || (loading_ && !loadingLabel_.empty())) {
+                drawHints(c, {{kIconCircle, tr(Str::Back)}});
+            } else if (settings_.syncTrophies) {
                 drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconSquare, tr(Str::RunSyncTrophies)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
             } else {
                 drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
@@ -1122,6 +1182,7 @@ void AppUi::drawSettings(Canvas& c) {
             drawHints(c, {{kIconCross, tr(Str::Change)}, {kIconTriangle, tr(Str::ReportProblem)}, {kIconCircle, tr(Str::Back)}});
         }
     }
+    drawToast(c, lastRender_);
 }
 
 Rect AppUi::drawModal(Canvas& c, int w, int h, const std::string& title) {
@@ -1877,7 +1938,7 @@ void AppUi::drawGameSettings(Canvas& c) {
         }
     }
     constexpr int kModalW = 1140, kModalH = 960;
-    constexpr int kRowH = 40, kGap = 4, kGroupGap = 7;
+    constexpr int kRowH = 38, kGap = 4, kGroupGap = 7;
     // The rows caps_ allows; the panel loses the height of those it hides
     // (the same as ever with all of them, "Reset to default" or not).
     const auto rows = visibleGameSettingsRows(caps_, activeGameHasCustom_, activeGameMouseSupported_);
@@ -2009,6 +2070,10 @@ void AppUi::drawGameSettings(Canvas& c) {
         case 15:
             label = tr(Str::VideoDecoder);
             value = activeGameProfile_.videoDecoder == 1 ? tr(Str::VideoDecoderSw) : tr(Str::VideoDecoderHw);
+            break;
+        case 18:
+            label = tr(Str::SyncTrophies);
+            value = tr(activeGameProfile_.syncTrophies ? Str::Activated : Str::Deactivated);
             break;
         default: break;
         }

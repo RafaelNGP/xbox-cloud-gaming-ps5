@@ -15,7 +15,7 @@
 
 namespace xc::app {
 
-constexpr int kCacheVersion = 2;
+constexpr int kCacheVersion = 3;
 
 struct ListSpec {
     const char* sigl;
@@ -207,7 +207,8 @@ inline void seedKnownGames(std::map<std::string, std::string>& cloudTitleOf,
                 p.ratingDescriptors.push_back(g.ratingDescriptors);
             }
             if (g.category && g.category[0]) p.categories.push_back(g.category);
-            p.detailed = (g.description != nullptr && g.tileUrl != nullptr && g.heroUrl != nullptr);
+            p.detailed = (g.description != nullptr && g.tileUrl != nullptr && g.heroUrl != nullptr &&
+                          std::strlen(g.description) >= 80);
             p.plan = xcloud::kPlanUltimate;
             products[g.productId] = std::move(p);
         } else {
@@ -222,7 +223,8 @@ inline void seedKnownGames(std::map<std::string, std::string>& cloudTitleOf,
             if (p.ratingAge.empty() && g.ratingAge) p.ratingAge = g.ratingAge;
             if (p.ratingSystem.empty() && g.ratingSystem) p.ratingSystem = g.ratingSystem;
             if (p.categories.empty() && g.category) p.categories.push_back(g.category);
-            if (!p.detailed && !p.description.empty() && !p.tileUrl.empty() && !p.heroUrl.empty())
+            if (!p.detailed && !p.description.empty() && !p.tileUrl.empty() && !p.heroUrl.empty() &&
+                p.description.size() >= 80)
                 p.detailed = true;
         }
     }
