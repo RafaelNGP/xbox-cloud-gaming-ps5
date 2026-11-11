@@ -1,0 +1,29 @@
+# Removes the bridge release once it has done its job, so old installs stop
+# being offered updates from here. The repository itself is deleted by hand.
+name: Expire the update bridge
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  expire:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove the bridge release after the expiry date
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPIRES: "2026-12-25"
+        run: |
+          today=$(date -u +%F)
+          if [[ "$today" < "$EXPIRES" ]]; then
+            echo "Bridge active until $EXPIRES (today $today)."
+            exit 0
+          fi
+          if gh release view v1.6.9 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete v1.6.9 --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            echo "Bridge release removed."
+          else
+            echo "Bridge release already gone."
+          fi
